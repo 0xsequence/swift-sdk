@@ -20,6 +20,58 @@ public class EthereumSigner {
         let hash = eip191Hash(message)
         return "0x" + hash.map { String(format: "%02x", $0) }.joined()
     }
+    
+    public static func GeneratePrivateKey() throws -> [UInt8] {
+        guard let ctx = secp256k1_context_create(
+            UInt32(SECP256K1_CONTEXT_SIGN) | UInt32(SECP256K1_CONTEXT_VERIFY)
+        ) else { throw SignerError.signingFailed }
+        defer { secp256k1_context_destroy(ctx) }
+
+        var key = [UInt8](repeating: 0, count: 32)
+
+        // Keep generating until we get a valid key
+        repeat {
+            guard SecRandomCopyBytes(Security.kSecRandomDefault, 32, &key) == errSecSuccess else {
+                throw SignerError.signingFailed
+            }
+        } while secp256k1_ec_seckey_verify(ctx, &key) != 1
+
+        return key
+    }
+
+    
+    public static func GetWalletAddress(privateKey: [UInt8]) throws -> String {
+        guard privateKey.count == 32 else { throw SignerError.invalidKeyLength }
+
+        guard let ctx = secp256k1_context_create(
+            UInt32(SECP256K1_CONTEXT_SIGN) | UInt32(SECP256K1_CONTEXT_VERIFY)
+        ) else { throw SignerError.signingFailed }
+        defer { secp256k1_context_destroy(ctx) }
+
+        // Derive public key from private key
+        var pubkey  = secp256k1_pubkey()
+        var seckey  = privateKey
+        guard secp256k1_ec_pubkey_create(ctx, &pubkey, &seckey) == 1 else {
+            throw SignerError.signingFailed
+        }
+
+        // Serialize uncompressed: 0x04 + X(32) + Y(32) = 65 bytes
+        var pubkeySer = [UInt8](repeating: 0, count: 65)
+        var pubkeyLen = 65
+        secp256k1_ec_pubkey_serialize(
+            ctx, &pubkeySer, &pubkeyLen, &pubkey,
+            UInt32(SECP256K1_EC_UNCOMPRESSED)
+        )
+
+        // Keccak256 of X||Y — skip the 0x04 prefix byte
+        let xyBytes = Array(pubkeySer[1..<65])
+        let hash    = Keccak256.keccak256Bytes(xyBytes)
+
+        // Last 20 bytes = Ethereum address
+        let address = Array(hash[12..<32])
+
+        return "0x" + address.map { String(format: "%02x", $0) }.joined()
+    }
 
     // MARK: - EIP-191 Prefix + Hash
 

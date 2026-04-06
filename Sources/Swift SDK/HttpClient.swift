@@ -15,10 +15,14 @@ public class HttpClient {
             throw SDKError.invalidURL
         }
         
+        print("url \(url): \(payload)")
+        print("authorizationHeader: \(authorizationHeader)")
+        
         // Set up the request
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("http://localhost:3000", forHTTPHeaderField: "Origin")
         request.httpBody = payload.data(using: .utf8)
         
         if let auth = authorizationHeader {
@@ -35,6 +39,9 @@ public class HttpClient {
         // Check the HTTP status code
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? "<unreadable>"
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            print("SendPostRequest failed [\(code)]: \(body)")
             throw SDKError.requestFailed
         }
         
