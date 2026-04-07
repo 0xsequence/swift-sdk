@@ -15,6 +15,6 @@ public class RequestUtils {
         nonce: String,
         sig: String
     ) -> String {
-        return "Authorization: Ethereum_Secp256k1 scope=\"\(scope)\",cred=\"\(cred)\",nonce=\(nonce),sig=\"\(sig)\""
+        return "Ethereum_Secp256k1 scope=\"\(scope)\",cred=\"\(cred)\",nonce=\(nonce),sig=\"\(sig)\""
     }
 }
