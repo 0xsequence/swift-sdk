@@ -46,7 +46,10 @@ public class HttpClient {
         }
         
         // Return the response as a String
-        return String(data: data, encoding: .utf8) ?? ""
+        let body = String(data: data, encoding: .utf8) ?? ""
+        print("<< \(body)")
+        
+        return body
     }
 }
 
