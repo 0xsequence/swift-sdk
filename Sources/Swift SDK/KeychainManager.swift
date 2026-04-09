@@ -3,12 +3,7 @@ import Security
 
 /// A simple wrapper for reading and writing `String` values to the iOS/macOS Keychain.
 final class KeychainManager {
-
-    // MARK: - Shared Instance
-
-    @MainActor static let shared = KeychainManager()
-
-    private init() {}
+    public init() {}
 
     // MARK: - Errors
 

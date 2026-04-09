@@ -19,7 +19,7 @@ struct ContentView: View {
 
             Button("Sign In with Email") {
                 Task {
-                    await SwiftSDK.shared.SignInWithEmail(email: email)
+                    await SequenceConnector.shared.SignInWithEmail(email: email)
                 }
             }
             .buttonStyle(.borderedProminent)
@@ -27,8 +27,7 @@ struct ContentView: View {
 
             Button("Confirm Email Sign In") {
                 Task {
-                    let response = await SwiftSDK.shared.ConfirmEmailSignIn(code: code)
-                    response.
+                    let response = await SequenceConnector.shared.ConfirmEmailSignIn(code: code)
                 }
             }
             .buttonStyle(.borderedProminent)
