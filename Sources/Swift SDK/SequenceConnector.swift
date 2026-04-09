@@ -5,9 +5,6 @@ public class SequenceConnector {
     let intentSender: IntentSender = IntentSender()
     let keychain: KeychainManager = KeychainManager()
     
-    let addressStorageKey: String = "sequence-wallet-address"
-    let signerStorageKey: String = "sequence-local-signer"
-    
     var privateKey: [UInt8] = []
     
     var verifier = "";
@@ -17,8 +14,8 @@ public class SequenceConnector {
     
     public func RestoreSession() -> SequenceWallet? {
         guard
-            let walletAddress = try? keychain.string(forKey: addressStorageKey),
-            let signerPrivateKeyHex = try? keychain.string(forKey: signerStorageKey)
+            let walletAddress = try? keychain.string(forKey: Constants.addressStorageKey),
+            let signerPrivateKeyHex = try? keychain.string(forKey: Constants.signerStorageKey)
         else {
             return nil
         }
@@ -106,8 +103,8 @@ public class SequenceConnector {
     }
     
     private func CreateSequenceWallet(address: String) -> SequenceWallet {
-        try! keychain.set(address, forKey: addressStorageKey)
-        try! keychain.set(ByteUtils.BytesToHex(data: self.privateKey), forKey: signerStorageKey)
+        try! keychain.set(address, forKey: Constants.addressStorageKey)
+        try! keychain.set(ByteUtils.BytesToHex(data: self.privateKey), forKey: Constants.signerStorageKey)
         
         return SequenceWallet(walletAddress: address, sessionPrivateKey: self.privateKey)
     }

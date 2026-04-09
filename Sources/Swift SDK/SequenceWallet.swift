@@ -10,6 +10,12 @@ public class SequenceWallet {
         self.sessionPrivateKey = sessionPrivateKey
     }
     
+    public func SignOut() {
+        let keychain: KeychainManager = KeychainManager()
+        try! keychain.delete(forKey: Constants.addressStorageKey)
+        try! keychain.delete(forKey: Constants.signerStorageKey)
+    }
+    
     public func SignMessage(network: String, message: String) async -> String {
         let params = SignMessageParams(
             message: message,

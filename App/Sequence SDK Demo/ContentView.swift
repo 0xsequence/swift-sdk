@@ -24,6 +24,12 @@ final class AppViewModel: ObservableObject {
         wallet = SequenceConnector.shared.RestoreSession()
         screen = wallet == nil ? .login : .wallet
     }
+    
+    func signOut() {
+        wallet?.SignOut()
+        wallet = nil
+        screen = .login
+    }
 
     // MARK: Login
 
@@ -174,6 +180,14 @@ struct WalletWindow: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(amountText.isEmpty)
+            
+            Button {
+                vm.signOut()
+            } label: {
+                Text("Sign Out")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
 
             if !signature.isEmpty {  // ← display it
                 Text(signature)
