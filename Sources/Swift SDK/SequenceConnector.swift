@@ -1,3 +1,4 @@
+@available(macOS 12.0, *)
 public class SequenceConnector {
     @MainActor public static let shared = SequenceConnector()
     
@@ -14,16 +15,18 @@ public class SequenceConnector {
     
     public init() {}
     
-    public func RestoreSession() -> SequenceWallet {
-        let walletAddress = try! keychain.string(forKey: addressStorageKey) ?? ""
+    public func RestoreSession() -> SequenceWallet? {
+        guard
+            let walletAddress = try? keychain.string(forKey: addressStorageKey),
+            let signerPrivateKeyHex = try? keychain.string(forKey: signerStorageKey)
+        else {
+            return nil
+        }
         
-        let signerPrivateKeyHex = try! keychain.string(forKey: signerStorageKey) ?? ""
         let signerPrivateKey = ByteUtils.HexToBytes(hex: signerPrivateKeyHex)
-        
         return SequenceWallet(walletAddress: walletAddress, sessionPrivateKey: signerPrivateKey)
     }
     
-    @available(macOS 12.0, *)
     public func SignInWithEmail(email: String) async {
         privateKey = try! EthereumSigner.GeneratePrivateKey()
         
@@ -44,7 +47,6 @@ public class SequenceConnector {
         challenge = data.challenge ?? "undefined"
     }
     
-    @available(macOS 12.0, *)
     public func ConfirmEmailSignIn(code: String) async -> CompleteAuthReturn {
         let answer = Keccak256.Keccak256(data: "\(challenge)\(code)")
         
@@ -66,12 +68,10 @@ public class SequenceConnector {
         return data
     }
     
-    @available(macOS 12.0, *)
     public func CreateWallet() async -> SequenceWallet {
         return await CreateWalletByType(walletType: "Ethereum_SequenceV3");
     }
     
-    @available(macOS 12.0, *)
     public func CreateWalletByType(walletType: String) async -> SequenceWallet {
         let params = CreateWalletParams(
             walletType: walletType
@@ -83,12 +83,11 @@ public class SequenceConnector {
             params: params
         )
         
-        let walletData = try! WalletReturn.from(jsonString: response)
+        let walletData = try! WaasWalletResponse.from(jsonString: response)
         
-        return CreateSequenceWallet(address: walletData.address);
+        return CreateSequenceWallet(address: walletData.wallet.address);
     }
     
-    @available(macOS 12.0, *)
     public func UseWallet(walletType: String) async -> SequenceWallet {
         let params = UseWalletParams(
             walletIndex: 0,
@@ -101,13 +100,15 @@ public class SequenceConnector {
             params: params
         )
         
-        let walletData = try! WalletReturn.from(jsonString: response)
+        let walletData = try! WaasWalletResponse.from(jsonString: response)
 
-        return CreateSequenceWallet(address: walletData.address);
+        return CreateSequenceWallet(address: walletData.wallet.address);
     }
     
     private func CreateSequenceWallet(address: String) -> SequenceWallet {
+        try! keychain.set(address, forKey: addressStorageKey)
         try! keychain.set(ByteUtils.BytesToHex(data: self.privateKey), forKey: signerStorageKey)
+        
         return SequenceWallet(walletAddress: address, sessionPrivateKey: self.privateKey)
     }
 }

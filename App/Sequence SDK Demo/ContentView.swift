@@ -1,43 +1,222 @@
 import SwiftUI
+import Combine
 import Swift_SDK
 
+// MARK: - App State
+
+enum AppScreen {
+    case login
+    case confirmCode
+    case wallet
+}
+
+@MainActor
+final class AppViewModel: ObservableObject {
+    @Published var screen: AppScreen = .login
+    @Published var isLoading: Bool = false
+    @Published var wallet: SequenceWallet? = nil
+
+    init() {}
+
+    // Simulates the initial session/token check at app start.
+    // Returns nil → show LoginWindow; non-nil → show WalletWindow.
+    func checkSession() async {
+        wallet = SequenceConnector.shared.RestoreSession()
+        screen = wallet == nil ? .login : .wallet
+    }
+
+    // MARK: Login
+
+    func submitLogin(input: String) async {
+        isLoading = true
+        
+        await SequenceConnector.shared.SignInWithEmail(email: input)
+        
+        isLoading = false
+        screen = .confirmCode
+    }
+
+    // MARK: Confirm Code
+
+    func submitConfirmCode(code: String) async {
+        isLoading = true
+        
+        let walletData = await SequenceConnector.shared.ConfirmEmailSignIn(code: code)
+        if (walletData.wallets.count == 0) {
+            wallet = await SequenceConnector.shared.CreateWallet()
+        } else {
+            wallet = await SequenceConnector.shared.UseWallet(walletType: walletData.wallets[0].type)
+        }
+        
+        isLoading = false
+        screen = .wallet
+    }
+}
+
+// MARK: - Root
+
 struct ContentView: View {
-    @State private var email: String = ""
-    @State private var code: String = ""
+    @StateObject private var vm = AppViewModel()
 
     var body: some View {
-        VStack(spacing: 20) {
-            Text("Sequence Swift SDK")
-                .font(.title)
-                .fontWeight(.semibold)
-
-            TextField("Enter email...", text: $email)
-                .textFieldStyle(.roundedBorder)
-
-            TextField("Enter code...", text: $code)
-                .textFieldStyle(.roundedBorder)
-
-            Button("Sign In with Email") {
-                Task {
-                    await SequenceConnector.shared.SignInWithEmail(email: email)
-                }
+        Group {
+            switch vm.screen {
+            case .login:
+                LoginWindow()
+            case .confirmCode:
+                ConfirmCodeWindow()
+            case .wallet:
+                WalletWindow()
             }
-            .buttonStyle(.borderedProminent)
-            .frame(maxWidth: .infinity)
-
-            Button("Confirm Email Sign In") {
-                Task {
-                    let response = await SequenceConnector.shared.ConfirmEmailSignIn(code: code)
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .frame(maxWidth: .infinity)
         }
-        .padding()
+        .environmentObject(vm)
+        .task {
+            await vm.checkSession()
+        }
+    }
+}
+
+// MARK: - Login Window
+
+struct LoginWindow: View {
+    @EnvironmentObject private var vm: AppViewModel
+    @State private var inputText: String = ""
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Text("Sign In with Email")
+                .font(.largeTitle)
+                .fontWeight(.bold)
+
+            TextField("Enter Email...", text: $inputText)
+                .textFieldStyle(.roundedBorder)
+                .autocorrectionDisabled()
+                #if os(iOS)
+                .keyboardType(.emailAddress)
+                .textInputAutocapitalization(.never)
+                #endif
+
+            Button {
+                Task { await vm.submitLogin(input: inputText) }
+            } label: {
+                label(for: "Continue", loading: vm.isLoading)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(inputText.isEmpty || vm.isLoading)
+        }
+        .padding(32)
         .frame(maxWidth: 400)
     }
 }
 
-#Preview {
-    ContentView()
+// MARK: - Confirm Code Window
+
+struct ConfirmCodeWindow: View {
+    @EnvironmentObject private var vm: AppViewModel
+    @State private var codeText: String = ""
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Text("Confirm your Email")
+                .font(.largeTitle)
+                .fontWeight(.bold)
+
+            Text("We sent a code to your device.")
+                .foregroundStyle(.secondary)
+
+            TextField("6-digit code", text: $codeText)
+                .textFieldStyle(.roundedBorder)
+                .autocorrectionDisabled()
+                #if os(iOS)
+                .keyboardType(.numberPad)
+                .textInputAutocapitalization(.never)
+                #endif
+
+            Button {
+                Task { await vm.submitConfirmCode(code: codeText) }
+            } label: {
+                label(for: "Verify", loading: vm.isLoading)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(codeText.isEmpty || vm.isLoading)
+        }
+        .padding(32)
+        .frame(maxWidth: 400)
+    }
+}
+
+// MARK: - Wallet Window
+
+struct WalletWindow: View {
+    @EnvironmentObject private var vm: AppViewModel
+    @State private var amountText: String = ""
+    @State private var signature: String = ""  // ← add this
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Text("My Wallet")
+                .font(.largeTitle)
+                .fontWeight(.bold)
+
+            TextField("Enter message...", text: $amountText)
+                .textFieldStyle(.roundedBorder)
+
+            Button {
+                Task {
+                    if let wallet = vm.wallet {
+                        let result = await wallet.SignMessage(network: "amoy", message: amountText)
+                        signature = result
+                    }
+                }
+            } label: {
+                Text("Sign Message")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(amountText.isEmpty)
+
+            if !signature.isEmpty {  // ← display it
+                Text(signature)
+                    .font(.footnote)
+                    .monospaced()
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(32)
+        .frame(maxWidth: 400)
+    }
+}
+
+// MARK: - Helpers
+
+/// Shared button label that swaps text for a spinner while loading.
+@ViewBuilder
+private func label(for title: String, loading: Bool) -> some View {
+    Group {
+        if loading {
+            ProgressView()
+                .progressViewStyle(.circular)
+        } else {
+            Text(title)
+                .frame(maxWidth: .infinity)
+        }
+    }
+    .frame(maxWidth: .infinity)
+}
+
+// MARK: - Previews
+
+#Preview("Login") {
+    LoginWindow()
+        .environmentObject(AppViewModel())
+}
+
+#Preview("Confirm Code") {
+    ConfirmCodeWindow()
+        .environmentObject(AppViewModel())
+}
+
+#Preview("Wallet") {
+    WalletWindow()
 }
