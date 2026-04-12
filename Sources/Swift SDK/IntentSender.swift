@@ -1,5 +1,6 @@
 class IntentSender {
     @available(macOS 12.0, *)
+    @available(iOS 15.0, *)
     public func SignAndSend<T: Codable>(endpoint: String, signer: [UInt8], params: T) async -> String {
         let payload = try! params.toJSONString(pretty: true)
         
