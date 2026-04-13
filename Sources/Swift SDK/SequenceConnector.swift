@@ -90,9 +90,8 @@ public class SequenceConnector {
     
     /// Creates a new Ethereum wallet (Sequence V3) for the authenticated user.
     ///
-    /// This is the recommended default for most applications. The wallet address and
-    /// session key are persisted to the keychain so `RestoreSession()` can rehydrate
-    /// the session on future launches.
+    /// The wallet address and session key are persisted to the keychain
+    /// so `RestoreSession()` can rehydrate the session on future launches.
     ///
     /// - Returns: A `SequenceWallet` instance representing the newly created wallet.
     public func CreateWallet() async -> SequenceWallet {
