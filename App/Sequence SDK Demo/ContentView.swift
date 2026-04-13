@@ -155,35 +155,21 @@ struct ConfirmCodeWindow: View {
 
 struct WalletWindow: View {
     @EnvironmentObject private var vm: AppViewModel
+    @State private var messageText: String = ""
+    @State private var toText: String = ""
     @State private var amountText: String = ""
     @State private var signature: String = ""  // ← add this
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 12) {
             Text("My Wallet")
-                .font(.largeTitle)
                 .fontWeight(.bold)
+                .frame(maxWidth: .infinity, alignment: .leading)
             
             if let wallet = vm.wallet {
                 Text(wallet.walletAddress)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-
-            TextField("Enter message...", text: $amountText)
-                .textFieldStyle(.roundedBorder)
-
-            Button {
-                Task {
-                    if let wallet = vm.wallet {
-                        let result = await wallet.SignMessage(network: "amoy", message: amountText)
-                        signature = result
-                    }
-                }
-            } label: {
-                Text("Sign Message")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(amountText.isEmpty)
             
             Button {
                 vm.signOut()
@@ -192,14 +178,63 @@ struct WalletWindow: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
+            
+            Spacer().frame(height: 8)
+            
+            Text("Sign Message")
+                .fontWeight(.bold)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            
+            TextField("Enter message...", text: $messageText)
+                .textFieldStyle(.roundedBorder)
 
-            if !signature.isEmpty {  // ← display it
+            Button {
+                Task {
+                    if let wallet = vm.wallet {
+                        let result = await wallet.SignMessage(network: "amoy", message: messageText)
+                        signature = result
+                    }
+                }
+            } label: {
+                Text("Sign Message")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(messageText.isEmpty)
+            
+            Spacer().frame(height: 8)
+            
+            Text("Send Transaction")
+                .fontWeight(.bold)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            
+            TextField("Enter to...", text: $toText)
+                .textFieldStyle(.roundedBorder)
+            
+            TextField("Enter value...", text: $amountText)
+                .textFieldStyle(.roundedBorder)
+
+            Button {
+                Task {
+                    if let wallet = vm.wallet {
+                        let result = await wallet.SendTransaction(network: "amoy", to: toText, value: amountText)
+                        signature = result
+                    }
+                }
+            } label: {
+                Text("Send Transaction")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(amountText.isEmpty || toText.isEmpty)
+
+            if !signature.isEmpty {
                 Text(signature)
                     .font(.footnote)
                     .monospaced()
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-            }
+            } 
         }
         .padding(32)
         .frame(maxWidth: 400)

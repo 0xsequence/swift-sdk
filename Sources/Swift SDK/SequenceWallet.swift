@@ -41,4 +41,17 @@ public class SequenceWallet {
         
         return data.signature
     }
+    
+    public func SendTransaction(network: String, to: String, value: String) async -> String {
+        let params = SendTransactionParams(
+            network: network,
+            to: to,
+            value: value
+        )
+        
+        let response = await self.intentSender.SignAndSend(endpoint: "/SendTransaction", signer: self.sessionPrivateKey, params: params)
+        let data = try! SendTransactionReturn.from(jsonString: response)
+        
+        return data.txHash
+    }
 }
