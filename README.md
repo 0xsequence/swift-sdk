@@ -175,6 +175,7 @@ Below is a complete example showing a typical authentication and wallet creation
 import Foundation
 
 let connector = SequenceConnector.shared
+let targetWalletType = "Ethereum_SequenceV3"
 
 // 1. Check for an existing session on app launch
 if let wallet = connector.RestoreSession() {
@@ -187,13 +188,18 @@ if let wallet = connector.RestoreSession() {
     // 3. Collect OTP from the user (via your UI)
     let otp = "123456"
 
-    // 4. Confirm the OTP
+    // 4. Confirm the OTP — response includes any wallets already associated with this identity
     let authResult = await connector.ConfirmEmailSignIn(code: otp)
-    print("Auth complete: \(authResult)")
 
-    // 5. Create a wallet for the authenticated user
-    let wallet = await connector.CreateWallet()
-    print("Wallet address: \(wallet.walletAddress)")
+    // 5. Use an existing wallet if one matches the target type, otherwise create a new one
+    let wallet: SequenceWallet
+    if authResult.wallets.contains(where: { $0.type == targetWalletType }) {
+        wallet = await connector.UseWallet(walletType: targetWalletType)
+        print("Using existing wallet: \(wallet.walletAddress)")
+    } else {
+        wallet = await connector.CreateWalletByType(walletType: targetWalletType)
+        print("Created new wallet: \(wallet.walletAddress)")
+    }
 
     // 6. Sign a message
     let signature = await wallet.SignMessage(network: "mainnet", message: "Verify my identity")
