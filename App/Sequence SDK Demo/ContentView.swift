@@ -163,6 +163,10 @@ struct WalletWindow: View {
             Text("My Wallet")
                 .font(.largeTitle)
                 .fontWeight(.bold)
+            
+            if let wallet = vm.wallet {
+                Text(wallet.walletAddress)
+            }
 
             TextField("Enter message...", text: $amountText)
                 .textFieldStyle(.roundedBorder)

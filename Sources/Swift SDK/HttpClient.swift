@@ -9,6 +9,7 @@ public class HttpClient {
     }
     
     @available(macOS 12.0, *)
+    @available(iOS 15.0, *)
     public func SendPostRequest(endpoint: String, payload: String, authorizationHeader: String?, accessKey: String?) async throws -> String {
         // Build the full URL
         guard let url = URL(string: "\(baseURL)\(endpoint)") else {
