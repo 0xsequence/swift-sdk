@@ -5,9 +5,14 @@ import Foundation
 struct SignedWaasTransport: WebRPCTransport {
     public let session: URLSession
     
+    private let projectAccessKey: String
     private var signer: [UInt8] = []
     
-    public init(privateKey: [UInt8], session: URLSession = .shared) {
+    public init(projectAccessKey: String,
+                privateKey: [UInt8],
+                session: URLSession = .shared
+    ) {
+        self.projectAccessKey = projectAccessKey
         self.signer = privateKey
         self.session = session
     }
@@ -25,7 +30,7 @@ struct SignedWaasTransport: WebRPCTransport {
         print(endpoint)
         
         return await try! sendPost(baseURL: baseURL, path: path, payload: payload, headers: [
-            "X-Access-Key": "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE",
+            "X-Access-Key": projectAccessKey,
             "Authorization": authHeader
         ])
     }

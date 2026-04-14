@@ -4,8 +4,8 @@
 
 This SDK provides two public classes for integrating Sequence wallet functionality into your iOS or macOS application:
 
-- **`SequenceConnector`** — Handles authentication (email OTP) and wallet creation/restoration.
-- **`SequenceWallet`** — Represents an authenticated wallet session and exposes wallet operations like message signing, sending transactions, and sign-out.
+- **`SequenceSdk`** — The top-level entry point. Initialised once with your project credentials and exposes a `wallet` client for all wallet operations.
+- **`SequenceWalletClient`** — Manages the full wallet lifecycle: authentication, wallet creation, signing, transactions, and access control.
 
 ### Platform Requirements
 
@@ -16,109 +16,37 @@ This SDK provides two public classes for integrating Sequence wallet functionali
 
 ---
 
-## SequenceConnector
+## SequenceSdk
 
-`SequenceConnector` is a singleton-style class that manages the authentication lifecycle and wallet provisioning. It should be your entry point for all auth flows.
+`SequenceSdk` is the root object for the SDK. Create a single instance of it at app startup and keep it alive for the session.
 
-### Accessing the Shared Instance
+### Initialisation
 
 ```swift
-let connector = SequenceConnector.shared
+let sdk = SequenceSdk(
+    projectAccessKey: "your-project-access-key",
+    environment: .production
+)
 ```
 
-> **Note:** `shared` is a `@MainActor` property. Access it from the main thread or within a `@MainActor` context.
+| Parameter | Type | Description |
+|---|---|---|
+| `projectAccessKey` | `String` | Your Sequence project access key from the Sequence Builder console |
+| `environment` | `SequenceEnvironment` | The environment to connect to (e.g. `.production`) |
 
-You can also instantiate the class directly if needed:
-
-```swift
-let connector = SequenceConnector()
-```
-
----
-
-### Methods
-
-#### `restoreSession() -> SequenceWallet?`
-
-Attempts to restore a previously authenticated wallet session from the device keychain. Returns `nil` if no session exists (e.g., first launch or after sign-out).
+All wallet functionality is accessed through the `wallet` property:
 
 ```swift
-if let wallet = connector.restoreSession() {
-    // User is already authenticated — proceed with wallet
-} else {
-    // No active session — prompt the user to sign in
-}
-```
-
-Call this on app launch to check for an existing session before showing any auth UI.
-
----
-
-#### `signInWithEmail(email: String) async`
-
-Initiates email-based OTP authentication. This sends a one-time code to the provided email address and stores the verifier state internally.
-
-```swift
-await connector.signInWithEmail(email: "user@example.com")
-// Now prompt the user to enter the OTP code they received
-```
-
-This method must be `await`ed. After it returns, present your OTP entry UI and call `confirmEmailSignIn` with the code.
-
----
-
-#### `confirmEmailSignIn(code: String) async -> CompleteAuthResponse`
-
-Completes the email OTP flow by submitting the verification code the user received. Returns a `CompleteAuthResponse` containing the authenticated identity and any wallets already associated with the account.
-
-```swift
-let authResult = await connector.confirmEmailSignIn(code: "123456")
-// authResult.identity — the authenticated user's identity
-// authResult.wallets  — existing wallets associated with this account
-```
-
-This must be called after `signInWithEmail`. The `code` parameter is the OTP string entered by the user.
-
----
-
-#### `createWallet() async -> SequenceWallet`
-
-Creates a new Ethereum wallet (Sequence V3) for the authenticated user. This is the recommended default for most applications.
-
-```swift
-let wallet = await connector.createWallet()
-// `wallet` is ready to use
-```
-
-Internally calls `createWalletByType` with `WalletType.ethereumSequenceV3`.
-
----
-
-#### `createWalletByType(walletType: WalletType) async -> SequenceWallet`
-
-Creates a new wallet of the specified type for the authenticated user. The wallet address and session key are persisted to the device keychain automatically, so `restoreSession()` will return this wallet on future launches.
-
-```swift
-let wallet = await connector.createWalletByType(walletType: .ethereumSequenceV3)
+sdk.wallet // SequenceWalletClient
 ```
 
 ---
 
-#### `useWallet(walletType: WalletType) async -> SequenceWallet`
+## SequenceWalletClient
 
-Fetches an existing wallet of the given type for the authenticated user, rather than creating a new one. The wallet address and session key are persisted to the keychain automatically.
+`SequenceWalletClient` handles everything from authentication through to on-chain operations. Access it via `sdk.wallet` — do not instantiate it directly.
 
-```swift
-let wallet = await connector.useWallet(walletType: .ethereumSequenceV3)
-```
-
-Use this when `confirmEmailSignIn` returns a wallet entry that matches your target type.
-
----
-
-## SequenceWallet
-
-`SequenceWallet` represents an active, authenticated wallet session. You receive instances of this class from `SequenceConnector` — either via session restoration or wallet creation. You do not instantiate this class directly.
+On initialisation, the client automatically attempts to restore any existing keychain session. If one is found, `walletAddress` is populated immediately and the user does not need to sign in again.
 
 ---
 
@@ -126,31 +54,95 @@ Use this when `confirmEmailSignIn` returns a wallet entry that matches your targ
 
 | Property | Type | Description |
 |---|---|---|
-| `walletAddress` | `String` | The on-chain address of this wallet. Use this to display the user's wallet address in your UI, pass it to smart contracts, or reference it in transaction requests. |
+| `walletAddress` | `String` | The on-chain address of this wallet. Use this to display the user's wallet address in your UI, pass it to smart contracts, or reference it in transaction requests. Empty string if no wallet has been created or restored yet. |
 
 ---
 
-### Methods
+### Authentication
 
-#### `signOut()`
+#### `signInWithEmail(email: String) async`
 
-Clears the wallet session from the device keychain. After calling this, `restoreSession()` will return `nil` and the user must sign in again.
+Initiates email-based OTP authentication. Sends a one-time code to the provided address and stores the verifier state internally.
 
 ```swift
-wallet.signOut()
+await sdk.wallet.signInWithEmail(email: "user@example.com")
+// Present your OTP entry UI
+```
+
+After this returns, show your OTP input and call `confirmEmailSignIn` with the code the user receives.
+
+---
+
+#### `completeEmailSignIn(code: String) async -> CompleteAuthResponse`
+
+Completes the OTP flow by verifying the code the user received. Returns a `CompleteAuthResponse` containing the authenticated identity and any wallets already associated with the account.
+
+```swift
+let authResult = await sdk.wallet.completeEmailSignIn(code: "123456")
+// authResult.identity — the authenticated user's identity
+// authResult.wallets  — existing wallets associated with this account
+```
+
+---
+
+#### `clearSession()`
+
+Clears the wallet session from the device keychain. After calling this, the next app launch will start with an empty `walletAddress` and the user will need to sign in again.
+
+```swift
+sdk.wallet.clearSession()
 // Navigate the user back to your sign-in screen
 ```
 
-This is a synchronous operation.
+---
+
+### Wallet Management
+
+#### `createWallet() async`
+
+Creates a new Ethereum wallet (Sequence V3) for the authenticated user and persists the address and session key to the keychain. This is the recommended default for most applications.
+
+```swift
+await sdk.wallet.createWallet()
+print(sdk.wallet.walletAddress) // now populated
+```
+
+Internally calls `createWalletByType` with `WalletType.ethereumSequenceV3`.
 
 ---
 
-#### `signMessage(network: String, message: String) async -> String`
+#### `createWalletByType(walletType: WalletType) async`
 
-Signs an arbitrary message with the wallet's session key and returns the signature as a hex string.
+Creates a new wallet of the specified type and persists the address and session key to the keychain.
 
 ```swift
-let signature = await wallet.signMessage(
+await sdk.wallet.createWalletByType(walletType: .ethereumSequenceV3)
+```
+
+Use this instead of `createWallet()` when you need a specific wallet type.
+
+---
+
+#### `useWallet(walletType: WalletType) async`
+
+Loads an existing wallet of the given type and persists the address and session key to the keychain.
+
+```swift
+await sdk.wallet.useWallet(walletType: .ethereumSequenceV3)
+```
+
+Use this when `completeEmailSignIn` returns a wallet entry that already matches your target type.
+
+---
+
+### Signing & Transactions
+
+#### `signMessage(network: String, message: String) async -> String`
+
+Signs an arbitrary message using the wallet's session key and returns the signature as a hex string.
+
+```swift
+let signature = await sdk.wallet.signMessage(
     network: "mainnet",
     message: "Hello from my app!"
 )
@@ -162,16 +154,14 @@ print(signature) // "0xabc123..."
 | `network` | `String` | The network identifier (e.g., `"mainnet"`, `"polygon"`) |
 | `message` | `String` | The plaintext message to sign |
 
-Returns a hex-encoded signature string.
-
 ---
 
 #### `sendTransaction(network: String, to: String, value: String) async -> String`
 
-Sends a native token transfer to the specified address. The transaction is submitted via the Sequence relayer, so the user does not need to hold gas tokens to cover fees.
+Sends a native token transfer to the specified address. Submitted via the Sequence relayer, so the user does not need to hold gas tokens to cover fees.
 
 ```swift
-let txHash = await wallet.sendTransaction(
+let txHash = await sdk.wallet.sendTransaction(
     network: "polygon",
     to: "0xRecipientAddress",
     value: "1000000000000000000" // 1 MATIC in wei
@@ -181,59 +171,51 @@ print(txHash) // "0xabc123..."
 
 | Parameter | Type | Description |
 |---|---|---|
-| `network` | `String` | The network to send the transaction on (e.g., `"mainnet"`, `"polygon"`) |
+| `network` | `String` | The network to send the transaction on |
 | `to` | `String` | The recipient's wallet address |
-| `value` | `String` | The amount to send in the network's smallest denomination (e.g., wei for Ethereum) |
-
-Returns the transaction hash of the submitted transaction.
+| `value` | `String` | The amount in the network's smallest denomination (e.g., wei) |
 
 ---
 
 #### `callContract(params: CallContractRequest) async -> String`
 
-Calls a smart contract function that writes state — token transfers, NFT mints, approvals, and so on. For read-only calls that don't require a transaction, query the contract directly without this method.
+Calls a smart contract function that writes state — token transfers, NFT mints, approvals, and so on. For read-only queries, call the contract directly without this method.
 
 ```swift
-let txHash = await wallet.callContract(params: CallContractRequest(
+let txHash = await sdk.wallet.callContract(params: CallContractRequest(
     network: "polygon",
-    wallet: wallet.walletAddress,
+    wallet: sdk.wallet.walletAddress,
     // ... contract address, ABI, function, arguments
 ))
-print(txHash) // "0xabc123..."
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | `params` | `CallContractRequest` | Describes the target contract, function selector, ABI-encoded arguments, network, and any value to attach |
 
-Returns the transaction hash of the submitted transaction.
-
 ---
+
+### Access Control
 
 #### `listAccess() async -> [CredentialInfo]`
 
-Returns a list of credentials that currently have access to this wallet. Use this to display active sessions or integrations in your app's account management UI, or to audit what credentials exist before revoking one.
+Returns a list of credentials that currently have access to this wallet. Use this to display active sessions in your account management UI, or to identify credential IDs before revoking one.
 
 ```swift
-let credentials = await wallet.listAccess()
+let credentials = await sdk.wallet.listAccess()
 for credential in credentials {
-    print(credential.id) // inspect each active credential
+    print(credential.id)
 }
 ```
-
-Returns an array of `CredentialInfo` values, one per credential with access to the wallet.
 
 ---
 
 #### `revokeAccess(targetCredentialId: String) async`
 
-Revokes access for a specific credential, preventing it from interacting with this wallet going forward. This action cannot be undone — the credential will need to be re-authorized to regain access.
+Revokes access for a specific credential. This action cannot be undone — the credential will need to be re-authorized to regain access.
 
 ```swift
-let credentials = await wallet.listAccess()
-if let toRevoke = credentials.first(where: { $0.id == "some-credential-id" }) {
-    await wallet.revokeAccess(targetCredentialId: toRevoke.id)
-}
+await sdk.wallet.revokeAccess(targetCredentialId: "some-credential-id")
 ```
 
 | Parameter | Type | Description |
@@ -244,52 +226,53 @@ if let toRevoke = credentials.first(where: { $0.id == "some-credential-id" }) {
 
 ## Full Usage Example
 
-Below is a complete example showing a typical authentication and wallet creation flow:
-
 ```swift
 import Foundation
 
-let connector = SequenceConnector.shared
+let sdk = SequenceSdk(
+    projectAccessKey: "your-project-access-key",
+    environment: .production
+)
+
 let targetWalletType = WalletType.ethereumSequenceV3
 
-// 1. Check for an existing session on app launch
-if let wallet = connector.restoreSession() {
-    print("Restored session for wallet: \(wallet.walletAddress)")
+// 1. If a session was restored from the keychain, walletAddress is already set
+if !sdk.wallet.walletAddress.isEmpty {
+    print("Restored session: \(sdk.wallet.walletAddress)")
     // Proceed directly to your main app experience
 } else {
     // 2. Initiate email sign-in
-    await connector.signInWithEmail(email: "user@example.com")
+    await sdk.wallet.signInWithEmail(email: "user@example.com")
 
     // 3. Collect OTP from the user (via your UI)
     let otp = "123456"
 
-    // 4. Confirm the OTP — response includes any wallets already associated with this identity
-    let authResult = await connector.confirmEmailSignIn(code: otp)
+    // 4. Confirm the OTP — response includes any wallets already on this account
+    let authResult = await sdk.wallet.completeEmailSignIn(code: otp)
 
-    // 5. Use an existing wallet if one matches the target type, otherwise create a new one
-    let wallet: SequenceWallet
+    // 5. Use an existing wallet if one matches, otherwise create a new one
     if authResult.wallets.contains(where: { $0.type == targetWalletType.rawValue }) {
-        wallet = await connector.useWallet(walletType: targetWalletType)
-        print("Using existing wallet: \(wallet.walletAddress)")
+        await sdk.wallet.useWallet(walletType: targetWalletType)
+        print("Using existing wallet: \(sdk.wallet.walletAddress)")
     } else {
-        wallet = await connector.createWalletByType(walletType: targetWalletType)
-        print("Created new wallet: \(wallet.walletAddress)")
+        await sdk.wallet.createWalletByType(walletType: targetWalletType)
+        print("Created new wallet: \(sdk.wallet.walletAddress)")
     }
 
     // 6. Sign a message
-    let signature = await wallet.signMessage(network: "mainnet", message: "Verify my identity")
+    let signature = await sdk.wallet.signMessage(network: "mainnet", message: "Verify my identity")
     print("Signature: \(signature)")
 
     // 7. Send a transaction
-    let txHash = await wallet.sendTransaction(
+    let txHash = await sdk.wallet.sendTransaction(
         network: "polygon",
         to: "0xRecipientAddress",
         value: "1000000000000000000"
     )
     print("Transaction hash: \(txHash)")
 
-    // 8. Sign out when done
-    wallet.signOut()
+    // 8. Clear session when done
+    sdk.wallet.clearSession()
 }
 ```
 
@@ -297,9 +280,9 @@ if let wallet = connector.restoreSession() {
 
 ## Session Persistence
 
-The SDK automatically stores the wallet address and session private key in the device keychain when a wallet is created via `createWallet`, `createWalletByType`, or `useWallet`. This allows `restoreSession()` to rehydrate the session without requiring the user to re-authenticate.
+The SDK automatically stores the wallet address and session private key in the device keychain when a wallet is created or loaded via `createWallet`, `createWalletByType`, or `useWallet`. On the next app launch, `SequenceWalletClient` restores this session during initialisation — no sign-in required.
 
-Call `signOut()` on the `SequenceWallet` to explicitly clear this stored session.
+Call `clearSession()` to explicitly clear the stored session from the keychain.
 
 ---
 
@@ -308,5 +291,5 @@ Call `signOut()` on the `SequenceWallet` to explicitly clear this stored session
 The current public API uses `try!` internally for critical operations. It is expected that network connectivity and properly formatted server responses are available during auth and wallet flows. Future versions of the SDK may expose typed error handling. For now, ensure your app:
 
 - Has network access before calling any `async` methods.
-- Handles the `nil` return from `restoreSession()` gracefully.
-- Validates the OTP code format before passing it to `confirmEmailSignIn`.
+- Checks `walletAddress.isEmpty` to determine whether a session was restored before skipping the auth flow.
+- Validates the OTP code format before passing it to `completeEmailSignIn`.
