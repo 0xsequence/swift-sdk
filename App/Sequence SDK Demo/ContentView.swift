@@ -15,8 +15,7 @@ final class AppViewModel: ObservableObject {
     @Published var screen: AppScreen = .login
     @Published var isLoading: Bool = false
     @Published var sequence: SequenceSdk = SequenceSdk(
-        projectAccessKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE",
-        environment: SequenceEnvironment()
+        projectAccessKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE"
     )
 
     init() {}

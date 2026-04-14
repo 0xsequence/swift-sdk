@@ -1,9 +1,8 @@
-@available(macOS 12.0, *)
-@available(iOS 15.0, *)
+@available(macOS 12.0, iOS 15.0, *)
 public class SequenceSdk {
     public let wallet: SequenceWalletClient
     
-    public init(projectAccessKey: String, environment: SequenceEnvironment) {
+    public init(projectAccessKey: String, environment: SequenceEnvironment = SequenceEnvironment()) {
         self.wallet = SequenceWalletClient(
             projectAccessKey: projectAccessKey,
             environment: environment
