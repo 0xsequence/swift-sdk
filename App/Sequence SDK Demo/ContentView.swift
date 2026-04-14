@@ -14,20 +14,17 @@ enum AppScreen {
 final class AppViewModel: ObservableObject {
     @Published var screen: AppScreen = .login
     @Published var isLoading: Bool = false
-    @Published var wallet: SequenceWallet? = nil
+    @Published var sequence: SequenceSdk = SequenceSdk(projectAccessKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE")
 
     init() {}
 
-    // Simulates the initial session/token check at app start.
-    // Returns nil → show LoginWindow; non-nil → show WalletWindow.
     func checkSession() async {
-        wallet = SequenceConnector.shared.restoreSession()
-        screen = wallet == nil ? .login : .wallet
+        let hasSession = !sequence.wallet.walletAddress.isEmpty
+        screen = hasSession ? .wallet : .login
     }
     
     func signOut() {
-        wallet?.signOut()
-        wallet = nil
+        sequence.wallet.signOut()
         screen = .login
     }
 
@@ -36,7 +33,7 @@ final class AppViewModel: ObservableObject {
     func submitLogin(input: String) async {
         isLoading = true
         
-        await SequenceConnector.shared.signInWithEmail(email: input)
+        await sequence.wallet.signInWithEmail(email: input)
         
         isLoading = false
         screen = .confirmCode
@@ -47,11 +44,11 @@ final class AppViewModel: ObservableObject {
     func submitConfirmCode(code: String) async {
         isLoading = true
         
-        let walletData = await SequenceConnector.shared.confirmEmailSignIn(code: code)
+        let walletData = await sequence.wallet.confirmEmailSignIn(code: code)
         if (walletData.wallets.count == 0) {
-            wallet = await SequenceConnector.shared.createWallet()
+            await sequence.wallet.createWallet()
         } else {
-            wallet = await SequenceConnector.shared.useWallet(walletType: walletData.wallets[0].type)
+            await sequence.wallet.useWallet(walletType: walletData.wallets[0].type)
         }
         
         isLoading = false
@@ -166,10 +163,8 @@ struct WalletWindow: View {
                 .fontWeight(.bold)
                 .frame(maxWidth: .infinity, alignment: .leading)
             
-            if let wallet = vm.wallet {
-                Text(wallet.walletAddress)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            Text(vm.sequence.wallet.walletAddress)
+                .frame(maxWidth: .infinity, alignment: .leading)
             
             Button {
                 vm.signOut()
@@ -190,10 +185,8 @@ struct WalletWindow: View {
 
             Button {
                 Task {
-                    if let wallet = vm.wallet {
-                        let result = await wallet.signMessage(network: "amoy", message: messageText)
-                        signature = result
-                    }
+                    let result = await vm.sequence.wallet.signMessage(network: "amoy", message: messageText)
+                    signature = result
                 }
             } label: {
                 Text("Sign Message")
@@ -216,10 +209,8 @@ struct WalletWindow: View {
 
             Button {
                 Task {
-                    if let wallet = vm.wallet {
-                        let result = await wallet.sendTransaction(network: "amoy", to: toText, value: amountText)
-                        signature = result
-                    }
+                    let result = await vm.sequence.wallet.sendTransaction(network: "amoy", to: toText, value: amountText)
+                    signature = result
                 }
             } label: {
                 Text("Send Transaction")
