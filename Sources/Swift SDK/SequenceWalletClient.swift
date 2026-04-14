@@ -12,7 +12,7 @@ public class SequenceWalletClient {
     var verifier = "";
     var challenge = "";
     
-    internal init(projectAccessKey: String) {
+    internal init(projectAccessKey: String, environment: SequenceEnvironment) {
         if let walletAddress = try? keychain.string(forKey: Constants.addressStorageKey),
            let signerPrivateKeyHex = try? keychain.string(forKey: Constants.signerStorageKey) {
             self.walletAddress = walletAddress
@@ -23,7 +23,7 @@ public class SequenceWalletClient {
         }
 
         self.signedClient = WaasWalletClient(
-            baseURL: Constants.apiUrl,
+            baseURL: environment.apiRpcUrl,
             transport: SignedWaasTransport(
                 projectAccessKey: projectAccessKey,
                 privateKey: sessionPrivateKey

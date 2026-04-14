@@ -3,7 +3,10 @@
 public class SequenceSdk {
     public let wallet: SequenceWalletClient
     
-    public init(projectAccessKey: String) {
-        self.wallet = SequenceWalletClient(projectAccessKey: projectAccessKey)
+    public init(projectAccessKey: String, environment: SequenceEnvironment) {
+        self.wallet = SequenceWalletClient(
+            projectAccessKey: projectAccessKey,
+            environment: environment
+        )
     }
 }
