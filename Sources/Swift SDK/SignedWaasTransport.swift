@@ -5,6 +5,7 @@ import Foundation
 struct SignedWaasTransport: WebRPCTransport {
     public let session: URLSession
     
+    private let client: HttpClient = HttpClient(baseURL: Constants.apiUrl)
     private var signer: [UInt8] = []
     
     public init(privateKey: [UInt8], session: URLSession = .shared) {
@@ -18,8 +19,16 @@ struct SignedWaasTransport: WebRPCTransport {
         body: Data,
         headers: [String: String]
     ) async throws -> WebRPCHTTPResponse {
-        let authHeader = buildAuthHeader(endpoint: path, signer: signer, payload: body.base64EncodedString());
-        return WebRPCHTTPResponse(statusCode: 200, body: Data())
+        let endpoint = "/\(path.split(separator: "/")[2])"
+        let payload = String(data: body, encoding: .utf8) ?? ""
+        let authHeader = buildAuthHeader(endpoint: endpoint, signer: signer, payload: payload)
+        
+        print(endpoint)
+        
+        return await try! sendPost(baseURL: baseURL, path: path, payload: payload, headers: [
+            "X-Access-Key": "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE",
+            "Authorization": authHeader
+        ])
     }
     
     public mutating func setSigner(signer: [UInt8]) {
@@ -36,13 +45,13 @@ struct SignedWaasTransport: WebRPCTransport {
         let hashedResult = Keccak256.Keccak256(data: preimage)
         let signature = try! EthereumSigner.signUTF8MessageEIP191(privateKey: signer, message: hashedResult)
         
-        return RequestUtils.BuildAuthorizationHeader(scope: "@1:test", cred: walletAddress, nonce: nonce, sig: signature)
+        return RequestUtils.BuildAuthorizationHeader(scope: Constants.scope, cred: walletAddress, nonce: nonce, sig: signature)
     }
     
     private func sendPost(
         baseURL: String,
         path: String,
-        body: Data,
+        payload: String,
         headers: [String: String]
     ) async throws -> WebRPCHTTPResponse {
         guard let url = URL(string: joinWebRPCURL(baseURL: baseURL, path: path)) else {
@@ -51,9 +60,10 @@ struct SignedWaasTransport: WebRPCTransport {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.httpBody = body
-        request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
-
+        request.httpBody = payload.data(using: .utf8)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("http://localhost:3000", forHTTPHeaderField: "Origin")
+        
         for (name, value) in headers {
             request.setValue(value, forHTTPHeaderField: name)
         }

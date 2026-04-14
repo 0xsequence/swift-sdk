@@ -2,7 +2,6 @@
 @available(iOS 15.0, *)
 public class SequenceWallet {
     let signedClient: WaasWalletClient
-    let intentSender: IntentSender = IntentSender()
     
     /// The on-chain address of this wallet.
     public var walletAddress: String

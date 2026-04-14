@@ -5,7 +5,6 @@ public class SequenceConnector {
     @MainActor public static let shared = SequenceConnector()
     
     var signedClient: WaasWalletClient? = nil
-    let intentSender: IntentSender = IntentSender()
     let keychain: KeychainManager = KeychainManager()
     
     var privateKey: [UInt8] = []
