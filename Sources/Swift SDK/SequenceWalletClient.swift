@@ -61,7 +61,7 @@ public class SequenceWalletClient {
     ///
     /// - Parameter code: The one-time passcode string entered by the user.
     /// - Returns: A `CompleteAuthReturn` value containing the result of the authentication attempt.
-    public func confirmEmailSignIn(code: String) async -> CompleteAuthResponse {
+    public func completeEmailSignIn(code: String) async -> CompleteAuthResponse {
         let answer = Keccak256.Keccak256(data: "\(challenge)\(code)")
         
         let params = CompleteAuthRequest(
@@ -133,7 +133,7 @@ public class SequenceWalletClient {
     ///
     /// After calling this, `SequenceConnector.RestoreSession()` will return `nil` and
     /// the user will need to sign in again. Navigate to your sign-in screen after calling this.
-    public func signOut() {
+    public func clearSession() {
         let keychain: KeychainManager = KeychainManager()
         try! keychain.delete(forKey: Constants.addressStorageKey)
         try! keychain.delete(forKey: Constants.signerStorageKey)

@@ -27,7 +27,7 @@ final class AppViewModel: ObservableObject {
     }
     
     func signOut() {
-        sequence.wallet.signOut()
+        sequence.wallet.clearSession()
         screen = .login
     }
 
@@ -47,7 +47,7 @@ final class AppViewModel: ObservableObject {
     func submitConfirmCode(code: String) async {
         isLoading = true
         
-        let walletData = await sequence.wallet.confirmEmailSignIn(code: code)
+        let walletData = await sequence.wallet.completeEmailSignIn(code: code)
         if (walletData.wallets.count == 0) {
             await sequence.wallet.createWallet()
         } else {
