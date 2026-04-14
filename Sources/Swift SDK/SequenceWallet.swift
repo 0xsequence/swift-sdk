@@ -28,6 +28,39 @@ public class SequenceWallet {
         try! keychain.delete(forKey: Constants.signerStorageKey)
     }
     
+    /// Returns a list of credentials that currently have access to this wallet.
+    ///
+    /// Use this to display active sessions or integrations in your app's account
+    /// management UI, or to check what credentials exist before revoking one.
+    ///
+    /// - Returns: An array of `CredentialInfo` values representing each credential
+    ///   with access to this wallet.
+    public func listAccess() async -> [CredentialInfo] {
+        let params = ListAccessRequest(
+            walletAddress: self.walletAddress
+        )
+        
+        let response = try! await signedClient.listAccess(params)
+        return response.credentials
+    }
+
+    /// Revokes access for a specific credential, preventing it from interacting
+    /// with this wallet going forward.
+    ///
+    /// Use `listAccess()` first to retrieve the credential IDs available to revoke.
+    /// This action cannot be undone — the credential will need to be re-authorized
+    /// to regain access.
+    ///
+    /// - Parameter targetCredentialId: The unique identifier of the credential to revoke.
+    public func revokeAccess(targetCredentialId: String) async {
+        let params = RevokeAccessRequest(
+            targetCredentialId: targetCredentialId,
+            walletAddress: self.walletAddress
+        )
+        
+        try! await signedClient.revokeAccess(params)
+    }
+    
     /// Signs an arbitrary message using the wallet's session key.
     ///
     /// - Parameters:
