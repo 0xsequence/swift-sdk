@@ -5,7 +5,6 @@ import Foundation
 struct SignedWaasTransport: WebRPCTransport {
     public let session: URLSession
     
-    private let client: HttpClient = HttpClient(baseURL: Constants.apiUrl)
     private var signer: [UInt8] = []
     
     public init(privateKey: [UInt8], session: URLSession = .shared) {
@@ -40,12 +39,12 @@ struct SignedWaasTransport: WebRPCTransport {
         
         let nonce = TimeUtils.currentTimestampInSecondsString()
         
-        let preimage = RequestUtils.BuildWalletRequestPreimage(endpoint: endpoint, nonce: nonce, payload: payload)
+        let preimage = RequestUtils.buildWalletRequestPreimage(endpoint: endpoint, nonce: nonce, payload: payload)
         
         let hashedResult = Keccak256.Keccak256(data: preimage)
         let signature = try! EthereumSigner.signUTF8MessageEIP191(privateKey: signer, message: hashedResult)
         
-        return RequestUtils.BuildAuthorizationHeader(scope: Constants.scope, cred: walletAddress, nonce: nonce, sig: signature)
+        return RequestUtils.buildAuthorizationHeader(scope: Constants.scope, cred: walletAddress, nonce: nonce, sig: signature)
     }
     
     private func sendPost(

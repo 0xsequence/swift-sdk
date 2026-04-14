@@ -20,7 +20,7 @@ public class SequenceConnector {
     /// avoiding the need to re-authenticate.
     ///
     /// - Returns: A `SequenceWallet` instance if a valid session exists in the keychain, or `nil` if no session is found.
-    public func RestoreSession() -> SequenceWallet? {
+    public func restoreSession() -> SequenceWallet? {
         guard
             let walletAddress = try? keychain.string(forKey: Constants.addressStorageKey),
             let signerPrivateKeyHex = try? keychain.string(forKey: Constants.signerStorageKey)
@@ -28,7 +28,7 @@ public class SequenceConnector {
             return nil
         }
         
-        let signerPrivateKey = ByteUtils.HexToBytes(hex: signerPrivateKeyHex)
+        let signerPrivateKey = ByteUtils.hexToBytes(hex: signerPrivateKeyHex)
         return SequenceWallet(walletAddress: walletAddress, sessionPrivateKey: signerPrivateKey)
     }
     
@@ -39,7 +39,7 @@ public class SequenceConnector {
     /// `ConfirmEmailSignIn(code:)`.
     ///
     /// - Parameter email: The email address to send the one-time passcode to.
-    public func SignInWithEmail(email: String) async {
+    public func signInWithEmail(email: String) async {
         privateKey = try! EthereumSigner.GeneratePrivateKey()
         
         signedClient = WaasWalletClient(
@@ -69,7 +69,7 @@ public class SequenceConnector {
     ///
     /// - Parameter code: The one-time passcode string entered by the user.
     /// - Returns: A `CompleteAuthReturn` value containing the result of the authentication attempt.
-    public func ConfirmEmailSignIn(code: String) async -> CompleteAuthResponse {
+    public func confirmEmailSignIn(code: String) async -> CompleteAuthResponse {
         let answer = Keccak256.Keccak256(data: "\(challenge)\(code)")
         
         let params = CompleteAuthRequest(
@@ -90,8 +90,8 @@ public class SequenceConnector {
     /// so `RestoreSession()` can rehydrate the session on future launches.
     ///
     /// - Returns: A `SequenceWallet` instance representing the newly created wallet.
-    public func CreateWallet() async -> SequenceWallet {
-        return await CreateWalletByType(walletType: WalletType.ethereumSequenceV3);
+    public func createWallet() async -> SequenceWallet {
+        return await createWalletByType(walletType: WalletType.ethereumSequenceV3);
     }
     
     /// Creates a new wallet of the specified type for the authenticated user.
@@ -102,14 +102,14 @@ public class SequenceConnector {
     ///
     /// - Parameter walletType: A string identifying the wallet type to create (e.g. `"Ethereum_SequenceV3"`).
     /// - Returns: A `SequenceWallet` instance representing the newly created wallet.
-    public func CreateWalletByType(walletType: WalletType) async -> SequenceWallet {
+    public func createWalletByType(walletType: WalletType) async -> SequenceWallet {
         let params = CreateWalletRequest(
             walletType: walletType
         )
         
         let response = await try! signedClient?.createWallet(params)
         
-        return CreateSequenceWallet(address: response?.wallet.address ?? "");
+        return createSequenceWallet(address: response?.wallet.address ?? "");
     }
     
     /// Fetches an existing wallet of the specified type for the authenticated user.
@@ -120,7 +120,7 @@ public class SequenceConnector {
     ///
     /// - Parameter walletType: A string identifying the wallet type to fetch (e.g. `"Ethereum_SequenceV3"`).
     /// - Returns: A `SequenceWallet` instance for the fetched wallet.
-    public func UseWallet(walletType: WalletType) async -> SequenceWallet {
+    public func useWallet(walletType: WalletType) async -> SequenceWallet {
         let params = UseWalletRequest(
             walletType: walletType,
             walletIndex: 0
@@ -128,14 +128,14 @@ public class SequenceConnector {
         
         let response = await try! signedClient?.useWallet(params)
         
-        return CreateSequenceWallet(address: response?.wallet.address ?? "");
+        return createSequenceWallet(address: response?.wallet.address ?? "");
     }
     
     /// Persists the wallet address and session private key to the keychain, then returns
     /// a configured `SequenceWallet` instance.
-    private func CreateSequenceWallet(address: String) -> SequenceWallet {
+    private func createSequenceWallet(address: String) -> SequenceWallet {
         try! keychain.set(address, forKey: Constants.addressStorageKey)
-        try! keychain.set(ByteUtils.BytesToHex(data: self.privateKey), forKey: Constants.signerStorageKey)
+        try! keychain.set(ByteUtils.bytesToHex(data: self.privateKey), forKey: Constants.signerStorageKey)
         
         return SequenceWallet(walletAddress: address, sessionPrivateKey: self.privateKey)
     }

@@ -21,12 +21,12 @@ final class AppViewModel: ObservableObject {
     // Simulates the initial session/token check at app start.
     // Returns nil → show LoginWindow; non-nil → show WalletWindow.
     func checkSession() async {
-        wallet = SequenceConnector.shared.RestoreSession()
+        wallet = SequenceConnector.shared.restoreSession()
         screen = wallet == nil ? .login : .wallet
     }
     
     func signOut() {
-        wallet?.SignOut()
+        wallet?.signOut()
         wallet = nil
         screen = .login
     }
@@ -36,7 +36,7 @@ final class AppViewModel: ObservableObject {
     func submitLogin(input: String) async {
         isLoading = true
         
-        await SequenceConnector.shared.SignInWithEmail(email: input)
+        await SequenceConnector.shared.signInWithEmail(email: input)
         
         isLoading = false
         screen = .confirmCode
@@ -47,11 +47,11 @@ final class AppViewModel: ObservableObject {
     func submitConfirmCode(code: String) async {
         isLoading = true
         
-        let walletData = await SequenceConnector.shared.ConfirmEmailSignIn(code: code)
+        let walletData = await SequenceConnector.shared.confirmEmailSignIn(code: code)
         if (walletData.wallets.count == 0) {
-            wallet = await SequenceConnector.shared.CreateWallet()
+            wallet = await SequenceConnector.shared.createWallet()
         } else {
-            wallet = await SequenceConnector.shared.UseWallet(walletType: walletData.wallets[0].type)
+            wallet = await SequenceConnector.shared.useWallet(walletType: walletData.wallets[0].type)
         }
         
         isLoading = false
@@ -191,7 +191,7 @@ struct WalletWindow: View {
             Button {
                 Task {
                     if let wallet = vm.wallet {
-                        let result = await wallet.SignMessage(network: "amoy", message: messageText)
+                        let result = await wallet.signMessage(network: "amoy", message: messageText)
                         signature = result
                     }
                 }
@@ -217,7 +217,7 @@ struct WalletWindow: View {
             Button {
                 Task {
                     if let wallet = vm.wallet {
-                        let result = await wallet.SendTransaction(network: "amoy", to: toText, value: amountText)
+                        let result = await wallet.sendTransaction(network: "amoy", to: toText, value: amountText)
                         signature = result
                     }
                 }

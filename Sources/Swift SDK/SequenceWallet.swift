@@ -4,9 +4,9 @@ public class SequenceWallet {
     let signedClient: WaasWalletClient
     
     /// The on-chain address of this wallet.
-    public var walletAddress: String
+    public let walletAddress: String
     
-    var sessionPrivateKey: [UInt8]
+    let sessionPrivateKey: [UInt8]
     
     internal init(walletAddress: String, sessionPrivateKey: [UInt8]) {
         self.walletAddress = walletAddress
@@ -22,7 +22,7 @@ public class SequenceWallet {
     ///
     /// After calling this, `SequenceConnector.RestoreSession()` will return `nil` and
     /// the user will need to sign in again. Navigate to your sign-in screen after calling this.
-    public func SignOut() {
+    public func signOut() {
         let keychain: KeychainManager = KeychainManager()
         try! keychain.delete(forKey: Constants.addressStorageKey)
         try! keychain.delete(forKey: Constants.signerStorageKey)
@@ -34,7 +34,7 @@ public class SequenceWallet {
     ///   - network: The network identifier for the signing context (e.g. `"mainnet"`, `"polygon"`).
     ///   - message: The plaintext message to sign.
     /// - Returns: A hex-encoded signature string.
-    public func SignMessage(network: String, message: String) async -> String {
+    public func signMessage(network: String, message: String) async -> String {
         let params = SignMessageRequest(
             network: network,
             wallet: self.walletAddress,
@@ -45,7 +45,17 @@ public class SequenceWallet {
         return response.signature
     }
     
-    public func SendTransaction(network: String, to: String, value: String) async -> String {
+    /// Sends a native token transfer to the specified address on the given network.
+    ///
+    /// The transaction is submitted via the Sequence relayer, so the user does not need
+    /// to hold gas tokens to cover fees.
+    ///
+    /// - Parameters:
+    ///   - network: The network to send the transaction on (e.g., `"mainnet"`, `"polygon"`).
+    ///   - to: The recipient's wallet address.
+    ///   - value: The amount to send, as a string in the network's smallest denomination (e.g., wei for Ethereum).
+    /// - Returns: The transaction hash of the submitted transaction.
+    public func sendTransaction(network: String, to: String, value: String) async -> String {
         let params = SendTransactionRequest(
             network: network,
             wallet: self.walletAddress,
@@ -57,8 +67,17 @@ public class SequenceWallet {
         let response = await try! signedClient.sendTransaction(params)
         return response.txHash
     }
-    
-    public func CallContract(params: CallContractRequest) async -> String {
+
+    /// Calls a smart contract function with the provided parameters.
+    ///
+    /// Use this for any contract interaction that writes state — token transfers, NFT mints,
+    /// approvals, and so on. For read-only calls that don't require a transaction, query the
+    /// contract directly without this method.
+    ///
+    /// - Parameter params: A `CallContractRequest` describing the target contract, function
+    ///   selector, ABI-encoded arguments, network, and any value to attach to the call.
+    /// - Returns: The transaction hash of the submitted transaction.
+    public func callContract(params: CallContractRequest) async -> String {
         let response = await try! signedClient.callContract(params)
         return response.txHash
     }

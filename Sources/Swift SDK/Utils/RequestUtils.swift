@@ -1,7 +1,7 @@
 import Foundation
 
 public class RequestUtils {
-    public static func BuildWalletRequestPreimage(
+    public static func buildWalletRequestPreimage(
         endpoint: String,
         nonce: String,
         payload: String
@@ -9,7 +9,7 @@ public class RequestUtils {
         return "POST /rpc/Wallet\(endpoint)\nnonce: \(nonce)\n\n\(payload)"
     }
     
-    public static func BuildAuthorizationHeader(
+    public static func buildAuthorizationHeader(
         scope: String,
         cred: String,
         nonce: String,
