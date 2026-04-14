@@ -4,6 +4,7 @@ public class SequenceConnector {
     /// The shared singleton instance of `SequenceConnector`. Must be accessed on the main thread.
     @MainActor public static let shared = SequenceConnector()
     
+    var signedClient: WaasWalletClient? = nil
     let intentSender: IntentSender = IntentSender()
     let keychain: KeychainManager = KeychainManager()
     
@@ -42,21 +43,23 @@ public class SequenceConnector {
     public func SignInWithEmail(email: String) async {
         privateKey = try! EthereumSigner.GeneratePrivateKey()
         
-        let params = CommitVerifierParams(
-            handle: email,
-            authMode: "OTP",
-            identityType: "Email",
-        )
-
-        let response = await intentSender.SignAndSend(
-            endpoint: "/CommitVerifier",
-            signer: self.privateKey,
-            params: params
+        signedClient = WaasWalletClient(
+            baseURL: Constants.apiUrl,
+            transport: SignedWaasTransport(privateKey: privateKey),
+            headers: { [:] }
         )
         
-        let data = try! SequenceCommitVerifierResponse.from(jsonString: response)
-        verifier = data.verifier ?? "undefined"
-        challenge = data.challenge ?? "undefined"
+        let params = CommitVerifierRequest(
+            identityType: IdentityType.email,
+            authMode: AuthMode.otp,
+            metadata: [String : String] (),
+            handle: email
+        )
+        
+        let response = await try! signedClient?.commitVerifier(params)
+
+        verifier = response?.verifier ?? "undefined"
+        challenge = response?.challenge ?? "undefined"
     }
     
     /// Completes the email OTP authentication flow by verifying the code the user received.
@@ -67,25 +70,19 @@ public class SequenceConnector {
     ///
     /// - Parameter code: The one-time passcode string entered by the user.
     /// - Returns: A `CompleteAuthReturn` value containing the result of the authentication attempt.
-    public func ConfirmEmailSignIn(code: String) async -> CompleteAuthReturn {
+    public func ConfirmEmailSignIn(code: String) async -> CompleteAuthResponse {
         let answer = Keccak256.Keccak256(data: "\(challenge)\(code)")
         
-        let params = CompleteAuthParams(
-            answer: answer,
+        let params = CompleteAuthRequest(
+            identityType: IdentityType.email,
+            authMode: AuthMode.otp,
             verifier: verifier,
-            authMode: "OTP",
-            identityType: "Email"
+            answer: answer,
         )
         
-        let response = await intentSender.SignAndSend(
-            endpoint: "/CompleteAuth",
-            signer: self.privateKey,
-            params: params
-        )
+        let response = await try! signedClient?.completeAuth(params)
         
-        let data = try! CompleteAuthReturn.from(jsonString: response)
-        
-        return data
+        return response!
     }
     
     /// Creates a new Ethereum wallet (Sequence V3) for the authenticated user.
@@ -95,7 +92,7 @@ public class SequenceConnector {
     ///
     /// - Returns: A `SequenceWallet` instance representing the newly created wallet.
     public func CreateWallet() async -> SequenceWallet {
-        return await CreateWalletByType(walletType: "Ethereum_SequenceV3");
+        return await CreateWalletByType(walletType: WalletType.ethereumSequenceV3);
     }
     
     /// Creates a new wallet of the specified type for the authenticated user.
@@ -106,20 +103,14 @@ public class SequenceConnector {
     ///
     /// - Parameter walletType: A string identifying the wallet type to create (e.g. `"Ethereum_SequenceV3"`).
     /// - Returns: A `SequenceWallet` instance representing the newly created wallet.
-    public func CreateWalletByType(walletType: String) async -> SequenceWallet {
-        let params = CreateWalletParams(
+    public func CreateWalletByType(walletType: WalletType) async -> SequenceWallet {
+        let params = CreateWalletRequest(
             walletType: walletType
         )
         
-        let response = await intentSender.SignAndSend(
-            endpoint: "/CreateWallet",
-            signer: self.privateKey,
-            params: params
-        )
+        let response = await try! signedClient?.createWallet(params)
         
-        let walletData = try! WaasWalletResponse.from(jsonString: response)
-        
-        return CreateSequenceWallet(address: walletData.wallet.address);
+        return CreateSequenceWallet(address: response?.wallet.address ?? "");
     }
     
     /// Fetches an existing wallet of the specified type for the authenticated user.
@@ -130,21 +121,15 @@ public class SequenceConnector {
     ///
     /// - Parameter walletType: A string identifying the wallet type to fetch (e.g. `"Ethereum_SequenceV3"`).
     /// - Returns: A `SequenceWallet` instance for the fetched wallet.
-    public func UseWallet(walletType: String) async -> SequenceWallet {
-        let params = UseWalletParams(
-            walletIndex: 0,
-            walletType: walletType
+    public func UseWallet(walletType: WalletType) async -> SequenceWallet {
+        let params = UseWalletRequest(
+            walletType: walletType,
+            walletIndex: 0
         )
         
-        let response = await intentSender.SignAndSend(
-            endpoint: "/UseWallet",
-            signer: self.privateKey,
-            params: params
-        )
+        let response = await try! signedClient?.useWallet(params)
         
-        let walletData = try! WaasWalletResponse.from(jsonString: response)
-
-        return CreateSequenceWallet(address: walletData.wallet.address);
+        return CreateSequenceWallet(address: response?.wallet.address ?? "");
     }
     
     /// Persists the wallet address and session private key to the keychain, then returns

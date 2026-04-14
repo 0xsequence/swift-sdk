@@ -1,6 +1,7 @@
 @available(macOS 12.0, *)
 @available(iOS 15.0, *)
 public class SequenceWallet {
+    let signedClient: WaasWalletClient
     let intentSender: IntentSender = IntentSender()
     
     /// The on-chain address of this wallet.
@@ -11,6 +12,11 @@ public class SequenceWallet {
     internal init(walletAddress: String, sessionPrivateKey: [UInt8]) {
         self.walletAddress = walletAddress
         self.sessionPrivateKey = sessionPrivateKey
+        self.signedClient = WaasWalletClient(
+            baseURL: Constants.apiUrl,
+            transport: SignedWaasTransport(privateKey: sessionPrivateKey),
+            headers: { [:] }
+        )
     }
     
     /// Clears the wallet session from the device keychain.
@@ -30,28 +36,31 @@ public class SequenceWallet {
     ///   - message: The plaintext message to sign.
     /// - Returns: A hex-encoded signature string.
     public func SignMessage(network: String, message: String) async -> String {
-        let params = SignMessageParams(
-            message: message,
+        let params = SignMessageRequest(
             network: network,
-            wallet: self.walletAddress
+            wallet: self.walletAddress,
+            message: message
         )
         
-        let response = await self.intentSender.SignAndSend(endpoint: "/SignMessage", signer: self.sessionPrivateKey, params: params)
-        let data = try! SignMessageReturn.from(jsonString: response)
-        
-        return data.signature
+        let response = await try! signedClient.signMessage(params)
+        return response.signature
     }
     
     public func SendTransaction(network: String, to: String, value: String) async -> String {
-        let params = SendTransactionParams(
+        let params = SendTransactionRequest(
             network: network,
+            wallet: self.walletAddress,
             to: to,
-            value: value
+            value: value,
+            mode: TransactionMode.relayer
         )
         
-        let response = await self.intentSender.SignAndSend(endpoint: "/SendTransaction", signer: self.sessionPrivateKey, params: params)
-        let data = try! SendTransactionReturn.from(jsonString: response)
-        
-        return data.txHash
+        let response = await try! signedClient.sendTransaction(params)
+        return response.txHash
+    }
+    
+    public func CallContract(params: CallContractRequest) async -> String {
+        let response = await try! signedClient.callContract(params)
+        return response.txHash
     }
 }
