@@ -1,7 +1,6 @@
 import Foundation
 
-@available(macOS 12.0, *)
-@available(iOS 15.0, *)
+@available(macOS 12.0, iOS 15.0, *)
 struct SignedWaasTransport: WebRPCTransport {
     public let session: URLSession
     

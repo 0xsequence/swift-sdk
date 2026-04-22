@@ -8,6 +8,10 @@ public class OmsWallet {
         self.indexer = IndexerClient(projectAccessKey: projectAccessKey, environment: environment)
     }
     
+    public func getWalletAddress() -> String {
+        return wallet.walletAddress
+    }
+    
     /// Initiates email-based OTP authentication by sending a one-time code to the given address.
     ///
     /// This method generates a new session key pair and stores the verifier state internally.
@@ -30,7 +34,7 @@ public class OmsWallet {
     /// - Parameters:
     ///   - code: The one-time passcode string entered by the user.
     ///   - walletType: The wallet type to load or create for this user. Defaults to `.ethereumEoa`.
-    public func completeEmailSignIn(code: String, walletType: WalletType = WalletType.ethereumEoa) async {
+    public func completeEmailSignIn(code: String, walletType: WalletType = WalletType.ethereum) async {
         await wallet.completeEmailSignIn(code: code, walletType: walletType)
     }
     

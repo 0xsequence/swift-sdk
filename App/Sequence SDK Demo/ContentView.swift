@@ -21,7 +21,7 @@ final class AppViewModel: ObservableObject {
     init() {}
 
     func checkSession() async {
-        let hasSession = !oms.walletAddress.isEmpty
+        let hasSession = !oms.getWalletAddress().isEmpty
         screen = hasSession ? .wallet : .login
     }
     
@@ -160,7 +160,7 @@ struct WalletWindow: View {
                 .fontWeight(.bold)
                 .frame(maxWidth: .infinity, alignment: .leading)
             
-            Text(vm.oms.walletAddress)
+            Text(vm.oms.getWalletAddress())
                 .frame(maxWidth: .infinity, alignment: .leading)
             
             Button {

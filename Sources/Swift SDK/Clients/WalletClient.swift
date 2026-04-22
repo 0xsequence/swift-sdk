@@ -3,8 +3,8 @@ public class WalletClient {
     var signedClient: WaasWalletClient
     let keychain: KeychainManager = KeychainManager()
     
-    /// The on-chain address of this wallet.
-    public let walletAddress: String
+    public var walletAddress: String
+    public var walletId: String
     
     var sessionPrivateKey: [UInt8]
     
@@ -13,16 +13,19 @@ public class WalletClient {
     
     public init(projectAccessKey: String, environment: OmsEnvironment = OmsEnvironment()) {
         if let walletAddress = try? keychain.string(forKey: Constants.addressStorageKey),
+           let walletId = try? keychain.string(forKey: Constants.walletIdStorageKey),
            let signerPrivateKeyHex = try? keychain.string(forKey: Constants.signerStorageKey) {
             self.walletAddress = walletAddress
+            self.walletId = walletId
             self.sessionPrivateKey = ByteUtils.hexToBytes(hex: signerPrivateKeyHex)
         } else {
             self.walletAddress = ""
+            self.walletId = ""
             self.sessionPrivateKey = try! EthereumSigner.GeneratePrivateKey()
         }
 
         self.signedClient = WaasWalletClient(
-            baseURL: environment.apiRpcUrl,
+            baseURL: environment.walletApiUrl,
             transport: SignedWaasTransport(
                 projectAccessKey: projectAccessKey,
                 privateKey: sessionPrivateKey
@@ -63,9 +66,9 @@ public class WalletClient {
     /// - Parameters:
     ///   - code: The one-time passcode string entered by the user.
     ///   - walletType: The wallet type to load or create for this user. Defaults to `.ethereumEoa`.
-    public func completeEmailSignIn(code: String, walletType: WalletType = WalletType.ethereumEoa) async {
-        let answer = Keccak256.Keccak256(data: "\(challenge)\(code)")
-        
+    public func completeEmailSignIn(code: String, walletType: WalletType = WalletType.ethereum) async {
+        let answer = RequestUtils.hashEmailAuthAnswer(challenge: challenge, code: code)
+
         let params = CompleteAuthRequest(
             identityType: IdentityType.email,
             authMode: AuthMode.otp,
@@ -75,9 +78,15 @@ public class WalletClient {
         
         let response = try! await signedClient.completeAuth(params)
         
-        if (!response.wallets.isEmpty && response.wallets.contains { $0.type == walletType }) {
-            await useWallet(walletType: walletType)
-        } else {
+        var walletUsed: Bool = false;
+        for wallet in response.wallets {
+            if (wallet.type == walletType) {
+                await useWallet(walletId: wallet.id)
+                walletUsed = true
+            }
+        }
+        
+        if (!walletUsed) {
             await createWallet(walletType: walletType)
         }
     }
@@ -91,12 +100,11 @@ public class WalletClient {
     /// - Parameter walletType: The wallet type to create (e.g. `.ethereumEoa`).
     private func createWallet(walletType: WalletType) async {
         let params = CreateWalletRequest(
-            walletType: walletType
+            type: walletType
         )
         
         let response = try! await signedClient.createWallet(params)
-        
-        return createSequenceWallet(address: response.wallet.address);
+        createSequenceWallet(walletAddress: response.wallet.address, walletId: response.wallet.id);
     }
     
     /// Loads an existing wallet of the specified type for the authenticated user and persists
@@ -106,22 +114,25 @@ public class WalletClient {
     /// a wallet of the requested type on their account.
     ///
     /// - Parameter walletType: The wallet type to load (e.g. `.ethereumEoa`).
-    private func useWallet(walletType: WalletType) async {
+    private func useWallet(walletId: String) async {
         let params = UseWalletRequest(
-            walletType: walletType,
-            walletIndex: 0
+            walletId: walletId
         )
         
         let response = try! await signedClient.useWallet(params)
-        createSequenceWallet(address: response.wallet.address);
+        createSequenceWallet(walletAddress: response.wallet.address, walletId: response.wallet.id);
     }
     
     /// Persists the given wallet address and the current session private key to the keychain
     /// so the session can be restored on a later launch.
     ///
     /// - Parameter address: The on-chain address returned by `createWallet` or `useWallet`.
-    private func createSequenceWallet(address: String) {
-        try! keychain.set(address, forKey: Constants.addressStorageKey)
+    private func createSequenceWallet(walletAddress: String, walletId: String) {
+        self.walletAddress = walletAddress
+        self.walletId = walletId
+        
+        try! keychain.set(walletAddress, forKey: Constants.addressStorageKey)
+        try! keychain.set(walletId, forKey: Constants.walletIdStorageKey)
         try! keychain.set(ByteUtils.bytesToHex(data: self.sessionPrivateKey), forKey: Constants.signerStorageKey)
     }
     
@@ -145,7 +156,7 @@ public class WalletClient {
     ///   with access to this wallet.
     public func listAccess() async -> [CredentialInfo] {
         let params = ListAccessRequest(
-            walletAddress: self.walletAddress
+            walletId: self.walletId
         )
         
         let response = try! await signedClient.listAccess(params)
@@ -163,7 +174,7 @@ public class WalletClient {
     public func revokeAccess(targetCredentialId: String) async {
         let params = RevokeAccessRequest(
             targetCredentialId: targetCredentialId,
-            walletAddress: self.walletAddress
+            walletId: self.walletId
         )
         
         try! await signedClient.revokeAccess(params)
@@ -178,7 +189,7 @@ public class WalletClient {
     public func signMessage(network: String, message: String) async -> String {
         let params = SignMessageRequest(
             network: network,
-            wallet: self.walletAddress,
+            walletId: self.walletId,
             message: message
         )
         
@@ -199,7 +210,7 @@ public class WalletClient {
     public func sendTransaction(network: String, to: String, value: String) async -> String {
         let params = SendTransactionRequest(
             network: network,
-            wallet: self.walletAddress,
+            walletId: self.walletId,
             to: to,
             value: value,
             mode: TransactionMode.relayer
