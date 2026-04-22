@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		3D34460F2F86D65D0088EAAB /* Swift SDK in Frameworks */ = {isa = PBXBuildFile; productRef = 3D34460E2F86D65D0088EAAB /* Swift SDK */; };
+		3D2708222F98AE7300CD78D9 /* OMS SDK in Frameworks */ = {isa = PBXBuildFile; productRef = 3D2708212F98AE7300CD78D9 /* OMS SDK */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,17 +27,25 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				3D34460F2F86D65D0088EAAB /* Swift SDK in Frameworks */,
+				3D2708222F98AE7300CD78D9 /* OMS SDK in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		3D2708202F98AE7300CD78D9 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		3D65FC8D2F86D5AC009476BA = {
 			isa = PBXGroup;
 			children = (
 				3D65FC982F86D5AC009476BA /* Sequence SDK Demo */,
+				3D2708202F98AE7300CD78D9 /* Frameworks */,
 				3D65FC972F86D5AC009476BA /* Products */,
 			);
 			sourceTree = "<group>";
@@ -70,7 +78,7 @@
 			);
 			name = "Sequence SDK Demo";
 			packageProductDependencies = (
-				3D34460E2F86D65D0088EAAB /* Swift SDK */,
+				3D2708212F98AE7300CD78D9 /* OMS SDK */,
 			);
 			productName = "Sequence SDK Demo";
 			productReference = 3D65FC962F86D5AC009476BA /* Sequence SDK Demo.app */;
@@ -383,9 +391,10 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		3D34460E2F86D65D0088EAAB /* Swift SDK */ = {
+		3D2708212F98AE7300CD78D9 /* OMS SDK */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = "Swift SDK";
+			package = 3D34460D2F86D65D0088EAAB /* XCLocalSwiftPackageReference "../../swift-sdk" */;
+			productName = "OMS SDK";
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
