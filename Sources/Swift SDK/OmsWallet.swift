@@ -1,34 +1,11 @@
 @available(macOS 12.0, iOS 15.0, *)
 public class OmsWallet {
-    var signedClient: WaasWalletClient
-    let keychain: KeychainManager = KeychainManager()
-    
-    /// The on-chain address of this wallet.
-    public let walletAddress: String
-    
-    var sessionPrivateKey: [UInt8]
-    
-    var verifier = "";
-    var challenge = "";
+    let wallet: WalletClient
+    let indexer: IndexerClient
     
     public init(projectAccessKey: String, environment: OmsEnvironment = OmsEnvironment()) {
-        if let walletAddress = try? keychain.string(forKey: Constants.addressStorageKey),
-           let signerPrivateKeyHex = try? keychain.string(forKey: Constants.signerStorageKey) {
-            self.walletAddress = walletAddress
-            self.sessionPrivateKey = ByteUtils.hexToBytes(hex: signerPrivateKeyHex)
-        } else {
-            self.walletAddress = ""
-            self.sessionPrivateKey = try! EthereumSigner.GeneratePrivateKey()
-        }
-
-        self.signedClient = WaasWalletClient(
-            baseURL: environment.apiRpcUrl,
-            transport: SignedWaasTransport(
-                projectAccessKey: projectAccessKey,
-                privateKey: sessionPrivateKey
-            ),
-            headers: { [:] }
-        )
+        self.wallet = WalletClient(projectAccessKey: projectAccessKey, environment: environment)
+        self.indexer = IndexerClient(projectAccessKey: projectAccessKey, environment: environment)
     }
     
     /// Initiates email-based OTP authentication by sending a one-time code to the given address.
@@ -39,17 +16,7 @@ public class OmsWallet {
     ///
     /// - Parameter email: The email address to send the one-time passcode to.
     public func signInWithEmail(email: String) async {
-        let params = CommitVerifierRequest(
-            identityType: IdentityType.email,
-            authMode: AuthMode.otp,
-            metadata: [String : String] (),
-            handle: email
-        )
-        
-        let response = await try! signedClient.commitVerifier(params)
-
-        verifier = response.verifier ?? "undefined"
-        challenge = response.challenge ?? "undefined"
+        await wallet.signInWithEmail(email: email)
     }
     
     /// Completes the email OTP authentication flow by verifying the code the user received.
@@ -64,76 +31,31 @@ public class OmsWallet {
     ///   - code: The one-time passcode string entered by the user.
     ///   - walletType: The wallet type to load or create for this user. Defaults to `.ethereumEoa`.
     public func completeEmailSignIn(code: String, walletType: WalletType = WalletType.ethereumEoa) async {
-        let answer = Keccak256.Keccak256(data: "\(challenge)\(code)")
-        
-        let params = CompleteAuthRequest(
-            identityType: IdentityType.email,
-            authMode: AuthMode.otp,
-            verifier: verifier,
-            answer: answer,
+        await wallet.completeEmailSignIn(code: code, walletType: walletType)
+    }
+    
+    public func getTokenBalances(
+        chainId: String,
+        contractAddress: String,
+        walletAddress: String,
+        includeMetadata: Bool
+    )
+    async throws -> TokenBalancesResult {
+        return try await indexer.getTokenBalances(
+            chainId: chainId,
+            contractAddress: contractAddress,
+            walletAddress: walletAddress,
+            includeMetadata: includeMetadata
         )
-        
-        let response = await try! signedClient.completeAuth(params)
-        
-        if (!response.wallets.isEmpty && response.wallets.contains { $0.type == walletType }) {
-            await try! useWallet(walletType: walletType)
-        } else {
-            await try! createWallet(walletType: walletType)
-        }
     }
-    
-    /// Creates a new wallet of the specified type for the authenticated user and persists
-    /// its address and session key to the keychain.
-    ///
-    /// Called internally by `completeEmailSignIn(code:walletType:)` when the user does not
-    /// already have a wallet of the requested type.
-    ///
-    /// - Parameter walletType: The wallet type to create (e.g. `.ethereumEoa`).
-    private func createWallet(walletType: WalletType) async {
-        let params = CreateWalletRequest(
-            walletType: walletType
-        )
-        
-        let response = await try! signedClient.createWallet(params)
-        
-        return createSequenceWallet(address: response.wallet.address ?? "");
-    }
-    
-    /// Loads an existing wallet of the specified type for the authenticated user and persists
-    /// its address and session key to the keychain.
-    ///
-    /// Called internally by `completeEmailSignIn(code:walletType:)` when the user already has
-    /// a wallet of the requested type on their account.
-    ///
-    /// - Parameter walletType: The wallet type to load (e.g. `.ethereumEoa`).
-    private func useWallet(walletType: WalletType) async {
-        let params = UseWalletRequest(
-            walletType: walletType,
-            walletIndex: 0
-        )
-        
-        let response = await try! signedClient.useWallet(params)
-        createSequenceWallet(address: response.wallet.address ?? "");
-    }
-    
-    /// Persists the given wallet address and the current session private key to the keychain
-    /// so the session can be restored on a later launch.
-    ///
-    /// - Parameter address: The on-chain address returned by `createWallet` or `useWallet`.
-    private func createSequenceWallet(address: String) {
-        try! keychain.set(address, forKey: Constants.addressStorageKey)
-        try! keychain.set(ByteUtils.bytesToHex(data: self.sessionPrivateKey), forKey: Constants.signerStorageKey)
-    }
-    
+
     /// Clears the wallet session from the device keychain.
     ///
     /// After calling this, any attempt to restore the session on the next launch will fail
     /// and the user will need to sign in again via `signInWithEmail(email:)`. Navigate to your
     /// sign-in screen after calling this.
     public func clearSession() {
-        let keychain: KeychainManager = KeychainManager()
-        try! keychain.delete(forKey: Constants.addressStorageKey)
-        try! keychain.delete(forKey: Constants.signerStorageKey)
+        wallet.clearSession()
     }
     
     /// Returns a list of credentials that currently have access to this wallet.
@@ -144,12 +66,7 @@ public class OmsWallet {
     /// - Returns: An array of `CredentialInfo` values representing each credential
     ///   with access to this wallet.
     public func listAccess() async -> [CredentialInfo] {
-        let params = ListAccessRequest(
-            walletAddress: self.walletAddress
-        )
-        
-        let response = try! await signedClient.listAccess(params)
-        return response.credentials
+        return await wallet.listAccess()
     }
 
     /// Revokes access for a specific credential, preventing it from interacting
@@ -161,12 +78,7 @@ public class OmsWallet {
     ///
     /// - Parameter targetCredentialId: The unique identifier of the credential to revoke.
     public func revokeAccess(targetCredentialId: String) async {
-        let params = RevokeAccessRequest(
-            targetCredentialId: targetCredentialId,
-            walletAddress: self.walletAddress
-        )
-        
-        try! await signedClient.revokeAccess(params)
+        await wallet.revokeAccess(targetCredentialId: targetCredentialId)
     }
     
     /// Signs an arbitrary message using the wallet's session key.
@@ -176,14 +88,7 @@ public class OmsWallet {
     ///   - message: The plaintext message to sign.
     /// - Returns: A hex-encoded signature string.
     public func signMessage(network: String, message: String) async -> String {
-        let params = SignMessageRequest(
-            network: network,
-            wallet: self.walletAddress,
-            message: message
-        )
-        
-        let response = await try! signedClient.signMessage(params)
-        return response.signature
+        return await wallet.signMessage(network: network, message: message)
     }
     
     /// Sends a native token transfer to the specified address on the given network.
@@ -197,16 +102,7 @@ public class OmsWallet {
     ///   - value: The amount to send, as a string in the network's smallest denomination (e.g., wei for Ethereum).
     /// - Returns: The transaction hash of the submitted transaction.
     public func sendTransaction(network: String, to: String, value: String) async -> String {
-        let params = SendTransactionRequest(
-            network: network,
-            wallet: self.walletAddress,
-            to: to,
-            value: value,
-            mode: TransactionMode.relayer
-        )
-        
-        let response = await try! signedClient.sendTransaction(params)
-        return response.txHash
+        return await wallet.sendTransaction(network: network, to: to, value: value)
     }
 
     /// Calls a smart contract function with the provided parameters.
@@ -219,7 +115,6 @@ public class OmsWallet {
     ///   selector, ABI-encoded arguments, network, and any value to attach to the call.
     /// - Returns: The transaction hash of the submitted transaction.
     public func callContract(params: CallContractRequest) async -> String {
-        let response = await try! signedClient.callContract(params)
-        return response.txHash
+        return await wallet.callContract(params: params)
     }
 }

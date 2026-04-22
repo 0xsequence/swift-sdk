@@ -1,5 +1,5 @@
 import Testing
-@testable import Swift_SDK
+@testable import OMS_SDK
 
 let privateKey: [UInt8] = [
     0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
@@ -33,4 +33,21 @@ let privateKey: [UInt8] = [
     let walletAddress = try! EthereumSigner.GetWalletAddress(privateKey: privateKey)
     
     #expect(walletAddress == expected)
+}
+
+@Test func TestGetTokenBalances() async throws {
+    let oms = OmsWallet(
+        projectAccessKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE"
+    )
+    
+    let result = try await oms.getTokenBalances(
+        chainId: "polygon",
+        contractAddress: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
+        walletAddress: "0x8e3E38fe7367dd3b52D1e281E4e8400447C8d8B9",
+        includeMetadata: true
+    )
+    
+    for r in result.balances {
+        print("Account Address: \(r.accountAddress ?? "undefined"), Balance: \(r.balance ?? "undefined")")
+    }
 }
