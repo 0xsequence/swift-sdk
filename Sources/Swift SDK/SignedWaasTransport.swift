@@ -1,10 +1,10 @@
 import Foundation
 
-@available(macOS 12.0, *)
-@available(iOS 15.0, *)
+@available(macOS 12.0, iOS 15.0, *)
 struct SignedWaasTransport: WebRPCTransport {
     public let session: URLSession
     
+    private let client: HttpClient = HttpClient()
     private let projectAccessKey: String
     private var signer: [UInt8] = []
     
@@ -27,12 +27,15 @@ struct SignedWaasTransport: WebRPCTransport {
         let payload = String(data: body, encoding: .utf8) ?? ""
         let authHeader = buildAuthHeader(endpoint: endpoint, signer: signer, payload: payload)
         
-        print(endpoint)
-        
-        return await try! sendPost(baseURL: baseURL, path: path, payload: payload, headers: [
+        let response = try! await self.client.postJson(baseUrl: baseURL, path: path, body: payload, headers: [
             "X-Access-Key": projectAccessKey,
             "Authorization": authHeader
         ])
+        
+        return WebRPCHTTPResponse(
+            statusCode: response.statusCode,
+            body: response.body
+        )
     }
     
     public mutating func setSigner(signer: [UInt8]) {
@@ -50,54 +53,5 @@ struct SignedWaasTransport: WebRPCTransport {
         let signature = try! EthereumSigner.signUTF8MessageEIP191(privateKey: signer, message: hashedResult)
         
         return RequestUtils.buildAuthorizationHeader(scope: Constants.scope, cred: walletAddress, nonce: nonce, sig: signature)
-    }
-    
-    private func sendPost(
-        baseURL: String,
-        path: String,
-        payload: String,
-        headers: [String: String]
-    ) async throws -> WebRPCHTTPResponse {
-        guard let url = URL(string: joinWebRPCURL(baseURL: baseURL, path: path)) else {
-            throw WebRPCTransportError(message: "Invalid WebRPC URL")
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.httpBody = payload.data(using: .utf8)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("http://localhost:3000", forHTTPHeaderField: "Origin")
-        
-        for (name, value) in headers {
-            request.setValue(value, forHTTPHeaderField: name)
-        }
-
-        do {
-            let (data, response) = try await session.data(for: request)
-            let httpResponse = response as? HTTPURLResponse
-            let responseHeaders = (httpResponse?.allHeaderFields ?? [:]).reduce(into: [String: String]()) { result, item in
-                guard let key = item.key as? String else {
-                    return
-                }
-                result[key] = String(describing: item.value)
-            }
-
-            return WebRPCHTTPResponse(
-                statusCode: httpResponse?.statusCode ?? 0,
-                body: data,
-                headers: responseHeaders,
-            )
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            throw WebRPCTransportError(
-                message: "WebRPC HTTP request failed",
-                underlyingDescription: String(describing: error),
-            )
-        }
-    }
-    
-    private func joinWebRPCURL(baseURL: String, path: String) -> String {
-        baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/" + path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
 }

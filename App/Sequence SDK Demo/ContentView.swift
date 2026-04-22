@@ -1,6 +1,6 @@
 import SwiftUI
 import Combine
-import Swift_SDK
+import OMS_SDK
 
 // MARK: - App State
 
@@ -14,19 +14,19 @@ enum AppScreen {
 final class AppViewModel: ObservableObject {
     @Published var screen: AppScreen = .login
     @Published var isLoading: Bool = false
-    @Published var sequence: SequenceSdk = SequenceSdk(
+    @Published var oms: OmsWallet = OmsWallet(
         projectAccessKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE"
     )
 
     init() {}
 
     func checkSession() async {
-        let hasSession = !sequence.wallet.walletAddress.isEmpty
+        let hasSession = !oms.getWalletAddress().isEmpty
         screen = hasSession ? .wallet : .login
     }
     
     func signOut() {
-        sequence.wallet.clearSession()
+        oms.clearSession()
         screen = .login
     }
 
@@ -35,7 +35,7 @@ final class AppViewModel: ObservableObject {
     func submitLogin(input: String) async {
         isLoading = true
         
-        await sequence.wallet.signInWithEmail(email: input)
+        await oms.signInWithEmail(email: input)
         
         isLoading = false
         screen = .confirmCode
@@ -46,12 +46,7 @@ final class AppViewModel: ObservableObject {
     func submitConfirmCode(code: String) async {
         isLoading = true
         
-        let walletData = await sequence.wallet.completeEmailSignIn(code: code)
-        if (walletData.wallets.count == 0) {
-            await sequence.wallet.createWallet()
-        } else {
-            await sequence.wallet.useWallet(walletType: walletData.wallets[0].type)
-        }
+        await oms.completeEmailSignIn(code: code)
         
         isLoading = false
         screen = .wallet
@@ -165,7 +160,7 @@ struct WalletWindow: View {
                 .fontWeight(.bold)
                 .frame(maxWidth: .infinity, alignment: .leading)
             
-            Text(vm.sequence.wallet.walletAddress)
+            Text(vm.oms.getWalletAddress())
                 .frame(maxWidth: .infinity, alignment: .leading)
             
             Button {
@@ -187,7 +182,7 @@ struct WalletWindow: View {
 
             Button {
                 Task {
-                    let result = await vm.sequence.wallet.signMessage(network: "amoy", message: messageText)
+                    let result = await vm.oms.signMessage(network: "amoy", message: messageText)
                     signature = result
                 }
             } label: {
@@ -211,7 +206,7 @@ struct WalletWindow: View {
 
             Button {
                 Task {
-                    let result = await vm.sequence.wallet.sendTransaction(network: "amoy", to: toText, value: amountText)
+                    let result = await vm.oms.sendTransaction(network: "amoy", to: toText, value: amountText)
                     signature = result
                 }
             } label: {

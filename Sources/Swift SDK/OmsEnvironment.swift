@@ -1,4 +1,4 @@
-public struct SequenceEnvironment : Sendable {
+public struct OmsEnvironment : Sendable {
     let walletApiUrl: String
     let apiRpcUrl: String
     let indexerUrlTemplate: String

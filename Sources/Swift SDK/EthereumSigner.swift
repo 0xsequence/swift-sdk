@@ -3,7 +3,6 @@ import CryptoKit
 import libsecp256k1
 
 public class EthereumSigner {
-
     public enum SignerError: Error {
         case invalidKeyLength
         case invalidHashLength

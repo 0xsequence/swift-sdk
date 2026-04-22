@@ -1,5 +1,7 @@
+import Foundation
+import CryptoKit
 import Testing
-@testable import Swift_SDK
+@testable import OMS_SDK
 
 let privateKey: [UInt8] = [
     0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
@@ -27,10 +29,41 @@ let privateKey: [UInt8] = [
     #expect(result == expected)
 }
 
+@Test func TestEmailAuthChallenge() async throws {
+    let challenge  = "challenge"
+    let code = "123456"
+    let expected = "2oXiHHjzvN3XzdxGxWTK_c9hZf7pom0OovssPvI7q3M"
+    
+    let answer = RequestUtils.hashEmailAuthAnswer(
+        challenge: challenge,
+        code: code
+    )
+
+    #expect(answer == expected)
+}
+
+
 @Test func TestCompareWalletAddress() async throws {
     let expected = "0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a"
     
     let walletAddress = try! EthereumSigner.GetWalletAddress(privateKey: privateKey)
     
     #expect(walletAddress == expected)
+}
+
+@Test func TestGetTokenBalances() async throws {
+    let oms = OmsWallet(
+        projectAccessKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE"
+    )
+    
+    let result = try await oms.getTokenBalances(
+        chainId: "polygon",
+        contractAddress: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
+        walletAddress: "0x8e3E38fe7367dd3b52D1e281E4e8400447C8d8B9",
+        includeMetadata: true
+    )
+    
+    for r in result.balances {
+        print("Account Address: \(r.accountAddress ?? "undefined"), Balance: \(r.balance ?? "undefined")")
+    }
 }
