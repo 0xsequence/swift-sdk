@@ -46,7 +46,7 @@ final class AppViewModel: ObservableObject {
     func submitConfirmCode(code: String) async {
         isLoading = true
         
-        let walletData = await oms.completeEmailSignIn(code: code)
+        await oms.completeEmailSignIn(code: code)
         
         isLoading = false
         screen = .wallet
