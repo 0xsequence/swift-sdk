@@ -40,7 +40,7 @@ private struct TokenBalancesPayload: Codable {
 }
 
 @available(macOS 12.0, iOS 15.0, *)
-final class IndexerClient {
+public final class IndexerClient {
     private let projectAccessKey: String
     private let environment: OmsEnvironment
     private let client: HttpClient = HttpClient()

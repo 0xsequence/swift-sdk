@@ -1,4 +1,4 @@
-public struct OmsEnvironment : Sendable {
+public struct OMSClientEnvironment : Sendable {
     let walletApiUrl: String
     let apiRpcUrl: String
     let indexerUrlTemplate: String

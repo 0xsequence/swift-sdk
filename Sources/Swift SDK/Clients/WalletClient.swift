@@ -41,7 +41,7 @@ public class WalletClient {
     /// `completeEmailSignIn(code:walletType:)`.
     ///
     /// - Parameter email: The email address to send the one-time passcode to.
-    public func signInWithEmail(email: String) async {
+    public func startEmailAuth(email: String) async {
         let params = CommitVerifierRequest(
             identityType: IdentityType.email,
             authMode: AuthMode.otp,
@@ -66,7 +66,7 @@ public class WalletClient {
     /// - Parameters:
     ///   - code: The one-time passcode string entered by the user.
     ///   - walletType: The wallet type to load or create for this user. Defaults to `.ethereumEoa`.
-    public func completeEmailSignIn(code: String, walletType: WalletType = WalletType.ethereum) async {
+    public func completeEmailAuth(code: String, walletType: WalletType = WalletType.ethereum) async {
         let answer = RequestUtils.hashEmailAuthAnswer(challenge: challenge, code: code)
 
         let params = CompleteAuthRequest(
@@ -141,7 +141,7 @@ public class WalletClient {
     /// After calling this, any attempt to restore the session on the next launch will fail
     /// and the user will need to sign in again via `signInWithEmail(email:)`. Navigate to your
     /// sign-in screen after calling this.
-    public func clearSession() {
+    public func signOut() {
         let keychain: KeychainManager = KeychainManager()
         try! keychain.delete(forKey: Constants.addressStorageKey)
         try! keychain.delete(forKey: Constants.signerStorageKey)

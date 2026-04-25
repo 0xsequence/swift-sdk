@@ -14,19 +14,19 @@ enum AppScreen {
 final class AppViewModel: ObservableObject {
     @Published var screen: AppScreen = .login
     @Published var isLoading: Bool = false
-    @Published var oms: OmsWallet = OmsWallet(
+    @Published var oms: OMSClient = OMSClient(
         projectAccessKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE"
     )
 
     init() {}
 
     func checkSession() async {
-        let hasSession = !oms.getWalletAddress().isEmpty
+        let hasSession = !oms.wallet.walletAddress.isEmpty
         screen = hasSession ? .wallet : .login
     }
     
     func signOut() {
-        oms.clearSession()
+        oms.wallet.signOut()
         screen = .login
     }
 
@@ -35,7 +35,7 @@ final class AppViewModel: ObservableObject {
     func submitLogin(input: String) async {
         isLoading = true
         
-        await oms.signInWithEmail(email: input)
+        await oms.wallet.startEmailAuth(email: input)
         
         isLoading = false
         screen = .confirmCode
@@ -46,7 +46,7 @@ final class AppViewModel: ObservableObject {
     func submitConfirmCode(code: String) async {
         isLoading = true
         
-        await oms.completeEmailSignIn(code: code)
+        await oms.wallet.completeEmailAuth(code: code)
         
         isLoading = false
         screen = .wallet
@@ -160,7 +160,7 @@ struct WalletWindow: View {
                 .fontWeight(.bold)
                 .frame(maxWidth: .infinity, alignment: .leading)
             
-            Text(vm.oms.getWalletAddress())
+            Text(vm.oms.wallet.walletAddress)
                 .frame(maxWidth: .infinity, alignment: .leading)
             
             Button {
@@ -182,7 +182,7 @@ struct WalletWindow: View {
 
             Button {
                 Task {
-                    let result = await vm.oms.signMessage(network: "amoy", message: messageText)
+                    let result = await vm.oms.wallet.signMessage(network: "amoy", message: messageText)
                     signature = result
                 }
             } label: {
@@ -206,7 +206,7 @@ struct WalletWindow: View {
 
             Button {
                 Task {
-                    let result = await vm.oms.sendTransaction(network: "amoy", to: toText, value: amountText)
+                    let result = await vm.oms.wallet.sendTransaction(network: "amoy", to: toText, value: amountText)
                     signature = result
                 }
             } label: {

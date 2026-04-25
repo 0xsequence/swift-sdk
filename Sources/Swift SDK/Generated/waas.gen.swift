@@ -232,6 +232,7 @@ public struct WebRPCHTTPResponse: Sendable {
     }
 }
 
+@available(iOS 13.0.0, *)
 public protocol WebRPCTransport: Sendable {
     func post(
         baseURL: String,
