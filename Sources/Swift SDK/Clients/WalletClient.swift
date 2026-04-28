@@ -11,7 +11,7 @@ public class WalletClient {
     var verifier = "";
     var challenge = "";
     
-    public init(projectAccessKey: String, environment: OmsEnvironment = OmsEnvironment()) {
+    public init(projectAccessKey: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
         if let walletAddress = try? keychain.string(forKey: Constants.addressStorageKey),
            let walletId = try? keychain.string(forKey: Constants.walletIdStorageKey),
            let signerPrivateKeyHex = try? keychain.string(forKey: Constants.signerStorageKey) {
