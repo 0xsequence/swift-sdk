@@ -1,4 +1,5 @@
 public enum TransactionError: Error {
+    case noFeeOptionsAvailable
     case missingTransactionHash
     case transactionFailed(status: TransactionStatus)
     case pollingTimedOut
@@ -203,19 +204,25 @@ public class WalletClient {
         return response.signature
     }
 
-    public func sendTransaction(network: String, to: String, value: String) async throws -> String {
+    public func sendTransaction(
+        network: String,
+        to: String,
+        value: String,
+        feeOptionSelector: FeeOptionSelector = .first
+    ) async throws -> String {
         return try await self.sendTransaction(network: network, request: SendTransactionRequest(
             to: to,
             value: value,
             data: nil,
             feeCeiling: nil,
             nonce: nil
-        ))
+        ), feeOptionSelector: feeOptionSelector)
     }
 
     public func sendTransaction(
         network: String,
-        request: SendTransactionRequest
+        request: SendTransactionRequest,
+        feeOptionSelector: FeeOptionSelector = .first
     ) async throws -> String {
         let prepareResponse = try await signedClient.prepareEthereumTransaction(
             PrepareEthereumTransactionRequest(
@@ -228,14 +235,19 @@ public class WalletClient {
             )
         )
         
-        return try await self.execute(txnId: prepareResponse.txnId);
+        return try await self.execute(
+            txnId: prepareResponse.txnId,
+            feeOptions: prepareResponse.feeOptions,
+            feeOptionSelector: feeOptionSelector
+        );
     }
     
     public func callContract(
         network: String,
         contract: String,
         method: String,
-        args: [AbiArg]?
+        args: [AbiArg]?,
+        feeOptionSelector: FeeOptionSelector = .first
     ) async throws -> String {
         let prepareResponse = try await signedClient.prepareContractCall(
             PrepareContractCallRequest(
@@ -248,13 +260,31 @@ public class WalletClient {
             )
         )
 
-        return try await self.execute(txnId: prepareResponse.txnId);
+        return try await self.execute(
+            txnId: prepareResponse.txnId,
+            feeOptions: prepareResponse.feeOptions,
+            feeOptionSelector: feeOptionSelector
+        );
     }
     
-    private func execute(txnId: String) async throws -> String {
-        let executeResponse = try await signedClient.execute(
-            ExecuteRequest(txnId: txnId, feeOption: nil)
-        )
+    private func execute(
+        txnId: String,
+        feeOptions: [FeeOption]?,
+        feeOptionSelector: FeeOptionSelector
+    ) async throws -> String {
+        var feeOption: FeeOption? = nil
+        if feeOptions != nil {
+            feeOption = try await feeOptionSelector.callAsFunction(feeOptions ?? [])
+        }
+        
+        var feeOptionSelection: FeeOptionSelection? = nil
+        if feeOption != nil {
+            feeOptionSelection = FeeOptionSelection(token: feeOption?.token.tokenId ?? "")
+        }
+        
+        let executeRequest = ExecuteRequest(txnId: txnId, feeOption: feeOptionSelection)
+        
+        let executeResponse = try await signedClient.execute(executeRequest)
         var status = executeResponse.status
 
         let pollIntervalNanos: UInt64 = 750_000_000
