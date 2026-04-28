@@ -1,3 +1,9 @@
+public enum TransactionError: Error {
+    case missingTransactionHash
+    case transactionFailed(status: TransactionStatus)
+    case pollingTimedOut
+}
+
 @available(macOS 12.0, iOS 15.0, *)
 public class WalletClient {
     var signedClient: WaasWalletClient
@@ -196,41 +202,86 @@ public class WalletClient {
         let response = try! await signedClient.signMessage(params)
         return response.signature
     }
-    
-    /// Sends a native token transfer to the specified address on the given network.
-    ///
-    /// The transaction is submitted via the Sequence relayer, so the user does not need
-    /// to hold gas tokens to cover fees.
-    ///
-    /// - Parameters:
-    ///   - network: The network to send the transaction on (e.g., `"mainnet"`, `"polygon"`).
-    ///   - to: The recipient's wallet address.
-    ///   - value: The amount to send, as a string in the network's smallest denomination (e.g., wei for Ethereum).
-    /// - Returns: The transaction hash of the submitted transaction.
-    public func sendTransaction(network: String, to: String, value: String) async -> String {
-        let params = SendTransactionRequest(
-            network: network,
-            walletId: self.walletId,
+
+    public func sendTransaction(network: String, to: String, value: String) async throws -> String {
+        return try await self.sendTransaction(network: network, request: SendTransactionRequest(
             to: to,
             value: value,
-            mode: TransactionMode.relayer
-        )
-        
-        let response = try! await signedClient.sendTransaction(params)
-        return response.txHash
+            data: nil,
+            feeCeiling: nil,
+            nonce: nil
+        ))
     }
 
-    /// Calls a smart contract function with the provided parameters.
-    ///
-    /// Use this for any contract interaction that writes state — token transfers, NFT mints,
-    /// approvals, and so on. For read-only calls that don't require a transaction, query the
-    /// contract directly without this method.
-    ///
-    /// - Parameter params: A `CallContractRequest` describing the target contract, function
-    ///   selector, ABI-encoded arguments, network, and any value to attach to the call.
-    /// - Returns: The transaction hash of the submitted transaction.
-    public func callContract(params: CallContractRequest) async -> String {
-        let response = try! await signedClient.callContract(params)
-        return response.txHash
+    public func sendTransaction(
+        network: String,
+        request: SendTransactionRequest
+    ) async throws -> String {
+        let prepareResponse = try await signedClient.prepareEthereumTransaction(
+            PrepareEthereumTransactionRequest(
+                network: network,
+                walletId: self.walletId,
+                to: request.to,
+                value: request.value,
+                data: nil,
+                mode: .relayer
+            )
+        )
+        
+        return try await self.execute(txnId: prepareResponse.txnId);
+    }
+    
+    public func callContract(
+        network: String,
+        contract: String,
+        method: String,
+        args: [AbiArg]?
+    ) async throws -> String {
+        let prepareResponse = try await signedClient.prepareContractCall(
+            PrepareContractCallRequest(
+                network: network,
+                walletId: self.walletId,
+                contract: contract,
+                method: method,
+                args: args,
+                mode: .relayer
+            )
+        )
+
+        return try await self.execute(txnId: prepareResponse.txnId);
+    }
+    
+    private func execute(txnId: String) async throws -> String {
+        let executeResponse = try await signedClient.execute(
+            ExecuteRequest(txnId: txnId, feeOption: nil)
+        )
+        var status = executeResponse.status
+
+        let pollIntervalNanos: UInt64 = 750_000_000
+        let maxAttempts = 10  // ~45s ceiling
+        var attempts = 0
+
+        while status == .pending {
+            guard attempts < maxAttempts else {
+                throw TransactionError.pollingTimedOut
+            }
+            try await Task.sleep(nanoseconds: pollIntervalNanos)
+            attempts += 1
+
+            let statusResponse = try await signedClient.getTransactionStatus(
+                GetTransactionStatusRequest(txnId: txnId)
+            )
+            status = statusResponse.status
+
+            if status == .executed {
+                guard let hash = statusResponse.txnHash else {
+                    throw TransactionError.missingTransactionHash
+                }
+                return hash
+            }
+        }
+
+        // Loop exited without `.executed` — surface the terminal status.
+        throw TransactionError.transactionFailed(status: status)
     }
 }
