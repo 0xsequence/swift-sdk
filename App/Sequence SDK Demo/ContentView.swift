@@ -1,6 +1,33 @@
 import SwiftUI
 import Combine
 import OMS_SDK
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
+
+// MARK: - Clipboard helper
+
+enum Clipboard {
+    static func copy(_ string: String) {
+        #if os(iOS)
+        UIPasteboard.general.string = string
+        #elseif os(macOS)
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(string, forType: .string)
+        #endif
+    }
+}
+
+// MARK: - Chains
+
+/// Display label → on-chain id passed to the SDK.
+private let supportedChains: [(label: String, id: String)] = [
+    ("polygon", "137"),
+    ("amoy", "80002"),
+]
 
 // MARK: - App State
 
@@ -24,7 +51,7 @@ final class AppViewModel: ObservableObject {
         let hasSession = !oms.wallet.walletAddress.isEmpty
         screen = hasSession ? .wallet : .login
     }
-    
+
     func signOut() {
         oms.wallet.signOut()
         screen = .login
@@ -34,9 +61,9 @@ final class AppViewModel: ObservableObject {
 
     func submitLogin(input: String) async {
         isLoading = true
-        
+
         await oms.wallet.startEmailAuth(email: input)
-        
+
         isLoading = false
         screen = .confirmCode
     }
@@ -45,9 +72,9 @@ final class AppViewModel: ObservableObject {
 
     func submitConfirmCode(code: String) async {
         isLoading = true
-        
+
         await oms.wallet.completeEmailAuth(code: code)
-        
+
         isLoading = false
         screen = .wallet
     }
@@ -149,20 +176,38 @@ struct ConfirmCodeWindow: View {
 
 struct WalletWindow: View {
     @EnvironmentObject private var vm: AppViewModel
-    @State private var messageText: String = ""
-    @State private var toText: String = ""
-    @State private var amountText: String = ""
-    @State private var signature: String = ""  // ← add this
+    @State private var showSendWindow: Bool = false
+    @State private var showCallContractWindow: Bool = false
+    @State private var showSignMessageWindow: Bool = false
+    @State private var didCopy: Bool = false
 
     var body: some View {
         VStack(spacing: 12) {
             Text("My Wallet")
                 .fontWeight(.bold)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            
-            Text(vm.oms.wallet.walletAddress)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            
+
+            HStack(spacing: 8) {
+                Text(vm.oms.wallet.walletAddress)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button {
+                    Clipboard.copy(vm.oms.wallet.walletAddress)
+                    didCopy = true
+                    Task {
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        didCopy = false
+                    }
+                } label: {
+                    Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                }
+                .buttonStyle(.bordered)
+                .disabled(vm.oms.wallet.walletAddress.isEmpty)
+                .help(didCopy ? "Copied!" : "Copy address")
+            }
+
             Button {
                 vm.signOut()
             } label: {
@@ -170,51 +215,113 @@ struct WalletWindow: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
-            
+
             Spacer().frame(height: 8)
-            
-            Text("Sign Message")
-                .fontWeight(.bold)
+
+            HStack(spacing: 8) {
+                Button {
+                    showSendWindow = true
+                } label: {
+                    Text("Send")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+                    showCallContractWindow = true
+                } label: {
+                    Text("Call Contract")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+                    showSignMessageWindow = true
+                } label: {
+                    Text("Sign Message")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(32)
+        .frame(maxWidth: 400)
+        .sheet(isPresented: $showSendWindow) {
+            SendTransactionWindow()
+                .environmentObject(vm)
+        }
+        .sheet(isPresented: $showCallContractWindow) {
+            CallContractWindow()
+                .environmentObject(vm)
+        }
+        .sheet(isPresented: $showSignMessageWindow) {
+            SignMessageWindow()
+                .environmentObject(vm)
+        }
+    }
+}
+
+// MARK: - Sign Message Window
+
+struct SignMessageWindow: View {
+    @EnvironmentObject private var vm: AppViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var messageText: String = ""
+    @State private var chainId: String = "80002"   // amoy
+    @State private var signature: String = ""
+    @State private var isSigning: Bool = false
+
+    var body: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Text("Sign Message")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                Spacer()
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Text("Chain")
+                .fontWeight(.semibold)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            
+
+            Picker("Chain", selection: $chainId) {
+                ForEach(supportedChains, id: \.id) { chain in
+                    Text(chain.label).tag(chain.id)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text("Message")
+                .fontWeight(.semibold)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
             TextField("Enter message...", text: $messageText)
                 .textFieldStyle(.roundedBorder)
 
             Button {
                 Task {
-                    let result = await vm.oms.wallet.signMessage(network: "amoy", message: messageText)
+                    isSigning = true
+                    let result = await vm.oms.wallet.signMessage(
+                        network: chainId,
+                        message: messageText
+                    )
                     signature = result
+                    isSigning = false
                 }
             } label: {
-                Text("Sign Message")
-                    .frame(maxWidth: .infinity)
+                label(for: "Sign Message", loading: isSigning)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(messageText.isEmpty)
-            
-            Spacer().frame(height: 8)
-            
-            Text("Send Transaction")
-                .fontWeight(.bold)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            
-            TextField("Enter to...", text: $toText)
-                .textFieldStyle(.roundedBorder)
-            
-            TextField("Enter value...", text: $amountText)
-                .textFieldStyle(.roundedBorder)
-
-            Button {
-                Task {
-                    let result = await vm.oms.wallet.sendTransaction(network: "amoy", to: toText, value: amountText)
-                    signature = result
-                }
-            } label: {
-                Text("Send Transaction")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(amountText.isEmpty || toText.isEmpty)
+            .disabled(messageText.isEmpty || isSigning)
 
             if !signature.isEmpty {
                 Text(signature)
@@ -222,10 +329,292 @@ struct WalletWindow: View {
                     .monospaced()
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-            } 
+                    .textSelection(.enabled)
+                    .padding(.top, 8)
+            }
+
+            Spacer()
         }
         .padding(32)
-        .frame(maxWidth: 400)
+        .frame(minWidth: 400, minHeight: 360)
+    }
+}
+
+// MARK: - Send Transaction Window
+
+struct SendTransactionWindow: View {
+    @EnvironmentObject private var vm: AppViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var toText: String = ""
+    @State private var amountText: String = ""
+    @State private var chainId: String = "137"   // polygon
+    @State private var result: String = ""
+    @State private var isSending: Bool = false
+
+    var body: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Text("Send Transaction")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                Spacer()
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Text("Amount")
+                .fontWeight(.semibold)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            TextField("Enter amount...", text: $amountText)
+                .textFieldStyle(.roundedBorder)
+                #if os(iOS)
+                .keyboardType(.decimalPad)
+                #endif
+
+            Text("To Address")
+                .fontWeight(.semibold)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            TextField("0x...", text: $toText)
+                .textFieldStyle(.roundedBorder)
+                .autocorrectionDisabled()
+                #if os(iOS)
+                .textInputAutocapitalization(.never)
+                #endif
+
+            Text("Chain")
+                .fontWeight(.semibold)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Picker("Chain", selection: $chainId) {
+                ForEach(supportedChains, id: \.id) { chain in
+                    Text(chain.label).tag(chain.id)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                Task {
+                    isSending = true
+                    let txResult = try! await vm.oms.wallet.sendTransaction(
+                        network: chainId,
+                        to: toText,
+                        value: amountText
+                    )
+                    result = txResult
+                    isSending = false
+                }
+            } label: {
+                label(for: "Execute Transaction", loading: isSending)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(amountText.isEmpty || toText.isEmpty || isSending)
+
+            if !result.isEmpty {
+                Text(result)
+                    .font(.footnote)
+                    .monospaced()
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 8)
+            }
+
+            Spacer()
+        }
+        .padding(32)
+        .frame(minWidth: 400, minHeight: 420)
+    }
+}
+
+// MARK: - Call Contract Window
+
+private struct AbiArgInput: Identifiable {
+    let id = UUID()
+    var type: String = ""
+    var value: String = ""
+}
+
+/// Convert a free-form text input into a `WebRPCJSONValue`.
+///
+/// Rules (in order):
+///   - empty / "null" → .null
+///   - "true" / "false" → .bool
+///   - looks like JSON (`[` or `{`) and decodes → .array / .object
+///   - parses as Int64 → .integer
+///   - parses as UInt64 (overflows Int64 but fits UInt64) → .unsignedInteger
+///   - parses as Double → .number
+///   - otherwise → .string  (covers addresses, hex, bigints serialized as strings)
+private func parseAbiValue(_ raw: String) -> WebRPCJSONValue {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    if trimmed.isEmpty || trimmed.lowercased() == "null" {
+        return .null
+    }
+    if trimmed.lowercased() == "true" { return .bool(true) }
+    if trimmed.lowercased() == "false" { return .bool(false) }
+
+    if trimmed.hasPrefix("[") || trimmed.hasPrefix("{") {
+        if let data = trimmed.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode(WebRPCJSONValue.self, from: data) {
+            return decoded
+        }
+    }
+
+    if let i = Int64(trimmed) {
+        return .integer(i)
+    }
+    if let u = UInt64(trimmed) {
+        return .unsignedInteger(u)
+    }
+    if let d = Double(trimmed) {
+        return .number(d)
+    }
+
+    return .string(trimmed)
+}
+
+struct CallContractWindow: View {
+    @EnvironmentObject private var vm: AppViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var contractText: String = ""
+    @State private var methodText: String = ""
+    @State private var chainId: String = "137"   // polygon
+    @State private var args: [AbiArgInput] = [AbiArgInput()]
+    @State private var result: String = ""
+    @State private var isSending: Bool = false
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                HStack {
+                    Text("Call Contract")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    Spacer()
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Text("Chain")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Picker("Chain", selection: $chainId) {
+                    ForEach(supportedChains, id: \.id) { chain in
+                        Text(chain.label).tag(chain.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text("Contract")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                TextField("0x...", text: $contractText)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+
+                Text("Method")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                TextField("e.g. transfer", text: $methodText)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+
+                HStack {
+                    Text("Args")
+                        .fontWeight(.semibold)
+                    Spacer()
+                    Button {
+                        args.append(AbiArgInput())
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                ForEach($args) { $arg in
+                    HStack(spacing: 8) {
+                        TextField("type (e.g. uint256)", text: $arg.type)
+                            .textFieldStyle(.roundedBorder)
+                            .autocorrectionDisabled()
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            #endif
+
+                        TextField("value", text: $arg.value)
+                            .textFieldStyle(.roundedBorder)
+                            .autocorrectionDisabled()
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            #endif
+
+                        Button {
+                            args.removeAll { $0.id == arg.id }
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(args.count <= 1)
+                    }
+                }
+
+                Button {
+                    Task {
+                        isSending = true
+                        let abiArgs: [AbiArg] = args
+                            .filter { !$0.type.isEmpty || !$0.value.isEmpty }
+                            .map { AbiArg(type: $0.type, value: parseAbiValue($0.value)) }
+                        let txResult = try! await vm.oms.wallet.callContract(
+                            network: chainId,
+                            contract: contractText,
+                            method: methodText,
+                            args: abiArgs.isEmpty ? nil : abiArgs
+                        )
+                        result = txResult
+                        isSending = false
+                    }
+                } label: {
+                    label(for: "Execute Transaction", loading: isSending)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(contractText.isEmpty || methodText.isEmpty || isSending)
+
+                if !result.isEmpty {
+                    Text(result)
+                        .font(.footnote)
+                        .monospaced()
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 8)
+                }
+            }
+            .padding(32)
+        }
+        .frame(minWidth: 460, minHeight: 520)
     }
 }
 
@@ -260,4 +649,20 @@ private func label(for title: String, loading: Bool) -> some View {
 
 #Preview("Wallet") {
     WalletWindow()
+        .environmentObject(AppViewModel())
+}
+
+#Preview("Send Transaction") {
+    SendTransactionWindow()
+        .environmentObject(AppViewModel())
+}
+
+#Preview("Call Contract") {
+    CallContractWindow()
+        .environmentObject(AppViewModel())
+}
+
+#Preview("Sign Message") {
+    SignMessageWindow()
+        .environmentObject(AppViewModel())
 }

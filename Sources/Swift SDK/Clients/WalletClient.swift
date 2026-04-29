@@ -236,8 +236,7 @@ public class WalletClient {
         )
         
         return try await self.execute(
-            txnId: prepareResponse.txnId,
-            feeOptions: prepareResponse.feeOptions,
+            prepareResponse: prepareResponse,
             feeOptionSelector: feeOptionSelector
         );
     }
@@ -261,20 +260,18 @@ public class WalletClient {
         )
 
         return try await self.execute(
-            txnId: prepareResponse.txnId,
-            feeOptions: prepareResponse.feeOptions,
+            prepareResponse: prepareResponse,
             feeOptionSelector: feeOptionSelector
         );
     }
     
     private func execute(
-        txnId: String,
-        feeOptions: [FeeOption]?,
+        prepareResponse: PrepareResponse,
         feeOptionSelector: FeeOptionSelector
     ) async throws -> String {
         var feeOption: FeeOption? = nil
-        if feeOptions != nil {
-            feeOption = try await feeOptionSelector.callAsFunction(feeOptions ?? [])
+        if !prepareResponse.sponsored && prepareResponse.feeOptions != nil {
+            feeOption = try await feeOptionSelector.callAsFunction(prepareResponse.feeOptions ?? [])
         }
         
         var feeOptionSelection: FeeOptionSelection? = nil
@@ -282,7 +279,10 @@ public class WalletClient {
             feeOptionSelection = FeeOptionSelection(token: feeOption?.token.tokenId ?? "")
         }
         
-        let executeRequest = ExecuteRequest(txnId: txnId, feeOption: feeOptionSelection)
+        let executeRequest = ExecuteRequest(
+            txnId: prepareResponse.txnId,
+            feeOption: feeOptionSelection
+        )
         
         let executeResponse = try await signedClient.execute(executeRequest)
         var status = executeResponse.status
@@ -299,7 +299,7 @@ public class WalletClient {
             attempts += 1
 
             let statusResponse = try await signedClient.getTransactionStatus(
-                GetTransactionStatusRequest(txnId: txnId)
+                GetTransactionStatusRequest(txnId: prepareResponse.txnId)
             )
             status = statusResponse.status
 
