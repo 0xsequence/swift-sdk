@@ -347,8 +347,8 @@ struct SendTransactionWindow: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var toText: String = ""
-    @State private var amountText: String = ""
-    @State private var chainId: String = "137"   // polygon
+    @State private var amountText: String = "1000"
+    @State private var chainId: String = "80002"   // amoy
     @State private var result: String = ""
     @State private var isSending: Bool = false
 
@@ -431,6 +431,11 @@ struct SendTransactionWindow: View {
         }
         .padding(32)
         .frame(minWidth: 400, minHeight: 420)
+        .onAppear {
+            if toText.isEmpty {
+                toText = vm.oms.wallet.walletAddress
+            }
+        }
     }
 }
 
@@ -444,38 +449,28 @@ private struct AbiArgInput: Identifiable {
 
 /// Convert a free-form text input into a `WebRPCJSONValue`.
 ///
+/// Plain text is always preserved as a `.string` — no numeric coercion. This
+/// matters for ABI args because uint256 / int256 values exceed JSON's safe
+/// number range and downstream encoders re-interpret them as floats, so the
+/// only safe wire format for numbers is a string. JSON literals (`[`, `{`) are
+/// still decoded so users can pass tuples / arrays explicitly.
+///
 /// Rules (in order):
-///   - empty / "null" → .null
-///   - "true" / "false" → .bool
+///   - empty → .null
 ///   - looks like JSON (`[` or `{`) and decodes → .array / .object
-///   - parses as Int64 → .integer
-///   - parses as UInt64 (overflows Int64 but fits UInt64) → .unsignedInteger
-///   - parses as Double → .number
-///   - otherwise → .string  (covers addresses, hex, bigints serialized as strings)
+///   - otherwise → .string  (numbers, addresses, hex, bools — all kept verbatim)
 private func parseAbiValue(_ raw: String) -> WebRPCJSONValue {
     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 
-    if trimmed.isEmpty || trimmed.lowercased() == "null" {
+    if trimmed.isEmpty {
         return .null
     }
-    if trimmed.lowercased() == "true" { return .bool(true) }
-    if trimmed.lowercased() == "false" { return .bool(false) }
 
     if trimmed.hasPrefix("[") || trimmed.hasPrefix("{") {
         if let data = trimmed.data(using: .utf8),
            let decoded = try? JSONDecoder().decode(WebRPCJSONValue.self, from: data) {
             return decoded
         }
-    }
-
-    if let i = Int64(trimmed) {
-        return .integer(i)
-    }
-    if let u = UInt64(trimmed) {
-        return .unsignedInteger(u)
-    }
-    if let d = Double(trimmed) {
-        return .number(d)
     }
 
     return .string(trimmed)
@@ -485,10 +480,13 @@ struct CallContractWindow: View {
     @EnvironmentObject private var vm: AppViewModel
     @Environment(\.dismiss) private var dismiss
 
-    @State private var contractText: String = ""
-    @State private var methodText: String = ""
-    @State private var chainId: String = "137"   // polygon
-    @State private var args: [AbiArgInput] = [AbiArgInput()]
+    @State private var contractText: String = "0x41e94eb019c0762f9bfcf9fb1e58725bfb0e7582"
+    @State private var methodText: String = "transfer"
+    @State private var chainId: String = "80002"   // amoy
+    @State private var args: [AbiArgInput] = [
+        AbiArgInput(type: "address", value: "0x000"),
+        AbiArgInput(type: "uint256", value: "1000"),
+    ]
     @State private var result: String = ""
     @State private var isSending: Bool = false
 
