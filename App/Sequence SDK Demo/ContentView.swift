@@ -368,15 +368,17 @@ struct SendTransactionWindow: View {
                 .buttonStyle(.plain)
             }
 
-            Text("Amount")
+            Text("Chain")
                 .fontWeight(.semibold)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            TextField("Enter amount...", text: $amountText)
-                .textFieldStyle(.roundedBorder)
-                #if os(iOS)
-                .keyboardType(.decimalPad)
-                #endif
+            Picker("Chain", selection: $chainId) {
+                ForEach(supportedChains, id: \.id) { chain in
+                    Text(chain.label).tag(chain.id)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Text("To Address")
                 .fontWeight(.semibold)
@@ -389,17 +391,15 @@ struct SendTransactionWindow: View {
                 .textInputAutocapitalization(.never)
                 #endif
 
-            Text("Chain")
+            Text("Amount")
                 .fontWeight(.semibold)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            Picker("Chain", selection: $chainId) {
-                ForEach(supportedChains, id: \.id) { chain in
-                    Text(chain.label).tag(chain.id)
-                }
-            }
-            .pickerStyle(.menu)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            TextField("Enter amount...", text: $amountText)
+                .textFieldStyle(.roundedBorder)
+                #if os(iOS)
+                .keyboardType(.decimalPad)
+                #endif
 
             Button {
                 Task {
@@ -482,9 +482,9 @@ struct CallContractWindow: View {
 
     @State private var contractText: String = "0x41e94eb019c0762f9bfcf9fb1e58725bfb0e7582"
     @State private var methodText: String = "transfer"
-    @State private var chainId: String = "80002"   // amoy
+    @State private var chainId: String = "80002"
     @State private var args: [AbiArgInput] = [
-        AbiArgInput(type: "address", value: "0x000"),
+        AbiArgInput(type: "address", value: ""),
         AbiArgInput(type: "uint256", value: "1000"),
     ]
     @State private var result: String = ""
@@ -613,6 +613,11 @@ struct CallContractWindow: View {
             .padding(32)
         }
         .frame(minWidth: 460, minHeight: 520)
+        .onAppear {
+            if !args.isEmpty, args[0].value.isEmpty {
+                args[0].value = vm.oms.wallet.walletAddress
+            }
+        }
     }
 }
 
