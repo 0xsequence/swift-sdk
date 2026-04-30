@@ -3,8 +3,16 @@ public class OMSClient {
     public let wallet: WalletClient
     public let indexer: IndexerClient
     
-    public init(projectAccessKey: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
-        self.wallet = WalletClient(projectAccessKey: projectAccessKey, environment: environment)
-        self.indexer = IndexerClient(projectAccessKey: projectAccessKey, environment: environment)
+    public init(projectAccessKey: String, scope: String = "proj_1", environment: OMSClientEnvironment = OMSClientEnvironment()) {
+        self.wallet = WalletClient(
+            projectAccessKey: projectAccessKey,
+            scope: scope,
+            environment: environment
+        )
+        
+        self.indexer = IndexerClient(
+            projectAccessKey: projectAccessKey,
+            environment: environment
+        )
     }
 }
