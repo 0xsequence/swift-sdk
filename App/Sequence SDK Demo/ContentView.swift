@@ -29,6 +29,29 @@ private let supportedChains: [(label: String, id: String)] = [
     ("amoy", "80002"),
 ]
 
+// MARK: - USDC
+
+/// USDC contract on the configured chain.
+private let usdcContractAddress = "0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582"
+
+/// USDC has 6 decimals. Raw balance is an atomic-unit integer string.
+private func formatUSDCBalance(_ raw: String) -> String {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return "0.00" }
+
+    let decimals = 6
+    let padded = trimmed.count <= decimals
+        ? String(repeating: "0", count: decimals - trimmed.count + 1) + trimmed
+        : trimmed
+    let splitIdx = padded.index(padded.endIndex, offsetBy: -decimals)
+    let whole = String(padded[..<splitIdx])
+    let frac = String(padded[splitIdx...].prefix(2))
+
+    let wholeStripped = String(whole.drop(while: { $0 == "0" }))
+    let wholeOut = wholeStripped.isEmpty ? "0" : wholeStripped
+    return "\(wholeOut).\(frac)"
+}
+
 // MARK: - App State
 
 enum AppScreen {
@@ -180,6 +203,29 @@ struct WalletWindow: View {
     @State private var showCallContractWindow: Bool = false
     @State private var showSignMessageWindow: Bool = false
     @State private var didCopy: Bool = false
+    @State private var usdcBalance: String = "—"
+    @State private var usdcBalanceRaw: String = ""
+    @State private var isFetchingBalance: Bool = false
+    @State private var selectedChain: String = "amoy"
+
+    private func refreshBalance() async {
+        guard !vm.oms.wallet.walletAddress.isEmpty else { return }
+        isFetchingBalance = true
+        let balances = try! await vm.oms.indexer.getTokenBalances(
+            chainId: selectedChain,
+            contractAddress: usdcContractAddress,
+            walletAddress: vm.oms.wallet.walletAddress,
+            includeMetadata: false
+        )
+        if let raw = balances.balances.first?.balance {
+            usdcBalance = formatUSDCBalance(raw)
+            usdcBalanceRaw = raw
+        } else {
+            usdcBalance = "0.00"
+            usdcBalanceRaw = "0"
+        }
+        isFetchingBalance = false
+    }
 
     var body: some View {
         VStack(spacing: 12) {
@@ -218,7 +264,7 @@ struct WalletWindow: View {
 
             Spacer().frame(height: 8)
 
-            HStack(spacing: 8) {
+            VStack(spacing: 8) {
                 Button {
                     showSendWindow = true
                 } label: {
@@ -243,16 +289,75 @@ struct WalletWindow: View {
                 }
                 .buttonStyle(.borderedProminent)
             }
+
+            Spacer().frame(height: 8)
+
+            Picker("Chain", selection: $selectedChain) {
+                ForEach(supportedChains, id: \.label) { chain in
+                    Text(chain.label).tag(chain.label)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // USDC balance card
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("USDC Balance")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if isFetchingBalance {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Button {
+                            Task { await refreshBalance() }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Refresh balance")
+                    }
+                }
+                Text(usdcBalance)
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                    .monospacedDigit()
+                if !usdcBalanceRaw.isEmpty {
+                    Text("\(usdcBalanceRaw) wei")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .monospaced()
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(.quaternary.opacity(0.5))
+            )
         }
         .padding(32)
         .frame(maxWidth: 400)
+        .task {
+            await refreshBalance()
+        }
+        .onChange(of: selectedChain) { _ in
+            Task { await refreshBalance() }
+        }
         .sheet(isPresented: $showSendWindow) {
             SendTransactionWindow()
                 .environmentObject(vm)
         }
         .sheet(isPresented: $showCallContractWindow) {
-            CallContractWindow()
-                .environmentObject(vm)
+            CallContractWindow(onCompleted: {
+                Task { await refreshBalance() }
+            })
+            .environmentObject(vm)
         }
         .sheet(isPresented: $showSignMessageWindow) {
             SignMessageWindow()
@@ -419,12 +524,7 @@ struct SendTransactionWindow: View {
             .disabled(amountText.isEmpty || toText.isEmpty || isSending)
 
             if !result.isEmpty {
-                Text(result)
-                    .font(.footnote)
-                    .monospaced()
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 8)
+                CopyableResult(text: result)
             }
 
             Spacer()
@@ -480,12 +580,16 @@ struct CallContractWindow: View {
     @EnvironmentObject private var vm: AppViewModel
     @Environment(\.dismiss) private var dismiss
 
+    /// Invoked after a successful contract call so the parent view can refresh
+    /// any derived state (e.g. balances).
+    var onCompleted: (() -> Void)? = nil
+
     @State private var contractText: String = "0x41e94eb019c0762f9bfcf9fb1e58725bfb0e7582"
     @State private var methodText: String = "transfer"
     @State private var chainId: String = "80002"   // amoy
     @State private var args: [AbiArgInput] = [
-        AbiArgInput(type: "address", value: ""),
-        AbiArgInput(type: "uint256", value: "1000"),
+        AbiArgInput(type: "address", value: "0xE5E8B483FfC05967FcFed58cc98D053265af6D99"),
+        AbiArgInput(type: "uint256", value: "1000000"),
     ]
     @State private var result: String = ""
     @State private var isSending: Bool = false
@@ -594,6 +698,7 @@ struct CallContractWindow: View {
                         )
                         result = txResult
                         isSending = false
+                        onCompleted?()
                     }
                 } label: {
                     label(for: "Execute Transaction", loading: isSending)
@@ -602,26 +707,49 @@ struct CallContractWindow: View {
                 .disabled(contractText.isEmpty || methodText.isEmpty || isSending)
 
                 if !result.isEmpty {
-                    Text(result)
-                        .font(.footnote)
-                        .monospaced()
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.top, 8)
+                    CopyableResult(text: result)
                 }
             }
             .padding(32)
         }
         .frame(minWidth: 460, minHeight: 520)
-        .onAppear {
-            if !args.isEmpty, args[0].value.isEmpty {
-                args[0].value = vm.oms.wallet.walletAddress
-            }
-        }
     }
 }
 
 // MARK: - Helpers
+
+/// A truncated, monospaced result string with a copy-to-clipboard button.
+struct CopyableResult: View {
+    let text: String
+    @State private var didCopy: Bool = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(text)
+                .font(.footnote)
+                .monospaced()
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                Clipboard.copy(text)
+                didCopy = true
+                Task {
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    didCopy = false
+                }
+            } label: {
+                Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+            }
+            .buttonStyle(.bordered)
+            .help(didCopy ? "Copied!" : "Copy")
+        }
+        .padding(.top, 8)
+    }
+}
 
 /// Shared button label that swaps text for a spinner while loading.
 @ViewBuilder
