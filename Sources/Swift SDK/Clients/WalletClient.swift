@@ -19,12 +19,12 @@ public class WalletClient {
     var challenge = "";
     
     public init(projectAccessKey: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
-        if let walletAddress = try? keychain.string(forKey: Constants.addressStorageKey),
-           let walletId = try? keychain.string(forKey: Constants.walletIdStorageKey),
-           let signerPrivateKeyHex = try? keychain.string(forKey: Constants.signerStorageKey) {
-            self.walletAddress = walletAddress
-            self.walletId = walletId
-            self.sessionPrivateKey = ByteUtils.hexToBytes(hex: signerPrivateKeyHex)
+        if let credentialsJson = try? keychain.string(forKey: Constants.credentialsStorageKey) {
+            let credentials = try! StorableCredentials.from(jsonString: credentialsJson)
+            
+            self.walletId = credentials.walletId
+            self.walletAddress = credentials.walletAddress
+            self.sessionPrivateKey = ByteUtils.hexToBytes(hex: credentials.privateKeyHex)
         } else {
             self.walletAddress = ""
             self.walletId = ""
@@ -138,9 +138,13 @@ public class WalletClient {
         self.walletAddress = walletAddress
         self.walletId = walletId
         
-        try! keychain.set(walletAddress, forKey: Constants.addressStorageKey)
-        try! keychain.set(walletId, forKey: Constants.walletIdStorageKey)
-        try! keychain.set(ByteUtils.bytesToHex(data: self.sessionPrivateKey), forKey: Constants.signerStorageKey)
+        let storableCredentials = StorableCredentials(
+            walletId: walletId,
+            walletAddress: walletAddress,
+            privateKeyHex: ByteUtils.bytesToHex(data: self.sessionPrivateKey)
+        )
+        
+        try! keychain.set(storableCredentials.jsonString(), forKey: Constants.credentialsStorageKey)
     }
     
     /// Clears the wallet session from the device keychain.
@@ -150,8 +154,7 @@ public class WalletClient {
     /// sign-in screen after calling this.
     public func signOut() {
         let keychain: KeychainManager = KeychainManager()
-        try! keychain.delete(forKey: Constants.addressStorageKey)
-        try! keychain.delete(forKey: Constants.signerStorageKey)
+        try! keychain.delete(forKey: Constants.credentialsStorageKey)
     }
     
     /// Returns a list of credentials that currently have access to this wallet.

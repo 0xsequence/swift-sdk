@@ -206,15 +206,15 @@ struct WalletWindow: View {
                 .buttonStyle(.bordered)
                 .disabled(vm.oms.wallet.walletAddress.isEmpty)
                 .help(didCopy ? "Copied!" : "Copy address")
-            }
 
-            Button {
-                vm.signOut()
-            } label: {
-                Text("Sign Out")
-                    .frame(maxWidth: .infinity)
+                Button {
+                    vm.signOut()
+                } label: {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                }
+                .buttonStyle(.bordered)
+                .help("Sign out")
             }
-            .buttonStyle(.bordered)
 
             Spacer().frame(height: 8)
 
@@ -222,7 +222,7 @@ struct WalletWindow: View {
                 Button {
                     showSendWindow = true
                 } label: {
-                    Text("Send")
+                    Text("Send Transaction")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
@@ -482,7 +482,7 @@ struct CallContractWindow: View {
 
     @State private var contractText: String = "0x41e94eb019c0762f9bfcf9fb1e58725bfb0e7582"
     @State private var methodText: String = "transfer"
-    @State private var chainId: String = "80002"
+    @State private var chainId: String = "80002"   // amoy
     @State private var args: [AbiArgInput] = [
         AbiArgInput(type: "address", value: ""),
         AbiArgInput(type: "uint256", value: "1000"),
