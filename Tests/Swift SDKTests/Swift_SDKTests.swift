@@ -52,11 +52,11 @@ let privateKey: [UInt8] = [
 }
 
 @Test func TestGetTokenBalances() async throws {
-    let oms = OmsWallet(
+    let oms = OMSClient(
         projectAccessKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE"
     )
     
-    let result = try await oms.getTokenBalances(
+    let result = try await oms.indexer.getTokenBalances(
         chainId: "polygon",
         contractAddress: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
         walletAddress: "0x8e3E38fe7367dd3b52D1e281E4e8400447C8d8B9",
@@ -66,4 +66,23 @@ let privateKey: [UInt8] = [
     for r in result.balances {
         print("Account Address: \(r.accountAddress ?? "undefined"), Balance: \(r.balance ?? "undefined")")
     }
+}
+
+@Test func TestCheapestFeeOptionUsesNumericValue() async throws {
+    let token = FeeToken(
+        network: "polygon",
+        name: "USDC",
+        symbol: "USDC",
+        type: "erc20",
+        logoUrl: "",
+        tokenId: "usdc"
+    )
+    let options = [
+        FeeOption(token: token, value: "100", displayValue: "100"),
+        FeeOption(token: token, value: "20", displayValue: "20")
+    ]
+
+    let selected = try await FeeOptionSelector.cheapest(options)
+
+    #expect(selected.value == "20")
 }

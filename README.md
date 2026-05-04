@@ -99,10 +99,21 @@ let txHash = try await oms.wallet.sendTransaction(
 ```swift
 let env = OMSClientEnvironment(
     walletApiUrl: "https://staging-wallet.example.com",
-    indexerUrlTemplate: "https://staging-indexer.example.com/{value}"
+    apiRpcUrl: "https://staging-api.example.com/rpc/API",
+    indexerUrlTemplate: "https://staging-indexer.example.com/{value}",
+    scope: "proj_staging"
 )
 
 let oms = OMSClient(projectAccessKey: "your-key", environment: env)
+```
+
+To keep the default endpoints and only change the signed-request scope:
+
+```swift
+let oms = OMSClient(
+    projectAccessKey: "your-key",
+    environment: OMSClientEnvironment(scope: "proj_staging")
+)
 ```
 
 ## Examples

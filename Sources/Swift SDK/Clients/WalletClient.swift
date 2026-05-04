@@ -234,7 +234,7 @@ public class WalletClient {
                 walletId: self.walletId,
                 to: request.to,
                 value: request.value,
-                data: nil,
+                data: request.data,
                 mode: .relayer
             )
         )
@@ -274,8 +274,8 @@ public class WalletClient {
         feeOptionSelector: FeeOptionSelector
     ) async throws -> String {
         var feeOption: FeeOption? = nil
-        if !prepareResponse.sponsored && prepareResponse.feeOptions != nil {
-            feeOption = try await feeOptionSelector.callAsFunction(prepareResponse.feeOptions ?? [])
+        if !prepareResponse.sponsored {
+            feeOption = try await feeOptionSelector.callAsFunction(prepareResponse.feeOptions)
         }
         
         var feeOptionSelection: FeeOptionSelection? = nil
@@ -290,6 +290,9 @@ public class WalletClient {
         
         let executeResponse = try await signedClient.execute(executeRequest)
         var status = executeResponse.status
+        if status == .executed {
+            return try await getExecutedTransactionHash(txnId: prepareResponse.txnId)
+        }
 
         let pollIntervalNanos: UInt64 = 750_000_000
         let maxAttempts = 10  // ~45s ceiling
@@ -308,14 +311,31 @@ public class WalletClient {
             status = statusResponse.status
 
             if status == .executed {
-                guard let hash = statusResponse.txnHash else {
-                    throw TransactionError.missingTransactionHash
-                }
-                return hash
+                return try requireTransactionHash(from: statusResponse)
             }
         }
 
         // Loop exited without `.executed` — surface the terminal status.
         throw TransactionError.transactionFailed(status: status)
+    }
+
+    private func getExecutedTransactionHash(txnId: String) async throws -> String {
+        let statusResponse = try await signedClient.getTransactionStatus(
+            GetTransactionStatusRequest(txnId: txnId)
+        )
+
+        guard statusResponse.status == .executed else {
+            throw TransactionError.transactionFailed(status: statusResponse.status)
+        }
+
+        return try requireTransactionHash(from: statusResponse)
+    }
+
+    private func requireTransactionHash(from statusResponse: TransactionStatusResponse) throws -> String {
+        guard let hash = statusResponse.txnHash else {
+            throw TransactionError.missingTransactionHash
+        }
+
+        return hash
     }
 }

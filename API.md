@@ -404,15 +404,28 @@ for balance in result.balances {
 
 ```swift
 struct OMSClientEnvironment {
+    static let defaultScope: String
+
     let walletApiUrl: String
+    let apiRpcUrl: String
     let indexerUrlTemplate: String
+    let scope: String
+
+    init(
+        walletApiUrl: String = "https://d1sctl7y41hot5.cloudfront.net",
+        apiRpcUrl: String = "https://dev-api.sequence.app/rpc/API",
+        indexerUrlTemplate: String = "https://dev-{value}-indexer.sequence.app/rpc/Indexer/",
+        scope: String = OMSClientEnvironment.defaultScope
+    )
 }
 ```
 
 | Field | Type | Description |
 |---|---|---|
 | `walletApiUrl` | `String` | Base URL of the OMS Wallet API. |
+| `apiRpcUrl` | `String` | Base URL of the OMS API RPC. |
 | `indexerUrlTemplate` | `String` | URL template for the Indexer. `{value}` is replaced with the chain ID, e.g. `"https://indexer.example.com/{value}"`. |
+| `scope` | `String` | Authorization scope used for signed wallet requests. Defaults to `"proj_1"`. |
 
 The default production configuration is available via `OMSClientEnvironment()`.
 
