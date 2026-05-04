@@ -1,20 +1,20 @@
 import Foundation
 
 public struct TokenBalancesPage: Codable {
-    let page: Int
-    let pageSize: Int
-    let more: Bool
+    public let page: Int
+    public let pageSize: Int
+    public let more: Bool
 }
 
 public struct TokenBalance: Codable {
-    let contractType: String?
-    let contractAddress: String?
-    let accountAddress: String?
-    let tokenId: String?
-    let balance: String?
-    let blockHash: String?
-    let blockNumber: Int64?
-    let chainId: Int64?
+    public let contractType: String?
+    public let contractAddress: String?
+    public let accountAddress: String?
+    public let tokenId: String?
+    public let balance: String?
+    public let blockHash: String?
+    public let blockNumber: Int64?
+    public let chainId: Int64?
 
     enum CodingKeys: String, CodingKey {
         case contractType
@@ -29,9 +29,9 @@ public struct TokenBalance: Codable {
 }
 
 public struct TokenBalancesResult {
-    let status: Int
-    let page: TokenBalancesPage?
-    let balances: [TokenBalance]
+    public let status: Int
+    public let page: TokenBalancesPage?
+    public let balances: [TokenBalance]
 }
 
 private struct TokenBalancesPayload: Codable {
@@ -40,7 +40,7 @@ private struct TokenBalancesPayload: Codable {
 }
 
 @available(macOS 12.0, iOS 15.0, *)
-final class IndexerClient {
+public final class IndexerClient {
     private let projectAccessKey: String
     private let environment: OmsEnvironment
     private let client: HttpClient = HttpClient()
@@ -57,7 +57,7 @@ final class IndexerClient {
         self.decoder = JSONDecoder()
     }
 
-    func getTokenBalances(
+    public func getTokenBalances(
         chainId: String,
         contractAddress: String,
         walletAddress: String,

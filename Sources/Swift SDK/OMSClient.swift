@@ -1,11 +1,17 @@
 @available(macOS 12.0, iOS 15.0, *)
-public class OmsWallet {
-    let wallet: WalletClient
-    let indexer: IndexerClient
+public class OMSClient {
+    public let wallet: WalletClient
+    public let indexer: IndexerClient
+    public let utils: OMSClientUtils
     
     public init(projectAccessKey: String, environment: OmsEnvironment = OmsEnvironment()) {
         self.wallet = WalletClient(projectAccessKey: projectAccessKey, environment: environment)
         self.indexer = IndexerClient(projectAccessKey: projectAccessKey, environment: environment)
+        self.utils = OMSClientUtils()
+    }
+
+    public var walletAddress: String {
+        wallet.walletAddress
     }
     
     public func getWalletAddress() -> String {
@@ -122,3 +128,6 @@ public class OmsWallet {
         return await wallet.callContract(params: params)
     }
 }
+
+@available(macOS 12.0, iOS 15.0, *)
+public typealias OmsWallet = OMSClient
