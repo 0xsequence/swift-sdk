@@ -36,19 +36,18 @@ print("Wallet address:", oms.wallet.walletAddress)
 let txHash = try await oms.wallet.sendTransaction(
     network: "polygon",
     to: "0xRecipient",
-    value: try oms.utils.parseEther(value: "1")
+    value: "1000000000000000000"  // 1 MATIC in wei
 )
 ```
 
 ## Overview
 
-`OMSClient` exposes wallet, indexer, and utility helpers:
+`OMSClient` exposes two sub-clients:
 
 | Property | Type | Description |
 |---|---|---|
 | `oms.wallet` | `WalletClient` | Authentication, signing, and transaction submission. |
 | `oms.indexer` | `IndexerClient` | Read token balances and on-chain state. |
-| `oms.utils` | `OMSClientUtils` | Format and parse token amounts without floating-point precision loss. |
 
 ## Authentication Flow
 
@@ -77,7 +76,7 @@ The default selector is `.first`, which picks the first available fee option. Us
 let txHash = try await oms.wallet.sendTransaction(
     network: "polygon",
     to: "0xRecipient",
-    value: try oms.utils.parseEther(value: "1"),
+    value: "1000000000000000000",
     feeOptionSelector: .cheapest
 )
 
@@ -85,7 +84,7 @@ let txHash = try await oms.wallet.sendTransaction(
 let txHash = try await oms.wallet.sendTransaction(
     network: "polygon",
     to: "0xRecipient",
-    value: try oms.utils.parseEther(value: "1"),
+    value: "1000000000000000000",
     feeOptionSelector: .custom { options in
         // options is [FeeOption] — return the one the user picked
         return options[selectedIndex]
@@ -123,21 +122,8 @@ let signature = try await oms.wallet.signMessage(
 let txHash = try await oms.wallet.sendTransaction(
     network: "polygon",
     to: "0xRecipient",
-    value: try oms.utils.parseEther(value: "1")
+    value: "1000000000000000000"  // 1 MATIC in wei
 )
-```
-
-### Format and Parse Token Units
-
-```swift
-let rawAmount = try oms.utils.parseUnits(value: "12.34", decimals: 6)
-// "12340000"
-
-let displayAmount = try oms.utils.formatUnits(value: rawAmount, decimals: 6)
-// "12.34"
-
-let wei = try oms.utils.parseEther(value: "1")
-let eth = try oms.utils.formatEther(value: wei)
 ```
 
 ### Send a Transaction with Full Parameters

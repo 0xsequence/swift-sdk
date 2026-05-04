@@ -18,7 +18,7 @@ public class WalletClient {
     var verifier = "";
     var challenge = "";
     
-    init(projectAccessKey: String, scope: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
+    public init(projectAccessKey: String, scope: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
         if let credentialsJson = try? keychain.string(forKey: Constants.credentialsStorageKey) {
             let credentials = try! StorableCredentials.from(jsonString: credentialsJson)
             
