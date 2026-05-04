@@ -17,8 +17,8 @@ public class WalletClient {
     
     var verifier = "";
     var challenge = "";
-    
-    public init(projectAccessKey: String, scope: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
+
+    public init(projectAccessKey: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
         if let credentialsJson = try? keychain.string(forKey: Constants.credentialsStorageKey) {
             let credentials = try! StorableCredentials.from(jsonString: credentialsJson)
             
@@ -35,7 +35,7 @@ public class WalletClient {
             baseURL: environment.walletApiUrl,
             transport: SignedWaasTransport(
                 projectAccessKey: projectAccessKey,
-                scope: scope,
+                scope: environment.scope,
                 privateKey: sessionPrivateKey
             ),
             headers: { [:] }
