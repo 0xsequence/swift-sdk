@@ -17,6 +17,11 @@
   - [revokeAccess](#revokeaccess)
 - [IndexerClient](#indexerclient)
   - [getTokenBalances](#gettokenbalances)
+- [OMSClientUtils](#omsclientutils)
+  - [parseUnits](#parseunits)
+  - [formatUnits](#formatunits)
+  - [parseEther](#parseether)
+  - [formatEther](#formatether)
 - [Types](#types)
   - [OMSClientEnvironment](#omsclientenvironment)
   - [FeeOptionSelector](#feeoptionselector)
@@ -25,6 +30,7 @@
   - [TokenBalancesResult](#tokenbalancesresult)
   - [TokenBalancesPage](#tokenbalancespage)
   - [TokenBalance](#tokenbalance)
+  - [UnitConversionError](#unitconversionerror)
   - [CredentialInfo](#credentialinfo)
 
 ---
@@ -56,6 +62,7 @@ init(projectAccessKey: String, environment: OMSClientEnvironment = OMSClientEnvi
 |---|---|---|
 | `wallet` | `WalletClient` | Handles authentication, signing, and transactions. |
 | `indexer` | `IndexerClient` | Queries on-chain state and token balances. |
+| `utils` | `OMSClientUtils` | Formats and parses token units without floating-point precision loss. |
 
 ---
 
@@ -398,6 +405,62 @@ for balance in result.balances {
 
 ---
 
+## OMSClientUtils
+
+Accessed via `oms.utils`. Converts between human-readable token amounts and integer strings in the token's smallest denomination.
+
+### parseUnits
+
+```swift
+func parseUnits(value: String, decimals: Int = 18) throws -> String
+```
+
+Converts a decimal amount into its integer base-unit string.
+
+```swift
+let usdc = try oms.utils.parseUnits(value: "12.34", decimals: 6)
+// "12340000"
+```
+
+Throws `UnitConversionError` when the value is malformed, decimals are negative, or the fractional component has more non-zero digits than `decimals` allows.
+
+### formatUnits
+
+```swift
+func formatUnits(
+    value: String,
+    decimals: Int = 18,
+    trimTrailingZeros: Bool = true
+) throws -> String
+```
+
+Converts an integer base-unit string into a human-readable decimal amount.
+
+```swift
+let amount = try oms.utils.formatUnits(value: "12340000", decimals: 6)
+// "12.34"
+```
+
+Throws `UnitConversionError` when the value is malformed or decimals are negative.
+
+### parseEther
+
+```swift
+func parseEther(value: String) throws -> String
+```
+
+Convenience wrapper for `parseUnits(value:decimals:)` with 18 decimals.
+
+### formatEther
+
+```swift
+func formatEther(value: String, trimTrailingZeros: Bool = true) throws -> String
+```
+
+Convenience wrapper for `formatUnits(value:decimals:trimTrailingZeros:)` with 18 decimals.
+
+---
+
 ## Types
 
 ### OMSClientEnvironment
@@ -559,6 +622,26 @@ struct TokenBalance: Codable {
 | `blockHash` | `String?` | Block hash at which this balance was recorded. |
 | `blockNumber` | `Int64?` | Block number at which this balance was recorded. |
 | `chainId` | `Int64?` | Numeric chain ID. |
+
+---
+
+### UnitConversionError
+
+```swift
+enum UnitConversionError: Error, Equatable {
+    case invalidDecimals(Int)
+    case invalidValue(String)
+    case fractionalComponentExceedsDecimals(value: String, decimals: Int)
+}
+```
+
+Thrown by `OMSClientUtils` unit parser and formatter helpers.
+
+| Case | Description |
+|---|---|
+| `.invalidDecimals` | `decimals` was negative. |
+| `.invalidValue` | The input value was empty or not a plain decimal/integer string. |
+| `.fractionalComponentExceedsDecimals` | `parseUnits` received more non-zero fractional digits than the provided `decimals` supports. |
 
 ---
 

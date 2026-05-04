@@ -52,11 +52,11 @@ let privateKey: [UInt8] = [
 }
 
 @Test func TestGetTokenBalances() async throws {
-    let oms = OmsWallet(
+    let oms = OMSClient(
         projectAccessKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE"
     )
     
-    let result = try await oms.getTokenBalances(
+    let result = try await oms.indexer.getTokenBalances(
         chainId: "polygon",
         contractAddress: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
         walletAddress: "0x8e3E38fe7367dd3b52D1e281E4e8400447C8d8B9",
@@ -65,5 +65,39 @@ let privateKey: [UInt8] = [
     
     for r in result.balances {
         print("Account Address: \(r.accountAddress ?? "undefined"), Balance: \(r.balance ?? "undefined")")
+    }
+}
+
+@Test func TestParseUnits() throws {
+    let utils = OMSClient(projectAccessKey: "test").utils
+
+    #expect(try utils.parseUnits(value: "1", decimals: 18) == "1000000000000000000")
+    #expect(try utils.parseUnits(value: "1.23", decimals: 6) == "1230000")
+    #expect(try utils.parseUnits(value: ".5", decimals: 6) == "500000")
+    #expect(try utils.parseUnits(value: "1.2300", decimals: 2) == "123")
+    #expect(try utils.parseEther(value: "0.000000000000000001") == "1")
+}
+
+@Test func TestFormatUnits() throws {
+    let utils = OMSClient(projectAccessKey: "test").utils
+
+    #expect(try utils.formatUnits(value: "1000000000000000000", decimals: 18) == "1")
+    #expect(try utils.formatUnits(value: "1230000", decimals: 6) == "1.23")
+    #expect(try utils.formatUnits(value: "1", decimals: 6) == "0.000001")
+    #expect(try utils.formatUnits(value: "1230000", decimals: 6, trimTrailingZeros: false) == "1.230000")
+    #expect(try utils.formatEther(value: "1") == "0.000000000000000001")
+}
+
+@Test func TestParseUnitsRejectsTooManyDecimals() {
+    let utils = OMSClient(projectAccessKey: "test").utils
+
+    do {
+        _ = try utils.parseUnits(value: "1.234", decimals: 2)
+        #expect(Bool(false))
+    } catch UnitConversionError.fractionalComponentExceedsDecimals(let value, let decimals) {
+        #expect(value == "1.234")
+        #expect(decimals == 2)
+    } catch {
+        #expect(Bool(false))
     }
 }
