@@ -310,7 +310,6 @@ let txHash = try await oms.wallet.callContract(
 
 ```swift
 func getTransactionStatus(txnId: String) async throws -> TransactionStatusResponse
-func getTransactionStatus(_ request: GetTransactionStatusRequest) async throws -> TransactionStatusResponse
 ```
 
 Returns the current status for a prepared or submitted transaction. When the transaction has executed, `txnHash` is included when available.
@@ -320,7 +319,6 @@ Returns the current status for a prepared or submitted transaction. When the tra
 | Name | Type | Description |
 |---|---|---|
 | `txnId` | `String` | Transaction ID returned by the wallet API prepare/execute flow. |
-| `request` | `GetTransactionStatusRequest` | Generated wallet API request object. |
 
 **Returns** `TransactionStatusResponse` — includes `status` and optional `txnHash`.
 
