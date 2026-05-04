@@ -13,6 +13,7 @@
   - [signMessage](#signmessage)
   - [sendTransaction](#sendtransaction)
   - [callContract](#callcontract)
+  - [getTransactionStatus](#gettransactionstatus)
   - [listAccess](#listaccess)
   - [revokeAccess](#revokeaccess)
 - [IndexerClient](#indexerclient)
@@ -301,6 +302,32 @@ let txHash = try await oms.wallet.callContract(
         AbiArg(type: "uint256", value: .string("1000000000000000000")),
     ]
 )
+```
+
+---
+
+### getTransactionStatus
+
+```swift
+func getTransactionStatus(txnId: String) async throws -> TransactionStatusResponse
+func getTransactionStatus(_ request: GetTransactionStatusRequest) async throws -> TransactionStatusResponse
+```
+
+Returns the current status for a prepared or submitted transaction. When the transaction has executed, `txnHash` is included when available.
+
+**Parameters**
+
+| Name | Type | Description |
+|---|---|---|
+| `txnId` | `String` | Transaction ID returned by the wallet API prepare/execute flow. |
+| `request` | `GetTransactionStatusRequest` | Generated wallet API request object. |
+
+**Returns** `TransactionStatusResponse` — includes `status` and optional `txnHash`.
+
+**Example**
+
+```swift
+let status = try await oms.wallet.getTransactionStatus(txnId: "txn_...")
 ```
 
 ---

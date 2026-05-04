@@ -268,6 +268,24 @@ public class WalletClient {
             feeOptionSelector: feeOptionSelector
         );
     }
+
+    /// Returns the current execution status for a prepared or submitted transaction.
+    ///
+    /// - Parameter txnId: The transaction ID returned by the wallet API prepare/execute flow.
+    /// - Returns: The current transaction status and transaction hash when available.
+    public func getTransactionStatus(txnId: String) async throws -> TransactionStatusResponse {
+        return try await getTransactionStatus(
+            GetTransactionStatusRequest(txnId: txnId)
+        )
+    }
+
+    /// Returns the current execution status for a prepared or submitted transaction.
+    ///
+    /// This overload mirrors the generated wallet API call while keeping access
+    /// on the public `WalletClient` surface.
+    public func getTransactionStatus(_ request: GetTransactionStatusRequest) async throws -> TransactionStatusResponse {
+        return try await signedClient.getTransactionStatus(request)
+    }
     
     private func execute(
         prepareResponse: PrepareResponse,
@@ -305,9 +323,7 @@ public class WalletClient {
             try await Task.sleep(nanoseconds: pollIntervalNanos)
             attempts += 1
 
-            let statusResponse = try await signedClient.getTransactionStatus(
-                GetTransactionStatusRequest(txnId: prepareResponse.txnId)
-            )
+            let statusResponse = try await getTransactionStatus(txnId: prepareResponse.txnId)
             status = statusResponse.status
 
             if status == .executed {
@@ -320,9 +336,7 @@ public class WalletClient {
     }
 
     private func getExecutedTransactionHash(txnId: String) async throws -> String {
-        let statusResponse = try await signedClient.getTransactionStatus(
-            GetTransactionStatusRequest(txnId: txnId)
-        )
+        let statusResponse = try await getTransactionStatus(txnId: txnId)
 
         guard statusResponse.status == .executed else {
             throw TransactionError.transactionFailed(status: statusResponse.status)
