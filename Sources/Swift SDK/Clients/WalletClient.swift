@@ -274,17 +274,9 @@ public class WalletClient {
     /// - Parameter txnId: The transaction ID returned by the wallet API prepare/execute flow.
     /// - Returns: The current transaction status and transaction hash when available.
     public func getTransactionStatus(txnId: String) async throws -> TransactionStatusResponse {
-        return try await getTransactionStatus(
+        return try await signedClient.getTransactionStatus(
             GetTransactionStatusRequest(txnId: txnId)
         )
-    }
-
-    /// Returns the current execution status for a prepared or submitted transaction.
-    ///
-    /// This overload mirrors the generated wallet API call while keeping access
-    /// on the public `WalletClient` surface.
-    public func getTransactionStatus(_ request: GetTransactionStatusRequest) async throws -> TransactionStatusResponse {
-        return try await signedClient.getTransactionStatus(request)
     }
     
     private func execute(
