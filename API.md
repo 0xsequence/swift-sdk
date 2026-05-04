@@ -230,7 +230,7 @@ func sendTransaction(
 ) async throws -> String
 ```
 
-Sends a transaction with full parameter control, including raw calldata, a fee ceiling, and a custom nonce.
+Sends a transaction with full parameter control, including raw calldata.
 
 **Parameters**
 
@@ -252,9 +252,7 @@ let txHash = try await oms.wallet.sendTransaction(
     request: SendTransactionRequest(
         to: "0xContract",
         value: "0",
-        data: "0xa9059cbb...",
-        feeCeiling: nil,
-        nonce: nil
+        data: "0xa9059cbb..."
     ),
     feeOptionSelector: .cheapest
 )
@@ -397,7 +395,7 @@ Fetches token balances for a wallet on a given chain and contract (first page, u
 
 | Name | Type | Description |
 |---|---|---|
-| `chainId` | `String` | Numeric chain ID as a string, e.g. `"137"` for Polygon, `"1"` for Ethereum mainnet. |
+| `chainId` | `String` | Chain slug used in the indexer URL template, e.g. `"polygon"` or `"mainnet"`. |
 | `contractAddress` | `String` | The token contract address to query. |
 | `walletAddress` | `String` | The wallet whose balances to fetch. Pass `oms.wallet.walletAddress` for the active wallet. |
 | `includeMetadata` | `Bool` | When `true`, includes token metadata (name, symbol, decimals) in the response. |
@@ -410,7 +408,7 @@ Fetches token balances for a wallet on a given chain and contract (first page, u
 
 ```swift
 let result = try await oms.indexer.getTokenBalances(
-    chainId: "137",
+    chainId: "polygon",
     contractAddress: "0xTokenContract",
     walletAddress: oms.wallet.walletAddress,
     includeMetadata: true
@@ -519,8 +517,6 @@ struct SendTransactionRequest {
     let to: String
     let value: String
     let data: String?
-    let feeCeiling: String?
-    let nonce: String?
 }
 ```
 
@@ -531,8 +527,6 @@ Used with the full overload of `sendTransaction`.
 | `to` | `String` | Recipient or contract address. |
 | `value` | `String` | Native token value in the network's smallest denomination (e.g. wei). Pass `"0"` for contract calls with no value. |
 | `data` | `String?` | Pre-encoded hex calldata for contract interactions. `nil` for plain transfers. |
-| `feeCeiling` | `String?` | Maximum fee the caller is willing to pay. `nil` to accept any fee. |
-| `nonce` | `String?` | Override the transaction nonce. `nil` to use the server default. |
 
 ---
 

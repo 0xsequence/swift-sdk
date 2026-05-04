@@ -19,7 +19,7 @@ Or add it via Xcode: **File → Add Package Dependencies**.
 ## Quick Start
 
 ```swift
-import OMSClient
+import OMS_SDK
 
 let oms = OMSClient(projectAccessKey: "your-project-access-key")
 
@@ -145,9 +145,7 @@ let txHash = try await oms.wallet.sendTransaction(
     request: SendTransactionRequest(
         to: "0xContract",
         value: "0",
-        data: "0xa9059cbb...",
-        feeCeiling: nil,
-        nonce: nil
+        data: "0xa9059cbb..."
     )
 )
 ```
@@ -191,7 +189,7 @@ do {
 
 ```swift
 let result = try await oms.indexer.getTokenBalances(
-    chainId: "137",
+    chainId: "polygon",
     contractAddress: "0xTokenContract",
     walletAddress: oms.wallet.walletAddress,
     includeMetadata: true

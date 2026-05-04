@@ -9,6 +9,8 @@ public enum TransactionError: Error {
 public class WalletClient {
     var signedClient: WaasWalletClient
     let keychain: KeychainManager = KeychainManager()
+    private let projectAccessKey: String
+    private let environment: OMSClientEnvironment
     
     public var walletAddress: String
     public var walletId: String
@@ -19,6 +21,9 @@ public class WalletClient {
     var challenge = "";
 
     public init(projectAccessKey: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
+        self.projectAccessKey = projectAccessKey
+        self.environment = environment
+
         if let credentialsJson = try? keychain.string(forKey: Constants.credentialsStorageKey) {
             let credentials = try! StorableCredentials.from(jsonString: credentialsJson)
             
@@ -31,14 +36,10 @@ public class WalletClient {
             self.sessionPrivateKey = try! EthereumSigner.GeneratePrivateKey()
         }
 
-        self.signedClient = WaasWalletClient(
-            baseURL: environment.walletApiUrl,
-            transport: SignedWaasTransport(
-                projectAccessKey: projectAccessKey,
-                scope: environment.scope,
-                privateKey: sessionPrivateKey
-            ),
-            headers: { [:] }
+        self.signedClient = Self.makeSignedClient(
+            projectAccessKey: projectAccessKey,
+            environment: environment,
+            privateKey: sessionPrivateKey
         )
     }
     
@@ -154,8 +155,17 @@ public class WalletClient {
     /// and the user will need to sign in again via `signInWithEmail(email:)`. Navigate to your
     /// sign-in screen after calling this.
     public func signOut() {
-        let keychain: KeychainManager = KeychainManager()
         try! keychain.delete(forKey: Constants.credentialsStorageKey)
+        walletAddress = ""
+        walletId = ""
+        verifier = ""
+        challenge = ""
+        sessionPrivateKey = try! EthereumSigner.GeneratePrivateKey()
+        signedClient = Self.makeSignedClient(
+            projectAccessKey: projectAccessKey,
+            environment: environment,
+            privateKey: sessionPrivateKey
+        )
     }
     
     /// Returns a list of credentials that currently have access to this wallet.
@@ -217,9 +227,7 @@ public class WalletClient {
         return try await self.sendTransaction(network: network, request: SendTransactionRequest(
             to: to,
             value: value,
-            data: nil,
-            feeCeiling: nil,
-            nonce: nil
+            data: nil
         ), feeOptionSelector: feeOptionSelector)
     }
 
@@ -343,5 +351,21 @@ public class WalletClient {
         }
 
         return hash
+    }
+
+    private static func makeSignedClient(
+        projectAccessKey: String,
+        environment: OMSClientEnvironment,
+        privateKey: [UInt8]
+    ) -> WaasWalletClient {
+        return WaasWalletClient(
+            baseURL: environment.walletApiUrl,
+            transport: SignedWaasTransport(
+                projectAccessKey: projectAccessKey,
+                scope: environment.scope,
+                privateKey: privateKey
+            ),
+            headers: { [:] }
+        )
     }
 }
