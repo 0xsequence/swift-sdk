@@ -54,7 +54,7 @@ public class WalletClient {
         let params = CommitVerifierRequest(
             identityType: IdentityType.email,
             authMode: AuthMode.otp,
-            metadata: [String : String] (),R
+            metadata: [String : String] (),
             handle: email
         )
 
@@ -219,9 +219,9 @@ public class WalletClient {
     ///   - network: The network identifier for the signing context (e.g. `"mainnet"`, `"polygon"`).
     ///   - message: The plaintext message to sign.
     /// - Returns: A hex-encoded signature string.
-    public func signMessage(network: String, message: String) async -> String {
+    public func signMessage(network: Network, message: String) async -> String {
         let params = SignMessageRequest(
-            network: network,
+            network: network.chainId,
             walletId: self.walletId,
             message: message
         )
@@ -231,7 +231,7 @@ public class WalletClient {
     }
 
     public func sendTransaction(
-        network: String,
+        network: Network,
         to: String,
         value: String,
         feeOptionSelector: FeeOptionSelector = .first
@@ -244,13 +244,13 @@ public class WalletClient {
     }
 
     public func sendTransaction(
-        network: String,
+        network: Network,
         request: SendTransactionRequest,
         feeOptionSelector: FeeOptionSelector = .first
     ) async throws -> String {
         let prepareResponse = try await signedClient.prepareEthereumTransaction(
             PrepareEthereumTransactionRequest(
-                network: network,
+                network: network.chainId,
                 walletId: self.walletId,
                 to: request.to,
                 value: request.value,
@@ -266,7 +266,7 @@ public class WalletClient {
     }
 
     public func callContract(
-        network: String,
+        network: Network,
         contract: String,
         method: String,
         args: [AbiArg]?,
@@ -274,7 +274,7 @@ public class WalletClient {
     ) async throws -> String {
         let prepareResponse = try await signedClient.prepareContractCall(
             PrepareContractCallRequest(
-                network: network,
+                network: network.chainId,
                 walletId: self.walletId,
                 contract: contract,
                 method: method,

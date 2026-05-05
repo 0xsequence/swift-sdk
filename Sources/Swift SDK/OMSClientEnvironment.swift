@@ -42,11 +42,11 @@ public struct OMSClientEnvironment : Equatable, Sendable {
         )
     }
 
-    public func indexerURL(for network: OMSClientNetwork) -> URL? {
+    public func indexerURL(for network: Network) -> URL? {
         URL(string: indexerUrlString(for: network))
     }
 
-    internal func indexerUrlString(for network: OMSClientNetwork) -> String {
+    internal func indexerUrlString(for network: Network) -> String {
         indexerUrlTemplate.replacingOccurrences(
             of: "{value}",
             with: network.indexerName

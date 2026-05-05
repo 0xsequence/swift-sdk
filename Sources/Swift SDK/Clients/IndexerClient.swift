@@ -58,7 +58,7 @@ public final class IndexerClient {
     }
 
     public func getTokenBalances(
-        chainId: String,
+        network: Network,
         contractAddress: String,
         walletAddress: String,
         includeMetadata: Bool
@@ -73,7 +73,7 @@ public final class IndexerClient {
         let bodyData = try encoder.encode(request)
         let bodyString = String(data: bodyData, encoding: .utf8) ?? "{}"
 
-        let baseUrl = indexerUrl(forChainId: chainId)
+        let baseUrl = indexerUrl(forNetwork: network)
 
         let response = try await client.postJson(
             baseUrl: baseUrl,
@@ -91,15 +91,8 @@ public final class IndexerClient {
         )
     }
 
-    private func indexerUrl(forChainId chainId: String) -> String {
-        if let network = OMSClientNetworks.network(chainId: chainId) {
-            return environment.indexerUrlString(for: network)
-        }
-
-        return environment.indexerUrlTemplate.replacingOccurrences(
-            of: "{value}",
-            with: chainId
-        )
+    private func indexerUrl(forNetwork network: Network) -> String {
+        return environment.indexerUrlString(for: network)
     }
 
     private func defaultHeaders() -> [String: String] {

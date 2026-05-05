@@ -57,7 +57,7 @@ let privateKey: [UInt8] = [
     )
     
     let result = try await oms.indexer.getTokenBalances(
-        chainId: "137",
+        network: Network.polygon,
         contractAddress: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
         walletAddress: "0x8e3E38fe7367dd3b52D1e281E4e8400447C8d8B9",
         includeMetadata: true
@@ -79,14 +79,14 @@ let privateKey: [UInt8] = [
 }
 
 @Test func TestSupportedNetworks() throws {
-    #expect(OMSClientNetworks.supportedNetworks == [.polygon, .polygonAmoy])
+    #expect(Network.supportedNetworks == [.polygon, .polygonAmoy])
 
-    #expect(OMSClientNetworks.network(chainId: "137") == .polygon)
-    #expect(OMSClientNetworks.network(chainId: "80002") == .polygonAmoy)
-    #expect(OMSClientNetworks.network(chainId: "1") == nil)
+    #expect(Network.from(chainId: "137") == .polygon)
+    #expect(Network.from(chainId: "80002") == .polygonAmoy)
+    #expect(Network.from(chainId: "1") == nil)
 
-    #expect(OMSClientNetwork.polygon.displayName == "Polygon")
-    #expect(OMSClientNetwork.polygon.description == "Polygon")
+    #expect(Network.polygon.displayName == "Polygon")
+    #expect(Network.polygon.description == "Polygon")
 }
 
 @Test func TestIndexerURLUsesNetworkIndexerName() throws {

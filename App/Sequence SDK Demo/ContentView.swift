@@ -206,13 +206,13 @@ struct WalletWindow: View {
     @State private var usdcBalance: String = "—"
     @State private var usdcBalanceRaw: String = ""
     @State private var isFetchingBalance: Bool = false
-    @State private var selectedChain: String = "amoy"
+    @State private var selectedNetwork: Network = Network.polygonAmoy
 
     private func refreshBalance() async {
         guard !vm.oms.wallet.walletAddress.isEmpty else { return }
         isFetchingBalance = true
         let balances = try! await vm.oms.indexer.getTokenBalances(
-            chainId: selectedChain,
+            network: selectedNetwork,
             contractAddress: usdcContractAddress,
             walletAddress: vm.oms.wallet.walletAddress,
             includeMetadata: false
@@ -292,7 +292,7 @@ struct WalletWindow: View {
 
             Spacer().frame(height: 8)
 
-            Picker("Chain", selection: $selectedChain) {
+            Picker("Network", selection: $selectedNetwork) {
                 ForEach(supportedChains, id: \.label) { chain in
                     Text(chain.label).tag(chain.label)
                 }
@@ -346,7 +346,7 @@ struct WalletWindow: View {
         .task {
             await refreshBalance()
         }
-        .onChange(of: selectedChain) { _ in
+        .onChange(of: selectedNetwork) { _ in
             Task { await refreshBalance() }
         }
         .sheet(isPresented: $showSendWindow) {
@@ -373,7 +373,7 @@ struct SignMessageWindow: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var messageText: String = ""
-    @State private var chainId: String = "80002"   // amoy
+    @State private var network: Network = Network.polygonAmoy
     @State private var signature: String = ""
     @State private var isSigning: Bool = false
 
@@ -393,11 +393,11 @@ struct SignMessageWindow: View {
                 .buttonStyle(.plain)
             }
 
-            Text("Chain")
+            Text("Network")
                 .fontWeight(.semibold)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            Picker("Chain", selection: $chainId) {
+            Picker("Network", selection: $network) {
                 ForEach(supportedChains, id: \.id) { chain in
                     Text(chain.label).tag(chain.id)
                 }
@@ -416,7 +416,7 @@ struct SignMessageWindow: View {
                 Task {
                     isSigning = true
                     let result = await vm.oms.wallet.signMessage(
-                        network: chainId,
+                        network: network,
                         message: messageText
                     )
                     signature = result
@@ -453,7 +453,7 @@ struct SendTransactionWindow: View {
 
     @State private var toText: String = ""
     @State private var amountText: String = "1000"
-    @State private var chainId: String = "80002"   // amoy
+    @State private var network: Network = Network.polygonAmoy
     @State private var result: String = ""
     @State private var isSending: Bool = false
 
@@ -473,11 +473,11 @@ struct SendTransactionWindow: View {
                 .buttonStyle(.plain)
             }
 
-            Text("Chain")
+            Text("Network")
                 .fontWeight(.semibold)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            Picker("Chain", selection: $chainId) {
+            Picker("Network", selection: $network) {
                 ForEach(supportedChains, id: \.id) { chain in
                     Text(chain.label).tag(chain.id)
                 }
@@ -510,7 +510,7 @@ struct SendTransactionWindow: View {
                 Task {
                     isSending = true
                     let txResult = try! await vm.oms.wallet.sendTransaction(
-                        network: chainId,
+                        network: network,
                         to: toText,
                         value: amountText
                     )
@@ -586,7 +586,7 @@ struct CallContractWindow: View {
 
     @State private var contractText: String = "0x41e94eb019c0762f9bfcf9fb1e58725bfb0e7582"
     @State private var methodText: String = "transfer"
-    @State private var chainId: String = "80002"   // amoy
+    @State private var network: Network = Network.polygonAmoy
     @State private var args: [AbiArgInput] = [
         AbiArgInput(type: "address", value: "0xE5E8B483FfC05967FcFed58cc98D053265af6D99"),
         AbiArgInput(type: "uint256", value: "1000000"),
@@ -611,11 +611,11 @@ struct CallContractWindow: View {
                     .buttonStyle(.plain)
                 }
 
-                Text("Chain")
+                Text("Network")
                     .fontWeight(.semibold)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                Picker("Chain", selection: $chainId) {
+                Picker("Network", selection: $network) {
                     ForEach(supportedChains, id: \.id) { chain in
                         Text(chain.label).tag(chain.id)
                     }
@@ -691,7 +691,7 @@ struct CallContractWindow: View {
                             .filter { !$0.type.isEmpty || !$0.value.isEmpty }
                             .map { AbiArg(type: $0.type, value: parseAbiValue($0.value)) }
                         let txResult = try! await vm.oms.wallet.callContract(
-                            network: chainId,
+                            network: network,
                             contract: contractText,
                             method: methodText,
                             args: abiArgs.isEmpty ? nil : abiArgs
