@@ -3,27 +3,15 @@
 ## Table of Contents
 
 - [OMSClient](#omsclient)
-  - [init](#init)
 - [WalletClient](#walletclient)
-  - [walletAddress](#walletaddress)
-  - [walletId](#walletid)
-  - [startEmailAuth](#startemailauth)
-  - [completeEmailAuth](#completeemailauth)
-  - [signOut](#signout)
-  - [signMessage](#signmessage)
-  - [sendTransaction](#sendtransaction)
-  - [callContract](#callcontract)
-  - [getTransactionStatus](#gettransactionstatus)
-  - [listAccess](#listaccess)
-  - [revokeAccess](#revokeaccess)
 - [IndexerClient](#indexerclient)
-  - [getTokenBalances](#gettokenbalances)
+- [Formatting Helpers](#formatting-helpers)
 - [Types](#types)
-  - [OMSClientNetwork](#omsclientnetwork)
-  - [OMSClientNetworks](#omsclientnetworks)
+  - [Network](#network)
   - [OMSClientEnvironment](#omsclientenvironment)
   - [FeeOptionSelector](#feeoptionselector)
   - [TransactionError](#transactionerror)
+  - [UnitConversionError](#unitconversionerror)
   - [SendTransactionRequest](#sendtransactionrequest)
   - [TokenBalancesResult](#tokenbalancesresult)
   - [TokenBalancesPage](#tokenbalancespage)
@@ -46,26 +34,39 @@ let oms = OMSClient(projectAccessKey: "your-key")
 init(projectAccessKey: String, environment: OMSClientEnvironment = OMSClientEnvironment())
 ```
 
-**Parameters**
+| Parameter | Type | Description |
+|---|---|---|
+| `projectAccessKey` | `String` | OMS project access key. |
+| `environment` | `OMSClientEnvironment` | API endpoint and authorization-scope configuration. |
+
+### Properties
 
 | Name | Type | Description |
 |---|---|---|
-| `projectAccessKey` | `String` | Your OMS project access key. |
-| `environment` | `OMSClientEnvironment` | API endpoint configuration. Defaults to the production OMS endpoints. |
+| `wallet` | `WalletClient` | Authentication, signing, access, and transaction helper. |
+| `indexer` | `IndexerClient` | Token balance query helper. |
+| `supportedNetworks` | `[Network]` | Supported SDK network list. |
 
-**Properties**
+### network
 
-| Name | Type | Description |
-|---|---|---|
-| `wallet` | `WalletClient` | Handles authentication, signing, and transactions. |
-| `indexer` | `IndexerClient` | Queries on-chain state and token balances. |
-| `utils` | `OMSClientUtils` | Unit parser and formatter helpers. |
+```swift
+func network(chainId: String) -> Network?
+```
+
+Returns the supported `Network` for a numeric chain ID, or `nil` when the chain is not supported.
+
+Compatibility aliases:
+
+```swift
+typealias OmsWallet = OMSClient
+typealias OmsEnvironment = OMSClientEnvironment
+```
 
 ---
 
 ## WalletClient
 
-Manages the full wallet lifecycle: authentication, keychain session persistence, signing, and transaction submission.
+Accessed via `oms.wallet`. Manages wallet authentication, keychain session persistence, signing, and transaction submission.
 
 ### walletAddress
 
@@ -73,9 +74,7 @@ Manages the full wallet lifecycle: authentication, keychain session persistence,
 var walletAddress: String
 ```
 
-The on-chain address of the active wallet. Empty string until `completeEmailAuth` resolves successfully. Persisted to the device keychain across launches.
-
----
+The on-chain address of the active wallet. Empty until a wallet is restored or activated by `completeEmailAuth`.
 
 ### walletId
 
@@ -83,9 +82,7 @@ The on-chain address of the active wallet. Empty string until `completeEmailAuth
 var walletId: String
 ```
 
-The server-side wallet ID. Empty string until `completeEmailAuth` resolves successfully. Persisted to the device keychain.
-
----
+The server-side wallet ID. Empty until a wallet is restored or activated by `completeEmailAuth`.
 
 ### startEmailAuth
 
@@ -93,24 +90,7 @@ The server-side wallet ID. Empty string until `completeEmailAuth` resolves succe
 func startEmailAuth(email: String) async
 ```
 
-Sends a one-time passcode to the provided email address to begin authentication.
-
-After this returns, display your OTP input UI and pass the code to [`completeEmailAuth`](#completeemailauth).
-
-**Parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `email` | `String` | The email address to send the one-time passcode to. |
-
-**Example**
-
-```swift
-await oms.wallet.startEmailAuth(email: "user@example.com")
-// Show OTP input
-```
-
----
+Sends a one-time passcode to the provided email address.
 
 ### completeEmailAuth
 
@@ -118,25 +98,14 @@ await oms.wallet.startEmailAuth(email: "user@example.com")
 func completeEmailAuth(code: String, walletType: WalletType = .ethereum) async
 ```
 
-Verifies the OTP code and activates a wallet. Must be called after [`startEmailAuth`](#startemailauth).
+Verifies the OTP code and activates an existing or newly created wallet.
 
-Automatically loads an existing wallet of `walletType` from the user's account, or creates a new one if none exists. The wallet address, wallet ID, and session key are saved to the device keychain.
-
-**Parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `code` | `String` | The one-time passcode entered by the user. |
-| `walletType` | `WalletType` | The wallet type to load or create. Defaults to `.ethereum`. |
-
-**Example**
+Compatibility aliases:
 
 ```swift
-await oms.wallet.completeEmailAuth(code: "123456")
-print("Wallet ready:", oms.wallet.walletAddress)
+func signInWithEmail(email: String) async
+func completeEmailSignIn(code: String, walletType: WalletType = .ethereum) async
 ```
-
----
 
 ### signOut
 
@@ -144,132 +113,66 @@ print("Wallet ready:", oms.wallet.walletAddress)
 func signOut()
 ```
 
-Clears the wallet session from the device keychain. After this, `walletAddress` and `walletId` are no longer available and the user must authenticate again via [`startEmailAuth`](#startemailauth).
+Clears the keychain session, local wallet identifiers, verifier state, and session signer.
 
-**Example**
+Compatibility alias:
 
 ```swift
-oms.wallet.signOut()
-// Navigate to sign-in screen
+func clearSession()
 ```
-
----
 
 ### signMessage
 
 ```swift
-func signMessage(network: String, message: String) async -> String
+func signMessage(network: Network, message: String) async -> String
 ```
 
 Signs an arbitrary message using the wallet's session key.
 
-**Parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `network` | `String` | The network identifier, e.g. `"polygon"`, `"mainnet"`. |
-| `message` | `String` | The message to sign. |
-
-**Returns** `String` — a hex-encoded signature.
-
-**Example**
-
 ```swift
 let signature = await oms.wallet.signMessage(
-    network: "polygon",
+    network: .polygon,
     message: "Hello from OMS"
 )
 ```
 
----
-
 ### sendTransaction
-
-`sendTransaction` has two overloads. Both use a prepare/execute flow internally: the server calculates available fee options, the `feeOptionSelector` picks one, and the SDK submits then polls until confirmation.
-
-#### Convenience overload
 
 ```swift
 func sendTransaction(
-    network: String,
+    network: Network,
     to: String,
     value: String,
     feeOptionSelector: FeeOptionSelector = .first
 ) async throws -> String
 ```
 
-Sends a native token transfer. Suitable for the most common case.
-
-**Parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `network` | `String` | Network to submit on, e.g. `"polygon"`, `"mainnet"`. |
-| `to` | `String` | Recipient wallet address. |
-| `value` | `String` | Amount to send in the network's smallest denomination (e.g. wei). |
-| `feeOptionSelector` | `FeeOptionSelector` | Strategy for selecting a fee option. Defaults to `.first`. See [FeeOptionSelector](#feeoptionselector). |
-
-**Returns** `String` — the confirmed transaction hash.
-
-**Throws** `TransactionError` — see [TransactionError](#transactionerror).
-
-**Example**
+Sends a native token transfer.
 
 ```swift
-let value = try oms.utils.parseUnits(value: "1", decimals: 18)
+let value = try parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.sendTransaction(
-    network: "polygon",
+    network: .polygon,
     to: "0xRecipient",
     value: value
 )
 ```
 
-#### Full overload
+Full-parameter overload:
 
 ```swift
 func sendTransaction(
-    network: String,
+    network: Network,
     request: SendTransactionRequest,
     feeOptionSelector: FeeOptionSelector = .first
 ) async throws -> String
 ```
 
-Sends a transaction with full parameter control, including raw calldata.
-
-**Parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `network` | `String` | Network to submit on. |
-| `request` | `SendTransactionRequest` | Full transaction parameters. See [SendTransactionRequest](#sendtransactionrequest). |
-| `feeOptionSelector` | `FeeOptionSelector` | Strategy for selecting a fee option. Defaults to `.first`. |
-
-**Returns** `String` — the confirmed transaction hash.
-
-**Throws** `TransactionError`.
-
-**Example**
-
-```swift
-let value = try oms.utils.parseUnits(value: "1", decimals: 18)
-let txHash = try await oms.wallet.sendTransaction(
-    network: "polygon",
-    request: SendTransactionRequest(
-        to: "0xRecipient",
-        value: value,
-        data: nil
-    ),
-    feeOptionSelector: .cheapest
-)
-```
-
----
-
 ### callContract
 
 ```swift
 func callContract(
-    network: String,
+    network: Network,
     contract: String,
     method: String,
     args: [AbiArg]?,
@@ -277,38 +180,7 @@ func callContract(
 ) async throws -> String
 ```
 
-Calls a state-changing smart contract function. Uses the same prepare/execute/poll flow as `sendTransaction`.
-
-**Parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `network` | `String` | Network to submit on. |
-| `contract` | `String` | Address of the target contract. |
-| `method` | `String` | ABI function signature, e.g. `"transfer(address,uint256)"`. |
-| `args` | `[AbiArg]?` | Ordered list of ABI-encoded arguments, or `nil` for no arguments. |
-| `feeOptionSelector` | `FeeOptionSelector` | Strategy for selecting a fee option. Defaults to `.first`. |
-
-**Returns** `String` — the confirmed transaction hash.
-
-**Throws** `TransactionError`.
-
-**Example**
-
-```swift
-let amount = try oms.utils.parseUnits(value: "1", decimals: 18)
-let txHash = try await oms.wallet.callContract(
-    network: "polygon",
-    contract: "0xTokenContract",
-    method: "transfer(address,uint256)",
-    args: [
-        AbiArg(type: "address", value: .string("0xRecipient")),
-        AbiArg(type: "uint256", value: .string(amount)),
-    ]
-)
-```
-
----
+Calls a state-changing smart contract function.
 
 ### getTransactionStatus
 
@@ -316,23 +188,7 @@ let txHash = try await oms.wallet.callContract(
 func getTransactionStatus(txnId: String) async throws -> TransactionStatusResponse
 ```
 
-Returns the current status for a prepared or submitted transaction. When the transaction has executed, `txnHash` is included when available.
-
-**Parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `txnId` | `String` | Transaction ID returned by the wallet API prepare/execute flow. |
-
-**Returns** `TransactionStatusResponse` — includes `status` and optional `txnHash`.
-
-**Example**
-
-```swift
-let status = try await oms.wallet.getTransactionStatus(txnId: "txn_...")
-```
-
----
+Returns the current execution status for a prepared or submitted transaction.
 
 ### listAccess
 
@@ -342,146 +198,135 @@ func listAccess() async -> [CredentialInfo]
 
 Returns all credentials that currently have access to this wallet.
 
-**Returns** `[CredentialInfo]` — see [CredentialInfo](#credentialinfo).
-
-**Example**
-
-```swift
-let credentials = await oms.wallet.listAccess()
-for cred in credentials {
-    print(cred.credentialId, "expires:", cred.expiresAt)
-}
-```
-
----
-
 ### revokeAccess
 
 ```swift
 func revokeAccess(targetCredentialId: String) async
 ```
 
-Permanently revokes a credential's access to this wallet. Cannot be undone.
-
-**Parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `targetCredentialId` | `String` | The ID of the credential to revoke. Obtain from [`listAccess`](#listaccess). |
-
-**Example**
-
-```swift
-let credentials = await oms.wallet.listAccess()
-if let other = credentials.first(where: { !$0.isCaller }) {
-    await oms.wallet.revokeAccess(targetCredentialId: other.credentialId)
-}
-```
+Revokes a credential's access to this wallet.
 
 ---
 
 ## IndexerClient
 
-Accessed via `oms.indexer`. Queries on-chain token balances through the OMS Indexer API.
+Accessed via `oms.indexer`. Queries token balances through the OMS Indexer API.
 
 ### getTokenBalances
 
 ```swift
 func getTokenBalances(
-    chainId: String,
+    network: Network,
     contractAddress: String,
     walletAddress: String,
     includeMetadata: Bool
 ) async throws -> TokenBalancesResult
 ```
 
-Fetches token balances for a wallet on a given chain and contract (first page, up to 40 entries).
-
-**Parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `chainId` | `String` | Numeric chain ID for a supported network, e.g. `"137"` or `"80002"`. Legacy slug values still populate the indexer URL template directly. |
-| `contractAddress` | `String` | The token contract address to query. |
-| `walletAddress` | `String` | The wallet whose balances to fetch. Pass `oms.wallet.walletAddress` for the active wallet. |
-| `includeMetadata` | `Bool` | When `true`, includes token metadata (name, symbol, decimals) in the response. |
-
-**Returns** `TokenBalancesResult` — see [TokenBalancesResult](#tokenbalancesresult).
-
-**Throws** if the network request or JSON decoding fails.
-
-**Example**
+Fetches token balances for a wallet on a supported network and contract.
 
 ```swift
 let result = try await oms.indexer.getTokenBalances(
-    chainId: "137",
+    network: .polygon,
     contractAddress: "0xTokenContract",
     walletAddress: oms.wallet.walletAddress,
     includeMetadata: true
 )
+```
 
-for balance in result.balances {
-    print(balance.contractAddress ?? "", balance.balance ?? "")
-}
+---
+
+## Formatting Helpers
+
+Top-level helpers convert between display amounts and base-unit integer strings without floating-point precision loss.
+
+### parseUnits
+
+```swift
+func parseUnits(value: String, decimals: Int = 18) throws -> String
+```
+
+Converts a decimal amount into its base-unit integer string.
+
+```swift
+let raw = try parseUnits(value: "12.34", decimals: 6)
+// "12340000"
+```
+
+### formatUnits
+
+```swift
+func formatUnits(
+    value: String,
+    decimals: Int = 18,
+    trimTrailingZeros: Bool = true
+) throws -> String
+```
+
+Converts a base-unit integer string into a human-readable decimal amount.
+
+```swift
+let amount = try formatUnits(value: "12340000", decimals: 6)
+// "12.34"
 ```
 
 ---
 
 ## Types
 
-### OMSClientNetwork
+### Network
 
 ```swift
-enum OMSClientNetwork: String, CaseIterable, Sendable, CustomStringConvertible {
+enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
     case polygon
     case polygonAmoy
 
     var chainId: String
     var displayName: String
     var description: String
+
+    static var supportedNetworks: [Network]
+    static func from(chainId: String) -> Network?
 }
 ```
 
-| Case | Chain ID | Display name |
-|---|---|---|
-| `.polygon` | `137` | Polygon |
-| `.polygonAmoy` | `80002` | Polygon Amoy |
-
----
-
-### OMSClientNetworks
-
-```swift
-final class OMSClientNetworks {
-    static let supportedNetworks: [OMSClientNetwork]
-    static func network(chainId: String) -> OMSClientNetwork?
-}
-```
-
-Static access point for chain-id binding helpers.
-
----
+| Case | Chain ID | Display name | Indexer value |
+|---|---|---|---|
+| `.polygon` | `137` | Polygon | `polygon` |
+| `.polygonAmoy` | `80002` | Polygon Amoy | `amoy` |
 
 ### OMSClientEnvironment
 
 ```swift
-struct OMSClientEnvironment {
+struct OMSClientEnvironment: Equatable, Sendable {
+    static let defaultWalletApiUrl: String
+    static let defaultApiRpcUrl: String
+    static let defaultIndexerUrlTemplate: String
+    static let indexerURLTemplateDefault: String
     static let defaultScope: String
 
     let walletApiUrl: String
     let apiRpcUrl: String
     let indexerUrlTemplate: String
-    var indexerURLTemplate: String
     let scope: String
 
-    func indexerURL(for network: OMSClientNetwork) -> URL?
+    var indexerURLTemplate: String
 
     init(
-        walletApiUrl: String = "https://d1sctl7y41hot5.cloudfront.net",
-        apiRpcUrl: String = "https://dev-api.sequence.app/rpc/API",
-        indexerUrlTemplate: String = "https://dev-{value}-indexer.sequence.app/rpc/Indexer/",
+        walletApiUrl: String = OMSClientEnvironment.defaultWalletApiUrl,
+        apiRpcUrl: String = OMSClientEnvironment.defaultApiRpcUrl,
+        indexerUrlTemplate: String = OMSClientEnvironment.defaultIndexerUrlTemplate,
         scope: String = OMSClientEnvironment.defaultScope
     )
+
+    init(
+        walletApiUrl: String = OMSClientEnvironment.defaultWalletApiUrl,
+        apiRpcUrl: String = OMSClientEnvironment.defaultApiRpcUrl,
+        indexerURLTemplate: String,
+        scope: String = OMSClientEnvironment.defaultScope
+    )
+
+    func indexerURL(for network: Network) -> URL?
 }
 ```
 
@@ -489,12 +334,8 @@ struct OMSClientEnvironment {
 |---|---|---|
 | `walletApiUrl` | `String` | Base URL of the OMS Wallet API. |
 | `apiRpcUrl` | `String` | Base URL of the OMS API RPC. |
-| `indexerUrlTemplate` | `String` | URL template for the Indexer. `{value}` is replaced with the chain ID, e.g. `"https://indexer.example.com/{value}"`. |
-| `scope` | `String` | Authorization scope used for signed wallet requests. Defaults to `"proj_1"`. |
-
-The default production configuration is available via `OMSClientEnvironment()`.
-
----
+| `indexerUrlTemplate` | `String` | URL template for the Indexer. `{value}` is replaced with the network indexer name. |
+| `scope` | `String` | Authorization scope used for signed wallet requests. |
 
 ### FeeOptionSelector
 
@@ -506,30 +347,13 @@ struct FeeOptionSelector {
 }
 ```
 
-Encapsulates the strategy used to choose a fee option during the transaction prepare/execute flow. All `sendTransaction` and `callContract` calls accept an optional `feeOptionSelector` parameter.
+Chooses a fee option during the transaction prepare/execute flow.
 
 | Selector | Description |
 |---|---|
-| `.first` | Picks the first fee option returned by the server. Default. |
-| `.cheapest` | Picks the option with the lowest fee value. |
-| `.custom { options in ... }` | Calls your closure with the full `[FeeOption]` list. Return the option the user selected. Can `throw` to cancel the transaction. |
-
-**Example — presenting a fee picker to the user**
-
-```swift
-let value = try oms.utils.parseUnits(value: "1", decimals: 18)
-let txHash = try await oms.wallet.sendTransaction(
-    network: "polygon",
-    to: "0xRecipient",
-    value: value,
-    feeOptionSelector: .custom { options in
-        // Present options in your UI and return the chosen one.
-        return options[userSelectedIndex]
-    }
-)
-```
-
----
+| `.first` | Picks the first fee option returned by the server. |
+| `.cheapest` | Picks the option with the lowest numeric fee value. |
+| `.custom { options in ... }` | Calls your closure with the full `[FeeOption]` list. |
 
 ### TransactionError
 
@@ -544,14 +368,17 @@ enum TransactionError: Error {
 
 Thrown by `sendTransaction` and `callContract`.
 
-| Case | Description |
-|---|---|
-| `.noFeeOptionsAvailable` | The server returned no fee options during the prepare step. |
-| `.missingTransactionHash` | The transaction was marked as executed but no hash was returned. |
-| `.transactionFailed(status:)` | The transaction reached a terminal non-executed status. The associated `TransactionStatus` value describes the failure. |
-| `.pollingTimedOut` | The transaction remained pending after the maximum number of polling attempts (~45 seconds). Check the network or retry. |
+### UnitConversionError
 
----
+```swift
+enum UnitConversionError: Error, Equatable {
+    case invalidDecimals(Int)
+    case invalidValue(String)
+    case fractionalComponentExceedsDecimals(value: String, decimals: Int)
+}
+```
+
+Thrown by `parseUnits` and `formatUnits`.
 
 ### SendTransactionRequest
 
@@ -563,15 +390,7 @@ struct SendTransactionRequest {
 }
 ```
 
-Used with the full overload of `sendTransaction`.
-
-| Field | Type | Description |
-|---|---|---|
-| `to` | `String` | Recipient or contract address. |
-| `value` | `String` | Native token value in the network's smallest denomination (e.g. wei). Pass `"0"` for contract calls with no value. |
-| `data` | `String?` | Pre-encoded hex calldata for contract interactions. `nil` for plain transfers. |
-
----
+Used with the full `sendTransaction(network:request:feeOptionSelector:)` overload.
 
 ### TokenBalancesResult
 
@@ -583,14 +402,6 @@ struct TokenBalancesResult {
 }
 ```
 
-| Field | Type | Description |
-|---|---|---|
-| `status` | `Int` | HTTP status code of the indexer response. |
-| `page` | `TokenBalancesPage?` | Pagination metadata, if present. |
-| `balances` | `[TokenBalance]` | Array of token balance entries. |
-
----
-
 ### TokenBalancesPage
 
 ```swift
@@ -600,14 +411,6 @@ struct TokenBalancesPage: Codable {
     let more: Bool
 }
 ```
-
-| Field | Type | Description |
-|---|---|---|
-| `page` | `Int` | Current page index (zero-based). |
-| `pageSize` | `Int` | Number of entries per page (up to 40). |
-| `more` | `Bool` | `true` if additional pages are available. |
-
----
 
 ### TokenBalance
 
@@ -624,33 +427,12 @@ struct TokenBalance: Codable {
 }
 ```
 
-| Field | Type | Description |
-|---|---|---|
-| `contractType` | `String?` | Token standard, e.g. `"ERC20"`, `"ERC721"`, `"ERC1155"`. |
-| `contractAddress` | `String?` | Address of the token contract. |
-| `accountAddress` | `String?` | Wallet address this balance belongs to. |
-| `tokenId` | `String?` | For ERC-721/ERC-1155 tokens, the token ID. Decoded from the wire key `tokenID`. |
-| `balance` | `String?` | Balance in the token's smallest denomination. |
-| `blockHash` | `String?` | Block hash at which this balance was recorded. |
-| `blockNumber` | `Int64?` | Block number at which this balance was recorded. |
-| `chainId` | `Int64?` | Numeric chain ID. |
-
----
-
 ### CredentialInfo
 
 ```swift
-struct CredentialInfo: Codable {
+struct CredentialInfo: Codable, Sendable {
     let credentialId: String
     let expiresAt: String
     let isCaller: Bool
 }
 ```
-
-Returned by [`listAccess`](#listaccess). Represents a credential that has access to the wallet.
-
-| Field | Type | Description |
-|---|---|---|
-| `credentialId` | `String` | Unique identifier. Pass to `revokeAccess` to remove this credential. |
-| `expiresAt` | `String` | ISO 8601 timestamp for when this credential expires. |
-| `isCaller` | `Bool` | `true` if this credential belongs to the current active session. |

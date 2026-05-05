@@ -23,19 +23,14 @@ import OMS_SDK
 
 let oms = OMSClient(projectAccessKey: "your-project-access-key")
 
-// 1. Send a one-time code to the user's email
 await oms.wallet.startEmailAuth(email: "user@example.com")
-
-// 2. User enters the code; this loads or creates a wallet
 await oms.wallet.completeEmailAuth(code: "123456")
 
-// 3. The wallet is ready
 print("Wallet address:", oms.wallet.walletAddress)
 
-// 4. Send a transaction
-let value = try oms.utils.parseUnits(value: "1", decimals: 18)
+let value = try parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.sendTransaction(
-    network: "polygon",
+    network: .polygon,
     to: "0xRecipient",
     value: value
 )
@@ -49,19 +44,18 @@ let txHash = try await oms.wallet.sendTransaction(
 |---|---|---|
 | `wallet` | `WalletClient` | Authentication, session, signing, access management, and transaction helpers. |
 | `indexer` | `IndexerClient` | Token balance and on-chain query helpers. |
-| `utils` | `OMSClientUtils` | Unit parser and formatter helpers. |
-| `walletAddress` | `String` | Compatibility shortcut for `oms.wallet.walletAddress`. Empty if no wallet is active. |
+| `supportedNetworks` | `[Network]` | Supported network list. |
 
 `OmsWallet` remains available as a compatibility alias for `OMSClient`. `OmsEnvironment` remains available as a compatibility alias for `OMSClientEnvironment`.
 
 ## Supported Networks
 
-Use `OMSClientNetworks.supportedNetworks` and `OMSClientNetworks.network(chainId:)` to bind numeric chain IDs to SDK network names.
+Use `Network.supportedNetworks`, `Network.from(chainId:)`, or the `OMSClient` convenience properties to bind numeric chain IDs to SDK networks.
 
 ```swift
-let networks = OMSClientNetworks.supportedNetworks
-let polygon = OMSClientNetworks.network(chainId: "137")
-let amoy = OMSClientNetworks.network(chainId: "80002")
+let networks = Network.supportedNetworks
+let polygon = Network.from(chainId: "137")
+let amoy = oms.network(chainId: "80002")
 ```
 
 | Chain ID | Network | Swift case | Indexer value |
@@ -74,26 +68,24 @@ let amoy = OMSClientNetworks.network(chainId: "80002")
 OMS uses email-based OTP. The two-step flow is:
 
 1. **`startEmailAuth(email:)`** sends a one-time code to the user's inbox.
-2. **`completeEmailAuth(code:walletType:)`** verifies the code, then automatically loads an existing wallet or creates a new one. The wallet address, wallet ID, and session key are saved to the device keychain.
-
-On subsequent launches, the session is restored from the keychain automatically.
+2. **`completeEmailAuth(code:walletType:)`** verifies the code, then automatically loads an existing wallet or creates one. The wallet address, wallet ID, and session key are saved to the device keychain.
 
 ```swift
 await oms.wallet.startEmailAuth(email: "user@example.com")
 
-// Present your OTP entry UI
+// Present your OTP entry UI.
 await oms.wallet.completeEmailAuth(code: "123456")
 
 print(oms.wallet.walletAddress)
 ```
 
-To end the session, call:
+On subsequent launches, the session is restored from the keychain automatically. To end the session:
 
 ```swift
 oms.wallet.signOut()
 ```
 
-Compatibility methods are also available on `OMSClient` and `WalletClient`: `signInWithEmail`, `completeEmailSignIn`, and `clearSession`.
+Compatibility methods are also available on `WalletClient`: `signInWithEmail`, `completeEmailSignIn`, and `clearSession`.
 
 ## Transaction Flow
 
@@ -104,12 +96,12 @@ Compatibility methods are also available on `OMSClient` and `WalletClient`: `sig
 3. **Execute** - the transaction is submitted.
 4. **Poll** - the SDK polls until the transaction is confirmed on-chain.
 
-The default selector is `.first`, which picks the first available fee option.
+The default selector is `.first`.
 
 ```swift
-let value = try oms.utils.parseUnits(value: "1", decimals: 18)
+let value = try parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.sendTransaction(
-    network: "polygon",
+    network: .polygon,
     to: "0xRecipient",
     value: value
 )
@@ -118,9 +110,9 @@ let txHash = try await oms.wallet.sendTransaction(
 Use `.cheapest` to choose the lowest numeric fee value:
 
 ```swift
-let value = try oms.utils.parseUnits(value: "1", decimals: 18)
+let value = try parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.sendTransaction(
-    network: "polygon",
+    network: .polygon,
     to: "0xRecipient",
     value: value,
     feeOptionSelector: .cheapest
@@ -130,9 +122,9 @@ let txHash = try await oms.wallet.sendTransaction(
 Or provide a custom selector:
 
 ```swift
-let value = try oms.utils.parseUnits(value: "1", decimals: 18)
+let value = try parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.sendTransaction(
-    network: "polygon",
+    network: .polygon,
     to: "0xRecipient",
     value: value,
     feeOptionSelector: .custom { options in
@@ -149,7 +141,7 @@ let txHash = try await oms.wallet.sendTransaction(
 let env = OMSClientEnvironment(
     walletApiUrl: "https://staging-wallet.example.com",
     apiRpcUrl: "https://staging-api.example.com/rpc/API",
-    indexerUrlTemplate: "https://staging-indexer.example.com/{value}",
+    indexerUrlTemplate: "https://staging-{value}-indexer.example.com/rpc/Indexer/",
     scope: "proj_staging"
 )
 
@@ -165,15 +157,15 @@ let oms = OMSClient(
 )
 ```
 
-### Unit Formatting
+## Unit Formatting
 
-Use `utils` to convert between display amounts and base-unit integer strings without floating-point precision loss.
+Use the top-level helpers to convert between display amounts and base-unit integer strings without floating-point precision loss.
 
 ```swift
-let usdcRaw = try oms.utils.parseUnits(value: "12.34", decimals: 6)
+let usdcRaw = try parseUnits(value: "12.34", decimals: 6)
 // "12340000"
 
-let usdcDisplay = try oms.utils.formatUnits(value: usdcRaw, decimals: 6)
+let usdcDisplay = try formatUnits(value: usdcRaw, decimals: 6)
 // "12.34"
 ```
 
@@ -183,7 +175,7 @@ let usdcDisplay = try oms.utils.formatUnits(value: usdcRaw, decimals: 6)
 
 ```swift
 let signature = await oms.wallet.signMessage(
-    network: "polygon",
+    network: .polygon,
     message: "Hello from OMS"
 )
 ```
@@ -191,9 +183,9 @@ let signature = await oms.wallet.signMessage(
 ### Send a Transaction with Full Parameters
 
 ```swift
-let value = try oms.utils.parseUnits(value: "1", decimals: 18)
+let value = try parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.sendTransaction(
-    network: "polygon",
+    network: .polygon,
     request: SendTransactionRequest(
         to: "0xRecipient",
         value: value,
@@ -205,9 +197,9 @@ let txHash = try await oms.wallet.sendTransaction(
 ### Call a Smart Contract
 
 ```swift
-let amount = try oms.utils.parseUnits(value: "1", decimals: 18)
+let amount = try parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.callContract(
-    network: "polygon",
+    network: .polygon,
     contract: "0xTokenContract",
     method: "transfer(address,uint256)",
     args: [
@@ -220,10 +212,10 @@ let txHash = try await oms.wallet.callContract(
 ### Handle Transaction Errors
 
 ```swift
-let value = try oms.utils.parseUnits(value: "1", decimals: 18)
+let value = try parseUnits(value: "1", decimals: 18)
 do {
     let txHash = try await oms.wallet.sendTransaction(
-        network: "polygon",
+        network: .polygon,
         to: "0xRecipient",
         value: value
     )
@@ -243,7 +235,7 @@ do {
 
 ```swift
 let result = try await oms.indexer.getTokenBalances(
-    chainId: "137",
+    network: .polygon,
     contractAddress: "0xTokenContract",
     walletAddress: oms.wallet.walletAddress,
     includeMetadata: true

@@ -69,13 +69,11 @@ let privateKey: [UInt8] = [
 }
 
 @Test func TestParseUnits() throws {
-    let utils = OMSClient(projectAccessKey: "test").utils
-
-    #expect(try utils.parseUnits(value: "1", decimals: 18) == "1000000000000000000")
-    #expect(try utils.parseUnits(value: "1.23", decimals: 6) == "1230000")
-    #expect(try utils.parseUnits(value: ".5", decimals: 6) == "500000")
-    #expect(try utils.parseUnits(value: "1.2300", decimals: 2) == "123")
-    #expect(try utils.parseUnits(value: "0.000000000000000001", decimals: 18) == "1")
+    #expect(try parseUnits(value: "1", decimals: 18) == "1000000000000000000")
+    #expect(try parseUnits(value: "1.23", decimals: 6) == "1230000")
+    #expect(try parseUnits(value: ".5", decimals: 6) == "500000")
+    #expect(try parseUnits(value: "1.2300", decimals: 2) == "123")
+    #expect(try parseUnits(value: "0.000000000000000001", decimals: 18) == "1")
 }
 
 @Test func TestSupportedNetworks() throws {
@@ -100,13 +98,11 @@ let privateKey: [UInt8] = [
 }
 
 @Test func TestFormatUnits() throws {
-    let utils = OMSClient(projectAccessKey: "test").utils
-
-    #expect(try utils.formatUnits(value: "1000000000000000000", decimals: 18) == "1")
-    #expect(try utils.formatUnits(value: "1230000", decimals: 6) == "1.23")
-    #expect(try utils.formatUnits(value: "1", decimals: 6) == "0.000001")
-    #expect(try utils.formatUnits(value: "1230000", decimals: 6, trimTrailingZeros: false) == "1.230000")
-    #expect(try utils.formatUnits(value: "1", decimals: 18) == "0.000000000000000001")
+    #expect(try formatUnits(value: "1000000000000000000", decimals: 18) == "1")
+    #expect(try formatUnits(value: "1230000", decimals: 6) == "1.23")
+    #expect(try formatUnits(value: "1", decimals: 6) == "0.000001")
+    #expect(try formatUnits(value: "1230000", decimals: 6, trimTrailingZeros: false) == "1.230000")
+    #expect(try formatUnits(value: "1", decimals: 18) == "0.000000000000000001")
 }
 
 @Test func TestParseUnitsRejectsTooManyDecimals() {

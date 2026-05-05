@@ -2,7 +2,6 @@
 public class OMSClient {
     public let wallet: WalletClient
     public let indexer: IndexerClient
-    public let utils: OMSClientUtils
 
     public init(projectAccessKey: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
         self.wallet = WalletClient(
@@ -14,7 +13,6 @@ public class OMSClient {
             projectAccessKey: projectAccessKey,
             environment: environment
         )
-        self.utils = OMSClientUtils()
     }
     
     public var supportedNetworks: [Network] {
