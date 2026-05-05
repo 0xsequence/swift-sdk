@@ -79,15 +79,11 @@ let privateKey: [UInt8] = [
 }
 
 @Test func TestSupportedNetworks() throws {
-    let oms = OMSClient(projectAccessKey: "test")
-
     #expect(OMSClientNetworks.supportedNetworks == [.polygon, .polygonAmoy])
-    #expect(oms.utils.supportedNetworks == OMSClientNetworks.supportedNetworks)
 
     #expect(OMSClientNetworks.network(chainId: "137") == .polygon)
     #expect(OMSClientNetworks.network(chainId: "80002") == .polygonAmoy)
     #expect(OMSClientNetworks.network(chainId: "1") == nil)
-    #expect(oms.utils.network(chainId: "80002") == .polygonAmoy)
 
     #expect(OMSClientNetwork.polygon.displayName == "Polygon")
     #expect(OMSClientNetwork.polygon.description == "Polygon")

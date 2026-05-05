@@ -54,7 +54,7 @@ public class WalletClient {
         let params = CommitVerifierRequest(
             identityType: IdentityType.email,
             authMode: AuthMode.otp,
-            metadata: [String : String] (),
+            metadata: [String : String] (),R
             handle: email
         )
 

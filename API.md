@@ -59,7 +59,7 @@ init(projectAccessKey: String, environment: OMSClientEnvironment = OMSClientEnvi
 |---|---|---|
 | `wallet` | `WalletClient` | Handles authentication, signing, and transactions. |
 | `indexer` | `IndexerClient` | Queries on-chain state and token balances. |
-| `utils` | `OMSClientUtils` | Utility helpers, including unit conversion and supported network lookup. |
+| `utils` | `OMSClientUtils` | Unit parser and formatter helpers. |
 
 ---
 
@@ -449,13 +449,13 @@ enum OMSClientNetwork: String, CaseIterable, Sendable, CustomStringConvertible {
 ### OMSClientNetworks
 
 ```swift
-enum OMSClientNetworks {
+final class OMSClientNetworks {
     static let supportedNetworks: [OMSClientNetwork]
     static func network(chainId: String) -> OMSClientNetwork?
 }
 ```
 
-Namespace for chain-id binding helpers. `OMSClientUtils` also exposes `supportedNetworks` and `network(chainId:)`.
+Static access point for chain-id binding helpers.
 
 ---
 

@@ -55,12 +55,12 @@ let txHash = try await oms.wallet.sendTransaction(
 
 ## Supported Networks
 
-Use `utils.supportedNetworks` and `utils.network(chainId:)` to bind numeric chain IDs to SDK network names.
+Use `OMSClientNetworks.supportedNetworks` and `OMSClientNetworks.network(chainId:)` to bind numeric chain IDs to SDK network names.
 
 ```swift
-let networks = oms.utils.supportedNetworks
-let polygon = oms.utils.network(chainId: "137")
-let amoy = oms.utils.network(chainId: "80002")
+let networks = OMSClientNetworks.supportedNetworks
+let polygon = OMSClientNetworks.network(chainId: "137")
+let amoy = OMSClientNetworks.network(chainId: "80002")
 ```
 
 | Chain ID | Network | Swift case | Indexer value |

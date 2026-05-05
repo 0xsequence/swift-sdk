@@ -2,8 +2,8 @@
 ///
 /// Source parity:
 /// - `oms-client-kotlin-sdk/src/main/java/com/omsclient/kotlin_sdk/Network.kt`
-/// - `OMSClientUtils.supportedNetworks`
-/// - `OMSClientUtils.network(chainId:)`
+/// - `OMSClientNetworks.supportedNetworks`
+/// - `OMSClientNetworks.network(chainId:)`
 public enum OMSClientNetwork: String, CaseIterable, Sendable, CustomStringConvertible {
     case polygon
     case polygonAmoy
@@ -40,7 +40,9 @@ public enum OMSClientNetwork: String, CaseIterable, Sendable, CustomStringConver
     }
 }
 
-public enum OMSClientNetworks {
+public final class OMSClientNetworks {
+    private init() {}
+
     public static let supportedNetworks: [OMSClientNetwork] = OMSClientNetwork.allCases
 
     public static func network(chainId: String) -> OMSClientNetwork? {
