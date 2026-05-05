@@ -1,6 +1,6 @@
 # OMS SDK (Swift)
 
-A Swift SDK for the OMS (Open Mobile Stack) platform. Provides email-based wallet authentication, on-chain transaction submission with fee selection, message signing, and token balance queries — with automatic keychain session persistence.
+A Swift SDK for the OMS (Open Money Stack) platform. Provides email-based wallet authentication, on-chain transaction submission with fee selection, message signing, and token balance queries — with automatic keychain session persistence.
 
 **Requirements:** iOS 15+ · macOS 12+
 
