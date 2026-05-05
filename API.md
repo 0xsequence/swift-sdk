@@ -216,10 +216,11 @@ Sends a native token transfer. Suitable for the most common case.
 **Example**
 
 ```swift
+let value = try oms.utils.parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.sendTransaction(
     network: "polygon",
     to: "0xRecipient",
-    value: "1000000000000000000"
+    value: value
 )
 ```
 
@@ -250,12 +251,13 @@ Sends a transaction with full parameter control, including raw calldata.
 **Example**
 
 ```swift
+let value = try oms.utils.parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.sendTransaction(
     network: "polygon",
     request: SendTransactionRequest(
-        to: "0xContract",
-        value: "0",
-        data: "0xa9059cbb..."
+        to: "0xRecipient",
+        value: value,
+        data: nil
     ),
     feeOptionSelector: .cheapest
 )
@@ -294,13 +296,14 @@ Calls a state-changing smart contract function. Uses the same prepare/execute/po
 **Example**
 
 ```swift
+let amount = try oms.utils.parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.callContract(
     network: "polygon",
     contract: "0xTokenContract",
     method: "transfer(address,uint256)",
     args: [
         AbiArg(type: "address", value: .string("0xRecipient")),
-        AbiArg(type: "uint256", value: .string("1000000000000000000")),
+        AbiArg(type: "uint256", value: .string(amount)),
     ]
 )
 ```
@@ -514,10 +517,11 @@ Encapsulates the strategy used to choose a fee option during the transaction pre
 **Example — presenting a fee picker to the user**
 
 ```swift
+let value = try oms.utils.parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.sendTransaction(
     network: "polygon",
     to: "0xRecipient",
-    value: "1000000000000000000",
+    value: value,
     feeOptionSelector: .custom { options in
         // Present options in your UI and return the chosen one.
         return options[userSelectedIndex]

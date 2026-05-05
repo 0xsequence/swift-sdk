@@ -33,10 +33,11 @@ await oms.wallet.completeEmailAuth(code: "123456")
 print("Wallet address:", oms.wallet.walletAddress)
 
 // 4. Send a transaction
+let value = try oms.utils.parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.sendTransaction(
     network: "polygon",
     to: "0xRecipient",
-    value: "1000000000000000000"  // raw base-unit amount
+    value: value
 )
 ```
 
@@ -106,20 +107,22 @@ Compatibility methods are also available on `OMSClient` and `WalletClient`: `sig
 The default selector is `.first`, which picks the first available fee option.
 
 ```swift
+let value = try oms.utils.parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.sendTransaction(
     network: "polygon",
     to: "0xRecipient",
-    value: "1000000000000000000"
+    value: value
 )
 ```
 
 Use `.cheapest` to choose the lowest numeric fee value:
 
 ```swift
+let value = try oms.utils.parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.sendTransaction(
     network: "polygon",
     to: "0xRecipient",
-    value: "1000000000000000000",
+    value: value,
     feeOptionSelector: .cheapest
 )
 ```
@@ -127,10 +130,11 @@ let txHash = try await oms.wallet.sendTransaction(
 Or provide a custom selector:
 
 ```swift
+let value = try oms.utils.parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.sendTransaction(
     network: "polygon",
     to: "0xRecipient",
-    value: "1000000000000000000",
+    value: value,
     feeOptionSelector: .custom { options in
         return options[selectedIndex]
     }
@@ -187,12 +191,13 @@ let signature = await oms.wallet.signMessage(
 ### Send a Transaction with Full Parameters
 
 ```swift
+let value = try oms.utils.parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.sendTransaction(
     network: "polygon",
     request: SendTransactionRequest(
-        to: "0xContract",
-        value: "0",
-        data: "0xa9059cbb..."
+        to: "0xRecipient",
+        value: value,
+        data: nil
     )
 )
 ```
@@ -200,13 +205,14 @@ let txHash = try await oms.wallet.sendTransaction(
 ### Call a Smart Contract
 
 ```swift
+let amount = try oms.utils.parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.callContract(
     network: "polygon",
     contract: "0xTokenContract",
     method: "transfer(address,uint256)",
     args: [
         AbiArg(type: "address", value: .string("0xRecipient")),
-        AbiArg(type: "uint256", value: .string("1000000000000000000")),
+        AbiArg(type: "uint256", value: .string(amount)),
     ]
 )
 ```
@@ -214,11 +220,12 @@ let txHash = try await oms.wallet.callContract(
 ### Handle Transaction Errors
 
 ```swift
+let value = try oms.utils.parseUnits(value: "1", decimals: 18)
 do {
     let txHash = try await oms.wallet.sendTransaction(
         network: "polygon",
         to: "0xRecipient",
-        value: "1000000000000000000"
+        value: value
     )
     print("Sent:", txHash)
 } catch TransactionError.noFeeOptionsAvailable {
