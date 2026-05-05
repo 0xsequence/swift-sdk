@@ -6,13 +6,16 @@ struct SignedWaasTransport: WebRPCTransport {
     
     private let client: HttpClient = HttpClient()
     private let projectAccessKey: String
+    private let scope: String
     private var signer: [UInt8] = []
     
     public init(projectAccessKey: String,
+                scope: String,
                 privateKey: [UInt8],
                 session: URLSession = .shared
     ) {
         self.projectAccessKey = projectAccessKey
+        self.scope = scope
         self.signer = privateKey
         self.session = session
     }
@@ -25,7 +28,13 @@ struct SignedWaasTransport: WebRPCTransport {
     ) async throws -> WebRPCHTTPResponse {
         let endpoint = "/\(path.split(separator: "/")[2])"
         let payload = String(data: body, encoding: .utf8) ?? ""
-        let authHeader = buildAuthHeader(endpoint: endpoint, signer: signer, payload: payload)
+        
+        let authHeader = buildAuthHeader(
+            endpoint: endpoint,
+            scope: self.scope,
+            signer: signer,
+            payload: payload
+        )
         
         let response = try! await self.client.postJson(baseUrl: baseURL, path: path, body: payload, headers: [
             "X-Access-Key": projectAccessKey,
@@ -42,7 +51,7 @@ struct SignedWaasTransport: WebRPCTransport {
         self.signer = signer
     }
     
-    private func buildAuthHeader(endpoint: String, signer: [UInt8], payload: String) -> String {
+    private func buildAuthHeader(endpoint: String, scope: String, signer: [UInt8], payload: String) -> String {
         let walletAddress = try! EthereumSigner.GetWalletAddress(privateKey: signer)
         
         let nonce = TimeUtils.currentTimestampInSecondsString()
@@ -52,6 +61,6 @@ struct SignedWaasTransport: WebRPCTransport {
         let hashedResult = Keccak256.Keccak256(data: preimage)
         let signature = try! EthereumSigner.signUTF8MessageEIP191(privateKey: signer, message: hashedResult)
         
-        return RequestUtils.buildAuthorizationHeader(scope: Constants.scope, cred: walletAddress, nonce: nonce, sig: signature)
+        return RequestUtils.buildAuthorizationHeader(scope: scope, cred: walletAddress, nonce: nonce, sig: signature)
     }
 }

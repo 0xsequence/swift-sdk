@@ -1,244 +1,222 @@
-# OMS Wallet SDK — Developer Documentation
+# OMS SDK (Swift)
+
+A Swift SDK for the OMS (Open Money Stack) platform. Provides email-based wallet authentication, on-chain transaction submission with fee selection, message signing, and token balance queries — with automatic keychain session persistence.
+
+**Requirements:** iOS 15+ · macOS 12+
+
+## Installation
+
+Add the package to your `Package.swift`:
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/your-org/oms-swift-sdk", from: "1.0.0")
+]
+```
+
+Or add it via Xcode: **File → Add Package Dependencies**.
+
+## Quick Start
+
+```swift
+import OMS_SDK
+
+let oms = OMSClient(projectAccessKey: "your-project-access-key")
+
+// 1. Send a one-time code to the user's email
+await oms.wallet.startEmailAuth(email: "user@example.com")
+
+// 2. User enters the code — verifies it and sets up the wallet automatically
+await oms.wallet.completeEmailAuth(code: "123456")
+
+// 3. The wallet is ready
+print("Wallet address:", oms.wallet.walletAddress)
+
+// 4. Send a transaction
+let txHash = try await oms.wallet.sendTransaction(
+    network: "polygon",
+    to: "0xRecipient",
+    value: "1000000000000000000"  // 1 MATIC in wei
+)
+```
 
 ## Overview
 
-This SDK provides a single public class for integrating OMS wallet functionality into your iOS or macOS application:
-
-- **`OmsWallet`** — The entry point. Initialised once with your project credentials and handles the full wallet lifecycle: authentication, wallet provisioning, signing, transactions, and access control.
-
-### Platform Requirements
-
-| Platform | Minimum Version |
-|----------|----------------|
-| iOS      | 15.0+          |
-| macOS    | 12.0+          |
-
----
-
-## OmsWallet
-
-`OmsWallet` is the root object for the SDK. Create a single instance of it at app startup and keep it alive for the session. It handles everything from authentication through to on-chain operations.
-
-On initialisation, the wallet automatically attempts to restore any existing keychain session. If one is found, `walletAddress` is populated immediately and the user does not need to sign in again.
-
-### Initialisation
-
-```swift
-let wallet = OmsWallet(
-    projectAccessKey: "your-project-access-key",
-    environment: OmsEnvironment()
-)
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| `projectAccessKey` | `String` | Your project access key |
-| `environment` | `OmsEnvironment` | The environment to connect to. Defaults to `OmsEnvironment()`. |
-
----
-
-### Properties
+`OMSClient` exposes two sub-clients:
 
 | Property | Type | Description |
 |---|---|---|
-| `walletAddress` | `String` | The on-chain address of this wallet. Use this to display the user's wallet address in your UI, pass it to smart contracts, or reference it in transaction requests. Empty string if no wallet has been created or restored yet. |
+| `oms.wallet` | `WalletClient` | Authentication, signing, and transaction submission. |
+| `oms.indexer` | `IndexerClient` | Read token balances and on-chain state. |
 
----
+## Authentication Flow
 
-### Authentication
+OMS uses email-based OTP. The two-step flow is:
 
-#### `signInWithEmail(email: String) async`
+1. **`startEmailAuth(email:)`** — sends a one-time code to the user's inbox.
+2. **`completeEmailAuth(code:walletType:)`** — verifies the code, then automatically loads an existing wallet or creates a new one. The wallet address, wallet ID, and session key are saved to the device keychain.
 
-Initiates email-based OTP authentication. Sends a one-time code to the provided address and stores the verifier state internally.
+On subsequent launches, the session is restored from the keychain automatically — no sign-in required.
 
-```swift
-await wallet.signInWithEmail(email: "user@example.com")
-// Present your OTP entry UI
-```
+To end the session, call `oms.wallet.signOut()`.
 
-After this returns, show your OTP input and call `completeEmailSignIn` with the code the user receives.
+## Transaction Flow
 
----
+`sendTransaction` and `callContract` use a two-step prepare/execute flow internally:
 
-#### `completeEmailSignIn(code: String, walletType: WalletType = .ethereumEoa) async`
+1. **Prepare** — the server calculates fee options for the transaction.
+2. **Select fee** — your `FeeOptionSelector` picks which fee option to use.
+3. **Execute** — the transaction is submitted.
+4. **Poll** — the SDK polls until the transaction is confirmed on-chain.
 
-Completes the OTP flow by verifying the code the user received. On success, this method also provisions a wallet of `walletType` for the authenticated user: if one already exists on the account it is loaded, otherwise a new one is created. In both cases the wallet address and session key are persisted to the keychain, and `walletAddress` is populated once this call returns.
-
-```swift
-await wallet.completeEmailSignIn(code: "123456")
-print(wallet.walletAddress) // now populated
-```
-
-You can pass a specific wallet type if you don't want the default:
+The default selector is `.first`, which picks the first available fee option. Use `.cheapest` or provide a custom selector to give users control over gas costs:
 
 ```swift
-await wallet.completeEmailSignIn(code: "123456", walletType: .ethereumEoa)
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| `code` | `String` | The one-time passcode entered by the user |
-| `walletType` | `WalletType` | The wallet type to load or create. Defaults to `.ethereumEoa`. |
-
----
-
-#### `clearSession()`
-
-Clears the wallet session from the device keychain. After calling this, the next app launch will start with an empty `walletAddress` and the user will need to sign in again via `signInWithEmail(email:)`.
-
-```swift
-wallet.clearSession()
-// Navigate the user back to your sign-in screen
-```
-
----
-
-### Signing & Transactions
-
-#### `signMessage(network: String, message: String) async -> String`
-
-Signs an arbitrary message using the wallet's session key and returns the signature as a hex string.
-
-```swift
-let signature = await wallet.signMessage(
-    network: "mainnet",
-    message: "Hello from my app!"
-)
-print(signature) // "0xabc123..."
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| `network` | `String` | The network identifier (e.g., `"mainnet"`, `"polygon"`) |
-| `message` | `String` | The plaintext message to sign |
-
----
-
-#### `sendTransaction(network: String, to: String, value: String) async -> String`
-
-Sends a native token transfer to the specified address. Submitted via the Sequence relayer, so the user does not need to hold gas tokens to cover fees.
-
-```swift
-let txHash = await wallet.sendTransaction(
+// Use the cheapest available fee option
+let txHash = try await oms.wallet.sendTransaction(
     network: "polygon",
-    to: "0xRecipientAddress",
-    value: "1000000000000000000" // 1 MATIC in wei
+    to: "0xRecipient",
+    value: "1000000000000000000",
+    feeOptionSelector: .cheapest
 )
-print(txHash) // "0xabc123..."
-```
 
-| Parameter | Type | Description |
-|---|---|---|
-| `network` | `String` | The network to send the transaction on |
-| `to` | `String` | The recipient's wallet address |
-| `value` | `String` | The amount in the network's smallest denomination (e.g., wei) |
-
----
-
-#### `callContract(params: CallContractRequest) async -> String`
-
-Calls a smart contract function that writes state — token transfers, NFT mints, approvals, and so on. For read-only queries, call the contract directly without this method.
-
-```swift
-let txHash = await wallet.callContract(params: CallContractRequest(
+// Present fee options to the user
+let txHash = try await oms.wallet.sendTransaction(
     network: "polygon",
-    wallet: wallet.walletAddress,
-    // ... contract address, ABI, function, arguments
-))
+    to: "0xRecipient",
+    value: "1000000000000000000",
+    feeOptionSelector: .custom { options in
+        // options is [FeeOption] — return the one the user picked
+        return options[selectedIndex]
+    }
+)
 ```
 
-| Parameter | Type | Description |
-|---|---|---|
-| `params` | `CallContractRequest` | Describes the target contract, function selector, ABI-encoded arguments, network, and any value to attach |
+## Configuration
 
----
-
-### Access Control
-
-#### `listAccess() async -> [CredentialInfo]`
-
-Returns a list of credentials that currently have access to this wallet. Use this to display active sessions in your account management UI, or to identify credential IDs before revoking one.
+### Custom Environment
 
 ```swift
-let credentials = await wallet.listAccess()
-for credential in credentials {
-    print(credential.id)
-}
-```
-
----
-
-#### `revokeAccess(targetCredentialId: String) async`
-
-Revokes access for a specific credential. This action cannot be undone — the credential will need to be re-authorized to regain access.
-
-```swift
-await wallet.revokeAccess(targetCredentialId: "some-credential-id")
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| `targetCredentialId` | `String` | The unique identifier of the credential to revoke. Obtain this from `listAccess()`. |
-
----
-
-## Full Usage Example
-
-```swift
-import Foundation
-
-let wallet = OmsWallet(
-    projectAccessKey: "your-project-access-key",
-    environment: OmsEnvironment()
+let env = OMSClientEnvironment(
+    walletApiUrl: "https://staging-wallet.example.com",
+    apiRpcUrl: "https://staging-api.example.com/rpc/API",
+    indexerUrlTemplate: "https://staging-indexer.example.com/{value}",
+    scope: "proj_staging"
 )
 
-// 1. If a session was restored from the keychain, walletAddress is already set
-if !wallet.walletAddress.isEmpty {
-    print("Restored session: \(wallet.walletAddress)")
-    // Proceed directly to your main app experience
-} else {
-    // 2. Initiate email sign-in
-    await wallet.signInWithEmail(email: "user@example.com")
+let oms = OMSClient(projectAccessKey: "your-key", environment: env)
+```
 
-    // 3. Collect OTP from the user (via your UI)
-    let otp = "123456"
+To keep the default endpoints and only change the signed-request scope:
 
-    // 4. Complete sign-in — this also provisions the wallet
-    //    (loads existing or creates new) and populates walletAddress.
-    await wallet.completeEmailSignIn(code: otp)
-    print("Wallet ready: \(wallet.walletAddress)")
+```swift
+let oms = OMSClient(
+    projectAccessKey: "your-key",
+    environment: OMSClientEnvironment(scope: "proj_staging")
+)
+```
 
-    // 5. Sign a message
-    let signature = await wallet.signMessage(network: "mainnet", message: "Verify my identity")
-    print("Signature: \(signature)")
+## Examples
 
-    // 6. Send a transaction
-    let txHash = await wallet.sendTransaction(
+### Sign a Message
+
+```swift
+let signature = try await oms.wallet.signMessage(
+    network: "polygon",
+    message: "Hello from OMS"
+)
+```
+
+### Send a Native Token Transfer
+
+```swift
+let txHash = try await oms.wallet.sendTransaction(
+    network: "polygon",
+    to: "0xRecipient",
+    value: "1000000000000000000"  // 1 MATIC in wei
+)
+```
+
+### Send a Transaction with Full Parameters
+
+```swift
+let txHash = try await oms.wallet.sendTransaction(
+    network: "polygon",
+    request: SendTransactionRequest(
+        to: "0xContract",
+        value: "0",
+        data: "0xa9059cbb..."
+    )
+)
+```
+
+### Call a Smart Contract
+
+```swift
+let txHash = try await oms.wallet.callContract(
+    network: "polygon",
+    contract: "0xTokenContract",
+    method: "transfer(address,uint256)",
+    args: [
+        AbiArg(type: "address", value: .string("0xRecipient")),
+        AbiArg(type: "uint256", value: .string("1000000000000000000")),
+    ]
+)
+```
+
+### Handle Transaction Errors
+
+```swift
+do {
+    let txHash = try await oms.wallet.sendTransaction(
         network: "polygon",
-        to: "0xRecipientAddress",
+        to: "0xRecipient",
         value: "1000000000000000000"
     )
-    print("Transaction hash: \(txHash)")
-
-    // 7. Clear session when done
-    wallet.clearSession()
+    print("Sent:", txHash)
+} catch TransactionError.noFeeOptionsAvailable {
+    print("No fee options returned from server")
+} catch TransactionError.pollingTimedOut {
+    print("Transaction did not confirm in time — check the network")
+} catch TransactionError.transactionFailed(let status) {
+    print("Transaction failed with status:", status)
+} catch TransactionError.missingTransactionHash {
+    print("Transaction executed but no hash was returned")
 }
 ```
 
----
+### Query Token Balances
 
-## Session Persistence
+```swift
+let result = try await oms.indexer.getTokenBalances(
+    chainId: "polygon",
+    contractAddress: "0xTokenContract",
+    walletAddress: oms.wallet.walletAddress,
+    includeMetadata: true
+)
 
-The SDK automatically stores the wallet address and session private key in the device keychain when `completeEmailSignIn` provisions a wallet. On the next app launch, `OmsWallet` restores this session during initialisation — no sign-in required.
+for balance in result.balances {
+    print(balance.contractAddress ?? "", balance.balance ?? "")
+}
+```
 
-Call `clearSession()` to explicitly clear the stored session from the keychain.
+### Manage Wallet Access
 
----
+```swift
+// List credentials with access to this wallet
+let credentials = await oms.wallet.listAccess()
 
-## Error Handling
+// Revoke one
+await oms.wallet.revokeAccess(targetCredentialId: credentials[0].credentialId)
+```
 
-The current public API uses `try!` internally for critical operations. It is expected that network connectivity and properly formatted server responses are available during auth and wallet flows. Future versions of the SDK may expose typed error handling. For now, ensure your app:
+### Sign Out
 
-- Has network access before calling any `async` methods.
-- Checks `walletAddress.isEmpty` to determine whether a session was restored before skipping the auth flow.
-- Validates the OTP code format before passing it to `completeEmailSignIn`.
+```swift
+oms.wallet.signOut()
+// Navigate to sign-in screen
+```
+
+## API Reference
+
+See [API.md](./API.md) for the full method and type reference.
