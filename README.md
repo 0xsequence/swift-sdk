@@ -36,7 +36,7 @@ print("Wallet address:", oms.wallet.walletAddress)
 let txHash = try await oms.wallet.sendTransaction(
     network: "polygon",
     to: "0xRecipient",
-    value: "1000000000000000000"  // 1 MATIC in wei
+    value: "1000000000000000000"  // raw base-unit amount
 )
 ```
 
@@ -156,9 +156,6 @@ let usdcRaw = try oms.utils.parseUnits(value: "12.34", decimals: 6)
 
 let usdcDisplay = try oms.utils.formatUnits(value: usdcRaw, decimals: 6)
 // "12.34"
-
-let wei = try oms.utils.parseEther(value: "1")
-let eth = try oms.utils.formatEther(value: wei)
 ```
 
 ## Examples

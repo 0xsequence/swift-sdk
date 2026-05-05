@@ -75,7 +75,7 @@ let privateKey: [UInt8] = [
     #expect(try utils.parseUnits(value: "1.23", decimals: 6) == "1230000")
     #expect(try utils.parseUnits(value: ".5", decimals: 6) == "500000")
     #expect(try utils.parseUnits(value: "1.2300", decimals: 2) == "123")
-    #expect(try utils.parseEther(value: "0.000000000000000001") == "1")
+    #expect(try utils.parseUnits(value: "0.000000000000000001", decimals: 18) == "1")
 }
 
 @Test func TestFormatUnits() throws {
@@ -85,7 +85,7 @@ let privateKey: [UInt8] = [
     #expect(try utils.formatUnits(value: "1230000", decimals: 6) == "1.23")
     #expect(try utils.formatUnits(value: "1", decimals: 6) == "0.000001")
     #expect(try utils.formatUnits(value: "1230000", decimals: 6, trimTrailingZeros: false) == "1.230000")
-    #expect(try utils.formatEther(value: "1") == "0.000000000000000001")
+    #expect(try utils.formatUnits(value: "1", decimals: 18) == "0.000000000000000001")
 }
 
 @Test func TestParseUnitsRejectsTooManyDecimals() {

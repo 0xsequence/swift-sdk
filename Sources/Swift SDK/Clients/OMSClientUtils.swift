@@ -93,17 +93,6 @@ public final class OMSClientUtils {
         return sign.isNegative ? "-\(formattedValue)" : formattedValue
     }
 
-    public func parseEther(value: String) throws -> String {
-        try parseUnits(value: value, decimals: 18)
-    }
-
-    public func formatEther(
-        value: String,
-        trimTrailingZeros: Bool = true
-    ) throws -> String {
-        try formatUnits(value: value, decimals: 18, trimTrailingZeros: trimTrailingZeros)
-    }
-
     private func validate(decimals: Int) throws {
         guard decimals >= 0 else {
             throw UnitConversionError.invalidDecimals(decimals)
