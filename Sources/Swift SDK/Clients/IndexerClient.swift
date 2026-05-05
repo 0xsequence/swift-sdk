@@ -42,14 +42,14 @@ private struct TokenBalancesPayload: Codable {
 @available(macOS 12.0, iOS 15.0, *)
 public final class IndexerClient {
     private let projectAccessKey: String
-    private let environment: OmsEnvironment
+    private let environment: OMSClientEnvironment
     private let client: HttpClient = HttpClient()
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
     internal init(
         projectAccessKey: String,
-        environment: OmsEnvironment
+        environment: OMSClientEnvironment
     ) {
         self.projectAccessKey = projectAccessKey
         self.environment = environment

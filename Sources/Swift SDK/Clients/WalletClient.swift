@@ -1,39 +1,48 @@
+public enum TransactionError: Error {
+    case noFeeOptionsAvailable
+    case missingTransactionHash
+    case transactionFailed(status: TransactionStatus)
+    case pollingTimedOut
+}
+
 @available(macOS 12.0, iOS 15.0, *)
 public class WalletClient {
     var signedClient: WaasWalletClient
     let keychain: KeychainManager = KeychainManager()
-    
+    private let projectAccessKey: String
+    private let environment: OMSClientEnvironment
+
     public var walletAddress: String
     public var walletId: String
-    
+
     var sessionPrivateKey: [UInt8]
-    
+
     var verifier = "";
     var challenge = "";
-    
-    init(projectAccessKey: String, environment: OmsEnvironment = OmsEnvironment()) {
-        if let walletAddress = try? keychain.string(forKey: Constants.addressStorageKey),
-           let walletId = try? keychain.string(forKey: Constants.walletIdStorageKey),
-           let signerPrivateKeyHex = try? keychain.string(forKey: Constants.signerStorageKey) {
-            self.walletAddress = walletAddress
-            self.walletId = walletId
-            self.sessionPrivateKey = ByteUtils.hexToBytes(hex: signerPrivateKeyHex)
+
+    public init(projectAccessKey: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
+        self.projectAccessKey = projectAccessKey
+        self.environment = environment
+
+        if let credentialsJson = try? keychain.string(forKey: Constants.credentialsStorageKey) {
+            let credentials = try! StorableCredentials.from(jsonString: credentialsJson)
+
+            self.walletId = credentials.walletId
+            self.walletAddress = credentials.walletAddress
+            self.sessionPrivateKey = ByteUtils.hexToBytes(hex: credentials.privateKeyHex)
         } else {
             self.walletAddress = ""
             self.walletId = ""
             self.sessionPrivateKey = try! EthereumSigner.GeneratePrivateKey()
         }
 
-        self.signedClient = WaasWalletClient(
-            baseURL: environment.walletApiUrl,
-            transport: SignedWaasTransport(
-                projectAccessKey: projectAccessKey,
-                privateKey: sessionPrivateKey
-            ),
-            headers: { [:] }
+        self.signedClient = Self.makeSignedClient(
+            projectAccessKey: projectAccessKey,
+            environment: environment,
+            privateKey: sessionPrivateKey
         )
     }
-    
+
     /// Initiates email-based OTP authentication by sending a one-time code to the given address.
     ///
     /// This method generates a new session key pair and stores the verifier state internally.
@@ -41,20 +50,24 @@ public class WalletClient {
     /// `completeEmailSignIn(code:walletType:)`.
     ///
     /// - Parameter email: The email address to send the one-time passcode to.
-    public func signInWithEmail(email: String) async {
+    public func startEmailAuth(email: String) async {
         let params = CommitVerifierRequest(
             identityType: IdentityType.email,
             authMode: AuthMode.otp,
             metadata: [String : String] (),
             handle: email
         )
-        
+
         let response = try! await signedClient.commitVerifier(params)
 
         verifier = response.verifier
         challenge = response.challenge
     }
-    
+
+    public func signInWithEmail(email: String) async {
+        await startEmailAuth(email: email)
+    }
+
     /// Completes the email OTP authentication flow by verifying the code the user received.
     ///
     /// Must be called after `signInWithEmail(email:)`. The challenge and verifier from the
@@ -66,7 +79,7 @@ public class WalletClient {
     /// - Parameters:
     ///   - code: The one-time passcode string entered by the user.
     ///   - walletType: The wallet type to load or create for this user. Defaults to `.ethereumEoa`.
-    public func completeEmailSignIn(code: String, walletType: WalletType = WalletType.ethereum) async {
+    public func completeEmailAuth(code: String, walletType: WalletType = WalletType.ethereum) async {
         let answer = RequestUtils.hashEmailAuthAnswer(challenge: challenge, code: code)
 
         let params = CompleteAuthRequest(
@@ -75,9 +88,9 @@ public class WalletClient {
             verifier: verifier,
             answer: answer,
         )
-        
+
         let response = try! await signedClient.completeAuth(params)
-        
+
         var walletUsed: Bool = false;
         for wallet in response.wallets {
             if (wallet.type == walletType) {
@@ -85,12 +98,16 @@ public class WalletClient {
                 walletUsed = true
             }
         }
-        
+
         if (!walletUsed) {
             await createWallet(walletType: walletType)
         }
     }
-    
+
+    public func completeEmailSignIn(code: String, walletType: WalletType = WalletType.ethereum) async {
+        await completeEmailAuth(code: code, walletType: walletType)
+    }
+
     /// Creates a new wallet of the specified type for the authenticated user and persists
     /// its address and session key to the keychain.
     ///
@@ -102,11 +119,11 @@ public class WalletClient {
         let params = CreateWalletRequest(
             type: walletType
         )
-        
+
         let response = try! await signedClient.createWallet(params)
         createSequenceWallet(walletAddress: response.wallet.address, walletId: response.wallet.id);
     }
-    
+
     /// Loads an existing wallet of the specified type for the authenticated user and persists
     /// its address and session key to the keychain.
     ///
@@ -118,11 +135,11 @@ public class WalletClient {
         let params = UseWalletRequest(
             walletId: walletId
         )
-        
+
         let response = try! await signedClient.useWallet(params)
         createSequenceWallet(walletAddress: response.wallet.address, walletId: response.wallet.id);
     }
-    
+
     /// Persists the given wallet address and the current session private key to the keychain
     /// so the session can be restored on a later launch.
     ///
@@ -130,23 +147,39 @@ public class WalletClient {
     private func createSequenceWallet(walletAddress: String, walletId: String) {
         self.walletAddress = walletAddress
         self.walletId = walletId
-        
-        try! keychain.set(walletAddress, forKey: Constants.addressStorageKey)
-        try! keychain.set(walletId, forKey: Constants.walletIdStorageKey)
-        try! keychain.set(ByteUtils.bytesToHex(data: self.sessionPrivateKey), forKey: Constants.signerStorageKey)
+
+        let storableCredentials = StorableCredentials(
+            walletId: walletId,
+            walletAddress: walletAddress,
+            privateKeyHex: ByteUtils.bytesToHex(data: self.sessionPrivateKey)
+        )
+
+        try! keychain.set(storableCredentials.jsonString(), forKey: Constants.credentialsStorageKey)
     }
-    
+
     /// Clears the wallet session from the device keychain.
     ///
     /// After calling this, any attempt to restore the session on the next launch will fail
     /// and the user will need to sign in again via `signInWithEmail(email:)`. Navigate to your
     /// sign-in screen after calling this.
-    public func clearSession() {
-        let keychain: KeychainManager = KeychainManager()
-        try! keychain.delete(forKey: Constants.addressStorageKey)
-        try! keychain.delete(forKey: Constants.signerStorageKey)
+    public func signOut() {
+        try! keychain.delete(forKey: Constants.credentialsStorageKey)
+        walletAddress = ""
+        walletId = ""
+        verifier = ""
+        challenge = ""
+        sessionPrivateKey = try! EthereumSigner.GeneratePrivateKey()
+        signedClient = Self.makeSignedClient(
+            projectAccessKey: projectAccessKey,
+            environment: environment,
+            privateKey: sessionPrivateKey
+        )
     }
-    
+
+    public func clearSession() {
+        signOut()
+    }
+
     /// Returns a list of credentials that currently have access to this wallet.
     ///
     /// Use this to display active sessions or integrations in your app's account
@@ -158,7 +191,7 @@ public class WalletClient {
         let params = ListAccessRequest(
             walletId: self.walletId
         )
-        
+
         let response = try! await signedClient.listAccess(params)
         return response.credentials
     }
@@ -176,10 +209,10 @@ public class WalletClient {
             targetCredentialId: targetCredentialId,
             walletId: self.walletId
         )
-        
-        try! await signedClient.revokeAccess(params)
+
+        _ = try! await signedClient.revokeAccess(params)
     }
-    
+
     /// Signs an arbitrary message using the wallet's session key.
     ///
     /// - Parameters:
@@ -192,45 +225,159 @@ public class WalletClient {
             walletId: self.walletId,
             message: message
         )
-        
+
         let response = try! await signedClient.signMessage(params)
         return response.signature
     }
-    
-    /// Sends a native token transfer to the specified address on the given network.
-    ///
-    /// The transaction is submitted via the Sequence relayer, so the user does not need
-    /// to hold gas tokens to cover fees.
-    ///
-    /// - Parameters:
-    ///   - network: The network to send the transaction on (e.g., `"mainnet"`, `"polygon"`).
-    ///   - to: The recipient's wallet address.
-    ///   - value: The amount to send, as a string in the network's smallest denomination (e.g., wei for Ethereum).
-    /// - Returns: The transaction hash of the submitted transaction.
-    public func sendTransaction(network: String, to: String, value: String) async -> String {
-        let params = SendTransactionRequest(
-            network: network,
-            walletId: self.walletId,
+
+    public func sendTransaction(
+        network: String,
+        to: String,
+        value: String,
+        feeOptionSelector: FeeOptionSelector = .first
+    ) async throws -> String {
+        return try await self.sendTransaction(network: network, request: SendTransactionRequest(
             to: to,
             value: value,
-            mode: TransactionMode.relayer
-        )
-        
-        let response = try! await signedClient.sendTransaction(params)
-        return response.txHash
+            data: nil
+        ), feeOptionSelector: feeOptionSelector)
     }
 
-    /// Calls a smart contract function with the provided parameters.
+    public func sendTransaction(
+        network: String,
+        request: SendTransactionRequest,
+        feeOptionSelector: FeeOptionSelector = .first
+    ) async throws -> String {
+        let prepareResponse = try await signedClient.prepareEthereumTransaction(
+            PrepareEthereumTransactionRequest(
+                network: network,
+                walletId: self.walletId,
+                to: request.to,
+                value: request.value,
+                data: request.data,
+                mode: .relayer
+            )
+        )
+
+        return try await self.execute(
+            prepareResponse: prepareResponse,
+            feeOptionSelector: feeOptionSelector
+        );
+    }
+
+    public func callContract(
+        network: String,
+        contract: String,
+        method: String,
+        args: [AbiArg]?,
+        feeOptionSelector: FeeOptionSelector = .first
+    ) async throws -> String {
+        let prepareResponse = try await signedClient.prepareContractCall(
+            PrepareContractCallRequest(
+                network: network,
+                walletId: self.walletId,
+                contract: contract,
+                method: method,
+                args: args,
+                mode: .relayer
+            )
+        )
+
+        return try await self.execute(
+            prepareResponse: prepareResponse,
+            feeOptionSelector: feeOptionSelector
+        );
+    }
+
+    /// Returns the current execution status for a prepared or submitted transaction.
     ///
-    /// Use this for any contract interaction that writes state — token transfers, NFT mints,
-    /// approvals, and so on. For read-only calls that don't require a transaction, query the
-    /// contract directly without this method.
-    ///
-    /// - Parameter params: A `CallContractRequest` describing the target contract, function
-    ///   selector, ABI-encoded arguments, network, and any value to attach to the call.
-    /// - Returns: The transaction hash of the submitted transaction.
-    public func callContract(params: CallContractRequest) async -> String {
-        let response = try! await signedClient.callContract(params)
-        return response.txHash
+    /// - Parameter txnId: The transaction ID returned by the wallet API prepare/execute flow.
+    /// - Returns: The current transaction status and transaction hash when available.
+    public func getTransactionStatus(txnId: String) async throws -> TransactionStatusResponse {
+        return try await signedClient.getTransactionStatus(
+            GetTransactionStatusRequest(txnId: txnId)
+        )
+    }
+
+    private func execute(
+        prepareResponse: PrepareResponse,
+        feeOptionSelector: FeeOptionSelector
+    ) async throws -> String {
+        var feeOption: FeeOption? = nil
+        if !prepareResponse.sponsored {
+            feeOption = try await feeOptionSelector.callAsFunction(prepareResponse.feeOptions)
+        }
+
+        var feeOptionSelection: FeeOptionSelection? = nil
+        if feeOption != nil {
+            feeOptionSelection = FeeOptionSelection(token: feeOption?.token.tokenId ?? "")
+        }
+
+        let executeRequest = ExecuteRequest(
+            txnId: prepareResponse.txnId,
+            feeOption: feeOptionSelection
+        )
+
+        let executeResponse = try await signedClient.execute(executeRequest)
+        var status = executeResponse.status
+        if status == .executed {
+            return try await getExecutedTransactionHash(txnId: prepareResponse.txnId)
+        }
+
+        let pollIntervalNanos: UInt64 = 750_000_000
+        let maxAttempts = 10  // ~45s ceiling
+        var attempts = 0
+
+        while status == .pending {
+            guard attempts < maxAttempts else {
+                throw TransactionError.pollingTimedOut
+            }
+            try await Task.sleep(nanoseconds: pollIntervalNanos)
+            attempts += 1
+
+            let statusResponse = try await getTransactionStatus(txnId: prepareResponse.txnId)
+            status = statusResponse.status
+
+            if status == .executed {
+                return try requireTransactionHash(from: statusResponse)
+            }
+        }
+
+        // Loop exited without `.executed` — surface the terminal status.
+        throw TransactionError.transactionFailed(status: status)
+    }
+
+    private func getExecutedTransactionHash(txnId: String) async throws -> String {
+        let statusResponse = try await getTransactionStatus(txnId: txnId)
+
+        guard statusResponse.status == .executed else {
+            throw TransactionError.transactionFailed(status: statusResponse.status)
+        }
+
+        return try requireTransactionHash(from: statusResponse)
+    }
+
+    private func requireTransactionHash(from statusResponse: TransactionStatusResponse) throws -> String {
+        guard let hash = statusResponse.txnHash else {
+            throw TransactionError.missingTransactionHash
+        }
+
+        return hash
+    }
+
+    private static func makeSignedClient(
+        projectAccessKey: String,
+        environment: OMSClientEnvironment,
+        privateKey: [UInt8]
+    ) -> WaasWalletClient {
+        return WaasWalletClient(
+            baseURL: environment.walletApiUrl,
+            transport: SignedWaasTransport(
+                projectAccessKey: projectAccessKey,
+                scope: environment.scope,
+                privateKey: privateKey
+            ),
+            headers: { [:] }
+        )
     }
 }
