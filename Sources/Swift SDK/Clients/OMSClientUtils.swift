@@ -9,6 +9,14 @@ public enum UnitConversionError: Error, Equatable {
 public final class OMSClientUtils {
     init() {}
 
+    public var supportedNetworks: [OMSClientNetwork] {
+        OMSClientNetworks.supportedNetworks
+    }
+
+    public func network(chainId: String) -> OMSClientNetwork? {
+        OMSClientNetworks.network(chainId: chainId)
+    }
+
     public func parseUnits(value: String, decimals: Int = 18) throws -> String {
         try validate(decimals: decimals)
 

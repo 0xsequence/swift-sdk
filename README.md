@@ -53,6 +53,21 @@ let txHash = try await oms.wallet.sendTransaction(
 
 `OmsWallet` remains available as a compatibility alias for `OMSClient`. `OmsEnvironment` remains available as a compatibility alias for `OMSClientEnvironment`.
 
+## Supported Networks
+
+Use `utils.supportedNetworks` and `utils.network(chainId:)` to bind numeric chain IDs to SDK network names.
+
+```swift
+let networks = oms.utils.supportedNetworks
+let polygon = oms.utils.network(chainId: "137")
+let amoy = oms.utils.network(chainId: "80002")
+```
+
+| Chain ID | Network | Swift case | Indexer value |
+|---|---|---|---|
+| `137` | Polygon | `.polygon` | `polygon` |
+| `80002` | Polygon Amoy | `.polygonAmoy` | `amoy` |
+
 ## Authentication Flow
 
 OMS uses email-based OTP. The two-step flow is:
@@ -221,7 +236,7 @@ do {
 
 ```swift
 let result = try await oms.indexer.getTokenBalances(
-    chainId: "polygon",
+    chainId: "137",
     contractAddress: "0xTokenContract",
     walletAddress: oms.wallet.walletAddress,
     includeMetadata: true

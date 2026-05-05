@@ -92,6 +92,10 @@ public final class IndexerClient {
     }
 
     private func indexerUrl(forChainId chainId: String) -> String {
+        if let network = OMSClientNetworks.network(chainId: chainId) {
+            return environment.indexerUrlString(for: network)
+        }
+
         return environment.indexerUrlTemplate.replacingOccurrences(
             of: "{value}",
             with: chainId

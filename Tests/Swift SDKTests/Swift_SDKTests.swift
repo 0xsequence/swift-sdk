@@ -57,7 +57,7 @@ let privateKey: [UInt8] = [
     )
     
     let result = try await oms.indexer.getTokenBalances(
-        chainId: "polygon",
+        chainId: "137",
         contractAddress: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
         walletAddress: "0x8e3E38fe7367dd3b52D1e281E4e8400447C8d8B9",
         includeMetadata: true
@@ -76,6 +76,31 @@ let privateKey: [UInt8] = [
     #expect(try utils.parseUnits(value: ".5", decimals: 6) == "500000")
     #expect(try utils.parseUnits(value: "1.2300", decimals: 2) == "123")
     #expect(try utils.parseUnits(value: "0.000000000000000001", decimals: 18) == "1")
+}
+
+@Test func TestSupportedNetworks() throws {
+    let oms = OMSClient(projectAccessKey: "test")
+
+    #expect(OMSClientNetworks.supportedNetworks == [.polygon, .polygonAmoy])
+    #expect(oms.utils.supportedNetworks == OMSClientNetworks.supportedNetworks)
+
+    #expect(OMSClientNetworks.network(chainId: "137") == .polygon)
+    #expect(OMSClientNetworks.network(chainId: "80002") == .polygonAmoy)
+    #expect(OMSClientNetworks.network(chainId: "1") == nil)
+    #expect(oms.utils.network(chainId: "80002") == .polygonAmoy)
+
+    #expect(OMSClientNetwork.polygon.displayName == "Polygon")
+    #expect(OMSClientNetwork.polygon.description == "Polygon")
+}
+
+@Test func TestIndexerURLUsesNetworkIndexerName() throws {
+    let environment = OMSClientEnvironment(
+        indexerURLTemplate: "https://{value}-indexer.sequence.app/rpc/Indexer/"
+    )
+
+    #expect(environment.indexerURLTemplate == "https://{value}-indexer.sequence.app/rpc/Indexer/")
+    #expect(environment.indexerURL(for: .polygon)?.absoluteString == "https://polygon-indexer.sequence.app/rpc/Indexer/")
+    #expect(environment.indexerURL(for: .polygonAmoy)?.absoluteString == "https://amoy-indexer.sequence.app/rpc/Indexer/")
 }
 
 @Test func TestFormatUnits() throws {

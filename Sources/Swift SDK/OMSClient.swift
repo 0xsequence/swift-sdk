@@ -17,14 +17,6 @@ public class OMSClient {
         self.utils = OMSClientUtils()
     }
 
-    public var walletAddress: String {
-        wallet.walletAddress
-    }
-
-    public func getWalletAddress() -> String {
-        return wallet.walletAddress
-    }
-
     public func startEmailAuth(email: String) async {
         await wallet.startEmailAuth(email: email)
     }
@@ -58,10 +50,6 @@ public class OMSClient {
 
     public func signOut() {
         wallet.signOut()
-    }
-
-    public func clearSession() {
-        signOut()
     }
 
     public func listAccess() async -> [CredentialInfo] {

@@ -19,6 +19,8 @@
 - [IndexerClient](#indexerclient)
   - [getTokenBalances](#gettokenbalances)
 - [Types](#types)
+  - [OMSClientNetwork](#omsclientnetwork)
+  - [OMSClientNetworks](#omsclientnetworks)
   - [OMSClientEnvironment](#omsclientenvironment)
   - [FeeOptionSelector](#feeoptionselector)
   - [TransactionError](#transactionerror)
@@ -57,6 +59,7 @@ init(projectAccessKey: String, environment: OMSClientEnvironment = OMSClientEnvi
 |---|---|---|
 | `wallet` | `WalletClient` | Handles authentication, signing, and transactions. |
 | `indexer` | `IndexerClient` | Queries on-chain state and token balances. |
+| `utils` | `OMSClientUtils` | Utility helpers, including unit conversion and supported network lookup. |
 
 ---
 
@@ -395,7 +398,7 @@ Fetches token balances for a wallet on a given chain and contract (first page, u
 
 | Name | Type | Description |
 |---|---|---|
-| `chainId` | `String` | Chain slug used in the indexer URL template, e.g. `"polygon"` or `"mainnet"`. |
+| `chainId` | `String` | Numeric chain ID for a supported network, e.g. `"137"` or `"80002"`. Legacy slug values still populate the indexer URL template directly. |
 | `contractAddress` | `String` | The token contract address to query. |
 | `walletAddress` | `String` | The wallet whose balances to fetch. Pass `oms.wallet.walletAddress` for the active wallet. |
 | `includeMetadata` | `Bool` | When `true`, includes token metadata (name, symbol, decimals) in the response. |
@@ -408,7 +411,7 @@ Fetches token balances for a wallet on a given chain and contract (first page, u
 
 ```swift
 let result = try await oms.indexer.getTokenBalances(
-    chainId: "polygon",
+    chainId: "137",
     contractAddress: "0xTokenContract",
     walletAddress: oms.wallet.walletAddress,
     includeMetadata: true
@@ -423,6 +426,39 @@ for balance in result.balances {
 
 ## Types
 
+### OMSClientNetwork
+
+```swift
+enum OMSClientNetwork: String, CaseIterable, Sendable, CustomStringConvertible {
+    case polygon
+    case polygonAmoy
+
+    var chainId: String
+    var displayName: String
+    var description: String
+}
+```
+
+| Case | Chain ID | Display name |
+|---|---|---|
+| `.polygon` | `137` | Polygon |
+| `.polygonAmoy` | `80002` | Polygon Amoy |
+
+---
+
+### OMSClientNetworks
+
+```swift
+enum OMSClientNetworks {
+    static let supportedNetworks: [OMSClientNetwork]
+    static func network(chainId: String) -> OMSClientNetwork?
+}
+```
+
+Namespace for chain-id binding helpers. `OMSClientUtils` also exposes `supportedNetworks` and `network(chainId:)`.
+
+---
+
 ### OMSClientEnvironment
 
 ```swift
@@ -432,7 +468,10 @@ struct OMSClientEnvironment {
     let walletApiUrl: String
     let apiRpcUrl: String
     let indexerUrlTemplate: String
+    var indexerURLTemplate: String
     let scope: String
+
+    func indexerURL(for network: OMSClientNetwork) -> URL?
 
     init(
         walletApiUrl: String = "https://d1sctl7y41hot5.cloudfront.net",
