@@ -11,12 +11,12 @@ public class WalletClient {
     let keychain: KeychainManager = KeychainManager()
     private let projectAccessKey: String
     private let environment: OMSClientEnvironment
-    
+
     public var walletAddress: String
     public var walletId: String
-    
+
     var sessionPrivateKey: [UInt8]
-    
+
     var verifier = "";
     var challenge = "";
 
@@ -26,7 +26,7 @@ public class WalletClient {
 
         if let credentialsJson = try? keychain.string(forKey: Constants.credentialsStorageKey) {
             let credentials = try! StorableCredentials.from(jsonString: credentialsJson)
-            
+
             self.walletId = credentials.walletId
             self.walletAddress = credentials.walletAddress
             self.sessionPrivateKey = ByteUtils.hexToBytes(hex: credentials.privateKeyHex)
@@ -42,7 +42,7 @@ public class WalletClient {
             privateKey: sessionPrivateKey
         )
     }
-    
+
     /// Initiates email-based OTP authentication by sending a one-time code to the given address.
     ///
     /// This method generates a new session key pair and stores the verifier state internally.
@@ -57,13 +57,17 @@ public class WalletClient {
             metadata: [String : String] (),
             handle: email
         )
-        
+
         let response = try! await signedClient.commitVerifier(params)
 
         verifier = response.verifier
         challenge = response.challenge
     }
-    
+
+    public func signInWithEmail(email: String) async {
+        await startEmailAuth(email: email)
+    }
+
     /// Completes the email OTP authentication flow by verifying the code the user received.
     ///
     /// Must be called after `signInWithEmail(email:)`. The challenge and verifier from the
@@ -84,9 +88,9 @@ public class WalletClient {
             verifier: verifier,
             answer: answer,
         )
-        
+
         let response = try! await signedClient.completeAuth(params)
-        
+
         var walletUsed: Bool = false;
         for wallet in response.wallets {
             if (wallet.type == walletType) {
@@ -94,12 +98,16 @@ public class WalletClient {
                 walletUsed = true
             }
         }
-        
+
         if (!walletUsed) {
             await createWallet(walletType: walletType)
         }
     }
-    
+
+    public func completeEmailSignIn(code: String, walletType: WalletType = WalletType.ethereum) async {
+        await completeEmailAuth(code: code, walletType: walletType)
+    }
+
     /// Creates a new wallet of the specified type for the authenticated user and persists
     /// its address and session key to the keychain.
     ///
@@ -111,11 +119,11 @@ public class WalletClient {
         let params = CreateWalletRequest(
             type: walletType
         )
-        
+
         let response = try! await signedClient.createWallet(params)
         createSequenceWallet(walletAddress: response.wallet.address, walletId: response.wallet.id);
     }
-    
+
     /// Loads an existing wallet of the specified type for the authenticated user and persists
     /// its address and session key to the keychain.
     ///
@@ -127,11 +135,11 @@ public class WalletClient {
         let params = UseWalletRequest(
             walletId: walletId
         )
-        
+
         let response = try! await signedClient.useWallet(params)
         createSequenceWallet(walletAddress: response.wallet.address, walletId: response.wallet.id);
     }
-    
+
     /// Persists the given wallet address and the current session private key to the keychain
     /// so the session can be restored on a later launch.
     ///
@@ -139,16 +147,16 @@ public class WalletClient {
     private func createSequenceWallet(walletAddress: String, walletId: String) {
         self.walletAddress = walletAddress
         self.walletId = walletId
-        
+
         let storableCredentials = StorableCredentials(
             walletId: walletId,
             walletAddress: walletAddress,
             privateKeyHex: ByteUtils.bytesToHex(data: self.sessionPrivateKey)
         )
-        
+
         try! keychain.set(storableCredentials.jsonString(), forKey: Constants.credentialsStorageKey)
     }
-    
+
     /// Clears the wallet session from the device keychain.
     ///
     /// After calling this, any attempt to restore the session on the next launch will fail
@@ -167,7 +175,11 @@ public class WalletClient {
             privateKey: sessionPrivateKey
         )
     }
-    
+
+    public func clearSession() {
+        signOut()
+    }
+
     /// Returns a list of credentials that currently have access to this wallet.
     ///
     /// Use this to display active sessions or integrations in your app's account
@@ -179,7 +191,7 @@ public class WalletClient {
         let params = ListAccessRequest(
             walletId: self.walletId
         )
-        
+
         let response = try! await signedClient.listAccess(params)
         return response.credentials
     }
@@ -197,29 +209,29 @@ public class WalletClient {
             targetCredentialId: targetCredentialId,
             walletId: self.walletId
         )
-        
-        try! await signedClient.revokeAccess(params)
+
+        _ = try! await signedClient.revokeAccess(params)
     }
-    
+
     /// Signs an arbitrary message using the wallet's session key.
     ///
     /// - Parameters:
     ///   - network: The network identifier for the signing context (e.g. `"mainnet"`, `"polygon"`).
     ///   - message: The plaintext message to sign.
     /// - Returns: A hex-encoded signature string.
-    public func signMessage(network: String, message: String) async -> String {
+    public func signMessage(network: Network, message: String) async -> String {
         let params = SignMessageRequest(
-            network: network,
+            network: network.chainId,
             walletId: self.walletId,
             message: message
         )
-        
+
         let response = try! await signedClient.signMessage(params)
         return response.signature
     }
 
     public func sendTransaction(
-        network: String,
+        network: Network,
         to: String,
         value: String,
         feeOptionSelector: FeeOptionSelector = .first
@@ -232,13 +244,13 @@ public class WalletClient {
     }
 
     public func sendTransaction(
-        network: String,
+        network: Network,
         request: SendTransactionRequest,
         feeOptionSelector: FeeOptionSelector = .first
     ) async throws -> String {
         let prepareResponse = try await signedClient.prepareEthereumTransaction(
             PrepareEthereumTransactionRequest(
-                network: network,
+                network: network.chainId,
                 walletId: self.walletId,
                 to: request.to,
                 value: request.value,
@@ -246,15 +258,15 @@ public class WalletClient {
                 mode: .relayer
             )
         )
-        
+
         return try await self.execute(
             prepareResponse: prepareResponse,
             feeOptionSelector: feeOptionSelector
         );
     }
-    
+
     public func callContract(
-        network: String,
+        network: Network,
         contract: String,
         method: String,
         args: [AbiArg]?,
@@ -262,7 +274,7 @@ public class WalletClient {
     ) async throws -> String {
         let prepareResponse = try await signedClient.prepareEthereumContractCall(
             PrepareEthereumContractCallRequest(
-                network: network,
+                network: network.chainId,
                 walletId: self.walletId,
                 contract: contract,
                 method: method,
@@ -286,7 +298,7 @@ public class WalletClient {
             TransactionStatusRequest(txnId: txnId)
         )
     }
-    
+
     private func execute(
         prepareResponse: PrepareResponse,
         feeOptionSelector: FeeOptionSelector
@@ -295,17 +307,17 @@ public class WalletClient {
         if !prepareResponse.sponsored {
             feeOption = try await feeOptionSelector.callAsFunction(prepareResponse.feeOptions)
         }
-        
+
         var feeOptionSelection: FeeOptionSelection? = nil
         if feeOption != nil {
             feeOptionSelection = FeeOptionSelection(token: feeOption?.token.tokenId ?? "")
         }
-        
+
         let executeRequest = ExecuteRequest(
             txnId: prepareResponse.txnId,
             feeOption: feeOptionSelection
         )
-        
+
         let executeResponse = try await signedClient.execute(executeRequest)
         var status = executeResponse.status
         if status == .executed {
