@@ -1,6 +1,6 @@
 # OMS SDK (Swift)
 
-A Swift SDK for the OMS (Open Money Stack) platform. Provides email-based wallet authentication, on-chain transaction submission with fee selection, message signing, and token balance queries — with automatic keychain session persistence.
+A Swift SDK for the OMS (Open Money Stack) platform. Provides email-based wallet authentication, keychain session persistence, on-chain transaction submission with fee selection, message signing, token balance queries, and base-unit formatting helpers.
 
 **Requirements:** iOS 15+ · macOS 12+
 
@@ -14,7 +14,7 @@ dependencies: [
 ]
 ```
 
-Or add it via Xcode: **File → Add Package Dependencies**.
+Or add it via Xcode: **File -> Add Package Dependencies**.
 
 ## Quick Start
 
@@ -23,70 +23,111 @@ import OMS_SDK
 
 let oms = OMSClient(projectAccessKey: "your-project-access-key")
 
-// 1. Send a one-time code to the user's email
 await oms.wallet.startEmailAuth(email: "user@example.com")
-
-// 2. User enters the code — verifies it and sets up the wallet automatically
 await oms.wallet.completeEmailAuth(code: "123456")
 
-// 3. The wallet is ready
 print("Wallet address:", oms.wallet.walletAddress)
 
-// 4. Send a transaction
+let value = try parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.sendTransaction(
-    network: "polygon",
+    network: .polygon,
     to: "0xRecipient",
-    value: "1000000000000000000"  // 1 MATIC in wei
+    value: value
 )
 ```
 
 ## Overview
 
-`OMSClient` exposes two sub-clients:
+`OMSClient` is the root object for the SDK. Create a single instance at app startup and keep it alive for the session. It constructs the SDK sub-clients and restores any saved keychain session automatically.
 
 | Property | Type | Description |
 |---|---|---|
-| `oms.wallet` | `WalletClient` | Authentication, signing, and transaction submission. |
-| `oms.indexer` | `IndexerClient` | Read token balances and on-chain state. |
+| `wallet` | `WalletClient` | Authentication, session, signing, access management, and transaction helpers. |
+| `indexer` | `IndexerClient` | Token balance and on-chain query helpers. |
+| `supportedNetworks` | `[Network]` | Supported network list. |
+
+`OmsWallet` remains available as a compatibility alias for `OMSClient`. `OmsEnvironment` remains available as a compatibility alias for `OMSClientEnvironment`.
+
+## Supported Networks
+
+Use `Network.supportedNetworks`, `Network.from(chainId:)`, or the `OMSClient` convenience properties to bind numeric chain IDs to SDK networks.
+
+```swift
+let networks = Network.supportedNetworks
+let polygon = Network.from(chainId: "137")
+let amoy = oms.network(chainId: "80002")
+```
+
+| Chain ID | Network | Swift case | Indexer value |
+|---|---|---|---|
+| `137` | Polygon | `.polygon` | `polygon` |
+| `80002` | Polygon Amoy | `.polygonAmoy` | `amoy` |
 
 ## Authentication Flow
 
 OMS uses email-based OTP. The two-step flow is:
 
-1. **`startEmailAuth(email:)`** — sends a one-time code to the user's inbox.
-2. **`completeEmailAuth(code:walletType:)`** — verifies the code, then automatically loads an existing wallet or creates a new one. The wallet address, wallet ID, and session key are saved to the device keychain.
+1. **`startEmailAuth(email:)`** sends a one-time code to the user's inbox.
+2. **`completeEmailAuth(code:walletType:)`** verifies the code, then automatically loads an existing wallet or creates one. The wallet address, wallet ID, and session key are saved to the device keychain.
 
-On subsequent launches, the session is restored from the keychain automatically — no sign-in required.
+```swift
+await oms.wallet.startEmailAuth(email: "user@example.com")
 
-To end the session, call `oms.wallet.signOut()`.
+// Present your OTP entry UI.
+await oms.wallet.completeEmailAuth(code: "123456")
+
+print(oms.wallet.walletAddress)
+```
+
+On subsequent launches, the session is restored from the keychain automatically. To end the session:
+
+```swift
+oms.wallet.signOut()
+```
+
+Compatibility methods are also available on `WalletClient`: `signInWithEmail`, `completeEmailSignIn`, and `clearSession`.
 
 ## Transaction Flow
 
-`sendTransaction` and `callContract` use a two-step prepare/execute flow internally:
+`sendTransaction` and `callContract` use a prepare/execute flow internally:
 
-1. **Prepare** — the server calculates fee options for the transaction.
-2. **Select fee** — your `FeeOptionSelector` picks which fee option to use.
-3. **Execute** — the transaction is submitted.
-4. **Poll** — the SDK polls until the transaction is confirmed on-chain.
+1. **Prepare** - the server calculates fee options for the transaction.
+2. **Select fee** - your `FeeOptionSelector` picks which fee option to use.
+3. **Execute** - the transaction is submitted.
+4. **Poll** - the SDK polls until the transaction is confirmed on-chain.
 
-The default selector is `.first`, which picks the first available fee option. Use `.cheapest` or provide a custom selector to give users control over gas costs:
+The default selector is `.first`.
 
 ```swift
-// Use the cheapest available fee option
+let value = try parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.sendTransaction(
-    network: "polygon",
+    network: .polygon,
     to: "0xRecipient",
-    value: "1000000000000000000",
+    value: value
+)
+```
+
+Use `.cheapest` to choose the lowest numeric fee value:
+
+```swift
+let value = try parseUnits(value: "1", decimals: 18)
+let txHash = try await oms.wallet.sendTransaction(
+    network: .polygon,
+    to: "0xRecipient",
+    value: value,
     feeOptionSelector: .cheapest
 )
+```
 
-// Present fee options to the user
+Or provide a custom selector:
+
+```swift
+let value = try parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.sendTransaction(
-    network: "polygon",
+    network: .polygon,
     to: "0xRecipient",
-    value: "1000000000000000000",
+    value: value,
     feeOptionSelector: .custom { options in
-        // options is [FeeOption] — return the one the user picked
         return options[selectedIndex]
     }
 )
@@ -100,7 +141,7 @@ let txHash = try await oms.wallet.sendTransaction(
 let env = OMSClientEnvironment(
     walletApiUrl: "https://staging-wallet.example.com",
     apiRpcUrl: "https://staging-api.example.com/rpc/API",
-    indexerUrlTemplate: "https://staging-indexer.example.com/{value}",
+    indexerUrlTemplate: "https://staging-{value}-indexer.example.com/rpc/Indexer/",
     scope: "proj_staging"
 )
 
@@ -116,36 +157,39 @@ let oms = OMSClient(
 )
 ```
 
+## Unit Formatting
+
+Use the top-level helpers to convert between display amounts and base-unit integer strings without floating-point precision loss.
+
+```swift
+let usdcRaw = try parseUnits(value: "12.34", decimals: 6)
+// "12340000"
+
+let usdcDisplay = try formatUnits(value: usdcRaw, decimals: 6)
+// "12.34"
+```
+
 ## Examples
 
 ### Sign a Message
 
 ```swift
-let signature = try await oms.wallet.signMessage(
-    network: "polygon",
+let signature = await oms.wallet.signMessage(
+    network: .polygon,
     message: "Hello from OMS"
-)
-```
-
-### Send a Native Token Transfer
-
-```swift
-let txHash = try await oms.wallet.sendTransaction(
-    network: "polygon",
-    to: "0xRecipient",
-    value: "1000000000000000000"  // 1 MATIC in wei
 )
 ```
 
 ### Send a Transaction with Full Parameters
 
 ```swift
+let value = try parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.sendTransaction(
-    network: "polygon",
+    network: .polygon,
     request: SendTransactionRequest(
-        to: "0xContract",
-        value: "0",
-        data: "0xa9059cbb..."
+        to: "0xRecipient",
+        value: value,
+        data: nil
     )
 )
 ```
@@ -153,13 +197,14 @@ let txHash = try await oms.wallet.sendTransaction(
 ### Call a Smart Contract
 
 ```swift
+let amount = try parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.callContract(
-    network: "polygon",
+    network: .polygon,
     contract: "0xTokenContract",
     method: "transfer(address,uint256)",
     args: [
         AbiArg(type: "address", value: .string("0xRecipient")),
-        AbiArg(type: "uint256", value: .string("1000000000000000000")),
+        AbiArg(type: "uint256", value: .string(amount)),
     ]
 )
 ```
@@ -167,17 +212,18 @@ let txHash = try await oms.wallet.callContract(
 ### Handle Transaction Errors
 
 ```swift
+let value = try parseUnits(value: "1", decimals: 18)
 do {
     let txHash = try await oms.wallet.sendTransaction(
-        network: "polygon",
+        network: .polygon,
         to: "0xRecipient",
-        value: "1000000000000000000"
+        value: value
     )
     print("Sent:", txHash)
 } catch TransactionError.noFeeOptionsAvailable {
     print("No fee options returned from server")
 } catch TransactionError.pollingTimedOut {
-    print("Transaction did not confirm in time — check the network")
+    print("Transaction did not confirm in time")
 } catch TransactionError.transactionFailed(let status) {
     print("Transaction failed with status:", status)
 } catch TransactionError.missingTransactionHash {
@@ -189,7 +235,7 @@ do {
 
 ```swift
 let result = try await oms.indexer.getTokenBalances(
-    chainId: "polygon",
+    network: .polygon,
     contractAddress: "0xTokenContract",
     walletAddress: oms.wallet.walletAddress,
     includeMetadata: true
@@ -203,18 +249,11 @@ for balance in result.balances {
 ### Manage Wallet Access
 
 ```swift
-// List credentials with access to this wallet
 let credentials = await oms.wallet.listAccess()
 
-// Revoke one
-await oms.wallet.revokeAccess(targetCredentialId: credentials[0].credentialId)
-```
-
-### Sign Out
-
-```swift
-oms.wallet.signOut()
-// Navigate to sign-in screen
+if let credential = credentials.first {
+    await oms.wallet.revokeAccess(targetCredentialId: credential.credentialId)
+}
 ```
 
 ## API Reference
