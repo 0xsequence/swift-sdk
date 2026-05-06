@@ -17,6 +17,7 @@
   - [TokenBalancesPage](#tokenbalancespage)
   - [TokenBalance](#tokenbalance)
   - [CredentialInfo](#credentialinfo)
+  - [WebRPCJSONValue](#webrpcjsonvalue)
 
 ---
 
@@ -66,7 +67,7 @@ typealias OmsEnvironment = OMSClientEnvironment
 
 ## WalletClient
 
-Accessed via `oms.wallet`. Manages wallet authentication, keychain session persistence, signing, and transaction submission.
+Accessed via `oms.wallet`. Manages wallet authentication, keychain session persistence, signing, signature verification, and transaction submission.
 
 ### walletAddress
 
@@ -135,6 +136,38 @@ let signature = await oms.wallet.signMessage(
     message: "Hello from OMS"
 )
 ```
+
+### signTypedData
+
+```swift
+func signTypedData(network: Network, typedData: WebRPCJSONValue) async -> String
+```
+
+Signs an EIP-712 typed-data JSON payload using the wallet's session key.
+
+### isValidMessageSignature
+
+```swift
+func isValidMessageSignature(
+    network: Network,
+    message: String,
+    signature: String
+) async throws -> Bool
+```
+
+Verifies a message signature against the active wallet address and wallet ID.
+
+### isValidTypedDataSignature
+
+```swift
+func isValidTypedDataSignature(
+    network: Network,
+    typedData: WebRPCJSONValue,
+    signature: String
+) async throws -> Bool
+```
+
+Verifies an EIP-712 typed-data signature against the active wallet address and wallet ID.
 
 ### sendTransaction
 
@@ -435,3 +468,20 @@ struct CredentialInfo: Codable, Sendable {
     let isCaller: Bool
 }
 ```
+
+### WebRPCJSONValue
+
+```swift
+enum WebRPCJSONValue: Codable, Sendable {
+    case object([String: WebRPCJSONValue])
+    case array([WebRPCJSONValue])
+    case string(String)
+    case integer(Int64)
+    case unsignedInteger(UInt64)
+    case number(Double)
+    case bool(Bool)
+    case null
+}
+```
+
+Used for typed-data signing, typed-data signature verification, and ABI argument values.

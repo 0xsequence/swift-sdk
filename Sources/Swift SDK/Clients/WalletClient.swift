@@ -8,7 +8,8 @@ public enum TransactionError: Error {
 @available(macOS 12.0, iOS 15.0, *)
 public class WalletClient {
     var signedClient: WaasWalletClient
-    let keychain: KeychainManager = KeychainManager()
+    private var publicClient: WaasWalletPublicClient
+    private let keychain: KeychainManager = KeychainManager()
     private let projectAccessKey: String
     private let environment: OMSClientEnvironment
 
@@ -40,6 +41,10 @@ public class WalletClient {
             projectAccessKey: projectAccessKey,
             environment: environment,
             privateKey: sessionPrivateKey
+        )
+        self.publicClient = Self.makePublicClient(
+            projectAccessKey: projectAccessKey,
+            environment: environment
         )
     }
 
@@ -230,6 +235,53 @@ public class WalletClient {
         return response.signature
     }
 
+    public func signTypedData(network: Network, typedData: WebRPCJSONValue) async -> String {
+        let params = SignTypedDataRequest(
+            network: network.chainId,
+            walletId: self.walletId,
+            typedData: typedData
+        )
+
+        let response = try! await signedClient.signTypedData(params)
+        return response.signature
+    }
+
+    public func isValidMessageSignature(
+        network: Network,
+        message: String,
+        signature: String
+    ) async throws -> Bool {
+        let response = try await publicClient.isValidMessageSignature(
+            IsValidMessageSignatureRequest(
+                network: network.chainId,
+                walletAddress: self.walletAddress,
+                walletId: self.walletId,
+                message: message,
+                signature: signature
+            )
+        )
+
+        return response.isValid
+    }
+
+    public func isValidTypedDataSignature(
+        network: Network,
+        typedData: WebRPCJSONValue,
+        signature: String
+    ) async throws -> Bool {
+        let response = try await publicClient.isValidTypedDataSignature(
+            IsValidTypedDataSignatureRequest(
+                network: network.chainId,
+                walletAddress: self.walletAddress,
+                walletId: self.walletId,
+                typedData: typedData,
+                signature: signature
+            )
+        )
+
+        return response.isValid
+    }
+
     public func sendTransaction(
         network: Network,
         to: String,
@@ -378,6 +430,20 @@ public class WalletClient {
                 privateKey: privateKey
             ),
             headers: { [:] }
+        )
+    }
+
+    private static func makePublicClient(
+        projectAccessKey: String,
+        environment: OMSClientEnvironment
+    ) -> WaasWalletPublicClient {
+        return WaasWalletPublicClient(
+            baseURL: environment.walletApiUrl,
+            headers: {
+                [
+                    "X-Access-Key": projectAccessKey
+                ]
+            }
         )
     }
 }

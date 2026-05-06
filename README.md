@@ -1,6 +1,6 @@
 # OMS SDK (Swift)
 
-A Swift SDK for the OMS (Open Money Stack) platform. Provides email-based wallet authentication, keychain session persistence, on-chain transaction submission with fee selection, message signing, token balance queries, and base-unit formatting helpers.
+A Swift SDK for the OMS (Open Money Stack) platform. Provides email-based wallet authentication, keychain session persistence, on-chain transaction submission with fee selection, message and typed-data signing, signature verification, token balance queries, and base-unit formatting helpers.
 
 **Requirements:** iOS 15+ · macOS 12+
 
@@ -177,6 +177,51 @@ let usdcDisplay = try formatUnits(value: usdcRaw, decimals: 6)
 let signature = await oms.wallet.signMessage(
     network: .polygon,
     message: "Hello from OMS"
+)
+```
+
+### Verify a Message Signature
+
+```swift
+let isValid = try await oms.wallet.isValidMessageSignature(
+    network: .polygon,
+    message: "Hello from OMS",
+    signature: signature
+)
+```
+
+### Sign Typed Data
+
+```swift
+let typedData: WebRPCJSONValue = .object([
+    "domain": .object([
+        "name": .string("Example"),
+        "version": .string("1"),
+        "chainId": .integer(137)
+    ]),
+    "message": .object([
+        "contents": .string("Hello from OMS")
+    ]),
+    "primaryType": .string("Message"),
+    "types": .object([
+        "Message": .array([
+            .object([
+                "name": .string("contents"),
+                "type": .string("string")
+            ])
+        ])
+    ])
+])
+
+let signature = await oms.wallet.signTypedData(
+    network: .polygon,
+    typedData: typedData
+)
+
+let isValid = try await oms.wallet.isValidTypedDataSignature(
+    network: .polygon,
+    typedData: typedData,
+    signature: signature
 )
 ```
 
