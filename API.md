@@ -258,8 +258,7 @@ let raw = try parseUnits(value: "12.34", decimals: 6)
 ```swift
 func formatUnits(
     value: String,
-    decimals: Int = 18,
-    trimTrailingZeros: Bool = true
+    decimals: Int = 18
 ) throws -> String
 ```
 

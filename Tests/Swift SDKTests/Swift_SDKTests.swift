@@ -101,15 +101,13 @@ let privateKey: [UInt8] = [
     #expect(try formatUnits(value: "1000000000000000000", decimals: 18) == "1")
     #expect(try formatUnits(value: "1230000", decimals: 6) == "1.23")
     #expect(try formatUnits(value: "1", decimals: 6) == "0.000001")
-    #expect(try formatUnits(value: "1230000", decimals: 6, trimTrailingZeros: false) == "1.230000")
+    #expect(try formatUnits(value: "1200000", decimals: 6) == "1.2")
     #expect(try formatUnits(value: "1", decimals: 18) == "0.000000000000000001")
 }
 
 @Test func TestParseUnitsRejectsTooManyDecimals() {
-    let utils = OMSClient(projectAccessKey: "test").utils
-
     do {
-        _ = try utils.parseUnits(value: "1.234", decimals: 2)
+        _ = try parseUnits(value: "1.234", decimals: 2)
         #expect(Bool(false))
     } catch UnitConversionError.fractionalComponentExceedsDecimals(let value, let decimals) {
         #expect(value == "1.234")

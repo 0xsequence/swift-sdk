@@ -49,8 +49,7 @@ public func parseUnits(value: String, decimals: Int = 18) throws -> String {
 
 public func formatUnits(
     value: String,
-    decimals: Int = 18,
-    trimTrailingZeros: Bool = true
+    decimals: Int = 18
 ) throws -> String {
     try validate(decimals: decimals)
 
@@ -79,9 +78,7 @@ public func formatUnits(
     let wholePart = String(paddedValue[..<splitIndex])
     var fractionalPart = String(paddedValue[splitIndex...])
 
-    if trimTrailingZeros {
-        fractionalPart = String(fractionalPart.reversed().drop(while: { $0 == "0" }).reversed())
-    }
+    fractionalPart = String(fractionalPart.reversed().drop(while: { $0 == "0" }).reversed())
 
     let formattedValue = fractionalPart.isEmpty
         ? wholePart

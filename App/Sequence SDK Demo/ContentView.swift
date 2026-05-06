@@ -23,11 +23,7 @@ enum Clipboard {
 
 // MARK: - Chains
 
-/// Display label → on-chain id passed to the SDK.
-private let supportedChains: [(label: String, id: String)] = [
-    ("polygon", "137"),
-    ("amoy", "80002"),
-]
+private let supportedNetworks: [Network] = Network.supportedNetworks
 
 // MARK: - USDC
 
@@ -293,8 +289,8 @@ struct WalletWindow: View {
             Spacer().frame(height: 8)
 
             Picker("Network", selection: $selectedNetwork) {
-                ForEach(supportedChains, id: \.label) { chain in
-                    Text(chain.label).tag(chain.label)
+                ForEach(supportedNetworks, id: \.self) { network in
+                    Text(network.displayName).tag(network)
                 }
             }
             .pickerStyle(.menu)
@@ -398,8 +394,8 @@ struct SignMessageWindow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Picker("Network", selection: $network) {
-                ForEach(supportedChains, id: \.id) { chain in
-                    Text(chain.label).tag(chain.id)
+                ForEach(supportedNetworks, id: \.self) { network in
+                    Text(network.displayName).tag(network)
                 }
             }
             .pickerStyle(.menu)
@@ -478,8 +474,8 @@ struct SendTransactionWindow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Picker("Network", selection: $network) {
-                ForEach(supportedChains, id: \.id) { chain in
-                    Text(chain.label).tag(chain.id)
+                ForEach(supportedNetworks, id: \.self) { network in
+                    Text(network.displayName).tag(network)
                 }
             }
             .pickerStyle(.menu)
@@ -616,8 +612,8 @@ struct CallContractWindow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 Picker("Network", selection: $network) {
-                    ForEach(supportedChains, id: \.id) { chain in
-                        Text(chain.label).tag(chain.id)
+                    ForEach(supportedNetworks, id: \.self) { network in
+                        Text(network.displayName).tag(network)
                     }
                 }
                 .pickerStyle(.menu)
