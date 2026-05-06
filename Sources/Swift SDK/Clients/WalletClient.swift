@@ -260,8 +260,8 @@ public class WalletClient {
         args: [AbiArg]?,
         feeOptionSelector: FeeOptionSelector = .first
     ) async throws -> String {
-        let prepareResponse = try await signedClient.prepareContractCall(
-            PrepareContractCallRequest(
+        let prepareResponse = try await signedClient.prepareEthereumContractCall(
+            PrepareEthereumContractCallRequest(
                 network: network,
                 walletId: self.walletId,
                 contract: contract,
@@ -282,8 +282,8 @@ public class WalletClient {
     /// - Parameter txnId: The transaction ID returned by the wallet API prepare/execute flow.
     /// - Returns: The current transaction status and transaction hash when available.
     public func getTransactionStatus(txnId: String) async throws -> TransactionStatusResponse {
-        return try await signedClient.getTransactionStatus(
-            GetTransactionStatusRequest(txnId: txnId)
+        return try await signedClient.transactionStatus(
+            TransactionStatusRequest(txnId: txnId)
         )
     }
     
