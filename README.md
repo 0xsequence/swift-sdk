@@ -1,6 +1,6 @@
 # OMS SDK (Swift)
 
-A Swift SDK for the OMS (Open Money Stack) platform. Provides email-based wallet authentication, keychain session persistence, on-chain transaction submission with fee selection, message and typed-data signing, signature verification, token balance queries, and base-unit formatting helpers.
+A Swift SDK for the OMS (Open Money Stack) platform. Provides email-based wallet authentication, non-extractable Keychain request signing, keychain session persistence, on-chain transaction submission with fee selection, message and typed-data signing, signature verification, token balance queries, and base-unit formatting helpers.
 
 **Requirements:** iOS 15+ · macOS 12+
 
@@ -68,7 +68,7 @@ let amoy = oms.network(chainId: "80002")
 OMS uses email-based OTP. The two-step flow is:
 
 1. **`startEmailAuth(email:)`** sends a one-time code to the user's inbox.
-2. **`completeEmailAuth(code:walletType:)`** verifies the code, then automatically loads an existing wallet or creates one. The wallet address, wallet ID, and session key are saved to the device keychain.
+2. **`completeEmailAuth(code:walletType:)`** verifies the code, then automatically loads an existing wallet or creates one. The wallet address, wallet ID, and signer metadata are saved to the device keychain.
 
 ```swift
 await oms.wallet.startEmailAuth(email: "user@example.com")
@@ -79,7 +79,9 @@ await oms.wallet.completeEmailAuth(code: "123456")
 print(oms.wallet.walletAddress)
 ```
 
-On subsequent launches, the session is restored from the keychain automatically. To end the session:
+Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. Only completed wallet session metadata is restored automatically; the private credential key remains owned by the Keychain and is not written into SDK session storage.
+
+On subsequent launches, the completed session is restored from the keychain automatically. To end the session:
 
 ```swift
 oms.wallet.signOut()

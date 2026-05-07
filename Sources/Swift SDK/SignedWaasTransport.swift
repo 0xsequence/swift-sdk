@@ -7,16 +7,16 @@ struct SignedWaasTransport: WebRPCTransport {
     private let client: HttpClient = HttpClient()
     private let projectAccessKey: String
     private let scope: String
-    private var signer: [UInt8] = []
+    private let signer: any CredentialSigner
 
     public init(projectAccessKey: String,
                 scope: String,
-                privateKey: [UInt8],
+                signer: any CredentialSigner,
                 session: URLSession = .shared
     ) {
         self.projectAccessKey = projectAccessKey
         self.scope = scope
-        self.signer = privateKey
+        self.signer = signer
         self.session = session
     }
 
@@ -26,20 +26,30 @@ struct SignedWaasTransport: WebRPCTransport {
         body: Data,
         headers: [String: String]
     ) async throws -> WebRPCHTTPResponse {
-        let endpoint = "/\(path.split(separator: "/")[2])"
+        let endpoint = resolveEndpoint(path)
         let payload = String(data: body, encoding: .utf8) ?? ""
 
-        let authHeader = buildAuthHeader(
+        let authHeader = try buildAuthHeader(
             endpoint: endpoint,
             scope: self.scope,
             signer: signer,
             payload: payload
         )
 
-        let response = try! await self.client.postJson(baseUrl: baseURL, path: path, body: payload, headers: [
+        var requestHeaders = [
             "X-Access-Key": projectAccessKey,
             "Authorization": authHeader
-        ])
+        ]
+        for (name, value) in headers {
+            requestHeaders[name] = value
+        }
+
+        let response = try await self.client.postJson(
+            baseUrl: baseURL,
+            path: path,
+            body: payload,
+            headers: requestHeaders
+        )
 
         return WebRPCHTTPResponse(
             statusCode: response.statusCode,
@@ -47,20 +57,27 @@ struct SignedWaasTransport: WebRPCTransport {
         )
     }
 
-    public mutating func setSigner(signer: [UInt8]) {
-        self.signer = signer
+    private func buildAuthHeader(endpoint: String, scope: String, signer: any CredentialSigner, payload: String) throws -> String {
+        let nonce = try signer.nextNonce()
+        let preimage = RequestUtils.buildWalletRequestPreimage(endpoint: endpoint, nonce: nonce, scope: scope, payload: payload)
+        let signature = try signer.sign(preimage: preimage)
+
+        return try RequestUtils.buildAuthorizationHeader(
+            keyType: signer.keyType,
+            scope: scope,
+            cred: signer.credentialId(),
+            nonce: nonce,
+            sig: signature
+        )
     }
 
-    private func buildAuthHeader(endpoint: String, scope: String, signer: [UInt8], payload: String) -> String {
-        let walletAddress = try! EthereumSigner.GetWalletAddress(privateKey: signer)
-
-        let nonce = TimeUtils.currentTimestampInSecondsString()
-        
-        let preimage = RequestUtils.buildWalletRequestPreimage(endpoint: endpoint, nonce: nonce, scope: scope, payload: payload)
-        
-        let hashedResult = Keccak256.Keccak256(data: preimage)
-        let signature = try! EthereumSigner.signUTF8MessageEIP191(privateKey: signer, message: hashedResult)
-
-        return RequestUtils.buildAuthorizationHeader(scope: scope, cred: walletAddress, nonce: nonce, sig: signature)
+    private func resolveEndpoint(_ path: String) -> String {
+        if path.hasPrefix(WaasWalletAPI.basePath) {
+            return String(path.dropFirst(WaasWalletAPI.basePath.count))
+        }
+        if path.hasPrefix("/") {
+            return path
+        }
+        return "/\(path)"
     }
 }

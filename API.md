@@ -67,7 +67,7 @@ typealias OmsEnvironment = OMSClientEnvironment
 
 ## WalletClient
 
-Accessed via `oms.wallet`. Manages wallet authentication, keychain session persistence, signing, signature verification, and transaction submission.
+Accessed via `oms.wallet`. Manages wallet authentication, non-extractable Keychain request signing, keychain session persistence, signing, signature verification, and transaction submission.
 
 ### walletAddress
 
@@ -100,6 +100,8 @@ func completeEmailAuth(code: String, walletType: WalletType = .ethereum) async
 ```
 
 Verifies the OTP code and activates an existing or newly created wallet.
+
+Wallet API requests are signed with a Keychain-backed P-256 credential using the `webcrypto-secp256r1` key type. Persisted sessions store wallet ID, wallet address, and signer metadata; private credential keys are not written into SDK session storage.
 
 Compatibility aliases:
 
