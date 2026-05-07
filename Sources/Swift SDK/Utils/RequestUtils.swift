@@ -6,9 +6,10 @@ public class RequestUtils {
     public static func buildWalletRequestPreimage(
         endpoint: String,
         nonce: String,
+        scope: String,
         payload: String
     ) -> String {
-        return "POST /rpc/Wallet\(endpoint)\nnonce: \(nonce)\n\n\(payload)"
+        return "POST /rpc/Wallet\(endpoint)\nnonce: \(nonce)\nscope: \(scope)\n\n\(payload)"
     }
     
     public static func buildAuthorizationHeader(

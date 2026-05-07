@@ -55,9 +55,9 @@ struct SignedWaasTransport: WebRPCTransport {
         let walletAddress = try! EthereumSigner.GetWalletAddress(privateKey: signer)
 
         let nonce = TimeUtils.currentTimestampInSecondsString()
-
-        let preimage = RequestUtils.buildWalletRequestPreimage(endpoint: endpoint, nonce: nonce, payload: payload)
-
+        
+        let preimage = RequestUtils.buildWalletRequestPreimage(endpoint: endpoint, nonce: nonce, scope: scope, payload: payload)
+        
         let hashedResult = Keccak256.Keccak256(data: preimage)
         let signature = try! EthereumSigner.signUTF8MessageEIP191(privateKey: signer, message: hashedResult)
 

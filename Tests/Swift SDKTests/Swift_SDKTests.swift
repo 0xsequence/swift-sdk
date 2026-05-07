@@ -42,6 +42,25 @@ let privateKey: [UInt8] = [
     #expect(answer == expected)
 }
 
+@Test func TestWalletRequestPreimageIncludesScope() async throws {
+    let payload = "{\"verifier\":\"email@example.com\"}"
+    let expected = """
+    POST /rpc/Wallet/CommitVerifier
+    nonce: 1234567890
+    scope: proj_1
+
+    {"verifier":"email@example.com"}
+    """
+
+    let preimage = RequestUtils.buildWalletRequestPreimage(
+        endpoint: "/CommitVerifier",
+        nonce: "1234567890",
+        scope: OMSClientEnvironment.defaultScope,
+        payload: payload
+    )
+
+    #expect(preimage == expected)
+}
 
 @Test func TestCompareWalletAddress() async throws {
     let expected = "0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a"
