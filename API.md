@@ -150,24 +150,26 @@ Signs an EIP-712 typed-data JSON payload using the wallet's session key.
 ```swift
 func isValidMessageSignature(
     network: Network,
+    walletAddress: String,
     message: String,
     signature: String
 ) async throws -> Bool
 ```
 
-Verifies a message signature against the active wallet address and wallet ID.
+Verifies a message signature against the provided wallet address and the active wallet ID.
 
 ### isValidTypedDataSignature
 
 ```swift
 func isValidTypedDataSignature(
     network: Network,
+    walletAddress: String,
     typedData: WebRPCJSONValue,
     signature: String
 ) async throws -> Bool
 ```
 
-Verifies an EIP-712 typed-data signature against the active wallet address and wallet ID.
+Verifies an EIP-712 typed-data signature against the provided wallet address and the active wallet ID.
 
 ### sendTransaction
 

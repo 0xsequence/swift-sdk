@@ -185,6 +185,7 @@ let signature = await oms.wallet.signMessage(
 ```swift
 let isValid = try await oms.wallet.isValidMessageSignature(
     network: .polygon,
+    walletAddress: oms.wallet.walletAddress,
     message: "Hello from OMS",
     signature: signature
 )
@@ -220,6 +221,7 @@ let signature = await oms.wallet.signTypedData(
 
 let isValid = try await oms.wallet.isValidTypedDataSignature(
     network: .polygon,
+    walletAddress: oms.wallet.walletAddress,
     typedData: typedData,
     signature: signature
 )
