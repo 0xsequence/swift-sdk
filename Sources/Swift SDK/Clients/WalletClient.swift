@@ -7,7 +7,7 @@ public enum TransactionError: Error {
 
 @available(macOS 12.0, iOS 15.0, *)
 public class WalletClient {
-    var signedClient: WaasWalletClient
+    private var signedClient: WaasWalletClient
     private var publicClient: WaasWalletPublicClient
     private let projectAccessKey: String
     private let environment: OMSClientEnvironment
