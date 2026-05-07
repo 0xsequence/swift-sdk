@@ -23,8 +23,8 @@ import OMS_SDK
 
 let oms = OMSClient(projectAccessKey: "your-project-access-key")
 
-await oms.wallet.startEmailAuth(email: "user@example.com")
-await oms.wallet.completeEmailAuth(code: "123456")
+try await oms.wallet.startEmailAuth(email: "user@example.com")
+try await oms.wallet.completeEmailAuth(code: "123456")
 
 print("Wallet address:", oms.wallet.walletAddress)
 
@@ -71,10 +71,10 @@ OMS uses email-based OTP. The two-step flow is:
 2. **`completeEmailAuth(code:walletType:)`** verifies the code, then automatically loads an existing wallet or creates one. The wallet address, wallet ID, and signer metadata are saved to the device keychain.
 
 ```swift
-await oms.wallet.startEmailAuth(email: "user@example.com")
+try await oms.wallet.startEmailAuth(email: "user@example.com")
 
 // Present your OTP entry UI.
-await oms.wallet.completeEmailAuth(code: "123456")
+try await oms.wallet.completeEmailAuth(code: "123456")
 
 print(oms.wallet.walletAddress)
 ```
@@ -84,10 +84,10 @@ Wallet API requests are signed with a non-extractable Keychain P-256 credential 
 On subsequent launches, the completed session is restored from the keychain automatically. To end the session:
 
 ```swift
-oms.wallet.signOut()
+try oms.wallet.signOut()
 ```
 
-Compatibility methods are also available on `WalletClient`: `signInWithEmail`, `completeEmailSignIn`, and `clearSession`.
+Compatibility methods are also available on `WalletClient`: `signInWithEmail` and `completeEmailSignIn`.
 
 ## Transaction Flow
 
@@ -176,7 +176,7 @@ let usdcDisplay = try formatUnits(value: usdcRaw, decimals: 6)
 ### Sign a Message
 
 ```swift
-let signature = await oms.wallet.signMessage(
+let signature = try await oms.wallet.signMessage(
     network: .polygon,
     message: "Hello from OMS"
 )
@@ -216,7 +216,7 @@ let typedData: WebRPCJSONValue = .object([
     ])
 ])
 
-let signature = await oms.wallet.signTypedData(
+let signature = try await oms.wallet.signTypedData(
     network: .polygon,
     typedData: typedData
 )
@@ -298,10 +298,10 @@ for balance in result.balances {
 ### Manage Wallet Access
 
 ```swift
-let credentials = await oms.wallet.listAccess()
+let credentials = try await oms.wallet.listAccess()
 
 if let credential = credentials.first {
-    await oms.wallet.revokeAccess(targetCredentialId: credential.credentialId)
+    try await oms.wallet.revokeAccess(targetCredentialId: credential.credentialId)
 }
 ```
 

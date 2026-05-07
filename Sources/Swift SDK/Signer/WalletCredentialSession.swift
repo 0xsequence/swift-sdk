@@ -33,17 +33,34 @@ final class WalletCredentialSession {
         }
 
         let candidateSigner = makeCredentialSigner()
-        if candidateSigner.hasCredential(),
-           signerMatchesStoredCredential(candidateSigner, credentials: credentials) {
-            currentSigner = candidateSigner
-            return WalletMetadata(
-                walletId: credentials.walletId,
-                walletAddress: credentials.walletAddress
+        do {
+            guard try candidateSigner.hasCredential() else {
+                _ = try? keychain.delete(forKey: credentialsStorageKey)
+                currentSigner = Self.makeDefaultCredentialSigner(
+                    environment: environment,
+                    keychain: keychain
+                )
+                return nil
+            }
+
+            if try signerMatchesStoredCredential(candidateSigner, credentials: credentials) {
+                currentSigner = candidateSigner
+                return WalletMetadata(
+                    walletId: credentials.walletId,
+                    walletAddress: credentials.walletAddress
+                )
+            }
+
+            try candidateSigner.clear()
+            try keychain.delete(forKey: credentialsStorageKey)
+        } catch {
+            currentSigner = Self.makeDefaultCredentialSigner(
+                environment: environment,
+                keychain: keychain
             )
+            return nil
         }
 
-        _ = try? keychain.delete(forKey: credentialsStorageKey)
-        _ = try? candidateSigner.clear()
         currentSigner = Self.makeDefaultCredentialSigner(
             environment: environment,
             keychain: keychain
@@ -63,8 +80,8 @@ final class WalletCredentialSession {
     }
 
     func clear() throws {
+        try currentSigner.clear()
         try keychain.delete(forKey: credentialsStorageKey)
-        _ = try? currentSigner.clear()
         currentSigner = Self.makeDefaultCredentialSigner(
             environment: environment,
             keychain: keychain
@@ -88,12 +105,12 @@ final class WalletCredentialSession {
     private func signerMatchesStoredCredential(
         _ signer: any CredentialSigner,
         credentials: StorableCredentials
-    ) -> Bool {
+    ) throws -> Bool {
         if credentials.signerKeyType != signer.keyType {
             return false
         }
 
-        return (try? signer.credentialId().lowercased()) == credentials.signerCredentialId.lowercased()
+        return try signer.credentialId().lowercased() == credentials.signerCredentialId.lowercased()
     }
 
     private static func makeDefaultCredentialSigner(

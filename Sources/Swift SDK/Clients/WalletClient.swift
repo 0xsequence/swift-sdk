@@ -62,7 +62,7 @@ public class WalletClient {
     }
 
     public func signInWithEmail(email: String) async throws {
-        await try startEmailAuth(email: email)
+        try await startEmailAuth(email: email)
     }
 
     /// Completes the email OTP authentication flow by verifying the code the user received.
@@ -91,18 +91,18 @@ public class WalletClient {
         var walletUsed: Bool = false;
         for wallet in response.wallets {
             if (wallet.type == walletType) {
-                await try useWallet(walletId: wallet.id)
+                try await useWallet(walletId: wallet.id)
                 walletUsed = true
             }
         }
 
         if (!walletUsed) {
-            await try createWallet(walletType: walletType)
+            try await createWallet(walletType: walletType)
         }
     }
 
     public func completeEmailSignIn(code: String, walletType: WalletType = WalletType.ethereum) async throws {
-        await try completeEmailAuth(code: code, walletType: walletType)
+        try await completeEmailAuth(code: code, walletType: walletType)
     }
 
     /// Creates a new wallet of the specified type for the authenticated user and persists

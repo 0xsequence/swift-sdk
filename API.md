@@ -88,7 +88,7 @@ The server-side wallet ID. Empty until a wallet is restored or activated by `com
 ### startEmailAuth
 
 ```swift
-func startEmailAuth(email: String) async
+func startEmailAuth(email: String) async throws
 ```
 
 Sends a one-time passcode to the provided email address.
@@ -96,7 +96,7 @@ Sends a one-time passcode to the provided email address.
 ### completeEmailAuth
 
 ```swift
-func completeEmailAuth(code: String, walletType: WalletType = .ethereum) async
+func completeEmailAuth(code: String, walletType: WalletType = .ethereum) async throws
 ```
 
 Verifies the OTP code and activates an existing or newly created wallet.
@@ -106,34 +106,28 @@ Wallet API requests are signed with a Keychain-backed P-256 credential using the
 Compatibility aliases:
 
 ```swift
-func signInWithEmail(email: String) async
-func completeEmailSignIn(code: String, walletType: WalletType = .ethereum) async
+func signInWithEmail(email: String) async throws
+func completeEmailSignIn(code: String, walletType: WalletType = .ethereum) async throws
 ```
 
 ### signOut
 
 ```swift
-func signOut()
+func signOut() throws
 ```
 
 Clears the keychain session, local wallet identifiers, verifier state, and session signer.
 
-Compatibility alias:
-
-```swift
-func clearSession()
-```
-
 ### signMessage
 
 ```swift
-func signMessage(network: Network, message: String) async -> String
+func signMessage(network: Network, message: String) async throws -> String
 ```
 
 Signs an arbitrary message using the wallet's session key.
 
 ```swift
-let signature = await oms.wallet.signMessage(
+let signature = try await oms.wallet.signMessage(
     network: .polygon,
     message: "Hello from OMS"
 )
@@ -142,7 +136,7 @@ let signature = await oms.wallet.signMessage(
 ### signTypedData
 
 ```swift
-func signTypedData(network: Network, typedData: WebRPCJSONValue) async -> String
+func signTypedData(network: Network, typedData: WebRPCJSONValue) async throws -> String
 ```
 
 Signs an EIP-712 typed-data JSON payload using the wallet's session key.
@@ -230,7 +224,7 @@ Returns the current execution status for a prepared or submitted transaction.
 ### listAccess
 
 ```swift
-func listAccess() async -> [CredentialInfo]
+func listAccess() async throws -> [CredentialInfo]
 ```
 
 Returns all credentials that currently have access to this wallet.
@@ -238,7 +232,7 @@ Returns all credentials that currently have access to this wallet.
 ### revokeAccess
 
 ```swift
-func revokeAccess(targetCredentialId: String) async
+func revokeAccess(targetCredentialId: String) async throws
 ```
 
 Revokes a credential's access to this wallet.

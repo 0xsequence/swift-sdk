@@ -5,6 +5,6 @@ protocol CredentialSigner: Sendable {
     func credentialId() throws -> String
     func nextNonce() throws -> String
     func sign(preimage: String) throws -> String
-    func hasCredential() -> Bool
+    func hasCredential() throws -> Bool
     func clear() throws
 }

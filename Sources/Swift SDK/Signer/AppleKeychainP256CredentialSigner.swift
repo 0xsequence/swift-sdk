@@ -86,8 +86,8 @@ final class AppleKeychainP256CredentialSigner: CredentialSigner, @unchecked Send
         return "0x" + ByteUtils.bytesToHex(data: rawSignature)
     }
 
-    func hasCredential() -> Bool {
-        (try? existingPrivateKey()) != nil
+    func hasCredential() throws -> Bool {
+        try existingPrivateKey() != nil
     }
 
     func clear() throws {
