@@ -248,13 +248,14 @@ public class WalletClient {
 
     public func isValidMessageSignature(
         network: Network,
+        walletAddress: String,
         message: String,
         signature: String
     ) async throws -> Bool {
         let response = try await publicClient.isValidMessageSignature(
             IsValidMessageSignatureRequest(
                 network: network.chainId,
-                walletAddress: self.walletAddress,
+                walletAddress: walletAddress,
                 walletId: self.walletId,
                 message: message,
                 signature: signature
@@ -266,13 +267,14 @@ public class WalletClient {
 
     public func isValidTypedDataSignature(
         network: Network,
+        walletAddress: String,
         typedData: WebRPCJSONValue,
         signature: String
     ) async throws -> Bool {
         let response = try await publicClient.isValidTypedDataSignature(
             IsValidTypedDataSignatureRequest(
                 network: network.chainId,
-                walletAddress: self.walletAddress,
+                walletAddress: walletAddress,
                 walletId: self.walletId,
                 typedData: typedData,
                 signature: signature
