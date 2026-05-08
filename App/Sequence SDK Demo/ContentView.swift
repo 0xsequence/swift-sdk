@@ -72,7 +72,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func signOut() {
-        oms.wallet.signOut()
+        try! oms.wallet.signOut()
         screen = .login
     }
 
@@ -81,7 +81,7 @@ final class AppViewModel: ObservableObject {
     func submitLogin(input: String) async {
         isLoading = true
 
-        await oms.wallet.startEmailAuth(email: input)
+        try! await oms.wallet.startEmailAuth(email: input)
 
         isLoading = false
         screen = .confirmCode
@@ -92,7 +92,7 @@ final class AppViewModel: ObservableObject {
     func submitConfirmCode(code: String) async {
         isLoading = true
 
-        await oms.wallet.completeEmailAuth(code: code)
+        try! await oms.wallet.completeEmailAuth(code: code)
 
         isLoading = false
         screen = .wallet
@@ -411,7 +411,7 @@ struct SignMessageWindow: View {
             Button {
                 Task {
                     isSigning = true
-                    let result = await vm.oms.wallet.signMessage(
+                    let result = try! await vm.oms.wallet.signMessage(
                         network: network,
                         message: messageText
                     )
