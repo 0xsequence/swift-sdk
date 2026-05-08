@@ -42,9 +42,9 @@ public class WalletClient {
 
     /// Initiates email-based OTP authentication by sending a one-time code to the given address.
     ///
-    /// This method generates a new session key pair and stores the verifier state internally.
+    /// This method ensures a request-signing credential exists and stores the verifier state internally.
     /// After this call returns, present your OTP entry UI and pass the user's code to
-    /// `completeEmailSignIn(code:walletType:)`.
+    /// `completeEmailAuth(code:walletType:)`.
     ///
     /// - Parameter email: The email address to send the one-time passcode to.
     public func startEmailAuth(email: String) async throws {
@@ -61,17 +61,13 @@ public class WalletClient {
         challenge = response.challenge
     }
 
-    public func signInWithEmail(email: String) async throws {
-        try await startEmailAuth(email: email)
-    }
-
     /// Completes the email OTP authentication flow by verifying the code the user received.
     ///
-    /// Must be called after `signInWithEmail(email:)`. The challenge and verifier from the
+    /// Must be called after `startEmailAuth(email:)`. The challenge and verifier from the
     /// previous step are used automatically. On success, this method also provisions a wallet
     /// of `walletType` for the authenticated user: if one already exists on the account it is
-    /// loaded, otherwise a new one is created. In both cases the wallet address and session key
-    /// are persisted to the keychain.
+    /// loaded, otherwise a new one is created. In both cases the wallet address and signer
+    /// metadata are persisted to the keychain.
     ///
     /// - Parameters:
     ///   - code: The one-time passcode string entered by the user.
@@ -101,14 +97,10 @@ public class WalletClient {
         }
     }
 
-    public func completeEmailSignIn(code: String, walletType: WalletType = WalletType.ethereum) async throws {
-        try await completeEmailAuth(code: code, walletType: walletType)
-    }
-
     /// Creates a new wallet of the specified type for the authenticated user and persists
-    /// its address and session key to the keychain.
+    /// its address and signer metadata to the keychain.
     ///
-    /// Called internally by `completeEmailSignIn(code:walletType:)` when the user does not
+    /// Called internally by `completeEmailAuth(code:walletType:)` when the user does not
     /// already have a wallet of the requested type.
     ///
     /// - Parameter walletType: The wallet type to create (e.g. `.ethereumEoa`).
@@ -122,9 +114,9 @@ public class WalletClient {
     }
 
     /// Loads an existing wallet of the specified type for the authenticated user and persists
-    /// its address and session key to the keychain.
+    /// its address and signer metadata to the keychain.
     ///
-    /// Called internally by `completeEmailSignIn(code:walletType:)` when the user already has
+    /// Called internally by `completeEmailAuth(code:walletType:)` when the user already has
     /// a wallet of the requested type on their account.
     ///
     /// - Parameter walletType: The wallet type to load (e.g. `.ethereumEoa`).
@@ -151,7 +143,7 @@ public class WalletClient {
     /// Clears the wallet session from the device keychain.
     ///
     /// After calling this, any attempt to restore the session on the next launch will fail
-    /// and the user will need to sign in again via `signInWithEmail(email:)`. Navigate to your
+    /// and the user will need to sign in again via `startEmailAuth(email:)`. Navigate to your
     /// sign-in screen after calling this.
     public func signOut() throws {
         try credentialSession.clear()

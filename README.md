@@ -46,8 +46,6 @@ let txHash = try await oms.wallet.sendTransaction(
 | `indexer` | `IndexerClient` | Token balance and on-chain query helpers. |
 | `supportedNetworks` | `[Network]` | Supported network list. |
 
-`OmsWallet` remains available as a compatibility alias for `OMSClient`. `OmsEnvironment` remains available as a compatibility alias for `OMSClientEnvironment`.
-
 ## Supported Networks
 
 Use `Network.supportedNetworks`, `Network.from(chainId:)`, or the `OMSClient` convenience properties to bind numeric chain IDs to SDK networks.
@@ -86,8 +84,6 @@ On subsequent launches, the completed session is restored from the keychain auto
 ```swift
 try oms.wallet.signOut()
 ```
-
-Compatibility methods are also available on `WalletClient`: `signInWithEmail` and `completeEmailSignIn`.
 
 ## Transaction Flow
 

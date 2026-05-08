@@ -13,7 +13,7 @@ public class RequestUtils {
     }
     
     public static func buildAuthorizationHeader(
-        keyType: KeyType = .ethereumSecp256k1,
+        keyType: KeyType,
         scope: String,
         cred: String,
         nonce: String,

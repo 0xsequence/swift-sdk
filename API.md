@@ -56,13 +56,6 @@ func network(chainId: String) -> Network?
 
 Returns the supported `Network` for a numeric chain ID, or `nil` when the chain is not supported.
 
-Compatibility aliases:
-
-```swift
-typealias OmsWallet = OMSClient
-typealias OmsEnvironment = OMSClientEnvironment
-```
-
 ---
 
 ## WalletClient
@@ -102,13 +95,6 @@ func completeEmailAuth(code: String, walletType: WalletType = .ethereum) async t
 Verifies the OTP code and activates an existing or newly created wallet.
 
 Wallet API requests are signed with a Keychain-backed P-256 credential using the `webcrypto-secp256r1` key type. Persisted sessions store wallet ID, wallet address, and signer metadata; private credential keys are not written into SDK session storage.
-
-Compatibility aliases:
-
-```swift
-func signInWithEmail(email: String) async throws
-func completeEmailSignIn(code: String, walletType: WalletType = .ethereum) async throws
-```
 
 ### signOut
 

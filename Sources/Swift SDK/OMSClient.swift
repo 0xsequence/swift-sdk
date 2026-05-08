@@ -23,8 +23,3 @@ public class OMSClient {
         Network.from(chainId: chainId)
     }
 }
-
-@available(macOS 12.0, iOS 15.0, *)
-public typealias OmsWallet = OMSClient
-
-public typealias OmsEnvironment = OMSClientEnvironment
