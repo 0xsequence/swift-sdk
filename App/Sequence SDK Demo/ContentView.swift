@@ -25,6 +25,32 @@ enum Clipboard {
 
 private let supportedNetworks: [Network] = Network.supportedNetworks
 
+// MARK: - Styling
+
+private var appBackgroundColor: Color {
+    #if os(iOS)
+    Color(.systemGroupedBackground)
+    #elseif os(macOS)
+    Color(nsColor: .windowBackgroundColor)
+    #endif
+}
+
+private var panelBackgroundColor: Color {
+    #if os(iOS)
+    Color(.systemBackground)
+    #elseif os(macOS)
+    Color(nsColor: .textBackgroundColor)
+    #endif
+}
+
+private var panelBorderColor: Color {
+    #if os(iOS)
+    Color(.separator).opacity(0.45)
+    #elseif os(macOS)
+    Color(nsColor: .separatorColor).opacity(0.8)
+    #endif
+}
+
 // MARK: - USDC
 
 /// USDC contract on the configured chain.
@@ -134,6 +160,8 @@ struct ContentView: View {
         }
         .environmentObject(vm)
         .genericErrorWindow(error: $vm.error)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(appBackgroundColor)
         .task {
             await vm.checkSession()
         }
@@ -147,29 +175,31 @@ struct LoginWindow: View {
     @State private var inputText: String = ""
 
     var body: some View {
-        VStack(spacing: 24) {
-            Text("Sign In with Email")
-                .font(.largeTitle)
-                .fontWeight(.bold)
+        ScreenContainer(maxWidth: 440) {
+            ScreenHeader(
+                title: "Sign in",
+                subtitle: "Use your email to access your Sequence wallet."
+            )
 
-            TextField("Enter Email...", text: $inputText)
-                .textFieldStyle(.roundedBorder)
-                .autocorrectionDisabled()
-                #if os(iOS)
-                .keyboardType(.emailAddress)
-                .textInputAutocapitalization(.never)
-                #endif
+            FieldGroup(title: "Email") {
+                TextField("you@example.com", text: $inputText)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    #if os(iOS)
+                    .keyboardType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                    #endif
+            }
 
             Button {
                 Task { await vm.submitLogin(input: inputText) }
             } label: {
-                label(for: "Continue", loading: vm.isLoading)
+                label(for: "Continue", systemImage: "arrow.right", loading: vm.isLoading)
             }
             .buttonStyle(.borderedProminent)
+            .controlSize(.large)
             .disabled(inputText.isEmpty || vm.isLoading)
         }
-        .padding(32)
-        .frame(maxWidth: 400)
     }
 }
 
@@ -180,32 +210,25 @@ struct ConfirmCodeWindow: View {
     @State private var codeText: String = ""
 
     var body: some View {
-        VStack(spacing: 24) {
-            Text("Confirm your Email")
-                .font(.largeTitle)
-                .fontWeight(.bold)
+        ScreenContainer(maxWidth: 440) {
+            ScreenHeader(
+                title: "Confirm email",
+                subtitle: "Enter the 6-digit code sent to your email."
+            )
 
-            Text("We sent a code to your device.")
-                .foregroundStyle(.secondary)
-
-            TextField("6-digit code", text: $codeText)
-                .textFieldStyle(.roundedBorder)
-                .autocorrectionDisabled()
-                #if os(iOS)
-                .keyboardType(.numberPad)
-                .textInputAutocapitalization(.never)
-                #endif
+            FieldGroup(title: "Code") {
+                VerificationCodeInput(code: $codeText)
+            }
 
             Button {
                 Task { await vm.submitConfirmCode(code: codeText) }
             } label: {
-                label(for: "Verify", loading: vm.isLoading)
+                label(for: "Verify", systemImage: "checkmark", loading: vm.isLoading)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(codeText.isEmpty || vm.isLoading)
+            .controlSize(.large)
+            .disabled(codeText.count != 6 || vm.isLoading)
         }
-        .padding(32)
-        .frame(maxWidth: 400)
     }
 }
 
@@ -253,16 +276,99 @@ struct WalletWindow: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
-            Text("My Wallet")
-                .fontWeight(.bold)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        ScreenContainer(maxWidth: 560, spacing: 20) {
+            ScreenHeader(
+                title: "Wallet",
+                subtitle: "Connected account"
+            )
 
-            HStack(spacing: 8) {
-                Text(vm.oms.wallet.walletAddress)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            walletAddressPanel
+
+            walletActions
+
+            FieldGroup(title: "Network") {
+                Picker("Network", selection: $selectedNetwork) {
+                    ForEach(supportedNetworks, id: \.self) { network in
+                        Text(network.displayName).tag(network)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Panel {
+                HStack {
+                    Label("USDC balance", systemImage: "creditcard")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if isFetchingBalance {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Button {
+                            Task { await refreshBalance() }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Refresh balance")
+                    }
+                }
+
+                Text(usdcBalance)
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                    .monospacedDigit()
+                if !usdcBalanceRaw.isEmpty {
+                    Text("\(usdcBalanceRaw) wei")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .monospaced()
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+        }
+        .task {
+            await refreshBalance()
+        }
+        .onChange(of: selectedNetwork) {
+            Task { await refreshBalance() }
+        }
+        .sheet(isPresented: $showSendWindow) {
+            SendTransactionWindow()
+                .environmentObject(vm)
+        }
+        .sheet(isPresented: $showCallContractWindow) {
+            CallContractWindow(onCompleted: {
+                Task { await refreshBalance() }
+            })
+            .environmentObject(vm)
+        }
+        .sheet(isPresented: $showSignMessageWindow) {
+            SignMessageWindow()
+                .environmentObject(vm)
+        }
+    }
+
+    private var walletAddressPanel: some View {
+        Panel {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Wallet address", systemImage: "wallet.pass")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    Text(vm.oms.wallet.walletAddress)
+                        .font(.callout)
+                        .monospaced()
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
 
                 Button {
                     Clipboard.copy(vm.oms.wallet.walletAddress)
@@ -286,108 +392,36 @@ struct WalletWindow: View {
                 .buttonStyle(.bordered)
                 .help("Sign out")
             }
+        }
+    }
 
-            Spacer().frame(height: 8)
-
-            VStack(spacing: 8) {
-                Button {
-                    showSendWindow = true
-                } label: {
-                    Text("Send Transaction")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button {
-                    showCallContractWindow = true
-                } label: {
-                    Text("Call Contract")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button {
-                    showSignMessageWindow = true
-                } label: {
-                    Text("Sign Message")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
+    private var walletActions: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                walletActionButton("Send", systemImage: "arrow.up.right", action: { showSendWindow = true })
+                walletActionButton("Call contract", systemImage: "curlybraces", action: { showCallContractWindow = true })
+                walletActionButton("Sign", systemImage: "signature", action: { showSignMessageWindow = true })
             }
 
-            Spacer().frame(height: 8)
-
-            Picker("Network", selection: $selectedNetwork) {
-                ForEach(supportedNetworks, id: \.self) { network in
-                    Text(network.displayName).tag(network)
-                }
+            VStack(spacing: 10) {
+                walletActionButton("Send transaction", systemImage: "arrow.up.right", action: { showSendWindow = true })
+                walletActionButton("Call contract", systemImage: "curlybraces", action: { showCallContractWindow = true })
+                walletActionButton("Sign message", systemImage: "signature", action: { showSignMessageWindow = true })
             }
-            .pickerStyle(.menu)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
 
-            // USDC balance card
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("USDC Balance")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    if isFetchingBalance {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Button {
-                            Task { await refreshBalance() }
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.caption)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Refresh balance")
-                    }
-                }
-                Text(usdcBalance)
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                    .monospacedDigit()
-                if !usdcBalanceRaw.isEmpty {
-                    Text("\(usdcBalanceRaw) wei")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .monospaced()
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(.quaternary.opacity(0.5))
-            )
+    private func walletActionButton(
+        _ title: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .frame(maxWidth: .infinity)
         }
-        .padding(32)
-        .frame(maxWidth: 400)
-        .task {
-            await refreshBalance()
-        }
-        .onChange(of: selectedNetwork) {
-            Task { await refreshBalance() }
-        }
-        .sheet(isPresented: $showSendWindow) {
-            SendTransactionWindow()
-                .environmentObject(vm)
-        }
-        .sheet(isPresented: $showCallContractWindow) {
-            CallContractWindow(onCompleted: {
-                Task { await refreshBalance() }
-            })
-            .environmentObject(vm)
-        }
-        .sheet(isPresented: $showSignMessageWindow) {
-            SignMessageWindow()
-                .environmentObject(vm)
-        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
     }
 }
 
@@ -404,39 +438,26 @@ struct SignMessageWindow: View {
     @State private var error: GenericAppError?
 
     var body: some View {
-        VStack(spacing: 16) {
-            HStack {
-                Text("Sign Message")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+        ModalContainer(
+            title: "Sign message",
+            subtitle: "Create a wallet signature for the selected network.",
+            minWidth: 440,
+            minHeight: 380
+        ) {
+            FieldGroup(title: "Network") {
+                Picker("Network", selection: $network) {
+                    ForEach(supportedNetworks, id: \.self) { network in
+                        Text(network.displayName).tag(network)
+                    }
                 }
-                .buttonStyle(.plain)
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Text("Network")
-                .fontWeight(.semibold)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Picker("Network", selection: $network) {
-                ForEach(supportedNetworks, id: \.self) { network in
-                    Text(network.displayName).tag(network)
-                }
+            FieldGroup(title: "Message") {
+                TextField("Enter message", text: $messageText)
+                    .textFieldStyle(.roundedBorder)
             }
-            .pickerStyle(.menu)
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text("Message")
-                .fontWeight(.semibold)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            TextField("Enter message...", text: $messageText)
-                .textFieldStyle(.roundedBorder)
 
             Button {
                 Task {
@@ -454,25 +475,16 @@ struct SignMessageWindow: View {
                     }
                 }
             } label: {
-                label(for: "Sign Message", loading: isSigning)
+                label(for: "Sign message", systemImage: "signature", loading: isSigning)
             }
             .buttonStyle(.borderedProminent)
+            .controlSize(.large)
             .disabled(messageText.isEmpty || isSigning)
 
             if !signature.isEmpty {
-                Text(signature)
-                    .font(.footnote)
-                    .monospaced()
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .textSelection(.enabled)
-                    .padding(.top, 8)
+                ResultPanel(title: "Signature", text: signature)
             }
-
-            Spacer()
         }
-        .padding(32)
-        .frame(minWidth: 400, minHeight: 360)
         .genericErrorWindow(error: $error)
     }
 }
@@ -491,53 +503,38 @@ struct SendTransactionWindow: View {
     @State private var error: GenericAppError?
 
     var body: some View {
-        VStack(spacing: 16) {
-            HStack {
-                Text("Send Transaction")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+        ModalContainer(
+            title: "Send transaction",
+            subtitle: "Transfer native token value from this wallet.",
+            minWidth: 460,
+            minHeight: 460
+        ) {
+            FieldGroup(title: "Network") {
+                Picker("Network", selection: $network) {
+                    ForEach(supportedNetworks, id: \.self) { network in
+                        Text(network.displayName).tag(network)
+                    }
                 }
-                .buttonStyle(.plain)
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Text("Network")
-                .fontWeight(.semibold)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Picker("Network", selection: $network) {
-                ForEach(supportedNetworks, id: \.self) { network in
-                    Text(network.displayName).tag(network)
-                }
+            FieldGroup(title: "To address") {
+                TextField("0x...", text: $toText)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
             }
-            .pickerStyle(.menu)
-            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text("To Address")
-                .fontWeight(.semibold)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            TextField("0x...", text: $toText)
-                .textFieldStyle(.roundedBorder)
-                .autocorrectionDisabled()
-                #if os(iOS)
-                .textInputAutocapitalization(.never)
-                #endif
-
-            Text("Amount")
-                .fontWeight(.semibold)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            TextField("Enter amount...", text: $amountText)
-                .textFieldStyle(.roundedBorder)
-                #if os(iOS)
-                .keyboardType(.decimalPad)
-                #endif
+            FieldGroup(title: "Amount") {
+                TextField("Enter amount", text: $amountText)
+                    .textFieldStyle(.roundedBorder)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    #endif
+            }
 
             Button {
                 Task {
@@ -556,19 +553,16 @@ struct SendTransactionWindow: View {
                     }
                 }
             } label: {
-                label(for: "Execute Transaction", loading: isSending)
+                label(for: "Execute transaction", systemImage: "paperplane", loading: isSending)
             }
             .buttonStyle(.borderedProminent)
+            .controlSize(.large)
             .disabled(amountText.isEmpty || toText.isEmpty || isSending)
 
             if !result.isEmpty {
-                CopyableResult(text: result)
+                ResultPanel(title: "Transaction hash", text: result)
             }
-
-            Spacer()
         }
-        .padding(32)
-        .frame(minWidth: 400, minHeight: 420)
         .genericErrorWindow(error: $error)
         .onAppear {
             if toText.isEmpty {
@@ -635,26 +629,13 @@ struct CallContractWindow: View {
     @State private var error: GenericAppError?
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                HStack {
-                    Text("Call Contract")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                    Spacer()
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                Text("Network")
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
+        ModalContainer(
+            title: "Call contract",
+            subtitle: "Build a contract method call with ABI arguments.",
+            minWidth: 500,
+            minHeight: 560
+        ) {
+            FieldGroup(title: "Network") {
                 Picker("Network", selection: $network) {
                     ForEach(supportedNetworks, id: \.self) { network in
                         Text(network.displayName).tag(network)
@@ -662,32 +643,28 @@ struct CallContractWindow: View {
                 }
                 .pickerStyle(.menu)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
-                Text("Contract")
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
+            FieldGroup(title: "Contract") {
                 TextField("0x...", text: $contractText)
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
                     #endif
+            }
 
-                Text("Method")
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
+            FieldGroup(title: "Method") {
                 TextField("e.g. transfer", text: $methodText)
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
                     #endif
+            }
 
+            FieldGroup(title: "Arguments") {
                 HStack {
-                    Text("Args")
-                        .fontWeight(.semibold)
                     Spacer()
                     Button {
                         args.append(AbiArgInput())
@@ -695,74 +672,362 @@ struct CallContractWindow: View {
                         Image(systemName: "plus.circle.fill")
                     }
                     .buttonStyle(.plain)
+                    .help("Add argument")
                 }
 
                 ForEach($args) { $arg in
-                    HStack(spacing: 8) {
-                        TextField("type (e.g. uint256)", text: $arg.type)
-                            .textFieldStyle(.roundedBorder)
-                            .autocorrectionDisabled()
-                            #if os(iOS)
-                            .textInputAutocapitalization(.never)
-                            #endif
-
-                        TextField("value", text: $arg.value)
-                            .textFieldStyle(.roundedBorder)
-                            .autocorrectionDisabled()
-                            #if os(iOS)
-                            .textInputAutocapitalization(.never)
-                            #endif
-
-                        Button {
-                            args.removeAll { $0.id == arg.id }
-                        } label: {
-                            Image(systemName: "minus.circle.fill")
-                                .foregroundStyle(.secondary)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            abiTypeField(arg: $arg)
+                            abiValueField(arg: $arg)
+                            removeAbiArgButton(arg: arg)
                         }
-                        .buttonStyle(.plain)
-                        .disabled(args.count <= 1)
-                    }
-                }
 
-                Button {
-                    Task {
-                        isSending = true
-                        defer { isSending = false }
-
-                        do {
-                            let abiArgs: [AbiArg] = args
-                                .filter { !$0.type.isEmpty || !$0.value.isEmpty }
-                                .map { AbiArg(type: $0.type, value: parseAbiValue($0.value)) }
-                            let txResult = try await vm.oms.wallet.callContract(
-                                network: network,
-                                contract: contractText,
-                                method: methodText,
-                                args: abiArgs.isEmpty ? nil : abiArgs
-                            )
-                            result = txResult
-                            onCompleted?()
-                        } catch {
-                            self.error = GenericAppError(error)
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                abiTypeField(arg: $arg)
+                                removeAbiArgButton(arg: arg)
+                            }
+                            abiValueField(arg: $arg)
                         }
                     }
-                } label: {
-                    label(for: "Execute Transaction", loading: isSending)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(contractText.isEmpty || methodText.isEmpty || isSending)
-
-                if !result.isEmpty {
-                    CopyableResult(text: result)
                 }
             }
-            .padding(32)
+
+            Button {
+                Task {
+                    isSending = true
+                    defer { isSending = false }
+
+                    do {
+                        let abiArgs: [AbiArg] = args
+                            .filter { !$0.type.isEmpty || !$0.value.isEmpty }
+                            .map { AbiArg(type: $0.type, value: parseAbiValue($0.value)) }
+                        let txResult = try await vm.oms.wallet.callContract(
+                            network: network,
+                            contract: contractText,
+                            method: methodText,
+                            args: abiArgs.isEmpty ? nil : abiArgs
+                        )
+                        result = txResult
+                        onCompleted?()
+                    } catch {
+                        self.error = GenericAppError(error)
+                    }
+                }
+            } label: {
+                label(for: "Execute transaction", systemImage: "terminal", loading: isSending)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(contractText.isEmpty || methodText.isEmpty || isSending)
+
+            if !result.isEmpty {
+                ResultPanel(title: "Transaction hash", text: result)
+            }
         }
-        .frame(minWidth: 460, minHeight: 520)
         .genericErrorWindow(error: $error)
+    }
+
+    private func abiTypeField(arg: Binding<AbiArgInput>) -> some View {
+        TextField("type (e.g. uint256)", text: arg.type)
+            .textFieldStyle(.roundedBorder)
+            .autocorrectionDisabled()
+            #if os(iOS)
+            .textInputAutocapitalization(.never)
+            #endif
+    }
+
+    private func abiValueField(arg: Binding<AbiArgInput>) -> some View {
+        TextField("value", text: arg.value)
+            .textFieldStyle(.roundedBorder)
+            .autocorrectionDisabled()
+            #if os(iOS)
+            .textInputAutocapitalization(.never)
+            #endif
+    }
+
+    private func removeAbiArgButton(arg: AbiArgInput) -> some View {
+        Button {
+            args.removeAll { $0.id == arg.id }
+        } label: {
+            Image(systemName: "minus.circle.fill")
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .disabled(args.count <= 1)
+        .help("Remove argument")
     }
 }
 
 // MARK: - Helpers
+
+private struct ScreenContainer<Content: View>: View {
+    let maxWidth: CGFloat
+    let spacing: CGFloat
+    let content: Content
+
+    init(
+        maxWidth: CGFloat,
+        spacing: CGFloat = 24,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.maxWidth = maxWidth
+        self.spacing = spacing
+        self.content = content()
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: spacing) {
+                content
+            }
+            .frame(maxWidth: maxWidth, alignment: .leading)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 28)
+            .frame(maxWidth: .infinity)
+        }
+        .background(appBackgroundColor)
+        #if os(macOS)
+        .frame(minWidth: maxWidth + 80, minHeight: 520)
+        #endif
+    }
+}
+
+private struct ScreenHeader: View {
+    let title: String
+    let subtitle: String?
+
+    init(title: String, subtitle: String? = nil) {
+        self.title = title
+        self.subtitle = subtitle
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.largeTitle)
+                .fontWeight(.bold)
+
+            if let subtitle {
+                Text(subtitle)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct ModalContainer<Content: View>: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let title: String
+    let subtitle: String?
+    let minWidth: CGFloat
+    let minHeight: CGFloat
+    let content: Content
+
+    init(
+        title: String,
+        subtitle: String? = nil,
+        minWidth: CGFloat,
+        minHeight: CGFloat,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.minWidth = minWidth
+        self.minHeight = minHeight
+        self.content = content()
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(title)
+                            .font(.title2)
+                            .fontWeight(.bold)
+
+                        if let subtitle {
+                            Text(subtitle)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Close")
+                }
+
+                content
+            }
+            .frame(maxWidth: 560, alignment: .leading)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 24)
+            .frame(maxWidth: .infinity)
+        }
+        .background(appBackgroundColor)
+        #if os(macOS)
+        .frame(minWidth: minWidth, minHeight: minHeight)
+        #else
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        #endif
+    }
+}
+
+private struct FieldGroup<Content: View>: View {
+    let title: String
+    let content: Content
+
+    init(title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct VerificationCodeInput: View {
+    @Binding var code: String
+    @FocusState private var isFocused: Bool
+
+    private let length = 6
+
+    private var codeBinding: Binding<String> {
+        Binding(
+            get: { code },
+            set: { code = normalized($0) }
+        )
+    }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            TextField("", text: codeBinding)
+                .autocorrectionDisabled()
+                .focused($isFocused)
+                .frame(width: 1, height: 1)
+                .opacity(0.01)
+                .accessibilityLabel("6-digit code")
+                #if os(iOS)
+                .keyboardType(.numberPad)
+                .textContentType(.oneTimeCode)
+                #endif
+
+            GeometryReader { proxy in
+                let spacing: CGFloat = 8
+                let availableWidth = proxy.size.width - spacing * CGFloat(length - 1)
+                let boxSize = min(52, max(0, availableWidth / CGFloat(length)))
+
+                HStack(spacing: spacing) {
+                    ForEach(0..<length, id: \.self) { index in
+                        codeBox(at: index, size: boxSize)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    isFocused = true
+                }
+                .accessibilityHidden(true)
+            }
+            .frame(height: 52)
+        }
+        .onAppear {
+            code = normalized(code)
+        }
+    }
+
+    private func codeBox(at index: Int, size: CGFloat) -> some View {
+        let digit = digit(at: index)
+        let isActive = isFocused && index == min(code.count, length - 1)
+
+        return Text(digit)
+            .font(.title3.monospacedDigit().weight(.semibold))
+            .frame(width: size, height: size)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(panelBackgroundColor)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isActive ? Color.accentColor : panelBorderColor, lineWidth: isActive ? 2 : 1)
+            )
+    }
+
+    private func digit(at index: Int) -> String {
+        let characters = Array(code)
+        guard characters.indices.contains(index) else { return "" }
+        return String(characters[index])
+    }
+
+    private func normalized(_ value: String) -> String {
+        String(
+            value.compactMap { character in
+                character.wholeNumberValue.map(String.init)
+            }
+            .joined()
+            .prefix(length)
+        )
+    }
+}
+
+private struct Panel<Content: View>: View {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            content
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(panelBackgroundColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(panelBorderColor, lineWidth: 1)
+        )
+    }
+}
+
+private struct ResultPanel: View {
+    let title: String
+    let text: String
+
+    var body: some View {
+        Panel {
+            Text(title)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+
+            CopyableResult(text: text)
+        }
+    }
+}
 
 /// A truncated, monospaced result string with a copy-to-clipboard button.
 struct CopyableResult: View {
@@ -793,17 +1058,19 @@ struct CopyableResult: View {
             .buttonStyle(.bordered)
             .help(didCopy ? "Copied!" : "Copy")
         }
-        .padding(.top, 8)
     }
 }
 
 /// Shared button label that swaps text for a spinner while loading.
 @ViewBuilder
-private func label(for title: String, loading: Bool) -> some View {
+private func label(for title: String, systemImage: String? = nil, loading: Bool) -> some View {
     Group {
         if loading {
             ProgressView()
                 .progressViewStyle(.circular)
+        } else if let systemImage {
+            Label(title, systemImage: systemImage)
+                .frame(maxWidth: .infinity)
         } else {
             Text(title)
                 .frame(maxWidth: .infinity)
