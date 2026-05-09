@@ -37,7 +37,7 @@ private var appBackgroundColor: Color {
 
 private var panelBackgroundColor: Color {
     #if os(iOS)
-    Color(.systemBackground)
+    Color(.secondarySystemGroupedBackground)
     #elseif os(macOS)
     Color(nsColor: .textBackgroundColor)
     #endif
@@ -49,6 +49,15 @@ private var panelBorderColor: Color {
     #elseif os(macOS)
     Color(nsColor: .separatorColor).opacity(0.8)
     #endif
+}
+
+private var fieldBackground: some View {
+    RoundedRectangle(cornerRadius: 8)
+        .fill(panelBackgroundColor)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(panelBorderColor, lineWidth: 1)
+        )
 }
 
 // MARK: - USDC
@@ -173,33 +182,44 @@ struct ContentView: View {
 struct LoginWindow: View {
     @EnvironmentObject private var vm: AppViewModel
     @State private var inputText: String = ""
+    @FocusState private var emailFocused: Bool
 
     var body: some View {
-        ScreenContainer(maxWidth: 440) {
-            ScreenHeader(
-                title: "Sign in",
-                subtitle: "Use your email to access your Sequence wallet."
-            )
+        NavigationScreenContainer(maxWidth: 440) {
+            VStack(spacing: 0) {
+                AuthWelcomeHeader(
+                    subtitle: "Sign in to continue to your wallet."
+                )
+                .padding(.top, 64)
 
-            FieldGroup(title: "Email") {
-                TextField("you@example.com", text: $inputText)
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
-                    #if os(iOS)
-                    .keyboardType(.emailAddress)
-                    .textInputAutocapitalization(.never)
-                    #endif
-            }
+                FieldGroup(title: "Email address", titleStyle: .secondary) {
+                    TextField("you@example.com", text: $inputText)
+                        .textFieldStyle(.plain)
+                        .padding(14)
+                        .background(fieldBackground)
+                        .autocorrectionDisabled()
+                        .focused($emailFocused)
+                        #if os(iOS)
+                        .keyboardType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                }
+                .padding(.top, 32)
 
-            Button {
-                Task { await vm.submitLogin(input: inputText) }
-            } label: {
-                label(for: "Continue", systemImage: "arrow.right", loading: vm.isLoading)
+                Spacer()
+
+                Button {
+                    Task { await vm.submitLogin(input: inputText) }
+                } label: {
+                    label(for: "Continue", loading: vm.isLoading)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(inputText.isEmpty || vm.isLoading)
+                .padding(.bottom, 24)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(inputText.isEmpty || vm.isLoading)
         }
+        .onAppear { emailFocused = true }
     }
 }
 
@@ -210,24 +230,34 @@ struct ConfirmCodeWindow: View {
     @State private var codeText: String = ""
 
     var body: some View {
-        ScreenContainer(maxWidth: 440) {
-            ScreenHeader(
-                title: "Confirm email",
-                subtitle: "Enter the 6-digit code sent to your email."
-            )
+        NavigationScreenContainer(maxWidth: 440) {
+            VStack(spacing: 0) {
+                AuthWelcomeHeader(
+                    subtitle: "Verify your email to finish signing in."
+                )
+                .padding(.top, 64)
 
-            FieldGroup(title: "Code") {
+                Text("Enter the 6-digit code sent to your email.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 32)
+
                 VerificationCodeInput(code: $codeText)
-            }
+                    .padding(.top, 32)
 
-            Button {
-                Task { await vm.submitConfirmCode(code: codeText) }
-            } label: {
-                label(for: "Verify", systemImage: "checkmark", loading: vm.isLoading)
+                Spacer()
+
+                Button {
+                    Task { await vm.submitConfirmCode(code: codeText) }
+                } label: {
+                    label(for: "Verify", loading: vm.isLoading)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(codeText.count != 6 || vm.isLoading)
+                .padding(.bottom, 24)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(codeText.count != 6 || vm.isLoading)
         }
     }
 }
@@ -253,6 +283,7 @@ struct WalletWindow: View {
     private func refreshBalance() async {
         guard !vm.oms.wallet.walletAddress.isEmpty else { return }
         isFetchingBalance = true
+        clearBalance()
         defer { isFetchingBalance = false }
 
         do {
@@ -276,139 +307,189 @@ struct WalletWindow: View {
     }
 
     var body: some View {
-        ScreenContainer(maxWidth: 560, spacing: 20) {
-            ScreenHeader(
-                title: "Wallet",
-                subtitle: "Connected account"
-            )
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 24) {
+                    walletAddressBar
+                    walletActions
+                    assetSection
+                }
+                .frame(maxWidth: 560)
+                .padding(.top, 8)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
+                .frame(maxWidth: .infinity)
+            }
+            .background(appBackgroundColor.ignoresSafeArea())
+            .navigationTitle("My Wallet")
+            .appNavigationTitleDisplayMode(.large)
+            .task {
+                await refreshBalance()
+            }
+            .onChange(of: selectedNetwork) {
+                Task { await refreshBalance() }
+            }
+            .sheet(isPresented: $showSendWindow) {
+                SendTransactionWindow()
+                    .environmentObject(vm)
+            }
+            .sheet(isPresented: $showCallContractWindow) {
+                CallContractWindow(onCompleted: {
+                    Task { await refreshBalance() }
+                })
+                .environmentObject(vm)
+            }
+            .sheet(isPresented: $showSignMessageWindow) {
+                SignMessageWindow()
+                    .environmentObject(vm)
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 640, minHeight: 560)
+        #endif
+    }
 
-            walletAddressPanel
+    private var walletAddressBar: some View {
+        HStack(spacing: 6) {
+            Text(collapsedAddress(vm.oms.wallet.walletAddress))
+                .font(.system(size: 22, weight: .semibold, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
 
-            walletActions
+            Button {
+                Clipboard.copy(vm.oms.wallet.walletAddress)
+                didCopy = true
+                Task {
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    didCopy = false
+                }
+            } label: {
+                Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 18))
+                    .foregroundStyle(didCopy ? Color.green : Color.accentColor)
+            }
+            .buttonStyle(.plain)
+            .disabled(vm.oms.wallet.walletAddress.isEmpty)
+            .help(didCopy ? "Copied!" : "Copy address")
+        }
+        .frame(maxWidth: .infinity)
+        .multilineTextAlignment(.center)
+        .padding(.top, 32)
+        .padding(.bottom, 8)
+    }
 
-            FieldGroup(title: "Network") {
-                Picker("Network", selection: $selectedNetwork) {
+    private var walletActions: some View {
+        HStack(spacing: 0) {
+            walletActionButton("Send", systemImage: "arrow.up.circle") {
+                showSendWindow = true
+            }
+            Divider().frame(height: 40)
+            walletActionButton("Contract", systemImage: "arrow.up.circle") {
+                showCallContractWindow = true
+            }
+            Divider().frame(height: 40)
+            walletActionButton("Sign", systemImage: "signature") {
+                showSignMessageWindow = true
+            }
+            Divider().frame(height: 40)
+            walletActionButton("Sign Out", systemImage: "rectangle.portrait.and.arrow.right") {
+                vm.signOut()
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(panelBackgroundColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(panelBorderColor, lineWidth: 1)
+        )
+    }
+
+    private var assetSection: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                Text("Assets")
+                    .font(.headline)
+
+                Spacer()
+
+                Picker("", selection: $selectedNetwork) {
                     ForEach(supportedNetworks, id: \.self) { network in
                         Text(network.displayName).tag(network)
                     }
                 }
                 .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .labelsHidden()
+                .fixedSize(horizontal: true, vertical: false)
+
+                Button {
+                    Task { await refreshBalance() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.plain)
+                .disabled(isFetchingBalance)
+                .help("Refresh balance")
             }
 
-            Panel {
-                HStack {
-                    Label("USDC balance", systemImage: "creditcard")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    if isFetchingBalance {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Button {
-                            Task { await refreshBalance() }
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.caption)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Refresh balance")
-                    }
-                }
-
-                Text(usdcBalance)
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                    .monospacedDigit()
-                if !usdcBalanceRaw.isEmpty {
-                    Text("\(usdcBalanceRaw) wei")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .monospaced()
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-            }
-        }
-        .task {
-            await refreshBalance()
-        }
-        .onChange(of: selectedNetwork) {
-            Task { await refreshBalance() }
-        }
-        .sheet(isPresented: $showSendWindow) {
-            SendTransactionWindow()
-                .environmentObject(vm)
-        }
-        .sheet(isPresented: $showCallContractWindow) {
-            CallContractWindow(onCompleted: {
-                Task { await refreshBalance() }
-            })
-            .environmentObject(vm)
-        }
-        .sheet(isPresented: $showSignMessageWindow) {
-            SignMessageWindow()
-                .environmentObject(vm)
+            usdcCard
         }
     }
 
-    private var walletAddressPanel: some View {
-        Panel {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("Wallet address", systemImage: "wallet.pass")
-                        .font(.subheadline)
+    private var usdcCard: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Color(red: 0.16, green: 0.45, blue: 0.90))
+                    .frame(width: 44, height: 44)
+
+                Text("$")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("USD Coin")
+                    .font(.subheadline.weight(.semibold))
+                Text("USDC")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 2) {
+                if isFetchingBalance {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Text(usdcBalance)
+                        .font(.subheadline.weight(.semibold))
+                        .monospacedDigit()
+                    Text("$\(usdcBalance)")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
-
-                    Text(vm.oms.wallet.walletAddress)
-                        .font(.callout)
-                        .monospaced()
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .monospacedDigit()
                 }
-
-                Button {
-                    Clipboard.copy(vm.oms.wallet.walletAddress)
-                    didCopy = true
-                    Task {
-                        try? await Task.sleep(nanoseconds: 1_500_000_000)
-                        didCopy = false
-                    }
-                } label: {
-                    Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
-                }
-                .buttonStyle(.bordered)
-                .disabled(vm.oms.wallet.walletAddress.isEmpty)
-                .help(didCopy ? "Copied!" : "Copy address")
-
-                Button {
-                    vm.signOut()
-                } label: {
-                    Image(systemName: "rectangle.portrait.and.arrow.right")
-                }
-                .buttonStyle(.bordered)
-                .help("Sign out")
             }
         }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(panelBackgroundColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(panelBorderColor, lineWidth: 1)
+        )
     }
 
-    private var walletActions: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 12) {
-                walletActionButton("Send", systemImage: "arrow.up.right", action: { showSendWindow = true })
-                walletActionButton("Call contract", systemImage: "curlybraces", action: { showCallContractWindow = true })
-                walletActionButton("Sign", systemImage: "signature", action: { showSignMessageWindow = true })
-            }
-
-            VStack(spacing: 10) {
-                walletActionButton("Send transaction", systemImage: "arrow.up.right", action: { showSendWindow = true })
-                walletActionButton("Call contract", systemImage: "curlybraces", action: { showCallContractWindow = true })
-                walletActionButton("Sign message", systemImage: "signature", action: { showSignMessageWindow = true })
-            }
-        }
+    private func collapsedAddress(_ address: String) -> String {
+        guard !address.isEmpty else { return "Loading..." }
+        guard address.count > 10 else { return address }
+        return "\(address.prefix(6))...\(address.suffix(4))"
     }
 
     private func walletActionButton(
@@ -417,11 +498,19 @@ struct WalletWindow: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .frame(maxWidth: .infinity)
+            VStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 20))
+                Text(title)
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .foregroundStyle(Color.accentColor)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
+        .buttonStyle(.plain)
     }
 }
 
@@ -716,7 +805,7 @@ struct CallContractWindow: View {
                     }
                 }
             } label: {
-                label(for: "Execute transaction", systemImage: "terminal", loading: isSending)
+                label(for: "Execute transaction", systemImage: "paperplane", loading: isSending)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
@@ -762,60 +851,79 @@ struct CallContractWindow: View {
 
 // MARK: - Helpers
 
-private struct ScreenContainer<Content: View>: View {
-    let maxWidth: CGFloat
-    let spacing: CGFloat
-    let content: Content
+private enum AppNavigationTitleDisplayMode {
+    case large
+    case inline
+}
 
-    init(
-        maxWidth: CGFloat,
-        spacing: CGFloat = 24,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.maxWidth = maxWidth
-        self.spacing = spacing
-        self.content = content()
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: spacing) {
-                content
-            }
-            .frame(maxWidth: maxWidth, alignment: .leading)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 28)
-            .frame(maxWidth: .infinity)
+private extension View {
+    @ViewBuilder
+    func appNavigationTitleDisplayMode(_ displayMode: AppNavigationTitleDisplayMode) -> some View {
+        #if os(iOS)
+        switch displayMode {
+        case .large:
+            navigationBarTitleDisplayMode(.large)
+        case .inline:
+            navigationBarTitleDisplayMode(.inline)
         }
-        .background(appBackgroundColor)
-        #if os(macOS)
-        .frame(minWidth: maxWidth + 80, minHeight: 520)
+        #else
+        self
         #endif
     }
 }
 
-private struct ScreenHeader: View {
-    let title: String
-    let subtitle: String?
+private struct AuthWelcomeHeader: View {
+    let subtitle: String
 
-    init(title: String, subtitle: String? = nil) {
-        self.title = title
-        self.subtitle = subtitle
+    var body: some View {
+        VStack(alignment: .center, spacing: 18) {
+            Image("logo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 64, height: 64)
+                .accessibilityLabel("Sequence logo")
+
+            VStack(alignment: .center, spacing: 6) {
+                Text("Welcome")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+                    .multilineTextAlignment(.center)
+
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+}
+
+private struct NavigationScreenContainer<Content: View>: View {
+    let maxWidth: CGFloat
+    let content: Content
+
+    init(
+        maxWidth: CGFloat,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.maxWidth = maxWidth
+        self.content = content()
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.largeTitle)
-                .fontWeight(.bold)
-
-            if let subtitle {
-                Text(subtitle)
-                    .font(.body)
-                    .foregroundStyle(.secondary)
+        NavigationStack {
+            VStack(spacing: 0) {
+                content
             }
+            .frame(maxWidth: maxWidth, maxHeight: .infinity)
+            .padding(.horizontal, 24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(appBackgroundColor.ignoresSafeArea())
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        #if os(macOS)
+        .frame(minWidth: maxWidth + 80, minHeight: 520)
+        #endif
     }
 }
 
@@ -843,40 +951,34 @@ private struct ModalContainer<Content: View>: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(title)
-                            .font(.title2)
-                            .fontWeight(.bold)
-
-                        if let subtitle {
-                            Text(subtitle)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.subheadline)
                             .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .buttonStyle(.plain)
-                    .help("Close")
-                }
 
-                content
+                    content
+                }
+                .frame(maxWidth: 560, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 24)
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: 560, alignment: .leading)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 24)
-            .frame(maxWidth: .infinity)
+            .background(appBackgroundColor.ignoresSafeArea())
+            .navigationTitle(title)
+            .appNavigationTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
         }
-        .background(appBackgroundColor)
         #if os(macOS)
         .frame(minWidth: minWidth, minHeight: minHeight)
         #else
@@ -886,11 +988,18 @@ private struct ModalContainer<Content: View>: View {
 }
 
 private struct FieldGroup<Content: View>: View {
+    enum TitleStyle: Equatable {
+        case primary
+        case secondary
+    }
+
     let title: String
+    let titleStyle: TitleStyle
     let content: Content
 
-    init(title: String, @ViewBuilder content: () -> Content) {
+    init(title: String, titleStyle: TitleStyle = .primary, @ViewBuilder content: () -> Content) {
         self.title = title
+        self.titleStyle = titleStyle
         self.content = content()
     }
 
@@ -899,6 +1008,7 @@ private struct FieldGroup<Content: View>: View {
             Text(title)
                 .font(.subheadline)
                 .fontWeight(.semibold)
+                .foregroundStyle(titleStyle == .secondary ? Color.secondary : Color.primary)
 
             content
         }
