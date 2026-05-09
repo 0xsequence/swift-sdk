@@ -7,16 +7,14 @@ public enum TransactionError: Error {
 
 @available(macOS 12.0, iOS 15.0, *)
 public class WalletClient {
-    var signedClient: WaasWalletClient
+    private var signedClient: WaasWalletClient
     private var publicClient: WaasWalletPublicClient
-    private let keychain: KeychainManager = KeychainManager()
     private let projectAccessKey: String
     private let environment: OMSClientEnvironment
+    private let credentialSession: WalletCredentialSession
 
     public var walletAddress: String
     public var walletId: String
-
-    var sessionPrivateKey: [UInt8]
 
     var verifier = "";
     var challenge = "";
@@ -24,23 +22,17 @@ public class WalletClient {
     public init(projectAccessKey: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
         self.projectAccessKey = projectAccessKey
         self.environment = environment
+        let credentialSession = WalletCredentialSession(environment: environment)
+        let restoredWallet = credentialSession.restore()
 
-        if let credentialsJson = try? keychain.string(forKey: Constants.credentialsStorageKey) {
-            let credentials = try! StorableCredentials.from(jsonString: credentialsJson)
-
-            self.walletId = credentials.walletId
-            self.walletAddress = credentials.walletAddress
-            self.sessionPrivateKey = ByteUtils.hexToBytes(hex: credentials.privateKeyHex)
-        } else {
-            self.walletAddress = ""
-            self.walletId = ""
-            self.sessionPrivateKey = try! EthereumSigner.GeneratePrivateKey()
-        }
+        self.walletId = restoredWallet?.walletId ?? ""
+        self.walletAddress = restoredWallet?.walletAddress ?? ""
+        self.credentialSession = credentialSession
 
         self.signedClient = Self.makeSignedClient(
             projectAccessKey: projectAccessKey,
             environment: environment,
-            privateKey: sessionPrivateKey
+            signer: credentialSession.signer
         )
         self.publicClient = Self.makePublicClient(
             projectAccessKey: projectAccessKey,
@@ -50,12 +42,12 @@ public class WalletClient {
 
     /// Initiates email-based OTP authentication by sending a one-time code to the given address.
     ///
-    /// This method generates a new session key pair and stores the verifier state internally.
+    /// This method ensures a request-signing credential exists and stores the verifier state internally.
     /// After this call returns, present your OTP entry UI and pass the user's code to
-    /// `completeEmailSignIn(code:walletType:)`.
+    /// `completeEmailAuth(code:walletType:)`.
     ///
     /// - Parameter email: The email address to send the one-time passcode to.
-    public func startEmailAuth(email: String) async {
+    public func startEmailAuth(email: String) async throws {
         let params = CommitVerifierRequest(
             identityType: IdentityType.email,
             authMode: AuthMode.otp,
@@ -63,28 +55,24 @@ public class WalletClient {
             handle: email
         )
 
-        let response = try! await signedClient.commitVerifier(params)
+        let response = try await signedClient.commitVerifier(params)
 
         verifier = response.verifier
         challenge = response.challenge
     }
 
-    public func signInWithEmail(email: String) async {
-        await startEmailAuth(email: email)
-    }
-
     /// Completes the email OTP authentication flow by verifying the code the user received.
     ///
-    /// Must be called after `signInWithEmail(email:)`. The challenge and verifier from the
+    /// Must be called after `startEmailAuth(email:)`. The challenge and verifier from the
     /// previous step are used automatically. On success, this method also provisions a wallet
     /// of `walletType` for the authenticated user: if one already exists on the account it is
-    /// loaded, otherwise a new one is created. In both cases the wallet address and session key
-    /// are persisted to the keychain.
+    /// loaded, otherwise a new one is created. In both cases the wallet address and signer
+    /// metadata are persisted to the keychain.
     ///
     /// - Parameters:
     ///   - code: The one-time passcode string entered by the user.
     ///   - walletType: The wallet type to load or create for this user. Defaults to `.ethereumEoa`.
-    public func completeEmailAuth(code: String, walletType: WalletType = WalletType.ethereum) async {
+    public func completeEmailAuth(code: String, walletType: WalletType = WalletType.ethereum) async throws {
         let answer = RequestUtils.hashEmailAuthAnswer(challenge: challenge, code: code)
 
         let params = CompleteAuthRequest(
@@ -94,95 +82,80 @@ public class WalletClient {
             answer: answer,
         )
 
-        let response = try! await signedClient.completeAuth(params)
+        let response = try await signedClient.completeAuth(params)
 
         var walletUsed: Bool = false;
         for wallet in response.wallets {
             if (wallet.type == walletType) {
-                await useWallet(walletId: wallet.id)
+                try await useWallet(walletId: wallet.id)
                 walletUsed = true
             }
         }
 
         if (!walletUsed) {
-            await createWallet(walletType: walletType)
+            try await createWallet(walletType: walletType)
         }
     }
 
-    public func completeEmailSignIn(code: String, walletType: WalletType = WalletType.ethereum) async {
-        await completeEmailAuth(code: code, walletType: walletType)
-    }
-
     /// Creates a new wallet of the specified type for the authenticated user and persists
-    /// its address and session key to the keychain.
+    /// its address and signer metadata to the keychain.
     ///
-    /// Called internally by `completeEmailSignIn(code:walletType:)` when the user does not
+    /// Called internally by `completeEmailAuth(code:walletType:)` when the user does not
     /// already have a wallet of the requested type.
     ///
     /// - Parameter walletType: The wallet type to create (e.g. `.ethereumEoa`).
-    private func createWallet(walletType: WalletType) async {
+    private func createWallet(walletType: WalletType) async throws {
         let params = CreateWalletRequest(
             type: walletType
         )
 
-        let response = try! await signedClient.createWallet(params)
-        createSequenceWallet(walletAddress: response.wallet.address, walletId: response.wallet.id);
+        let response = try await signedClient.createWallet(params)
+        try createSequenceWallet(walletAddress: response.wallet.address, walletId: response.wallet.id);
     }
 
     /// Loads an existing wallet of the specified type for the authenticated user and persists
-    /// its address and session key to the keychain.
+    /// its address and signer metadata to the keychain.
     ///
-    /// Called internally by `completeEmailSignIn(code:walletType:)` when the user already has
+    /// Called internally by `completeEmailAuth(code:walletType:)` when the user already has
     /// a wallet of the requested type on their account.
     ///
     /// - Parameter walletType: The wallet type to load (e.g. `.ethereumEoa`).
-    private func useWallet(walletId: String) async {
+    private func useWallet(walletId: String) async throws {
         let params = UseWalletRequest(
             walletId: walletId
         )
 
-        let response = try! await signedClient.useWallet(params)
-        createSequenceWallet(walletAddress: response.wallet.address, walletId: response.wallet.id);
+        let response = try await signedClient.useWallet(params)
+        try createSequenceWallet(walletAddress: response.wallet.address, walletId: response.wallet.id);
     }
 
-    /// Persists the given wallet address and the current session private key to the keychain
+    /// Persists the given wallet address and signer metadata to the keychain
     /// so the session can be restored on a later launch.
     ///
     /// - Parameter address: The on-chain address returned by `createWallet` or `useWallet`.
-    private func createSequenceWallet(walletAddress: String, walletId: String) {
+    private func createSequenceWallet(walletAddress: String, walletId: String) throws {
         self.walletAddress = walletAddress
         self.walletId = walletId
 
-        let storableCredentials = StorableCredentials(
-            walletId: walletId,
-            walletAddress: walletAddress,
-            privateKeyHex: ByteUtils.bytesToHex(data: self.sessionPrivateKey)
-        )
-
-        try! keychain.set(storableCredentials.jsonString(), forKey: Constants.credentialsStorageKey)
+        try credentialSession.persist(walletId: walletId, walletAddress: walletAddress)
     }
 
     /// Clears the wallet session from the device keychain.
     ///
     /// After calling this, any attempt to restore the session on the next launch will fail
-    /// and the user will need to sign in again via `signInWithEmail(email:)`. Navigate to your
+    /// and the user will need to sign in again via `startEmailAuth(email:)`. Navigate to your
     /// sign-in screen after calling this.
-    public func signOut() {
-        try! keychain.delete(forKey: Constants.credentialsStorageKey)
+    public func signOut() throws {
+        try credentialSession.clear()
         walletAddress = ""
         walletId = ""
         verifier = ""
         challenge = ""
-        sessionPrivateKey = try! EthereumSigner.GeneratePrivateKey()
         signedClient = Self.makeSignedClient(
             projectAccessKey: projectAccessKey,
             environment: environment,
-            privateKey: sessionPrivateKey
+            signer: credentialSession.signer
         )
-    }
-
-    public func clearSession() {
-        signOut()
     }
 
     /// Returns a list of credentials that currently have access to this wallet.
@@ -192,12 +165,12 @@ public class WalletClient {
     ///
     /// - Returns: An array of `CredentialInfo` values representing each credential
     ///   with access to this wallet.
-    public func listAccess() async -> [CredentialInfo] {
+    public func listAccess() async throws -> [CredentialInfo] {
         let params = ListAccessRequest(
             walletId: self.walletId
         )
 
-        let response = try! await signedClient.listAccess(params)
+        let response = try await signedClient.listAccess(params)
         return response.credentials
     }
 
@@ -209,13 +182,13 @@ public class WalletClient {
     /// to regain access.
     ///
     /// - Parameter targetCredentialId: The unique identifier of the credential to revoke.
-    public func revokeAccess(targetCredentialId: String) async {
+    public func revokeAccess(targetCredentialId: String) async throws {
         let params = RevokeAccessRequest(
             targetCredentialId: targetCredentialId,
             walletId: self.walletId
         )
 
-        _ = try! await signedClient.revokeAccess(params)
+        _ = try await signedClient.revokeAccess(params)
     }
 
     /// Signs an arbitrary message using the wallet's session key.
@@ -224,25 +197,25 @@ public class WalletClient {
     ///   - network: The network identifier for the signing context (e.g. `"mainnet"`, `"polygon"`).
     ///   - message: The plaintext message to sign.
     /// - Returns: A hex-encoded signature string.
-    public func signMessage(network: Network, message: String) async -> String {
+    public func signMessage(network: Network, message: String) async throws -> String {
         let params = SignMessageRequest(
             network: network.chainId,
             walletId: self.walletId,
             message: message
         )
 
-        let response = try! await signedClient.signMessage(params)
+        let response = try await signedClient.signMessage(params)
         return response.signature
     }
 
-    public func signTypedData(network: Network, typedData: WebRPCJSONValue) async -> String {
+    public func signTypedData(network: Network, typedData: WebRPCJSONValue) async throws -> String {
         let params = SignTypedDataRequest(
             network: network.chainId,
             walletId: self.walletId,
             typedData: typedData
         )
 
-        let response = try! await signedClient.signTypedData(params)
+        let response = try await signedClient.signTypedData(params)
         return response.signature
     }
 
@@ -422,14 +395,14 @@ public class WalletClient {
     private static func makeSignedClient(
         projectAccessKey: String,
         environment: OMSClientEnvironment,
-        privateKey: [UInt8]
+        signer: any CredentialSigner
     ) -> WaasWalletClient {
         return WaasWalletClient(
             baseURL: environment.walletApiUrl,
             transport: SignedWaasTransport(
                 projectAccessKey: projectAccessKey,
                 scope: environment.scope,
-                privateKey: privateKey
+                signer: signer
             ),
             headers: { [:] }
         )

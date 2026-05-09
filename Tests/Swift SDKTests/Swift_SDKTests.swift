@@ -62,6 +62,33 @@ let privateKey: [UInt8] = [
     #expect(preimage == expected)
 }
 
+@Test func TestAuthorizationHeaderUsesCredentialKeyType() async throws {
+    let credential = "0x04" + String(repeating: "11", count: 64)
+    let signature = "0x" + String(repeating: "22", count: 64)
+    let header = RequestUtils.buildAuthorizationHeader(
+        keyType: .webCryptoSecp256r1,
+        scope: "proj_1",
+        cred: credential,
+        nonce: "1234567890",
+        sig: signature
+    )
+    let expected = "webcrypto-secp256r1 scope=\"proj_1\",cred=\"\(credential)\",nonce=1234567890,sig=\"\(signature)\""
+
+    #expect(header == expected)
+}
+
+@Test func TestP256RawSignatureDerRoundTrip() throws {
+    let rawSignature = Array(repeating: UInt8(0), count: 31)
+        + [UInt8(0x80)]
+        + Array(repeating: UInt8(0), count: 31)
+        + [UInt8(0x01)]
+
+    let derSignature = try P256EcdsaSignatureEncoding.rawToDer(rawSignature)
+    let decoded = try P256EcdsaSignatureEncoding.derToRaw(derSignature)
+
+    #expect(decoded == rawSignature)
+}
+
 @Test func TestCompareWalletAddress() async throws {
     let expected = "0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a"
     

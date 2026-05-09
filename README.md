@@ -1,6 +1,6 @@
 # OMS SDK (Swift)
 
-A Swift SDK for the OMS (Open Money Stack) platform. Provides email-based wallet authentication, keychain session persistence, on-chain transaction submission with fee selection, message and typed-data signing, signature verification, token balance queries, and base-unit formatting helpers.
+A Swift SDK for the OMS (Open Money Stack) platform. Provides email-based wallet authentication, non-extractable Keychain request signing, keychain session persistence, on-chain transaction submission with fee selection, message and typed-data signing, signature verification, token balance queries, and base-unit formatting helpers.
 
 **Requirements:** iOS 15+ · macOS 12+
 
@@ -23,8 +23,8 @@ import OMS_SDK
 
 let oms = OMSClient(projectAccessKey: "your-project-access-key")
 
-await oms.wallet.startEmailAuth(email: "user@example.com")
-await oms.wallet.completeEmailAuth(code: "123456")
+try await oms.wallet.startEmailAuth(email: "user@example.com")
+try await oms.wallet.completeEmailAuth(code: "123456")
 
 print("Wallet address:", oms.wallet.walletAddress)
 
@@ -46,8 +46,6 @@ let txHash = try await oms.wallet.sendTransaction(
 | `indexer` | `IndexerClient` | Token balance and on-chain query helpers. |
 | `supportedNetworks` | `[Network]` | Supported network list. |
 
-`OmsWallet` remains available as a compatibility alias for `OMSClient`. `OmsEnvironment` remains available as a compatibility alias for `OMSClientEnvironment`.
-
 ## Supported Networks
 
 Use `Network.supportedNetworks`, `Network.from(chainId:)`, or the `OMSClient` convenience properties to bind numeric chain IDs to SDK networks.
@@ -68,24 +66,24 @@ let amoy = oms.network(chainId: "80002")
 OMS uses email-based OTP. The two-step flow is:
 
 1. **`startEmailAuth(email:)`** sends a one-time code to the user's inbox.
-2. **`completeEmailAuth(code:walletType:)`** verifies the code, then automatically loads an existing wallet or creates one. The wallet address, wallet ID, and session key are saved to the device keychain.
+2. **`completeEmailAuth(code:walletType:)`** verifies the code, then automatically loads an existing wallet or creates one. The wallet address, wallet ID, and signer metadata are saved to the device keychain.
 
 ```swift
-await oms.wallet.startEmailAuth(email: "user@example.com")
+try await oms.wallet.startEmailAuth(email: "user@example.com")
 
 // Present your OTP entry UI.
-await oms.wallet.completeEmailAuth(code: "123456")
+try await oms.wallet.completeEmailAuth(code: "123456")
 
 print(oms.wallet.walletAddress)
 ```
 
-On subsequent launches, the session is restored from the keychain automatically. To end the session:
+Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. Only completed wallet session metadata is restored automatically; the private credential key remains owned by the Keychain and is not written into SDK session storage.
+
+On subsequent launches, the completed session is restored from the keychain automatically. To end the session:
 
 ```swift
-oms.wallet.signOut()
+try oms.wallet.signOut()
 ```
-
-Compatibility methods are also available on `WalletClient`: `signInWithEmail`, `completeEmailSignIn`, and `clearSession`.
 
 ## Transaction Flow
 
@@ -174,7 +172,7 @@ let usdcDisplay = try formatUnits(value: usdcRaw, decimals: 6)
 ### Sign a Message
 
 ```swift
-let signature = await oms.wallet.signMessage(
+let signature = try await oms.wallet.signMessage(
     network: .polygon,
     message: "Hello from OMS"
 )
@@ -214,7 +212,7 @@ let typedData: WebRPCJSONValue = .object([
     ])
 ])
 
-let signature = await oms.wallet.signTypedData(
+let signature = try await oms.wallet.signTypedData(
     network: .polygon,
     typedData: typedData
 )
@@ -296,10 +294,10 @@ for balance in result.balances {
 ### Manage Wallet Access
 
 ```swift
-let credentials = await oms.wallet.listAccess()
+let credentials = try await oms.wallet.listAccess()
 
 if let credential = credentials.first {
-    await oms.wallet.revokeAccess(targetCredentialId: credential.credentialId)
+    try await oms.wallet.revokeAccess(targetCredentialId: credential.credentialId)
 }
 ```
 

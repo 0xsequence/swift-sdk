@@ -13,12 +13,13 @@ public class RequestUtils {
     }
     
     public static func buildAuthorizationHeader(
+        keyType: KeyType,
         scope: String,
         cred: String,
         nonce: String,
         sig: String
     ) -> String {
-        return "ethereum-secp256k1 scope=\"\(scope)\",cred=\"\(cred)\",nonce=\(nonce),sig=\"\(sig)\""
+        return "\(keyType.wireValue) scope=\"\(scope)\",cred=\"\(cred)\",nonce=\(nonce),sig=\"\(sig)\""
     }
     
     public static func hashEmailAuthAnswer(
@@ -27,7 +28,6 @@ public class RequestUtils {
     ) -> String {
         let inputData = Data("\(challenge)\(code)".utf8)
         let hashed = SHA256.hash(data: inputData)
-        let hashData = Data(hashed)
         let base64Hash = Data(hashed).base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
