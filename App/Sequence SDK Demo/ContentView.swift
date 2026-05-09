@@ -25,6 +25,122 @@ enum Clipboard {
 
 private let supportedNetworks: [Network] = Network.supportedNetworks
 
+// MARK: - Errors
+
+struct GenericAppError: Identifiable {
+    let id = UUID()
+    let message: String
+
+    init(message: String) {
+        self.message = message
+    }
+
+    init?(_ error: Error) {
+        if error is CancellationError {
+            return nil
+        }
+        self.message = errorMessage(for: error)
+    }
+}
+
+private func errorMessage(for error: Error) -> String {
+    if error is CancellationError {
+        return "The operation was cancelled."
+    }
+
+    if let error = error as? WebRPCError {
+        return errorMessage(for: error)
+    }
+
+    if let error = error as? WebRPCTransportError {
+        if let underlyingDescription = error.underlyingDescription, !underlyingDescription.isEmpty {
+            return "Unable to reach the OMS service. \(underlyingDescription)"
+        }
+        return "Unable to reach the OMS service. \(error.message)"
+    }
+
+    if let error = error as? TransactionError {
+        switch error {
+        case .noFeeOptionsAvailable:
+            return "No fee options are available for this transaction."
+        case .missingTransactionHash:
+            return "The transaction was submitted, but no transaction hash was returned."
+        case .transactionFailed(let status):
+            return "The transaction failed with status \(status)."
+        case .pollingTimedOut:
+            return "The transaction is taking longer than expected. Check the wallet activity and try again."
+        }
+    }
+
+    if let localizedError = error as? LocalizedError,
+       let description = localizedError.errorDescription,
+       !description.isEmpty {
+        return description
+    }
+
+    let description = String(describing: error)
+    return description.isEmpty
+        ? "An unexpected error occurred. Please try again."
+        : description
+}
+
+private func errorMessage(for error: WebRPCError) -> String {
+    switch error.kind {
+    case .answerIncorrect:
+        return "The verification code is incorrect. Please try again."
+    case .challengeExpired:
+        return "The verification code expired. Request a new code and try again."
+    case .commitmentConsumed:
+        return "This verification code has already been used. Request a new code and try again."
+    case .tooManyAttempts:
+        return "Too many attempts. Please wait a moment before trying again."
+    case .unauthorized:
+        return "You are not authorized for this action. Please sign in again."
+    case .unsupportedNetwork:
+        return "The selected network is not supported."
+    case .transactionFailed:
+        return serviceErrorMessage(error, fallback: "The transaction failed.")
+    case .walletProviderError:
+        return serviceErrorMessage(error, fallback: "The wallet provider could not complete the request.")
+    case .walletNotFound:
+        return "Wallet not found. Please sign in again."
+    case .invalidRequest, .webrpcBadRequest:
+        return serviceErrorMessage(error, fallback: "The request was invalid.")
+    case .webrpcBadResponse:
+        return "The OMS service returned an unexpected response. Please try again."
+    case .webrpcRequestFailed:
+        return "The OMS request failed. Please check your connection and try again."
+    case .internalError, .databaseError, .dataIntegrityError, .encryptionError, .webrpcInternalError, .webrpcServerPanic:
+        return "The OMS service encountered an error. Please try again."
+    default:
+        return serviceErrorMessage(error, fallback: "An unexpected OMS error occurred.")
+    }
+}
+
+private func serviceErrorMessage(_ error: WebRPCError, fallback: String) -> String {
+    let details = [error.message, error.cause]
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty && $0 != "endpoint error" && $0 != "bad response" }
+
+    guard let detail = details.first else {
+        return fallback
+    }
+
+    return "\(fallback) \(detail)"
+}
+
+private extension View {
+    func genericErrorWindow(error: Binding<GenericAppError?>) -> some View {
+        alert(item: error) { error in
+            Alert(
+                title: Text("Something went wrong"),
+                message: Text(error.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+    }
+}
+
 // MARK: - USDC
 
 /// USDC contract on the configured chain.
@@ -60,6 +176,7 @@ enum AppScreen {
 final class AppViewModel: ObservableObject {
     @Published var screen: AppScreen = .login
     @Published var isLoading: Bool = false
+    @Published var error: GenericAppError?
     @Published var oms: OMSClient = OMSClient(
         projectAccessKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE"
     )
@@ -72,30 +189,46 @@ final class AppViewModel: ObservableObject {
     }
 
     func signOut() {
-        try! oms.wallet.signOut()
-        screen = .login
+        do {
+            try oms.wallet.signOut()
+            screen = .login
+        } catch {
+            present(error)
+        }
     }
 
     // MARK: Login
 
     func submitLogin(input: String) async {
         isLoading = true
+        defer { isLoading = false }
 
-        try! await oms.wallet.startEmailAuth(email: input)
-
-        isLoading = false
-        screen = .confirmCode
+        do {
+            try await oms.wallet.startEmailAuth(email: input)
+            screen = .confirmCode
+        } catch {
+            present(error)
+        }
     }
 
     // MARK: Confirm Code
 
     func submitConfirmCode(code: String) async {
         isLoading = true
+        defer { isLoading = false }
 
-        try! await oms.wallet.completeEmailAuth(code: code)
+        do {
+            try await oms.wallet.completeEmailAuth(code: code)
+            screen = .wallet
+        } catch {
+            present(error)
+        }
+    }
 
-        isLoading = false
-        screen = .wallet
+    func present(_ error: Error) {
+        if let appError = GenericAppError(error) {
+            self.error = appError
+        }
     }
 }
 
@@ -116,6 +249,7 @@ struct ContentView: View {
             }
         }
         .environmentObject(vm)
+        .genericErrorWindow(error: $vm.error)
         .task {
             await vm.checkSession()
         }
@@ -207,20 +341,25 @@ struct WalletWindow: View {
     private func refreshBalance() async {
         guard !vm.oms.wallet.walletAddress.isEmpty else { return }
         isFetchingBalance = true
-        let balances = try! await vm.oms.indexer.getTokenBalances(
-            network: selectedNetwork,
-            contractAddress: usdcContractAddress,
-            walletAddress: vm.oms.wallet.walletAddress,
-            includeMetadata: false
-        )
-        if let raw = balances.balances.first?.balance {
-            usdcBalance = formatUSDCBalance(raw)
-            usdcBalanceRaw = raw
-        } else {
-            usdcBalance = "0.00"
-            usdcBalanceRaw = "0"
+        defer { isFetchingBalance = false }
+
+        do {
+            let balances = try await vm.oms.indexer.getTokenBalances(
+                network: selectedNetwork,
+                contractAddress: usdcContractAddress,
+                walletAddress: vm.oms.wallet.walletAddress,
+                includeMetadata: false
+            )
+            if let raw = balances.balances.first?.balance {
+                usdcBalance = formatUSDCBalance(raw)
+                usdcBalanceRaw = raw
+            } else {
+                usdcBalance = "0.00"
+                usdcBalanceRaw = "0"
+            }
+        } catch {
+            vm.present(error)
         }
-        isFetchingBalance = false
     }
 
     var body: some View {
@@ -342,7 +481,7 @@ struct WalletWindow: View {
         .task {
             await refreshBalance()
         }
-        .onChange(of: selectedNetwork) { _ in
+        .onChange(of: selectedNetwork) {
             Task { await refreshBalance() }
         }
         .sheet(isPresented: $showSendWindow) {
@@ -372,6 +511,7 @@ struct SignMessageWindow: View {
     @State private var network: Network = Network.polygonAmoy
     @State private var signature: String = ""
     @State private var isSigning: Bool = false
+    @State private var error: GenericAppError?
 
     var body: some View {
         VStack(spacing: 16) {
@@ -411,12 +551,17 @@ struct SignMessageWindow: View {
             Button {
                 Task {
                     isSigning = true
-                    let result = try! await vm.oms.wallet.signMessage(
-                        network: network,
-                        message: messageText
-                    )
-                    signature = result
-                    isSigning = false
+                    defer { isSigning = false }
+
+                    do {
+                        let result = try await vm.oms.wallet.signMessage(
+                            network: network,
+                            message: messageText
+                        )
+                        signature = result
+                    } catch {
+                        self.error = GenericAppError(error)
+                    }
                 }
             } label: {
                 label(for: "Sign Message", loading: isSigning)
@@ -438,6 +583,7 @@ struct SignMessageWindow: View {
         }
         .padding(32)
         .frame(minWidth: 400, minHeight: 360)
+        .genericErrorWindow(error: $error)
     }
 }
 
@@ -452,6 +598,7 @@ struct SendTransactionWindow: View {
     @State private var network: Network = Network.polygonAmoy
     @State private var result: String = ""
     @State private var isSending: Bool = false
+    @State private var error: GenericAppError?
 
     var body: some View {
         VStack(spacing: 16) {
@@ -505,13 +652,18 @@ struct SendTransactionWindow: View {
             Button {
                 Task {
                     isSending = true
-                    let txResult = try! await vm.oms.wallet.sendTransaction(
-                        network: network,
-                        to: toText,
-                        value: amountText
-                    )
-                    result = txResult
-                    isSending = false
+                    defer { isSending = false }
+
+                    do {
+                        let txResult = try await vm.oms.wallet.sendTransaction(
+                            network: network,
+                            to: toText,
+                            value: amountText
+                        )
+                        result = txResult
+                    } catch {
+                        self.error = GenericAppError(error)
+                    }
                 }
             } label: {
                 label(for: "Execute Transaction", loading: isSending)
@@ -527,6 +679,7 @@ struct SendTransactionWindow: View {
         }
         .padding(32)
         .frame(minWidth: 400, minHeight: 420)
+        .genericErrorWindow(error: $error)
         .onAppear {
             if toText.isEmpty {
                 toText = vm.oms.wallet.walletAddress
@@ -589,6 +742,7 @@ struct CallContractWindow: View {
     ]
     @State private var result: String = ""
     @State private var isSending: Bool = false
+    @State private var error: GenericAppError?
 
     var body: some View {
         ScrollView {
@@ -683,18 +837,23 @@ struct CallContractWindow: View {
                 Button {
                     Task {
                         isSending = true
-                        let abiArgs: [AbiArg] = args
-                            .filter { !$0.type.isEmpty || !$0.value.isEmpty }
-                            .map { AbiArg(type: $0.type, value: parseAbiValue($0.value)) }
-                        let txResult = try! await vm.oms.wallet.callContract(
-                            network: network,
-                            contract: contractText,
-                            method: methodText,
-                            args: abiArgs.isEmpty ? nil : abiArgs
-                        )
-                        result = txResult
-                        isSending = false
-                        onCompleted?()
+                        defer { isSending = false }
+
+                        do {
+                            let abiArgs: [AbiArg] = args
+                                .filter { !$0.type.isEmpty || !$0.value.isEmpty }
+                                .map { AbiArg(type: $0.type, value: parseAbiValue($0.value)) }
+                            let txResult = try await vm.oms.wallet.callContract(
+                                network: network,
+                                contract: contractText,
+                                method: methodText,
+                                args: abiArgs.isEmpty ? nil : abiArgs
+                            )
+                            result = txResult
+                            onCompleted?()
+                        } catch {
+                            self.error = GenericAppError(error)
+                        }
                     }
                 } label: {
                     label(for: "Execute Transaction", loading: isSending)
@@ -709,6 +868,7 @@ struct CallContractWindow: View {
             .padding(32)
         }
         .frame(minWidth: 460, minHeight: 520)
+        .genericErrorWindow(error: $error)
     }
 }
 
