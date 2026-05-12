@@ -19,16 +19,6 @@ let privateKey: [UInt8] = [
     #expect(result == expected)
 }
 
-@Test func TestEthereumSign() async throws {
-    let message  = "hello"
-    let expected = "0xc2af8d3c8c18ecceb558734b6d43e8126ca59f38ed1c3fd13da87f1fe2d96dd1753686b2f601bccd13af820a4078437825c8cad005e3cf607b95a38ec5247c571c"
-
-    let hashedResult = Keccak256.Keccak256(data: message)
-    let result = try! EthereumSigner.signUTF8MessageEIP191(privateKey: privateKey, message: hashedResult)
-    
-    #expect(result == expected)
-}
-
 @Test func TestEmailAuthChallenge() async throws {
     let challenge  = "challenge"
     let code = "123456"
@@ -87,14 +77,6 @@ let privateKey: [UInt8] = [
     let decoded = try P256EcdsaSignatureEncoding.derToRaw(derSignature)
 
     #expect(decoded == rawSignature)
-}
-
-@Test func TestCompareWalletAddress() async throws {
-    let expected = "0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a"
-    
-    let walletAddress = try! EthereumSigner.GetWalletAddress(privateKey: privateKey)
-    
-    #expect(walletAddress == expected)
 }
 
 @Test func TestGetTokenBalances() async throws {

@@ -16,17 +16,11 @@ let package = Package(
             targets: ["OMS SDK"]
         ),
     ],
-    dependencies: [
-        .package(url: "https://github.com/GigaBitcoin/secp256k1.swift", from: "0.16.0")
-    ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
-             name: "OMS SDK",
-             dependencies: [
-                 .product(name: "libsecp256k1", package: "secp256k1.swift")
-             ]
+             name: "OMS SDK"
          ),
         .testTarget(
             name: "OMS SDKTests",
