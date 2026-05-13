@@ -1,9 +1,9 @@
 Pod::Spec.new do |s|
-  s.name = "OMS-SDK"
+  s.name = "oms-client-swift-sdk"
   s.version = "0.0.1"
-  s.summary = "Swift SDK for the OMS platform."
+  s.summary = "OMS Client Swift SDK."
   s.description = <<-DESC
-    OMS-SDK provides wallet authentication, request signing, session persistence,
+    OMS Client Swift SDK provides wallet authentication, request signing, session persistence,
     transaction helpers, signature verification, token balance queries, and
     base-unit formatting helpers for iOS and macOS apps.
   DESC
