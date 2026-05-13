@@ -27,7 +27,7 @@ try await oms.wallet.startEmailAuth(email: "user@example.com")
 try await oms.wallet.completeEmailAuth(code: "123456")
 
 print("Wallet address:", oms.wallet.walletAddress)
-print("Session email:", oms.session.sessionEmail ?? "unknown")
+print("Session email:", oms.wallet.session.sessionEmail ?? "unknown")
 
 let value = try parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.sendTransaction(
@@ -45,7 +45,6 @@ let txHash = try await oms.wallet.sendTransaction(
 |---|---|---|
 | `wallet` | `WalletClient` | Authentication, session, signing, access management, and transaction helpers. |
 | `indexer` | `IndexerClient` | Token balance and on-chain query helpers. |
-| `session` | `OMSClientSessionState` | Current completed wallet-session snapshot. |
 | `supportedNetworks` | `[Network]` | Supported network list. |
 
 ## Supported Networks
@@ -77,7 +76,7 @@ try await oms.wallet.startEmailAuth(email: "user@example.com")
 try await oms.wallet.completeEmailAuth(code: "123456")
 
 print(oms.wallet.walletAddress)
-let session = oms.session
+let session = oms.wallet.session
 print(session.walletAddress ?? "signed out")
 if let expiresAt = session.expiresAt { print(expiresAt) }
 if let loginType = session.loginType { print(loginType) }
