@@ -350,28 +350,37 @@ struct WalletWindow: View {
     }
 
     private var walletAddressBar: some View {
-        HStack(spacing: 6) {
-            Text(collapsedAddress(vm.oms.wallet.walletAddress))
-                .font(.system(size: 22, weight: .semibold, design: .monospaced))
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Text(collapsedAddress(vm.oms.wallet.walletAddress))
+                    .font(.system(size: 22, weight: .semibold, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+
+                Button {
+                    Clipboard.copy(vm.oms.wallet.walletAddress)
+                    didCopy = true
+                    Task {
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        didCopy = false
+                    }
+                } label: {
+                    Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 18))
+                        .foregroundStyle(didCopy ? Color.green : Color.accentColor)
+                }
+                .buttonStyle(.plain)
+                .disabled(vm.oms.wallet.walletAddress.isEmpty)
+                .help(didCopy ? "Copied!" : "Copy address")
+            }
+
+            Text(sessionEmail)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
-
-            Button {
-                Clipboard.copy(vm.oms.wallet.walletAddress)
-                didCopy = true
-                Task {
-                    try? await Task.sleep(nanoseconds: 1_500_000_000)
-                    didCopy = false
-                }
-            } label: {
-                Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
-                    .font(.system(size: 18))
-                    .foregroundStyle(didCopy ? Color.green : Color.accentColor)
-            }
-            .buttonStyle(.plain)
-            .disabled(vm.oms.wallet.walletAddress.isEmpty)
-            .help(didCopy ? "Copied!" : "Copy address")
         }
         .frame(maxWidth: .infinity)
         .multilineTextAlignment(.center)
@@ -490,6 +499,10 @@ struct WalletWindow: View {
         guard !address.isEmpty else { return "Loading..." }
         guard address.count > 10 else { return address }
         return "\(address.prefix(6))...\(address.suffix(4))"
+    }
+
+    private var sessionEmail: String {
+        vm.oms.wallet.session.sessionEmail ?? "Email unavailable"
     }
 
     private func walletActionButton(

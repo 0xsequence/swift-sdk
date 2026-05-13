@@ -3,6 +3,9 @@ final class WalletCredentialSession {
     struct WalletMetadata {
         let walletId: String
         let walletAddress: String
+        let expiresAt: String?
+        let loginType: SessionLoginType?
+        let sessionEmail: String?
     }
 
     private let environment: OMSClientEnvironment
@@ -47,7 +50,10 @@ final class WalletCredentialSession {
                 currentSigner = candidateSigner
                 return WalletMetadata(
                     walletId: credentials.walletId,
-                    walletAddress: credentials.walletAddress
+                    walletAddress: credentials.walletAddress,
+                    expiresAt: credentials.expiresAt,
+                    loginType: credentials.loginType,
+                    sessionEmail: credentials.sessionEmail
                 )
             }
 
@@ -68,12 +74,21 @@ final class WalletCredentialSession {
         return nil
     }
 
-    func persist(walletId: String, walletAddress: String) throws {
+    func persist(
+        walletId: String,
+        walletAddress: String,
+        expiresAt: String?,
+        loginType: SessionLoginType?,
+        sessionEmail: String?
+    ) throws {
         let credentials = StorableCredentials(
             walletId: walletId,
             walletAddress: walletAddress,
             signerCredentialId: try currentSigner.credentialId(),
-            signerKeyType: currentSigner.keyType
+            signerKeyType: currentSigner.keyType,
+            expiresAt: expiresAt,
+            loginType: loginType,
+            sessionEmail: sessionEmail
         )
 
         try keychain.set(credentials.jsonString(), forKey: credentialsStorageKey)

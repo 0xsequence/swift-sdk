@@ -8,6 +8,9 @@
 - [Formatting Helpers](#formatting-helpers)
 - [Types](#types)
   - [Network](#network)
+  - [OMSClientIdentity](#omsclientidentity)
+  - [SessionState](#sessionstate)
+  - [SessionLoginType](#sessionlogintype)
   - [OMSClientEnvironment](#omsclientenvironment)
   - [FeeOptionSelector](#feeoptionselector)
   - [TransactionError](#transactionerror)
@@ -77,6 +80,14 @@ var walletId: String
 ```
 
 The server-side wallet ID. Empty until a wallet is restored or activated by `completeEmailAuth`.
+
+### session
+
+```swift
+var session: SessionState
+```
+
+Snapshot of the currently completed wallet session for this wallet client.
 
 ### startEmailAuth
 
@@ -310,6 +321,44 @@ enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
 |---|---|---|---|
 | `.polygon` | `137` | Polygon | `polygon` |
 | `.polygonAmoy` | `80002` | Polygon Amoy | `amoy` |
+
+### OMSClientIdentity
+
+```swift
+final class OMSClientIdentity: Sendable {
+    let type: IdentityType
+    let issuer: String?
+    let subject: String
+    var sessionLoginType: SessionLoginType?
+}
+```
+
+App-facing wrapper for wallet authentication identity details.
+
+### SessionState
+
+```swift
+struct SessionState: Equatable, Sendable {
+    let walletAddress: String?
+    let expiresAt: Date?
+    let loginType: SessionLoginType?
+    let sessionEmail: String?
+}
+```
+
+Current durable wallet-session snapshot. It intentionally excludes pending auth state and signer bookkeeping.
+
+### SessionLoginType
+
+```swift
+enum SessionLoginType: String, Codable, Sendable {
+    case email
+    case googleAuth
+    case oidc
+}
+```
+
+Auth method that produced the completed wallet session.
 
 ### OMSClientEnvironment
 

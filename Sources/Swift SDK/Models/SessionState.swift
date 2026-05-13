@@ -1,0 +1,55 @@
+import Foundation
+
+public struct SessionState: Equatable, Sendable {
+    /// Address of the selected wallet in a completed session, or `nil` when the SDK is signed out.
+    public let walletAddress: String?
+
+    /// Expiration time for the current completed wallet session, or `nil` when unavailable.
+    public let expiresAt: Date?
+
+    /// Auth method that produced the current completed wallet session.
+    public let loginType: SessionLoginType?
+
+    /// Email associated with the current completed wallet session when the wallet API returns one.
+    public let sessionEmail: String?
+
+    public init(
+        walletAddress: String?,
+        expiresAt: Date? = nil,
+        loginType: SessionLoginType? = nil,
+        sessionEmail: String? = nil
+    ) {
+        self.walletAddress = walletAddress
+        self.expiresAt = expiresAt
+        self.loginType = loginType
+        self.sessionEmail = sessionEmail
+    }
+
+    init(
+        walletAddress: String?,
+        expiresAtString: String?,
+        loginType: SessionLoginType?,
+        sessionEmail: String?
+    ) {
+        self.init(
+            walletAddress: walletAddress,
+            expiresAt: Self.parseDate(expiresAtString),
+            loginType: loginType,
+            sessionEmail: sessionEmail
+        )
+    }
+
+    private static func parseDate(_ value: String?) -> Date? {
+        guard let value else {
+            return nil
+        }
+
+        let formatter = ISO8601DateFormatter()
+        if let date = formatter.date(from: value) {
+            return date
+        }
+
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: value)
+    }
+}
