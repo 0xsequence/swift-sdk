@@ -1,3 +1,5 @@
+import Foundation
+
 public enum TransactionError: Error {
     case noFeeOptionsAvailable
     case missingTransactionHash
@@ -7,11 +9,22 @@ public enum TransactionError: Error {
 
 @available(macOS 12.0, iOS 15.0, *)
 public class WalletClient {
+    private struct SessionMetadata {
+        let expiresAt: String?
+        let loginType: SessionLoginType?
+        let sessionEmail: String?
+    }
+
+    private static let defaultSessionLifetimeSeconds: UInt32 = 604_800
+
     private var signedClient: WaasWalletClient
     private var publicClient: WaasWalletPublicClient
     private let projectAccessKey: String
     private let environment: OMSClientEnvironment
     private let credentialSession: WalletCredentialSession
+    private var sessionExpiresAt: String?
+    private var sessionLoginType: SessionLoginType?
+    private var sessionEmail: String?
 
     public var walletAddress: String
     public var walletId: String
@@ -27,6 +40,9 @@ public class WalletClient {
 
         self.walletId = restoredWallet?.walletId ?? ""
         self.walletAddress = restoredWallet?.walletAddress ?? ""
+        self.sessionExpiresAt = restoredWallet?.expiresAt
+        self.sessionLoginType = restoredWallet?.loginType
+        self.sessionEmail = restoredWallet?.sessionEmail
         self.credentialSession = credentialSession
 
         self.signedClient = Self.makeSignedClient(
@@ -37,6 +53,20 @@ public class WalletClient {
         self.publicClient = Self.makePublicClient(
             projectAccessKey: projectAccessKey,
             environment: environment
+        )
+    }
+
+    /// Snapshot of the current durable wallet-session state.
+    public var session: SessionState {
+        guard !walletAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return SessionState(walletAddress: nil)
+        }
+
+        return SessionState(
+            walletAddress: walletAddress,
+            expiresAtString: sessionExpiresAt,
+            loginType: sessionLoginType,
+            sessionEmail: sessionEmail
         )
     }
 
@@ -80,20 +110,26 @@ public class WalletClient {
             authMode: AuthMode.otp,
             verifier: verifier,
             answer: answer,
+            lifetime: Self.defaultSessionLifetimeSeconds
         )
 
         let response = try await signedClient.completeAuth(params)
+        let sessionMetadata = SessionMetadata(
+            expiresAt: response.credential.expiresAt,
+            loginType: OMSClientIdentity(response.identity).sessionLoginType,
+            sessionEmail: response.email
+        )
 
         var walletUsed: Bool = false;
         for wallet in response.wallets {
             if (wallet.type == walletType) {
-                try await useWallet(walletId: wallet.id)
+                try await useWallet(walletId: wallet.id, sessionMetadata: sessionMetadata)
                 walletUsed = true
             }
         }
 
         if (!walletUsed) {
-            try await createWallet(walletType: walletType)
+            try await createWallet(walletType: walletType, sessionMetadata: sessionMetadata)
         }
     }
 
@@ -104,13 +140,17 @@ public class WalletClient {
     /// already have a wallet of the requested type.
     ///
     /// - Parameter walletType: The wallet type to create (e.g. `.ethereumEoa`).
-    private func createWallet(walletType: WalletType) async throws {
+    private func createWallet(walletType: WalletType, sessionMetadata: SessionMetadata) async throws {
         let params = CreateWalletRequest(
             type: walletType
         )
 
         let response = try await signedClient.createWallet(params)
-        try createSequenceWallet(walletAddress: response.wallet.address, walletId: response.wallet.id);
+        try createSequenceWallet(
+            walletAddress: response.wallet.address,
+            walletId: response.wallet.id,
+            sessionMetadata: sessionMetadata
+        );
     }
 
     /// Loads an existing wallet of the specified type for the authenticated user and persists
@@ -120,24 +160,41 @@ public class WalletClient {
     /// a wallet of the requested type on their account.
     ///
     /// - Parameter walletType: The wallet type to load (e.g. `.ethereumEoa`).
-    private func useWallet(walletId: String) async throws {
+    private func useWallet(walletId: String, sessionMetadata: SessionMetadata) async throws {
         let params = UseWalletRequest(
             walletId: walletId
         )
 
         let response = try await signedClient.useWallet(params)
-        try createSequenceWallet(walletAddress: response.wallet.address, walletId: response.wallet.id);
+        try createSequenceWallet(
+            walletAddress: response.wallet.address,
+            walletId: response.wallet.id,
+            sessionMetadata: sessionMetadata
+        );
     }
 
     /// Persists the given wallet address and signer metadata to the keychain
     /// so the session can be restored on a later launch.
     ///
     /// - Parameter address: The on-chain address returned by `createWallet` or `useWallet`.
-    private func createSequenceWallet(walletAddress: String, walletId: String) throws {
+    private func createSequenceWallet(
+        walletAddress: String,
+        walletId: String,
+        sessionMetadata: SessionMetadata
+    ) throws {
         self.walletAddress = walletAddress
         self.walletId = walletId
+        self.sessionExpiresAt = sessionMetadata.expiresAt
+        self.sessionLoginType = sessionMetadata.loginType
+        self.sessionEmail = sessionMetadata.sessionEmail
 
-        try credentialSession.persist(walletId: walletId, walletAddress: walletAddress)
+        try credentialSession.persist(
+            walletId: walletId,
+            walletAddress: walletAddress,
+            expiresAt: sessionMetadata.expiresAt,
+            loginType: sessionMetadata.loginType,
+            sessionEmail: sessionMetadata.sessionEmail
+        )
     }
 
     /// Clears the wallet session from the device keychain.
@@ -151,6 +208,9 @@ public class WalletClient {
         walletId = ""
         verifier = ""
         challenge = ""
+        sessionExpiresAt = nil
+        sessionLoginType = nil
+        sessionEmail = nil
         signedClient = Self.makeSignedClient(
             projectAccessKey: projectAccessKey,
             environment: environment,

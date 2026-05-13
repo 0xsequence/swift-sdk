@@ -27,6 +27,7 @@ try await oms.wallet.startEmailAuth(email: "user@example.com")
 try await oms.wallet.completeEmailAuth(code: "123456")
 
 print("Wallet address:", oms.wallet.walletAddress)
+print("Session email:", oms.session.sessionEmail ?? "unknown")
 
 let value = try parseUnits(value: "1", decimals: 18)
 let txHash = try await oms.wallet.sendTransaction(
@@ -44,6 +45,7 @@ let txHash = try await oms.wallet.sendTransaction(
 |---|---|---|
 | `wallet` | `WalletClient` | Authentication, session, signing, access management, and transaction helpers. |
 | `indexer` | `IndexerClient` | Token balance and on-chain query helpers. |
+| `session` | `OMSClientSessionState` | Current completed wallet-session snapshot. |
 | `supportedNetworks` | `[Network]` | Supported network list. |
 
 ## Supported Networks
@@ -75,9 +77,14 @@ try await oms.wallet.startEmailAuth(email: "user@example.com")
 try await oms.wallet.completeEmailAuth(code: "123456")
 
 print(oms.wallet.walletAddress)
+let session = oms.session
+print(session.walletAddress ?? "signed out")
+if let expiresAt = session.expiresAt { print(expiresAt) }
+if let loginType = session.loginType { print(loginType) }
+print(session.sessionEmail ?? "unknown")
 ```
 
-Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. Only completed wallet session metadata is restored automatically; the private credential key remains owned by the Keychain and is not written into SDK session storage.
+Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. Only completed wallet session metadata is restored automatically, including wallet address, expiry, login type, and session email when available. The private credential key remains owned by the Keychain and is not written into SDK session storage.
 
 On subsequent launches, the completed session is restored from the keychain automatically. To end the session:
 

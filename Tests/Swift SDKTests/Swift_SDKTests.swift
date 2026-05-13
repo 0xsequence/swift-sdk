@@ -163,3 +163,72 @@ let privateKey: [UInt8] = [
 
     #expect(selected.value == "20")
 }
+
+@Test func TestSessionStateParsesExpiresAt() throws {
+    let state = SessionState(
+        walletAddress: "0xabc",
+        expiresAtString: "2026-01-01T00:00:00Z",
+        loginType: .email,
+        sessionEmail: "user@example.com"
+    )
+
+    #expect(state.walletAddress == "0xabc")
+    #expect(state.expiresAt == Date(timeIntervalSince1970: 1_767_225_600))
+    #expect(state.loginType == .email)
+    #expect(state.sessionEmail == "user@example.com")
+}
+
+@Test func TestStorableCredentialsDecodeLegacySession() throws {
+    let legacyJson = """
+    {
+      "walletId": "wallet-1",
+      "walletAddress": "0xabc",
+      "signerCredentialId": "0xsigner",
+      "signerKeyType": "webcrypto-secp256r1"
+    }
+    """
+
+    let credentials = try StorableCredentials.from(jsonString: legacyJson)
+
+    #expect(credentials.walletId == "wallet-1")
+    #expect(credentials.walletAddress == "0xabc")
+    #expect(credentials.signerCredentialId == "0xsigner")
+    #expect(credentials.signerKeyType == .webCryptoSecp256r1)
+    #expect(credentials.expiresAt == nil)
+    #expect(credentials.loginType == nil)
+    #expect(credentials.sessionEmail == nil)
+}
+
+@Test func TestStorableCredentialsRoundTripSessionMetadata() throws {
+    let credentials = StorableCredentials(
+        walletId: "wallet-1",
+        walletAddress: "0xabc",
+        signerCredentialId: "0xsigner",
+        signerKeyType: .webCryptoSecp256r1,
+        expiresAt: "2026-01-01T00:00:00Z",
+        loginType: .email,
+        sessionEmail: "user@example.com"
+    )
+
+    let restored = try StorableCredentials.from(jsonString: credentials.jsonString())
+
+    #expect(restored.walletId == "wallet-1")
+    #expect(restored.walletAddress == "0xabc")
+    #expect(restored.signerCredentialId == "0xsigner")
+    #expect(restored.signerKeyType == .webCryptoSecp256r1)
+    #expect(restored.expiresAt == "2026-01-01T00:00:00Z")
+    #expect(restored.loginType == .email)
+    #expect(restored.sessionEmail == "user@example.com")
+}
+
+@Test func TestOMSClientIdentityMapsSessionLoginType() throws {
+    let emailIdentity = OMSClientIdentity(Identity(type: .email, sub: "user@example.com"))
+    let googleIdentity = OMSClientIdentity(Identity(type: .oidc, iss: "https://accounts.google.com", sub: "google-sub"))
+    let oidcIdentity = OMSClientIdentity(Identity(type: .oidc, iss: "https://idp.example.com", sub: "oidc-sub"))
+    let phoneIdentity = OMSClientIdentity(Identity(type: .phone, sub: "+15555550100"))
+
+    #expect(emailIdentity.sessionLoginType == .email)
+    #expect(googleIdentity.sessionLoginType == .googleAuth)
+    #expect(oidcIdentity.sessionLoginType == .oidc)
+    #expect(phoneIdentity.sessionLoginType == nil)
+}
