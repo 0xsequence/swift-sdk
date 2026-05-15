@@ -63,7 +63,7 @@ struct SignedWaasTransport: WebRPCTransport {
         let signature = try signer.sign(preimage: preimage)
 
         return try RequestUtils.buildAuthorizationHeader(
-            keyType: signer.keyType,
+            alg: signer.alg,
             scope: scope,
             cred: signer.credentialId(),
             nonce: nonce,

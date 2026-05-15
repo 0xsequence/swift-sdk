@@ -2,7 +2,7 @@ public struct StorableCredentials : Codable {
     let walletId: String
     let walletAddress: String
     let signerCredentialId: String
-    let signerKeyType: KeyType
+    let alg: SigningAlgorithm
     let expiresAt: String?
     let loginType: SessionLoginType?
     let sessionEmail: String?
@@ -11,7 +11,7 @@ public struct StorableCredentials : Codable {
         walletId: String,
         walletAddress: String,
         signerCredentialId: String,
-        signerKeyType: KeyType,
+        signerKeyType: SigningAlgorithm,
         expiresAt: String? = nil,
         loginType: SessionLoginType? = nil,
         sessionEmail: String? = nil
@@ -19,7 +19,7 @@ public struct StorableCredentials : Codable {
         self.walletId = walletId
         self.walletAddress = walletAddress
         self.signerCredentialId = signerCredentialId
-        self.signerKeyType = signerKeyType
+        self.alg = signerKeyType
         self.expiresAt = expiresAt
         self.loginType = loginType
         self.sessionEmail = sessionEmail

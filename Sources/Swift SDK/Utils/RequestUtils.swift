@@ -13,13 +13,13 @@ public class RequestUtils {
     }
     
     public static func buildAuthorizationHeader(
-        keyType: KeyType,
+        alg: SigningAlgorithm,
         scope: String,
         cred: String,
         nonce: String,
         sig: String
     ) -> String {
-        return "\(keyType.wireValue) scope=\"\(scope)\",cred=\"\(cred)\",nonce=\(nonce),sig=\"\(sig)\""
+        return "\(alg.wireValue) scope=\"\(scope)\",cred=\"\(cred)\",nonce=\(nonce),sig=\"\(sig)\""
     }
     
     public static func hashEmailAuthAnswer(

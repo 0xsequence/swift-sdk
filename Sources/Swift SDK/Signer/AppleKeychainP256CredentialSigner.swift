@@ -13,7 +13,7 @@ final class AppleKeychainP256CredentialSigner: CredentialSigner, @unchecked Send
         case invalidPublicKey
     }
 
-    let keyType: KeyType = .webCryptoSecp256r1
+    let alg: SigningAlgorithm = .ecdsaP256Sha256
 
     private let applicationTag: Data
     private let nonceStorageKey: String

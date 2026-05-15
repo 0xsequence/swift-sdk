@@ -85,7 +85,7 @@ final class WalletCredentialSession {
             walletId: walletId,
             walletAddress: walletAddress,
             signerCredentialId: try currentSigner.credentialId(),
-            signerKeyType: currentSigner.keyType,
+            signerKeyType: currentSigner.alg,
             expiresAt: expiresAt,
             loginType: loginType,
             sessionEmail: sessionEmail
@@ -121,7 +121,7 @@ final class WalletCredentialSession {
         _ signer: any CredentialSigner,
         credentials: StorableCredentials
     ) throws -> Bool {
-        if credentials.signerKeyType != signer.keyType {
+        if credentials.alg != signer.alg {
             return false
         }
 
