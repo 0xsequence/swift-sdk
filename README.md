@@ -24,9 +24,9 @@ import OMS_SDK
 let oms = OMSClient(projectAccessKey: "your-project-access-key")
 
 try await oms.wallet.startEmailAuth(email: "user@example.com")
-try await oms.wallet.completeEmailAuth(code: "123456")
+let wallet = try await oms.wallet.completeEmailAuth(code: "123456")
 
-print("Wallet address:", oms.wallet.walletAddress)
+print("Wallet address:", wallet.address)
 print("Session email:", oms.wallet.session.sessionEmail ?? "unknown")
 
 let value = try parseUnits(value: "1", decimals: 18)
@@ -73,14 +73,31 @@ OMS uses email-based OTP. The two-step flow is:
 try await oms.wallet.startEmailAuth(email: "user@example.com")
 
 // Present your OTP entry UI.
-try await oms.wallet.completeEmailAuth(code: "123456")
+let wallet = try await oms.wallet.completeEmailAuth(code: "123456")
 
-print(oms.wallet.walletAddress)
+print(wallet.address)
 let session = oms.wallet.session
 print(session.walletAddress ?? "signed out")
 if let expiresAt = session.expiresAt { print(expiresAt) }
 if let loginType = session.loginType { print(loginType) }
 print(session.sessionEmail ?? "unknown")
+```
+
+To opt out of automatic activation and drive wallet selection yourself:
+
+```swift
+let result = try await oms.wallet.completeEmailAuth(
+    code: "123456",
+    autoActivate: false
+)
+
+switch result {
+case .walletSelection(let wallets, _):
+    let picked = wallets[0]
+    try await oms.wallet.useWallet(walletId: picked.id)
+case .activated:
+    break
+}
 ```
 
 Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. Only completed wallet session metadata is restored automatically, including wallet address, expiry, login type, and session email when available. The private credential key remains owned by the Keychain and is not written into SDK session storage.

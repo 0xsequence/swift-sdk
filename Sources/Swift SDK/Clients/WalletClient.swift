@@ -78,17 +78,24 @@ public class WalletClient {
     ///
     /// - Parameter email: The email address to send the one-time passcode to.
     public func startEmailAuth(email: String) async throws {
-        let params = CommitVerifierRequest(
-            identityType: IdentityType.email,
-            authMode: AuthMode.otp,
-            metadata: [String : String] (),
-            handle: email
-        )
+        try signOut()
 
-        let response = try await signedClient.commitVerifier(params)
+        do {
+            let params = CommitVerifierRequest(
+                identityType: IdentityType.email,
+                authMode: AuthMode.otp,
+                metadata: [String : String] (),
+                handle: email
+            )
 
-        verifier = response.verifier
-        challenge = response.challenge
+            let response = try await signedClient.commitVerifier(params)
+
+            verifier = response.verifier
+            challenge = response.challenge
+        } catch {
+            try? signOut()
+            throw error
+        }
     }
 
     /// Completes the email OTP authentication flow by verifying the code the user received.
@@ -102,7 +109,81 @@ public class WalletClient {
     /// - Parameters:
     ///   - code: The one-time passcode string entered by the user.
     ///   - walletType: The wallet type to load or create for this user. Defaults to `.ethereumEoa`.
-    public func completeEmailAuth(code: String, walletType: WalletType = WalletType.ethereum) async throws {
+    @discardableResult
+    public func completeEmailAuth(code: String, walletType: WalletType = WalletType.ethereum) async throws -> Wallet {
+        return try await completeEmailAuth(
+            code: code,
+            walletType: walletType,
+            selectWallet: { wallets in
+                guard wallets.count == 1, let wallet = wallets.first else {
+                    throw WalletAuthError.multipleWalletsAvailable
+                }
+                return wallet
+            }
+        )
+    }
+
+    /// Completes the email OTP authentication flow and either activates a wallet automatically
+    /// or returns all available wallets for app-driven selection.
+    ///
+    /// When `autoActivate` is `false`, this method verifies the auth challenge and leaves the
+    /// credential session authenticated but without a selected wallet. Call `useWallet(walletId:)`
+    /// or `createWallet(walletType:reference:)` to activate one later.
+    public func completeEmailAuth(
+        code: String,
+        autoActivate: Bool,
+        walletType: WalletType = WalletType.ethereum
+    ) async throws -> CompleteAuthResult {
+        return try await completeEmailAuth(
+            code: code,
+            walletType: walletType,
+            autoActivate: autoActivate,
+            selectWallet: { wallets in
+                guard wallets.count == 1, let wallet = wallets.first else {
+                    throw WalletAuthError.multipleWalletsAvailable
+                }
+                return wallet
+            }
+        )
+    }
+
+    /// Completes the email OTP authentication flow and lets the app choose a wallet when
+    /// multiple wallets match `walletType`.
+    @discardableResult
+    public func completeEmailAuth(
+        code: String,
+        walletType: WalletType = WalletType.ethereum,
+        selectWallet: ([Wallet]) async throws -> Wallet
+    ) async throws -> Wallet {
+        let result = try await completeEmailAuth(
+            code: code,
+            walletType: walletType,
+            autoActivate: true,
+            selectWallet: selectWallet
+        )
+
+        guard let wallet = result.wallet else {
+            throw WalletAuthError.authCompletedWithoutWalletActivation
+        }
+        return wallet
+    }
+
+    private func completeEmailAuth(
+        code: String,
+        walletType: WalletType,
+        autoActivate: Bool,
+        selectWallet: ([Wallet]) async throws -> Wallet
+    ) async throws -> CompleteAuthResult {
+        let response = try await confirmEmailSignIn(code: code)
+        return try await completeWalletAuth(
+            response,
+            walletType: walletType,
+            autoActivate: autoActivate,
+            selectWallet: selectWallet
+        )
+    }
+
+    private func confirmEmailSignIn(code: String) async throws -> CompleteAuthResponse {
         let answer = RequestUtils.hashEmailAuthAnswer(challenge: challenge, code: code)
 
         let params = CompleteAuthRequest(
@@ -113,36 +194,118 @@ public class WalletClient {
             lifetime: Self.defaultSessionLifetimeSeconds
         )
 
-        let response = try await signedClient.completeAuth(params)
+        return try await signedClient.completeAuth(params)
+    }
+
+    private func completeWalletAuth(
+        _ response: CompleteAuthResponse,
+        walletType: WalletType,
+        autoActivate: Bool,
+        selectWallet: ([Wallet]) async throws -> Wallet
+    ) async throws -> CompleteAuthResult {
         let sessionMetadata = SessionMetadata(
             expiresAt: response.credential.expiresAt,
             loginType: OMSClientIdentity(response.identity).sessionLoginType,
             sessionEmail: response.email
         )
+        self.sessionExpiresAt = sessionMetadata.expiresAt
+        self.sessionLoginType = sessionMetadata.loginType
+        self.sessionEmail = sessionMetadata.sessionEmail
 
-        var walletUsed: Bool = false;
-        for wallet in response.wallets {
-            if (wallet.type == walletType) {
-                try await useWallet(walletId: wallet.id, sessionMetadata: sessionMetadata)
-                walletUsed = true
+        do {
+            let wallets = try await walletsFromAuthResponse(response)
+            guard autoActivate else {
+                return .walletSelection(
+                    wallets: wallets,
+                    credential: response.credential
+                )
             }
-        }
 
-        if (!walletUsed) {
-            try await createWallet(walletType: walletType, sessionMetadata: sessionMetadata)
+            let candidateWallets = wallets.filter { $0.type == walletType }
+            let activated: WalletActivationResult
+
+            switch candidateWallets.count {
+            case 0:
+                activated = try await createWallet(
+                    walletType: walletType,
+                    sessionMetadata: sessionMetadata
+                )
+            case 1:
+                activated = try await useWallet(
+                    walletId: candidateWallets[0].id,
+                    sessionMetadata: sessionMetadata
+                )
+            default:
+                let selected = try await selectWallet(candidateWallets)
+                guard candidateWallets.contains(where: { $0.id == selected.id }) else {
+                    throw WalletAuthError.selectedWalletUnavailable
+                }
+                activated = try await useWallet(
+                    walletId: selected.id,
+                    sessionMetadata: sessionMetadata
+                )
+            }
+
+            return .activated(
+                walletAddress: activated.walletAddress,
+                wallet: activated.wallet,
+                wallets: candidateWallets.isEmpty ? wallets + [activated.wallet] : wallets,
+                credential: response.credential
+            )
+        } catch {
+            try? signOut()
+            throw error
         }
+    }
+
+    /// Activates an existing wallet by its WaaS wallet ID and persists its address and
+    /// signer metadata to the keychain.
+    @discardableResult
+    public func useWallet(walletId: String) async throws -> WalletActivationResult {
+        try requireWalletSelectionOrActiveSession()
+        try requireActiveCredential()
+        return try await useWallet(
+            walletId: walletId,
+            sessionMetadata: currentSessionMetadata()
+        )
     }
 
     /// Creates a new wallet of the specified type for the authenticated user and persists
     /// its address and signer metadata to the keychain.
     ///
-    /// Called internally by `completeEmailAuth(code:walletType:)` when the user does not
-    /// already have a wallet of the requested type.
+    /// Call this after `completeEmailAuth(code:autoActivate:walletType:)` returns
+    /// `.walletSelection`, or when an authenticated session already exists.
     ///
     /// - Parameter walletType: The wallet type to create (e.g. `.ethereumEoa`).
-    private func createWallet(walletType: WalletType, sessionMetadata: SessionMetadata) async throws {
+    @discardableResult
+    public func createWallet(
+        walletType: WalletType = WalletType.ethereum,
+        reference: String? = nil
+    ) async throws -> WalletActivationResult {
+        try requireWalletSelectionOrActiveSession()
+        try requireActiveCredential()
+        return try await createWallet(
+            walletType: walletType,
+            reference: reference,
+            sessionMetadata: currentSessionMetadata()
+        )
+    }
+
+    /// Lists all wallets available to the authenticated credential.
+    public func listWallets() async throws -> [Wallet] {
+        try requireWalletSelectionOrActiveSession()
+        try requireActiveCredential()
+        return try await listWallets(startingAt: nil)
+    }
+
+    private func createWallet(
+        walletType: WalletType,
+        reference: String? = nil,
+        sessionMetadata: SessionMetadata
+    ) async throws -> WalletActivationResult {
         let params = CreateWalletRequest(
-            type: walletType
+            type: walletType,
+            reference: reference
         )
 
         let response = try await signedClient.createWallet(params)
@@ -150,7 +313,12 @@ public class WalletClient {
             walletAddress: response.wallet.address,
             walletId: response.wallet.id,
             sessionMetadata: sessionMetadata
-        );
+        )
+
+        return WalletActivationResult(
+            walletAddress: response.wallet.address,
+            wallet: response.wallet
+        )
     }
 
     /// Loads an existing wallet of the specified type for the authenticated user and persists
@@ -160,7 +328,7 @@ public class WalletClient {
     /// a wallet of the requested type on their account.
     ///
     /// - Parameter walletType: The wallet type to load (e.g. `.ethereumEoa`).
-    private func useWallet(walletId: String, sessionMetadata: SessionMetadata) async throws {
+    private func useWallet(walletId: String, sessionMetadata: SessionMetadata) async throws -> WalletActivationResult {
         let params = UseWalletRequest(
             walletId: walletId
         )
@@ -170,7 +338,66 @@ public class WalletClient {
             walletAddress: response.wallet.address,
             walletId: response.wallet.id,
             sessionMetadata: sessionMetadata
-        );
+        )
+
+        return WalletActivationResult(
+            walletAddress: response.wallet.address,
+            wallet: response.wallet
+        )
+    }
+
+    private func walletsFromAuthResponse(_ response: CompleteAuthResponse) async throws -> [Wallet] {
+        var wallets = response.wallets
+        if let cursor = nonEmptyCursor(response.page?.cursor) {
+            wallets += try await listWallets(startingAt: cursor)
+        }
+        return wallets
+    }
+
+    private func listWallets(startingAt initialCursor: String?) async throws -> [Wallet] {
+        var wallets: [Wallet] = []
+        var cursor = initialCursor
+
+        repeat {
+            let response = try await signedClient.listWallets(
+                ListWalletsRequest(
+                    page: cursor.map { Page(cursor: $0) }
+                )
+            )
+            wallets += response.wallets
+            cursor = nonEmptyCursor(response.page?.cursor)
+        } while cursor != nil
+
+        return wallets
+    }
+
+    private func nonEmptyCursor(_ cursor: String?) -> String? {
+        guard let cursor = cursor?.trimmingCharacters(in: .whitespacesAndNewlines), !cursor.isEmpty else {
+            return nil
+        }
+        return cursor
+    }
+
+    private func currentSessionMetadata() -> SessionMetadata {
+        SessionMetadata(
+            expiresAt: sessionExpiresAt,
+            loginType: sessionLoginType,
+            sessionEmail: sessionEmail
+        )
+    }
+
+    private func requireWalletSelectionOrActiveSession() throws {
+        let hasWallet = !walletId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasVerifiedAuth = !(sessionExpiresAt ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard hasWallet || hasVerifiedAuth else {
+            throw WalletAuthError.noAuthenticatedWalletSession
+        }
+    }
+
+    private func requireActiveCredential() throws {
+        guard try credentialSession.signer.hasCredential() else {
+            throw WalletAuthError.noActiveCredential
+        }
     }
 
     /// Persists the given wallet address and signer metadata to the keychain

@@ -71,7 +71,7 @@ Accessed via `oms.wallet`. Manages wallet authentication, non-extractable Keycha
 var walletAddress: String
 ```
 
-The on-chain address of the active wallet. Empty until a wallet is restored or activated by `completeEmailAuth`.
+The on-chain address of the active wallet. Empty until a wallet is restored or activated by `completeEmailAuth`, `useWallet`, or `createWallet`.
 
 ### walletId
 
@@ -79,7 +79,7 @@ The on-chain address of the active wallet. Empty until a wallet is restored or a
 var walletId: String
 ```
 
-The server-side wallet ID. Empty until a wallet is restored or activated by `completeEmailAuth`.
+The server-side wallet ID. Empty until a wallet is restored or activated by `completeEmailAuth`, `useWallet`, or `createWallet`.
 
 ### session
 
@@ -100,10 +100,73 @@ Sends a one-time passcode to the provided email address.
 ### completeEmailAuth
 
 ```swift
-func completeEmailAuth(code: String, walletType: WalletType = .ethereum) async throws
+func completeEmailAuth(code: String, walletType: WalletType = .ethereum) async throws -> Wallet
 ```
 
 Verifies the OTP code and activates an existing or newly created wallet.
+
+```swift
+func completeEmailAuth(
+    code: String,
+    autoActivate: Bool,
+    walletType: WalletType = .ethereum
+) async throws -> CompleteAuthResult
+```
+
+When `autoActivate` is `false`, verifies the OTP code and returns all available
+wallets without selecting or creating one. Call `useWallet(walletId:)` or
+`createWallet(walletType:reference:)` afterward to activate a wallet.
+
+```swift
+func completeEmailAuth(
+    code: String,
+    walletType: WalletType = .ethereum,
+    selectWallet: ([Wallet]) async throws -> Wallet
+) async throws -> Wallet
+```
+
+Lets the app select from multiple available wallets matching `walletType`.
+
+### CompleteAuthResult
+
+```swift
+enum CompleteAuthResult {
+    case activated(
+        walletAddress: String,
+        wallet: Wallet,
+        wallets: [Wallet],
+        credential: CredentialInfo
+    )
+    case walletSelection(wallets: [Wallet], credential: CredentialInfo)
+}
+```
+
+### useWallet
+
+```swift
+func useWallet(walletId: String) async throws -> WalletActivationResult
+```
+
+Activates an existing wallet after auth completion.
+
+### createWallet
+
+```swift
+func createWallet(
+    walletType: WalletType = .ethereum,
+    reference: String? = nil
+) async throws -> WalletActivationResult
+```
+
+Creates and activates a new wallet after auth completion.
+
+### listWallets
+
+```swift
+func listWallets() async throws -> [Wallet]
+```
+
+Lists all wallets available to the authenticated credential.
 
 Wallet API requests are signed with a Keychain-backed P-256 credential using the `webcrypto-secp256r1` key type. Persisted sessions store wallet ID, wallet address, and signer metadata; private credential keys are not written into SDK session storage.
 
