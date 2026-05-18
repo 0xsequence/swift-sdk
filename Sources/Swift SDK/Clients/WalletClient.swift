@@ -212,46 +212,59 @@ public class WalletClient {
         self.sessionLoginType = sessionMetadata.loginType
         self.sessionEmail = sessionMetadata.sessionEmail
 
-        do {
-            let wallets = try await walletsFromAuthResponse(response)
-            guard autoActivate else {
-                return .walletSelection(
-                    wallets: wallets,
-                    credential: response.credential
-                )
-            }
+        let wallets = try await signOutOnFailure {
+            try await walletsFromAuthResponse(response)
+        }
+        guard autoActivate else {
+            return .walletSelection(
+                wallets: wallets,
+                credential: response.credential
+            )
+        }
 
-            let candidateWallets = wallets.filter { $0.type == walletType }
-            let activated: WalletActivationResult
+        let candidateWallets = wallets.filter { $0.type == walletType }
+        let activated: WalletActivationResult
 
-            switch candidateWallets.count {
-            case 0:
-                activated = try await createWallet(
+        switch candidateWallets.count {
+        case 0:
+            activated = try await signOutOnFailure {
+                try await createWallet(
                     walletType: walletType,
                     sessionMetadata: sessionMetadata
                 )
-            case 1:
-                activated = try await useWallet(
+            }
+        case 1:
+            activated = try await signOutOnFailure {
+                try await useWallet(
                     walletId: candidateWallets[0].id,
                     sessionMetadata: sessionMetadata
                 )
-            default:
-                let selected = try await selectWallet(candidateWallets)
-                guard candidateWallets.contains(where: { $0.id == selected.id }) else {
-                    throw WalletAuthError.selectedWalletUnavailable
-                }
-                activated = try await useWallet(
+            }
+        default:
+            // Selection errors are app control flow; keep the verified session alive.
+            let selected = try await selectWallet(candidateWallets)
+            guard candidateWallets.contains(where: { $0.id == selected.id }) else {
+                throw WalletAuthError.selectedWalletUnavailable
+            }
+            activated = try await signOutOnFailure {
+                try await useWallet(
                     walletId: selected.id,
                     sessionMetadata: sessionMetadata
                 )
             }
+        }
 
-            return .activated(
-                walletAddress: activated.walletAddress,
-                wallet: activated.wallet,
-                wallets: candidateWallets.isEmpty ? wallets + [activated.wallet] : wallets,
-                credential: response.credential
-            )
+        return .activated(
+            walletAddress: activated.walletAddress,
+            wallet: activated.wallet,
+            wallets: candidateWallets.isEmpty ? wallets + [activated.wallet] : wallets,
+            credential: response.credential
+        )
+    }
+
+    private func signOutOnFailure<T>(_ operation: () async throws -> T) async throws -> T {
+        do {
+            return try await operation()
         } catch {
             try? signOut()
             throw error
