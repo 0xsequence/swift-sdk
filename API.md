@@ -325,6 +325,24 @@ let result = try await oms.indexer.getTokenBalances(
 )
 ```
 
+### getNativeTokenBalance
+
+```swift
+func getNativeTokenBalance(
+    network: Network,
+    walletAddress: String
+) async throws -> TokenBalance?
+```
+
+Fetches the native token balance for a wallet on a supported network. Returns `nil` when the indexer response does not include a balance object.
+
+```swift
+let balance = try await oms.indexer.getNativeTokenBalance(
+    network: .polygon,
+    walletAddress: oms.wallet.walletAddress
+)
+```
+
 ---
 
 ## Formatting Helpers

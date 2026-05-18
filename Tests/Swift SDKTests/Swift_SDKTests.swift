@@ -55,15 +55,15 @@ let privateKey: [UInt8] = [
 @Test func TestAuthorizationHeaderUsesCredentialKeyType() async throws {
     let credential = "0x04" + String(repeating: "11", count: 64)
     let signature = "0x" + String(repeating: "22", count: 64)
-    let header = RequestUtils.buildAuthorizationHeader(
-        keyType: .webCryptoSecp256r1,
+    let header = RequestUtils.buildWalletSignatureHeader(
+        alg: .ecdsaP256Sha256,
         scope: "proj_1",
         cred: credential,
         nonce: "1234567890",
         sig: signature
     )
-    let expected = "webcrypto-secp256r1 scope=\"proj_1\",cred=\"\(credential)\",nonce=1234567890,sig=\"\(signature)\""
-
+    let expected = "alg=\"ecdsa-p256-sha256\", scope=\"proj_1\", cred=\"\(credential)\", nonce=1234567890, sig=\"\(signature)\""
+ 
     #expect(header == expected)
 }
 
@@ -94,6 +94,19 @@ let privateKey: [UInt8] = [
     for r in result.balances {
         print("Account Address: \(r.accountAddress ?? "undefined"), Balance: \(r.balance ?? "undefined")")
     }
+}
+
+@Test func TestGetNativeTokenBalanceParsesBalanceWeiFallback() async throws {
+    let oms = OMSClient(
+        projectAccessKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE"
+    )
+    
+    let balance = try await oms.indexer.getNativeTokenBalance(
+        network: .polygon,
+        walletAddress: "0x8e3E38fe7367dd3b52D1e281E4e8400447C8d8B9"
+    )
+
+    #expect(balance?.chainId == 137)
 }
 
 @Test func TestParseUnits() throws {
@@ -145,6 +158,36 @@ let privateKey: [UInt8] = [
     }
 }
 
+private final class MockIndexerURLProtocol: URLProtocol {
+    nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let handler = Self.requestHandler else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
 @Test func TestCheapestFeeOptionUsesNumericValue() async throws {
     let token = FeeToken(
         network: "polygon",
@@ -184,7 +227,7 @@ let privateKey: [UInt8] = [
       "walletId": "wallet-1",
       "walletAddress": "0xabc",
       "signerCredentialId": "0xsigner",
-      "signerKeyType": "webcrypto-secp256r1"
+      "alg": "ecdsa-p256-sha256"
     }
     """
 
@@ -193,7 +236,7 @@ let privateKey: [UInt8] = [
     #expect(credentials.walletId == "wallet-1")
     #expect(credentials.walletAddress == "0xabc")
     #expect(credentials.signerCredentialId == "0xsigner")
-    #expect(credentials.signerKeyType == .webCryptoSecp256r1)
+    #expect(credentials.alg == .ecdsaP256Sha256)
     #expect(credentials.expiresAt == nil)
     #expect(credentials.loginType == nil)
     #expect(credentials.sessionEmail == nil)
@@ -204,7 +247,7 @@ let privateKey: [UInt8] = [
         walletId: "wallet-1",
         walletAddress: "0xabc",
         signerCredentialId: "0xsigner",
-        signerKeyType: .webCryptoSecp256r1,
+        alg: .ecdsaP256Sha256,
         expiresAt: "2026-01-01T00:00:00Z",
         loginType: .email,
         sessionEmail: "user@example.com"
@@ -215,7 +258,7 @@ let privateKey: [UInt8] = [
     #expect(restored.walletId == "wallet-1")
     #expect(restored.walletAddress == "0xabc")
     #expect(restored.signerCredentialId == "0xsigner")
-    #expect(restored.signerKeyType == .webCryptoSecp256r1)
+    #expect(restored.alg == .ecdsaP256Sha256)
     #expect(restored.expiresAt == "2026-01-01T00:00:00Z")
     #expect(restored.loginType == .email)
     #expect(restored.sessionEmail == "user@example.com")

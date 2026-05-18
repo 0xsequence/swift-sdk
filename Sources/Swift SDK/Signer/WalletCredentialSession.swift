@@ -85,7 +85,7 @@ final class WalletCredentialSession {
             walletId: walletId,
             walletAddress: walletAddress,
             signerCredentialId: try currentSigner.credentialId(),
-            signerKeyType: currentSigner.alg,
+            alg: currentSigner.alg,
             expiresAt: expiresAt,
             loginType: loginType,
             sessionEmail: sessionEmail

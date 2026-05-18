@@ -314,6 +314,17 @@ for balance in result.balances {
 }
 ```
 
+### Query Native Token Balance
+
+```swift
+let balance = try await oms.indexer.getNativeTokenBalance(
+    network: .polygon,
+    walletAddress: oms.wallet.walletAddress
+)
+
+print(balance?.balance ?? "0")
+```
+
 ### Manage Wallet Access
 
 ```swift

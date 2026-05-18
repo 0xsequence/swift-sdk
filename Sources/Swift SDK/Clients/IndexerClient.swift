@@ -39,20 +39,33 @@ private struct TokenBalancesPayload: Codable {
     let balances: [TokenBalance]?
 }
 
+private struct NativeTokenBalancePayload: Decodable {
+    let balance: NativeTokenBalanceResponse?
+}
+
+private struct NativeTokenBalanceResponse: Decodable {
+    let accountAddress: String?
+    let balance: String?
+    let balanceWei: String?
+    let chainId: Int64?
+}
+
 @available(macOS 12.0, iOS 15.0, *)
 public final class IndexerClient {
     private let projectAccessKey: String
     private let environment: OMSClientEnvironment
-    private let client: HttpClient = HttpClient()
+    private let client: HttpClient
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
     internal init(
         projectAccessKey: String,
-        environment: OMSClientEnvironment
+        environment: OMSClientEnvironment,
+        client: HttpClient = HttpClient()
     ) {
         self.projectAccessKey = projectAccessKey
         self.environment = environment
+        self.client = client
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
     }
@@ -91,6 +104,41 @@ public final class IndexerClient {
         )
     }
 
+    public func getNativeTokenBalance(
+        network: Network,
+        walletAddress: String
+    ) async throws -> TokenBalance? {
+        let request = NativeTokenBalanceRequest(accountAddress: walletAddress)
+
+        let bodyData = try encoder.encode(request)
+        let bodyString = String(data: bodyData, encoding: .utf8) ?? "{}"
+
+        let baseUrl = indexerUrl(forNetwork: network)
+
+        let response = try await client.postJson(
+            baseUrl: baseUrl,
+            path: "/GetNativeTokenBalance",
+            body: bodyString,
+            headers: defaultHeaders()
+        )
+
+        let payload = try decoder.decode(NativeTokenBalancePayload.self, from: response.body)
+        guard let balance = payload.balance else {
+            return nil
+        }
+
+        return TokenBalance(
+            contractType: "NATIVE",
+            contractAddress: nil,
+            accountAddress: balance.accountAddress,
+            tokenId: nil,
+            balance: balance.balance ?? balance.balanceWei,
+            blockHash: nil,
+            blockNumber: nil,
+            chainId: balance.chainId ?? Int64(network.chainId)
+        )
+    }
+
     private func indexerUrl(forNetwork network: Network) -> String {
         return environment.indexerUrlString(for: network)
     }
@@ -108,6 +156,10 @@ private struct TokenBalancesRequest: Encodable {
     let contractAddress: String
     let accountAddress: String
     let includeMetadata: Bool
+}
+
+private struct NativeTokenBalanceRequest: Encodable {
+    let accountAddress: String
 }
 
 private struct RequestPage: Encodable {
