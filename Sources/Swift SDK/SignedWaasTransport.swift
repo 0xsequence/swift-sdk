@@ -38,7 +38,7 @@ struct SignedWaasTransport: WebRPCTransport {
 
         var requestHeaders = [
             "X-Access-Key": projectAccessKey,
-            "Authorization": authHeader
+            "Oms-Wallet-Signature": authHeader
         ]
         for (name, value) in headers {
             requestHeaders[name] = value
@@ -62,7 +62,7 @@ struct SignedWaasTransport: WebRPCTransport {
         let preimage = RequestUtils.buildWalletRequestPreimage(endpoint: endpoint, nonce: nonce, scope: scope, payload: payload)
         let signature = try signer.sign(preimage: preimage)
 
-        return try RequestUtils.buildAuthorizationHeader(
+        return try RequestUtils.buildWalletSignatureHeader(
             alg: signer.alg,
             scope: scope,
             cred: signer.credentialId(),
