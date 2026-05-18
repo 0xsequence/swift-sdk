@@ -56,6 +56,27 @@ public class WalletClient {
         )
     }
 
+    init(
+        projectAccessKey: String,
+        environment: OMSClientEnvironment = OMSClientEnvironment(),
+        credentialSession: WalletCredentialSession,
+        signedClient: WaasWalletClient,
+        publicClient: WaasWalletPublicClient
+    ) {
+        self.projectAccessKey = projectAccessKey
+        self.environment = environment
+        let restoredWallet = credentialSession.restore()
+
+        self.walletId = restoredWallet?.walletId ?? ""
+        self.walletAddress = restoredWallet?.walletAddress ?? ""
+        self.sessionExpiresAt = restoredWallet?.expiresAt
+        self.sessionLoginType = restoredWallet?.loginType
+        self.sessionEmail = restoredWallet?.sessionEmail
+        self.credentialSession = credentialSession
+        self.signedClient = signedClient
+        self.publicClient = publicClient
+    }
+
     /// Snapshot of the current durable wallet-session state.
     public var session: SessionState {
         guard !walletAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {

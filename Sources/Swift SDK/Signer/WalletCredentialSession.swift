@@ -9,8 +9,9 @@ final class WalletCredentialSession {
     }
 
     private let environment: OMSClientEnvironment
-    private let keychain: KeychainManager
+    private let keychain: any KeychainManaging
     private let credentialsStorageKey: String
+    private let signerFactory: () -> any CredentialSigner
     private var currentSigner: any CredentialSigner
 
     var signer: any CredentialSigner {
@@ -19,15 +20,16 @@ final class WalletCredentialSession {
 
     init(
         environment: OMSClientEnvironment,
-        keychain: KeychainManager = KeychainManager()
+        keychain: any KeychainManaging = KeychainManager(),
+        signerFactory: ((OMSClientEnvironment, any KeychainManaging) -> any CredentialSigner)? = nil
     ) {
         self.environment = environment
         self.keychain = keychain
         self.credentialsStorageKey = Constants.credentialsStorageKey(environment: environment)
-        self.currentSigner = Self.makeDefaultCredentialSigner(
-            environment: environment,
-            keychain: keychain
-        )
+        let makeSigner = signerFactory ?? Self.makeDefaultCredentialSigner
+        let factory = { makeSigner(environment, keychain) }
+        self.signerFactory = factory
+        self.currentSigner = factory()
     }
 
     func restore() -> WalletMetadata? {
@@ -39,10 +41,7 @@ final class WalletCredentialSession {
         do {
             guard try candidateSigner.hasCredential() else {
                 _ = try? keychain.delete(forKey: credentialsStorageKey)
-                currentSigner = Self.makeDefaultCredentialSigner(
-                    environment: environment,
-                    keychain: keychain
-                )
+                currentSigner = signerFactory()
                 return nil
             }
 
@@ -60,17 +59,11 @@ final class WalletCredentialSession {
             try candidateSigner.clear()
             try keychain.delete(forKey: credentialsStorageKey)
         } catch {
-            currentSigner = Self.makeDefaultCredentialSigner(
-                environment: environment,
-                keychain: keychain
-            )
+            currentSigner = signerFactory()
             return nil
         }
 
-        currentSigner = Self.makeDefaultCredentialSigner(
-            environment: environment,
-            keychain: keychain
-        )
+        currentSigner = signerFactory()
         return nil
     }
 
@@ -97,10 +90,7 @@ final class WalletCredentialSession {
     func clear() throws {
         try currentSigner.clear()
         try keychain.delete(forKey: credentialsStorageKey)
-        currentSigner = Self.makeDefaultCredentialSigner(
-            environment: environment,
-            keychain: keychain
-        )
+        currentSigner = signerFactory()
     }
 
     private func loadCredentials() -> StorableCredentials? {
@@ -111,10 +101,7 @@ final class WalletCredentialSession {
     }
 
     private func makeCredentialSigner() -> any CredentialSigner {
-        Self.makeDefaultCredentialSigner(
-            environment: environment,
-            keychain: keychain
-        )
+        signerFactory()
     }
 
     private func signerMatchesStoredCredential(
@@ -130,7 +117,7 @@ final class WalletCredentialSession {
 
     private static func makeDefaultCredentialSigner(
         environment: OMSClientEnvironment,
-        keychain: KeychainManager
+        keychain: any KeychainManaging
     ) -> any CredentialSigner {
         AppleKeychainP256CredentialSigner(
             applicationTag: Constants.credentialApplicationTag(environment: environment),

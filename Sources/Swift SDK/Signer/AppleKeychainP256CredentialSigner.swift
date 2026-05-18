@@ -17,13 +17,13 @@ final class AppleKeychainP256CredentialSigner: CredentialSigner, @unchecked Send
 
     private let applicationTag: Data
     private let nonceStorageKey: String
-    private let keychain: KeychainManager
+    private let keychain: any KeychainManaging
     private let nonceLock = NSLock()
 
     init(
         applicationTag: String,
         nonceStorageKey: String,
-        keychain: KeychainManager = KeychainManager()
+        keychain: any KeychainManaging = KeychainManager()
     ) {
         self.applicationTag = Data(applicationTag.utf8)
         self.nonceStorageKey = nonceStorageKey
