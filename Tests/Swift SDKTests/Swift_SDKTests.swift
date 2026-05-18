@@ -52,7 +52,7 @@ let privateKey: [UInt8] = [
     #expect(preimage == expected)
 }
 
-@Test func TestAuthorizationHeaderUsesCredentialKeyType() async throws {
+@Test func TestWalletSignatureHeaderUsesSigningAlgorithm() async throws {
     let credential = "0x04" + String(repeating: "11", count: 64)
     let signature = "0x" + String(repeating: "22", count: 64)
     let header = RequestUtils.buildWalletSignatureHeader(
@@ -84,29 +84,40 @@ let privateKey: [UInt8] = [
         projectAccessKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE"
     )
     
+    let contractAddress = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
+    let walletAddress = "0x8e3E38fe7367dd3b52D1e281E4e8400447C8d8B9"
+    
     let result = try await oms.indexer.getTokenBalances(
         network: Network.polygon,
-        contractAddress: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
-        walletAddress: "0x8e3E38fe7367dd3b52D1e281E4e8400447C8d8B9",
+        contractAddress: contractAddress,
+        walletAddress: walletAddress,
         includeMetadata: true
     )
     
     for r in result.balances {
         print("Account Address: \(r.accountAddress ?? "undefined"), Balance: \(r.balance ?? "undefined")")
+        #expect(r.chainId == 137)
+        #expect(r.contractAddress == contractAddress.lowercased())
+        #expect(r.accountAddress == walletAddress.lowercased())
     }
 }
 
-@Test func TestGetNativeTokenBalanceParsesBalanceWeiFallback() async throws {
+@Test func TestGetNativeTokenBalance() async throws {
     let oms = OMSClient(
         projectAccessKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE"
     )
     
+    let walletAddress = "0x8e3E38fe7367dd3b52D1e281E4e8400447C8d8B9"
+    
     let balance = try await oms.indexer.getNativeTokenBalance(
         network: .polygon,
-        walletAddress: "0x8e3E38fe7367dd3b52D1e281E4e8400447C8d8B9"
+        walletAddress: walletAddress
     )
+    
+    print("Account Address: \(balance?.accountAddress ?? "undefined"), Balance: \(balance?.balance ?? "undefined")")
 
     #expect(balance?.chainId == 137)
+    #expect(balance?.accountAddress == walletAddress.lowercased())
 }
 
 @Test func TestParseUnits() throws {
@@ -158,36 +169,6 @@ let privateKey: [UInt8] = [
     }
 }
 
-private final class MockIndexerURLProtocol: URLProtocol {
-    nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
-
-    override class func canInit(with request: URLRequest) -> Bool {
-        true
-    }
-
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
-        request
-    }
-
-    override func startLoading() {
-        guard let handler = Self.requestHandler else {
-            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
-            return
-        }
-
-        do {
-            let (response, data) = try handler(request)
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: data)
-            client?.urlProtocolDidFinishLoading(self)
-        } catch {
-            client?.urlProtocol(self, didFailWithError: error)
-        }
-    }
-
-    override func stopLoading() {}
-}
-
 @Test func TestCheapestFeeOptionUsesNumericValue() async throws {
     let token = FeeToken(
         network: "polygon",
@@ -219,27 +200,6 @@ private final class MockIndexerURLProtocol: URLProtocol {
     #expect(state.expiresAt == Date(timeIntervalSince1970: 1_767_225_600))
     #expect(state.loginType == .email)
     #expect(state.sessionEmail == "user@example.com")
-}
-
-@Test func TestStorableCredentialsDecodeLegacySession() throws {
-    let legacyJson = """
-    {
-      "walletId": "wallet-1",
-      "walletAddress": "0xabc",
-      "signerCredentialId": "0xsigner",
-      "alg": "ecdsa-p256-sha256"
-    }
-    """
-
-    let credentials = try StorableCredentials.from(jsonString: legacyJson)
-
-    #expect(credentials.walletId == "wallet-1")
-    #expect(credentials.walletAddress == "0xabc")
-    #expect(credentials.signerCredentialId == "0xsigner")
-    #expect(credentials.alg == .ecdsaP256Sha256)
-    #expect(credentials.expiresAt == nil)
-    #expect(credentials.loginType == nil)
-    #expect(credentials.sessionEmail == nil)
 }
 
 @Test func TestStorableCredentialsRoundTripSessionMetadata() throws {

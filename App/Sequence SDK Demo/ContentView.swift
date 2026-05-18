@@ -83,6 +83,47 @@ private func formatUSDCBalance(_ raw: String) -> String {
     return "\(wholeOut).\(frac)"
 }
 
+private func nativeTokenSymbol(for network: Network) -> String {
+    switch network {
+    case .polygon, .polygonAmoy:
+        return "POL"
+    }
+}
+
+private func formatNativeTokenBalance(_ raw: String) -> String {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return "0" }
+
+    let formatted = trimmed.contains(".")
+        ? trimmed
+        : ((try? formatUnits(value: trimmed, decimals: 18)) ?? "0")
+    return trimBalanceDisplay(formatted, maxFractionDigits: 6)
+}
+
+private func trimBalanceDisplay(_ value: String, maxFractionDigits: Int) -> String {
+    guard maxFractionDigits > 0 else {
+        return String(value.split(separator: ".", omittingEmptySubsequences: false).first ?? "")
+    }
+
+    let parts = value.split(separator: ".", omittingEmptySubsequences: false)
+    guard parts.count == 2 else { return value }
+
+    let whole = parts[0].isEmpty ? "0" : String(parts[0])
+    let fraction = String(parts[1])
+    let limitedFraction = String(fraction.prefix(maxFractionDigits))
+    let trimmedFraction = String(limitedFraction.reversed().drop(while: { $0 == "0" }).reversed())
+
+    guard !trimmedFraction.isEmpty else {
+        let hasTinyRemainder = whole == "0" && fraction.dropFirst(maxFractionDigits).contains { $0 != "0" }
+        if hasTinyRemainder {
+            return "<0.\(String(repeating: "0", count: maxFractionDigits - 1))1"
+        }
+        return whole
+    }
+
+    return "\(whole).\(trimmedFraction)"
+}
+
 // MARK: - App State
 
 enum AppScreen {
@@ -270,12 +311,16 @@ struct WalletWindow: View {
     @State private var showCallContractWindow: Bool = false
     @State private var showSignMessageWindow: Bool = false
     @State private var didCopy: Bool = false
+    @State private var nativeBalance: String = "—"
+    @State private var nativeBalanceRaw: String = ""
     @State private var usdcBalance: String = "—"
     @State private var usdcBalanceRaw: String = ""
     @State private var isFetchingBalance: Bool = false
     @State private var selectedNetwork: Network = Network.polygonAmoy
 
     private func clearBalance() {
+        nativeBalance = "—"
+        nativeBalanceRaw = ""
         usdcBalance = "—"
         usdcBalanceRaw = ""
     }
@@ -299,6 +344,18 @@ struct WalletWindow: View {
             } else {
                 usdcBalance = "0.00"
                 usdcBalanceRaw = "0"
+            }
+
+            let nativeTokenBalance = try await vm.oms.indexer.getNativeTokenBalance(
+                network: selectedNetwork,
+                walletAddress: vm.oms.wallet.walletAddress
+            )
+            if let raw = nativeTokenBalance?.balance {
+                nativeBalance = formatNativeTokenBalance(raw)
+                nativeBalanceRaw = raw
+            } else {
+                nativeBalance = "0"
+                nativeBalanceRaw = "0"
             }
         } catch {
             clearBalance()
@@ -443,8 +500,59 @@ struct WalletWindow: View {
                 .help("Refresh balance")
             }
 
+            nativeTokenCard
             usdcCard
         }
+    }
+
+    private var nativeTokenCard: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Color(red: 0.28, green: 0.54, blue: 0.34))
+                    .frame(width: 44, height: 44)
+
+                Image(systemName: "hexagon.fill")
+                    .font(.system(size: 21, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(selectedNetwork.displayName) Native")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Text(nativeTokenSymbol(for: selectedNetwork))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 2) {
+                if isFetchingBalance {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Text(nativeBalance)
+                        .font(.subheadline.weight(.semibold))
+                        .monospacedDigit()
+                    Text(nativeTokenSymbol(for: selectedNetwork))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(panelBackgroundColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(panelBorderColor, lineWidth: 1)
+        )
     }
 
     private var usdcCard: some View {
