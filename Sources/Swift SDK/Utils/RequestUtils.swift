@@ -12,14 +12,14 @@ public class RequestUtils {
         return "POST /rpc/Wallet\(endpoint)\nnonce: \(nonce)\nscope: \(scope)\n\n\(payload)"
     }
     
-    public static func buildAuthorizationHeader(
-        keyType: KeyType,
+    public static func buildWalletSignatureHeader(
+        alg: SigningAlgorithm,
         scope: String,
         cred: String,
         nonce: String,
         sig: String
     ) -> String {
-        return "\(keyType.wireValue) scope=\"\(scope)\",cred=\"\(cred)\",nonce=\(nonce),sig=\"\(sig)\""
+        return "alg=\"\(alg.wireValue)\", scope=\"\(scope)\", cred=\"\(cred)\", nonce=\(nonce), sig=\"\(sig)\""
     }
     
     public static func hashEmailAuthAnswer(

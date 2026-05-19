@@ -1,8 +1,32 @@
 import Foundation
 import Security
 
+protocol KeychainManaging {
+    @discardableResult
+    func set(_ value: String, forKey key: String, service: String) throws -> Bool
+    func string(forKey key: String, service: String) throws -> String?
+    @discardableResult
+    func delete(forKey key: String, service: String) throws -> Bool
+}
+
+extension KeychainManaging {
+    @discardableResult
+    func set(_ value: String, forKey key: String) throws -> Bool {
+        try set(value, forKey: key, service: KeychainManager.bundleID)
+    }
+
+    func string(forKey key: String) throws -> String? {
+        try string(forKey: key, service: KeychainManager.bundleID)
+    }
+
+    @discardableResult
+    func delete(forKey key: String) throws -> Bool {
+        try delete(forKey: key, service: KeychainManager.bundleID)
+    }
+}
+
 /// A simple wrapper for reading and writing `String` values to the iOS/macOS Keychain.
-final class KeychainManager {
+final class KeychainManager: KeychainManaging {
     public init() {}
 
     // MARK: - Errors
@@ -107,7 +131,7 @@ final class KeychainManager {
 
     // MARK: - Helpers
 
-    private static let bundleID: String = Bundle.main.bundleIdentifier ?? "com.app.keychain"
+    static let bundleID: String = Bundle.main.bundleIdentifier ?? "com.app.keychain"
 
     private func baseQuery(forKey key: String, service: String) -> [String: Any] {
         [
