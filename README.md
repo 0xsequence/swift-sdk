@@ -91,6 +91,18 @@ print(session.sessionEmail ?? "unknown")
 To opt out of automatic activation and drive wallet selection yourself:
 
 ```swift
+enum WalletPickerChoice {
+    case existing(Wallet)
+    case createNew
+}
+
+func showWalletPicker(
+    wallets: [Wallet],
+    includeCreateNewWallet: Bool
+) async -> WalletPickerChoice {
+    // Present app UI and return the user's choice.
+}
+
 let result = try await oms.wallet.completeEmailAuth(
     code: "123456",
     walletSelection: .manual
@@ -98,9 +110,15 @@ let result = try await oms.wallet.completeEmailAuth(
 
 switch result {
 case .walletSelection(let pendingSelection):
-    if let picked = pendingSelection.wallets.first {
-        try await pendingSelection.selectWallet(walletId: picked.id)
-    } else {
+    let choice = await showWalletPicker(
+        wallets: pendingSelection.wallets,
+        includeCreateNewWallet: true
+    )
+
+    switch choice {
+    case .existing(let wallet):
+        try await pendingSelection.selectWallet(walletId: wallet.id)
+    case .createNew:
         try await pendingSelection.createAndSelectWallet()
     }
 case .walletSelected:
@@ -119,14 +137,23 @@ let started = try await oms.wallet.startOidcRedirectAuth(
 
 // Open started.authorizationUrl.
 
-let result = try await oms.wallet.handleOidcRedirectCallback(callbackURLString)
+let result = try await oms.wallet.handleOidcRedirectCallback(
+    callbackURLString,
+    walletSelection: .manual
+)
 switch result {
 case .completed(let wallet):
     print(wallet.address)
 case .walletSelection(let pendingSelection):
-    if let picked = pendingSelection.wallets.first {
-        try await pendingSelection.selectWallet(walletId: picked.id)
-    } else {
+    let choice = await showWalletPicker(
+        wallets: pendingSelection.wallets,
+        includeCreateNewWallet: true
+    )
+
+    switch choice {
+    case .existing(let wallet):
+        try await pendingSelection.selectWallet(walletId: wallet.id)
+    case .createNew:
         try await pendingSelection.createAndSelectWallet()
     }
 case .notOidcRedirectCallback:

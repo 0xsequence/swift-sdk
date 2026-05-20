@@ -145,6 +145,11 @@ final class PendingWalletSelection {
 `wallets` is filtered to `walletType`. `selectWallet(walletId:)` rejects wallet
 IDs that are not in that filtered list.
 
+In manual mode, apps should present `wallets` plus a create-new-wallet action,
+then call `selectWallet(walletId:)` or `createAndSelectWallet(reference:)` from
+that user choice. Automatic "first wallet" selection belongs to
+`WalletSelectionBehavior.automatic`, not manual mode.
+
 ### CompleteAuthResult
 
 ```swift
