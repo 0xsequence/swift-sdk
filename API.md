@@ -108,44 +108,62 @@ Sends a one-time passcode to the provided email address.
 ### completeEmailAuth
 
 ```swift
-func completeEmailAuth(code: String, walletType: WalletType = .ethereum) async throws -> Wallet
-```
-
-Verifies the OTP code and activates an existing or newly created wallet.
-
-```swift
-func completeEmailAuth(
-    code: String,
-    autoActivate: Bool,
-    walletType: WalletType = .ethereum
-) async throws -> CompleteAuthResult
-```
-
-When `autoActivate` is `false`, verifies the OTP code and returns all available
-wallets without selecting or creating one. Call `useWallet(walletId:)` or
-`createWallet(walletType:reference:)` afterward to activate a wallet.
-
-```swift
 func completeEmailAuth(
     code: String,
     walletType: WalletType = .ethereum,
-    selectWallet: ([Wallet]) async throws -> Wallet
-) async throws -> Wallet
+    walletSelection: WalletSelectionBehavior = .automatic
+) async throws -> CompleteAuthResult
 ```
 
-Lets the app select from multiple available wallets matching `walletType`.
+Verifies the OTP code. With `.automatic`, selects the first existing wallet
+matching `walletType`, or creates and selects one when none exists. With
+`.manual`, returns a pending wallet selection without selecting or creating a
+wallet.
+
+### WalletSelectionBehavior
+
+```swift
+enum WalletSelectionBehavior {
+    case automatic
+    case manual
+}
+```
+
+### PendingWalletSelection
+
+```swift
+final class PendingWalletSelection {
+    let walletType: WalletType
+    let wallets: [Wallet]
+    let credential: CredentialInfo
+
+    func selectWallet(walletId: String) async throws -> WalletActivationResult
+    func createAndSelectWallet(reference: String? = nil) async throws -> WalletActivationResult
+}
+```
+
+`wallets` is filtered to `walletType`. `selectWallet(walletId:)` rejects wallet
+IDs that are not in that filtered list.
+
+In manual mode, apps should present `wallets` plus a create-new-wallet action,
+then call `selectWallet(walletId:)` or `createAndSelectWallet(reference:)` from
+that user choice. Automatic "first wallet" selection belongs to
+`WalletSelectionBehavior.automatic`, not manual mode. A pending selection is
+single-use and is invalidated by successful wallet selection, sign-out, or a
+new auth completion; using an invalidated selection throws
+`WalletAuthError.staleWalletSelection`.
 
 ### CompleteAuthResult
 
 ```swift
 enum CompleteAuthResult {
-    case activated(
+    case walletSelected(
         walletAddress: String,
         wallet: Wallet,
         wallets: [Wallet],
         credential: CredentialInfo
     )
-    case walletSelection(wallets: [Wallet], credential: CredentialInfo)
+    case walletSelection(PendingWalletSelection)
 }
 ```
 
@@ -203,15 +221,14 @@ struct StartOidcRedirectAuthResult {
 ```swift
 func handleOidcRedirectCallback(
     _ callbackUrl: String?,
-    autoActivate: Bool = true,
-    selectWallet: ([Wallet]) async throws -> Wallet = { wallets in wallets[0] }
-) async -> OidcRedirectAuthResult
+    walletSelection: WalletSelectionBehavior = .automatic
+) async throws -> OidcRedirectAuthResult
 ```
 
 ```swift
 enum OidcRedirectAuthResult {
     case completed(wallet: Wallet)
-    case walletSelection(wallets: [Wallet], credential: CredentialInfo)
+    case walletSelection(PendingWalletSelection)
     case notOidcRedirectCallback
     case noPendingAuth
     case failed(Error)
@@ -222,7 +239,10 @@ OIDC redirect auth stores transient verifier/state data separately from complete
 wallet sessions so apps can resume after the browser redirect. The callback
 handler is safe to call for every incoming app link: unrelated links return
 `.notOidcRedirectCallback`, stale links return `.noPendingAuth`, and provider or
-completion failures return `.failed`.
+completion failures return `.failed`. Invalid or unrelated callbacks do not clear
+pending redirect auth. Valid callbacks clear pending redirect auth after success
+or non-cancellation failure. Cancellation rethrows `CancellationError` without
+clearing pending redirect auth.
 
 ### useWallet
 
