@@ -14,6 +14,10 @@ class Constants {
         "oms-client-credential-nonce-\(environmentScopedSuffix(environment))"
     }
 
+    public static func oidcRedirectAuthStorageKey(environment: OMSClientEnvironment) -> String {
+        "oms-client-oidc-redirect-auth-\(environmentScopedSuffix(environment))"
+    }
+
     private static func environmentScopedSuffix(_ environment: OMSClientEnvironment) -> String {
         let source = "\(normalizedWalletApiOrigin(environment.walletApiUrl))\u{0}\(environment.scope)"
         let digest = SHA256.hash(data: Data(source.utf8))

@@ -1,6 +1,6 @@
 # OMS SDK (Swift)
 
-A Swift SDK for the OMS (Open Money Stack) platform. Provides email-based wallet authentication, non-extractable Keychain request signing, keychain session persistence, on-chain transaction submission with fee selection, message and typed-data signing, signature verification, token balance queries, and base-unit formatting helpers.
+A Swift SDK for the OMS (Open Money Stack) platform. Provides email and OIDC redirect wallet authentication, non-extractable Keychain request signing, keychain session persistence, on-chain transaction submission with fee selection, message and typed-data signing, signature verification, token balance queries, and base-unit formatting helpers.
 
 **Requirements:** iOS 15+ · macOS 12+
 
@@ -64,7 +64,7 @@ let amoy = oms.network(chainId: "80002")
 
 ## Authentication Flow
 
-OMS uses email-based OTP. The two-step flow is:
+OMS supports email-based OTP and OIDC redirect auth. The email two-step flow is:
 
 1. **`startEmailAuth(email:)`** sends a one-time code to the user's inbox.
 2. **`completeEmailAuth(code:walletType:)`** verifies the code, then automatically loads an existing wallet or creates one. The wallet address, wallet ID, and signer metadata are saved to the device keychain.
@@ -97,6 +97,32 @@ case .walletSelection(let wallets, _):
     try await oms.wallet.useWallet(walletId: picked.id)
 case .activated:
     break
+}
+```
+
+For OIDC authorization-code PKCE redirect flows, start the redirect, open the
+returned URL with your browser UI, then safely handle incoming app links:
+
+```swift
+let started = try await oms.wallet.startOidcRedirectAuth(
+    provider: OidcProviders.google(clientId: "YOUR_WEB_CLIENT_ID"),
+    redirectUri: "omssdkdemo://auth/callback"
+)
+
+// Open started.authorizationUrl.
+
+let result = await oms.wallet.handleOidcRedirectCallback(callbackURLString)
+switch result {
+case .completed(let wallet):
+    print(wallet.address)
+case .walletSelection(let wallets, _):
+    try await oms.wallet.useWallet(walletId: wallets[0].id)
+case .notOidcRedirectCallback:
+    break
+case .noPendingAuth:
+    break
+case .failed(let error):
+    print(error.localizedDescription)
 }
 ```
 

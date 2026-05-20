@@ -205,6 +205,245 @@ import Testing
     #expect(try fixture.storedCredentials() == nil)
 }
 
+@Test func TestWalletStartOidcRedirectAuthCommitsVerifierBuildsAuthorizationUrlAndStoresPendingAuth() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasWalletAPI.CommitVerifier.urlPath
+    )
+    let provider = OidcProviderConfig(
+        issuer: "https://issuer.example",
+        clientId: "client-123",
+        authorizationUrl: "https://issuer.example/oauth/authorize",
+        relayRedirectUri: "https://relay.example/callback",
+        authorizeParams: ["prompt": "consent"]
+    )
+
+    let result = try await fixture.client.startOidcRedirectAuth(
+        provider: provider,
+        redirectUri: "omssdkdemo://auth/callback",
+        authorizeParams: ["prompt": "select_account", "audience": "wallet"]
+    )
+    let request = try fixture.transport.decodedRequest(
+        CommitVerifierRequest.self,
+        for: WaasWalletAPI.CommitVerifier.urlPath
+    )
+    let query = queryParams(result.authorizationUrl)
+    let decodedState = try decodedOidcState(result.state)
+
+    #expect(request.identityType == .oidc)
+    #expect(request.authMode == .authCodePkce)
+    #expect(request.metadata["iss"] == "https://issuer.example")
+    #expect(request.metadata["aud"] == "client-123")
+    #expect(request.metadata["redirect_uri"] == "https://relay.example/callback")
+    #expect(uriOriginAndPath(result.authorizationUrl) == "https://issuer.example/oauth/authorize")
+    #expect(query["client_id"] == "client-123")
+    #expect(query["redirect_uri"] == "https://relay.example/callback")
+    #expect(query["response_type"] == "code")
+    #expect(query["scope"] == "openid email profile")
+    #expect(query["state"] == result.state)
+    #expect(query["code_challenge"] == "pkce-challenge")
+    #expect(query["code_challenge_method"] == "S256")
+    #expect(query["login_hint"] == "user@example.com")
+    #expect(query["prompt"] == "select_account")
+    #expect(query["audience"] == "wallet")
+    #expect(decodedState["nonce"] as? String == "nonce-123")
+    #expect(decodedState["scope"] as? String == fixture.environment.scope)
+    #expect(decodedState["redirect_uri"] as? String == "omssdkdemo://auth/callback")
+    #expect(result.challenge == "pkce-challenge")
+    #expect(fixture.oidcRedirectAuthStore.pending?.verifier == "oidc-verifier-123")
+    #expect(fixture.oidcRedirectAuthStore.pending?.challenge == "pkce-challenge")
+    #expect(fixture.oidcRedirectAuthStore.pending?.nonce == "nonce-123")
+    #expect(fixture.oidcRedirectAuthStore.pending?.redirectUri == "omssdkdemo://auth/callback")
+    #expect(fixture.oidcRedirectAuthStore.pending?.walletType == .ethereum)
+    #expect(fixture.oidcRedirectAuthStore.pending?.signerCredentialId == "0xmock-credential")
+    #expect(fixture.oidcRedirectAuthStore.pending?.signerKeyType == .ecdsaP256Sha256)
+    #expect(fixture.client.canResumeOidcRedirectAuth)
+    #expect(fixture.client.verifier == "oidc-verifier-123")
+}
+
+@Test func TestWalletHandleOidcRedirectCallbackCompletesAuthActivatesWalletAndClearsPendingAuth() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasWalletAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            identity: Identity(type: .oidc, iss: "https://issuer.example", sub: "oidc-sub-123"),
+            wallets: [selectedWallet]
+        ),
+        for: WaasWalletAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: selectedWallet),
+        for: WaasWalletAPI.UseWallet.urlPath
+    )
+    let started = try await fixture.client.startOidcRedirectAuth(
+        provider: OidcProviderConfig(
+            issuer: "https://issuer.example",
+            clientId: "client-123",
+            authorizationUrl: "https://issuer.example/oauth/authorize"
+        ),
+        redirectUri: "omssdkdemo://auth/callback"
+    )
+
+    let result = await fixture.client.handleOidcRedirectCallback(
+        "omssdkdemo://auth/callback?code=auth-code&state=\(started.state)&scope=openid"
+    )
+    guard case .completed(let wallet) = result else {
+        #expect(Bool(false))
+        return
+    }
+    let completeAuthRequest = try fixture.transport.decodedRequest(
+        CompleteAuthRequest.self,
+        for: WaasWalletAPI.CompleteAuth.urlPath
+    )
+    let useWalletRequest = try fixture.transport.decodedRequest(
+        UseWalletRequest.self,
+        for: WaasWalletAPI.UseWallet.urlPath
+    )
+    let storedCredentials = try fixture.storedCredentials()
+
+    #expect(completeAuthRequest.identityType == .oidc)
+    #expect(completeAuthRequest.authMode == .authCodePkce)
+    #expect(completeAuthRequest.verifier == "oidc-verifier-123")
+    #expect(completeAuthRequest.answer == "auth-code")
+    #expect(completeAuthRequest.lifetime == 604_800)
+    #expect(useWalletRequest.walletId == selectedWallet.id)
+    #expect(wallet.address == "0xdef")
+    #expect(fixture.client.walletAddress == "0xdef")
+    #expect(fixture.client.walletId == "wallet-def")
+    #expect(fixture.client.canResumeOidcRedirectAuth == false)
+    #expect(fixture.oidcRedirectAuthStore.pending == nil)
+    #expect(storedCredentials?.walletId == "wallet-def")
+    #expect(storedCredentials?.walletAddress == "0xdef")
+    #expect(storedCredentials?.loginType == .oidc)
+    #expect(storedCredentials?.sessionEmail == "user@example.com")
+}
+
+@Test func TestWalletHandleOidcRedirectCallbackCanReturnWalletSelectionWithoutActivatingWallet() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasWalletAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            identity: Identity(type: .oidc, iss: "https://issuer.example", sub: "oidc-sub-123"),
+            wallets: [selectedWallet]
+        ),
+        for: WaasWalletAPI.CompleteAuth.urlPath
+    )
+    let started = try await fixture.client.startOidcRedirectAuth(
+        provider: OidcProviderConfig(
+            issuer: "https://issuer.example",
+            clientId: "client-123",
+            authorizationUrl: "https://issuer.example/oauth/authorize"
+        ),
+        redirectUri: "omssdkdemo://auth/callback"
+    )
+
+    let result = await fixture.client.handleOidcRedirectCallback(
+        "omssdkdemo://auth/callback?code=auth-code&state=\(started.state)",
+        autoActivate: false
+    )
+
+    guard case .walletSelection(let wallets, let credential) = result else {
+        #expect(Bool(false))
+        return
+    }
+    #expect(wallets.map(\.id) == ["wallet-def"])
+    #expect(credential.credentialId == testCredential.credentialId)
+    #expect(fixture.client.walletId == "")
+    #expect(fixture.client.walletAddress == "")
+    #expect(fixture.client.session.walletAddress == nil)
+    #expect(fixture.client.canResumeOidcRedirectAuth == false)
+    #expect(fixture.oidcRedirectAuthStore.pending == nil)
+    #expect(fixture.transport.requestCount(for: WaasWalletAPI.UseWallet.urlPath) == 0)
+    #expect(try fixture.storedCredentials() == nil)
+}
+
+@Test func TestWalletHandleOidcRedirectCallbackIgnoresUnrelatedCallbackWithoutClearingPendingAuth() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasWalletAPI.CommitVerifier.urlPath
+    )
+    let started = try await fixture.client.startOidcRedirectAuth(
+        provider: OidcProviderConfig(
+            issuer: "https://issuer.example",
+            clientId: "client-123",
+            authorizationUrl: "https://issuer.example/oauth/authorize"
+        ),
+        redirectUri: "omssdkdemo://auth/callback"
+    )
+
+    let result = await fixture.client.handleOidcRedirectCallback(
+        "otherapp://auth/callback?code=auth-code&state=\(started.state)"
+    )
+
+    guard case .notOidcRedirectCallback = result else {
+        #expect(Bool(false))
+        return
+    }
+    #expect(fixture.client.canResumeOidcRedirectAuth)
+    #expect(fixture.oidcRedirectAuthStore.pending?.verifier == "oidc-verifier-123")
+    #expect(fixture.transport.requestCount(for: WaasWalletAPI.CompleteAuth.urlPath) == 0)
+}
+
+@Test func TestWalletHandleOidcRedirectCallbackReturnsFailedAndClearsPendingAuthForProviderError() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasWalletAPI.CommitVerifier.urlPath
+    )
+    let started = try await fixture.client.startOidcRedirectAuth(
+        provider: OidcProviderConfig(
+            issuer: "https://issuer.example",
+            clientId: "client-123",
+            authorizationUrl: "https://issuer.example/oauth/authorize"
+        ),
+        redirectUri: "omssdkdemo://auth/callback"
+    )
+
+    let result = await fixture.client.handleOidcRedirectCallback(
+        "omssdkdemo://auth/callback?error=access_denied&error_description=User%20cancelled&state=\(started.state)"
+    )
+
+    guard case .failed(let error as OidcRedirectAuthError) = result else {
+        #expect(Bool(false))
+        return
+    }
+    #expect(error == .providerError("User cancelled"))
+    #expect(fixture.client.walletId == "")
+    #expect(fixture.client.walletAddress == "")
+    #expect(fixture.client.canResumeOidcRedirectAuth == false)
+    #expect(fixture.oidcRedirectAuthStore.pending == nil)
+}
+
 private let testCredential = CredentialInfo(
     credentialId: "0xcredential",
     expiresAt: "2026-01-01T00:00:00Z",
@@ -217,6 +456,7 @@ private struct MockWalletClientFixture {
     let signer: MockCredentialSigner
     let keychain: InMemoryKeychain
     let environment: OMSClientEnvironment
+    let oidcRedirectAuthStore: InMemoryOidcRedirectAuthStore
 
     func storedCredentials() throws -> StorableCredentials? {
         guard let json = try keychain.string(forKey: Constants.credentialsStorageKey(environment: environment)) else {
@@ -226,7 +466,9 @@ private struct MockWalletClientFixture {
     }
 }
 
-private func makeMockWalletClient() -> MockWalletClientFixture {
+private func makeMockWalletClient(
+    oidcNonceGenerator: @escaping () throws -> String = OidcRedirectAuth.generateNonce
+) -> MockWalletClientFixture {
     let environment = OMSClientEnvironment(
         walletApiUrl: "https://wallet.example.test",
         scope: UUID().uuidString
@@ -234,6 +476,7 @@ private func makeMockWalletClient() -> MockWalletClientFixture {
     let transport = MockWaasTransport()
     let keychain = InMemoryKeychain()
     let signer = MockCredentialSigner()
+    let oidcRedirectAuthStore = InMemoryOidcRedirectAuthStore()
     let credentialSession = WalletCredentialSession(
         environment: environment,
         keychain: keychain,
@@ -252,7 +495,9 @@ private func makeMockWalletClient() -> MockWalletClientFixture {
         environment: environment,
         credentialSession: credentialSession,
         signedClient: signedClient,
-        publicClient: publicClient
+        publicClient: publicClient,
+        oidcRedirectAuthStore: oidcRedirectAuthStore,
+        oidcNonceGenerator: oidcNonceGenerator
     )
     client.verifier = "verifier"
     client.challenge = "challenge"
@@ -262,16 +507,18 @@ private func makeMockWalletClient() -> MockWalletClientFixture {
         transport: transport,
         signer: signer,
         keychain: keychain,
-        environment: environment
+        environment: environment,
+        oidcRedirectAuthStore: oidcRedirectAuthStore
     )
 }
 
 private func completeAuthResponse(
+    identity: Identity = Identity(type: .email, sub: "user@example.com"),
     wallets: [Wallet],
     page: Page? = nil
 ) -> CompleteAuthResponse {
     CompleteAuthResponse(
-        identity: Identity(type: .email, sub: "user@example.com"),
+        identity: identity,
         wallets: wallets,
         page: page,
         email: "user@example.com",
@@ -289,6 +536,47 @@ private func testWallet(
         type: type,
         address: address
     )
+}
+
+private func uriOriginAndPath(_ url: String) -> String {
+    guard let components = URLComponents(string: url) else {
+        return ""
+    }
+    let scheme = components.scheme.map { "\($0)://" } ?? ""
+    let host = components.host ?? ""
+    let port = components.port.map { ":\($0)" } ?? ""
+    return "\(scheme)\(host)\(port)\(components.percentEncodedPath)"
+}
+
+private func queryParams(_ url: String) -> [String: String] {
+    guard let query = URLComponents(string: url)?.percentEncodedQuery else {
+        return [:]
+    }
+    return query
+        .split(separator: "&", omittingEmptySubsequences: true)
+        .reduce(into: [String: String]()) { result, pair in
+            let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            let key = urlDecode(String(parts[0]))
+            let value = parts.count > 1 ? urlDecode(String(parts[1])) : ""
+            result[key] = value
+        }
+}
+
+private func decodedOidcState(_ value: String) throws -> [String: Any] {
+    var base64 = value
+        .replacingOccurrences(of: "-", with: "+")
+        .replacingOccurrences(of: "_", with: "/")
+    let padding = (4 - base64.count % 4) % 4
+    base64.append(String(repeating: "=", count: padding))
+    let data = try #require(Data(base64Encoded: base64))
+    let object = try JSONSerialization.jsonObject(with: data)
+    return try #require(object as? [String: Any])
+}
+
+private func urlDecode(_ value: String) -> String {
+    value
+        .replacingOccurrences(of: "+", with: " ")
+        .removingPercentEncoding ?? value
 }
 
 private final class InMemoryKeychain: KeychainManaging {
@@ -321,6 +609,29 @@ private final class InMemoryKeychain: KeychainManaging {
     }
 }
 
+private final class InMemoryOidcRedirectAuthStore: OidcRedirectAuthStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private(set) var pending: PendingOidcRedirectAuth?
+
+    func load() throws -> PendingOidcRedirectAuth? {
+        lock.lock()
+        defer { lock.unlock() }
+        return pending
+    }
+
+    func save(_ pending: PendingOidcRedirectAuth) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        self.pending = pending
+    }
+
+    func clear() throws {
+        lock.lock()
+        defer { lock.unlock() }
+        pending = nil
+    }
+}
+
 private final class MockCredentialSigner: CredentialSigner, @unchecked Sendable {
     let alg: SigningAlgorithm = .ecdsaP256Sha256
 
@@ -341,7 +652,10 @@ private final class MockCredentialSigner: CredentialSigner, @unchecked Sendable 
     }
 
     func credentialId() throws -> String {
-        "0xmock-credential"
+        lock.lock()
+        defer { lock.unlock() }
+        credentialAvailable = true
+        return "0xmock-credential"
     }
 
     func nextNonce() throws -> String {

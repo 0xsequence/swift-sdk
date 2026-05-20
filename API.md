@@ -89,6 +89,14 @@ var session: SessionState
 
 Snapshot of the currently completed wallet session for this wallet client.
 
+### canResumeOidcRedirectAuth
+
+```swift
+var canResumeOidcRedirectAuth: Bool
+```
+
+Whether there is a persisted OIDC redirect flow waiting for its callback URL.
+
 ### startEmailAuth
 
 ```swift
@@ -140,6 +148,81 @@ enum CompleteAuthResult {
     case walletSelection(wallets: [Wallet], credential: CredentialInfo)
 }
 ```
+
+### OIDC Redirect Auth
+
+```swift
+struct OidcProviderConfig {
+    let issuer: String
+    let clientId: String
+    let authorizationUrl: String
+    let scopes: [String]
+    let relayRedirectUri: String?
+    let authorizeParams: [String: String]
+}
+```
+
+```swift
+enum OidcProviders {
+    static func google(
+        clientId: String = OidcProviders.defaultGoogleClientId,
+        relayRedirectUri: String? = OidcProviders.defaultRelayRedirectUri,
+        scopes: [String] = ["openid", "email", "profile"],
+        authorizeParams: [String: String] = [:]
+    ) -> OidcProviderConfig
+}
+```
+
+```swift
+func startOidcRedirectAuth(
+    provider: OidcProviderConfig,
+    redirectUri: String,
+    walletType: WalletType = .ethereum,
+    authorizeParams: [String: String] = [:]
+) async throws -> StartOidcRedirectAuthResult
+```
+
+```swift
+func startOidcRedirectAuth(
+    provider: OidcProviderConfig,
+    redirectUri: String,
+    walletType: WalletType = .ethereum,
+    relayRedirectUri: String?,
+    authorizeParams: [String: String] = [:]
+) async throws -> StartOidcRedirectAuthResult
+```
+
+```swift
+struct StartOidcRedirectAuthResult {
+    let authorizationUrl: String
+    let state: String
+    let challenge: String
+}
+```
+
+```swift
+func handleOidcRedirectCallback(
+    _ callbackUrl: String?,
+    autoActivate: Bool = true,
+    selectWallet: ([Wallet]) async throws -> Wallet = { wallets in wallets[0] }
+) async -> OidcRedirectAuthResult
+```
+
+```swift
+enum OidcRedirectAuthResult {
+    case completed(wallet: Wallet)
+    case walletSelection(wallets: [Wallet], credential: CredentialInfo)
+    case notOidcRedirectCallback
+    case noPendingAuth
+    case failed(Error)
+}
+```
+
+OIDC redirect auth stores transient verifier/state data separately from completed
+wallet sessions so apps can resume after the browser redirect. The callback
+handler is safe to call for every incoming app link: unrelated links return
+`.notOidcRedirectCallback`, stale links return `.noPendingAuth`, and provider or
+completion failures return `.failed`.
 
 ### useWallet
 

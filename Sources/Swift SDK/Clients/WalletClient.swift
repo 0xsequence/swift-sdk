@@ -22,6 +22,9 @@ public class WalletClient {
     private let projectAccessKey: String
     private let environment: OMSClientEnvironment
     private let credentialSession: WalletCredentialSession
+    private let oidcRedirectAuthStore: any OidcRedirectAuthStore
+    private let oidcNonceGenerator: () throws -> String
+    private let signedClientFactory: (any CredentialSigner) -> WaasWalletClient
     private var sessionExpiresAt: String?
     private var sessionLoginType: SessionLoginType?
     private var sessionEmail: String?
@@ -37,6 +40,16 @@ public class WalletClient {
         self.environment = environment
         let credentialSession = WalletCredentialSession(environment: environment)
         let restoredWallet = credentialSession.restore()
+        self.oidcRedirectAuthStore = KeychainOidcRedirectAuthStore(environment: environment)
+        self.oidcNonceGenerator = OidcRedirectAuth.generateNonce
+        let makeSignedClient: (any CredentialSigner) -> WaasWalletClient = { signer in
+            Self.makeSignedClient(
+                projectAccessKey: projectAccessKey,
+                environment: environment,
+                signer: signer
+            )
+        }
+        self.signedClientFactory = makeSignedClient
 
         self.walletId = restoredWallet?.walletId ?? ""
         self.walletAddress = restoredWallet?.walletAddress ?? ""
@@ -45,11 +58,7 @@ public class WalletClient {
         self.sessionEmail = restoredWallet?.sessionEmail
         self.credentialSession = credentialSession
 
-        self.signedClient = Self.makeSignedClient(
-            projectAccessKey: projectAccessKey,
-            environment: environment,
-            signer: credentialSession.signer
-        )
+        self.signedClient = makeSignedClient(credentialSession.signer)
         self.publicClient = Self.makePublicClient(
             projectAccessKey: projectAccessKey,
             environment: environment
@@ -61,11 +70,18 @@ public class WalletClient {
         environment: OMSClientEnvironment = OMSClientEnvironment(),
         credentialSession: WalletCredentialSession,
         signedClient: WaasWalletClient,
-        publicClient: WaasWalletPublicClient
+        publicClient: WaasWalletPublicClient,
+        oidcRedirectAuthStore: (any OidcRedirectAuthStore)? = nil,
+        oidcNonceGenerator: @escaping () throws -> String = OidcRedirectAuth.generateNonce,
+        signedClientFactory: ((any CredentialSigner) -> WaasWalletClient)? = nil
     ) {
         self.projectAccessKey = projectAccessKey
         self.environment = environment
         let restoredWallet = credentialSession.restore()
+        self.oidcRedirectAuthStore = oidcRedirectAuthStore ?? KeychainOidcRedirectAuthStore(environment: environment)
+        self.oidcNonceGenerator = oidcNonceGenerator
+        let makeSignedClient = signedClientFactory ?? { _ in signedClient }
+        self.signedClientFactory = makeSignedClient
 
         self.walletId = restoredWallet?.walletId ?? ""
         self.walletAddress = restoredWallet?.walletAddress ?? ""
@@ -75,6 +91,12 @@ public class WalletClient {
         self.credentialSession = credentialSession
         self.signedClient = signedClient
         self.publicClient = publicClient
+    }
+
+    /// Whether there is a persisted OIDC redirect flow that can still be completed by
+    /// passing the app callback URL to `handleOidcRedirectCallback`.
+    public var canResumeOidcRedirectAuth: Bool {
+        (try? oidcRedirectAuthStore.load()) != nil
     }
 
     /// Snapshot of the current durable wallet-session state.
@@ -187,6 +209,190 @@ public class WalletClient {
             throw WalletAuthError.authCompletedWithoutWalletActivation
         }
         return wallet
+    }
+
+    /// Starts OIDC authorization-code PKCE redirect authentication.
+    ///
+    /// Open the returned `authorizationUrl` in a browser or `ASWebAuthenticationSession`.
+    /// After the provider redirects back to your app, pass the callback URL to
+    /// `handleOidcRedirectCallback(_:autoActivate:selectWallet:)`.
+    public func startOidcRedirectAuth(
+        provider: OidcProviderConfig,
+        redirectUri: String,
+        walletType: WalletType = WalletType.ethereum,
+        authorizeParams: [String: String] = [:]
+    ) async throws -> StartOidcRedirectAuthResult {
+        try await startOidcRedirectAuth(
+            provider: provider,
+            redirectUri: redirectUri,
+            walletType: walletType,
+            relayRedirectUri: provider.relayRedirectUri,
+            authorizeParams: authorizeParams
+        )
+    }
+
+    /// Starts OIDC authorization-code PKCE redirect authentication with an explicit
+    /// OAuth redirect URI override. Pass `nil` to use the app callback URI directly
+    /// even when the provider configuration has a relay redirect URI.
+    public func startOidcRedirectAuth(
+        provider: OidcProviderConfig,
+        redirectUri: String,
+        walletType: WalletType = WalletType.ethereum,
+        relayRedirectUri: String?,
+        authorizeParams: [String: String] = [:]
+    ) async throws -> StartOidcRedirectAuthResult {
+        try clearSession(clearOidcRedirectAuth: true)
+
+        do {
+            let signerCredentialId = try credentialSession.signer.credentialId()
+            let oauthRedirectUri = relayRedirectUri ?? redirectUri
+            let response = try await signedClient.commitVerifier(
+                CommitVerifierRequest(
+                    identityType: .oidc,
+                    authMode: .authCodePkce,
+                    metadata: [
+                        "iss": provider.issuer,
+                        "aud": provider.clientId,
+                        "redirect_uri": oauthRedirectUri
+                    ]
+                )
+            )
+            let nonce = try oidcNonceGenerator()
+            let state = try OidcRedirectAuth.encodeState(
+                nonce: nonce,
+                scope: environment.scope,
+                redirectUri: oauthRedirectUri == redirectUri ? nil : redirectUri
+            )
+
+            verifier = response.verifier
+            challenge = response.challenge
+            try oidcRedirectAuthStore.save(
+                PendingOidcRedirectAuth(
+                    verifier: response.verifier,
+                    challenge: response.challenge,
+                    nonce: nonce,
+                    redirectUri: redirectUri,
+                    issuer: provider.issuer,
+                    authorizationScope: environment.scope,
+                    walletType: walletType,
+                    signerCredentialId: signerCredentialId,
+                    signerKeyType: credentialSession.signer.alg
+                )
+            )
+
+            let authorizationUrl = try OidcRedirectAuth.buildAuthorizationUrl(
+                provider: provider,
+                redirectUri: oauthRedirectUri,
+                state: state,
+                challenge: response.challenge,
+                loginHint: response.loginHint,
+                authorizeParams: provider.authorizeParams.merging(authorizeParams) { _, new in new }
+            )
+
+            return StartOidcRedirectAuthResult(
+                authorizationUrl: authorizationUrl,
+                state: state,
+                challenge: response.challenge
+            )
+        } catch {
+            try? clearSession(clearOidcRedirectAuth: true)
+            throw error
+        }
+    }
+
+    /// Safely handles an incoming OIDC authorization-code PKCE redirect callback.
+    ///
+    /// This method is idempotent and safe to call for every incoming app link.
+    /// Unrelated links return `.notOidcRedirectCallback`, stale callbacks return
+    /// `.noPendingAuth`, and successful auth returns `.completed` or
+    /// `.walletSelection` when `autoActivate` is `false`.
+    public func handleOidcRedirectCallback(
+        _ callbackUrl: String?,
+        autoActivate: Bool = true,
+        selectWallet: ([Wallet]) async throws -> Wallet = { wallets in
+            guard wallets.count == 1, let wallet = wallets.first else {
+                throw WalletAuthError.multipleWalletsAvailable
+            }
+            return wallet
+        }
+    ) async -> OidcRedirectAuthResult {
+        guard let callbackUrl = callbackUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !callbackUrl.isEmpty else {
+            return .notOidcRedirectCallback
+        }
+
+        let callback = OidcRedirectAuth.parseCallbackUrl(callbackUrl)
+        guard callback.hasOidcResponse else {
+            return .notOidcRedirectCallback
+        }
+
+        let pending: PendingOidcRedirectAuth
+        do {
+            guard let loaded = try oidcRedirectAuthStore.load() else {
+                return .noPendingAuth
+            }
+            pending = loaded
+        } catch {
+            return .noPendingAuth
+        }
+
+        guard OidcRedirectAuth.matchesRedirectUri(
+            callbackUrl: callbackUrl,
+            redirectUri: pending.redirectUri
+        ) else {
+            return .notOidcRedirectCallback
+        }
+
+        guard let state = callback.state,
+              (try? OidcRedirectAuth.validateState(state, pending: pending)) != nil else {
+            return .notOidcRedirectCallback
+        }
+
+        var clearPendingAuth = false
+        defer {
+            if clearPendingAuth {
+                try? oidcRedirectAuthStore.clear()
+            }
+        }
+
+        do {
+            clearPendingAuth = true
+            if let error = callback.error {
+                throw OidcRedirectAuthError.providerError(
+                    callback.errorDescription ?? "OIDC provider returned error: \(error)"
+                )
+            }
+            guard let code = callback.code else {
+                throw OidcRedirectAuthError.missingCode
+            }
+
+            try restorePendingOidcRedirectAuth(pending)
+            let response = try await signedClient.completeAuth(
+                CompleteAuthRequest(
+                    identityType: .oidc,
+                    authMode: .authCodePkce,
+                    verifier: pending.verifier,
+                    answer: code,
+                    lifetime: Self.defaultSessionLifetimeSeconds
+                )
+            )
+            let result = try await completeWalletAuth(
+                response,
+                walletType: pending.walletType,
+                autoActivate: autoActivate,
+                selectWallet: selectWallet
+            )
+
+            switch result {
+            case .activated(_, let wallet, _, _):
+                return .completed(wallet: wallet)
+            case .walletSelection(let wallets, let credential):
+                return .walletSelection(wallets: wallets, credential: credential)
+            }
+        } catch {
+            try? clearSession(clearOidcRedirectAuth: false)
+            return .failed(error)
+        }
     }
 
     private func completeEmailAuth(
@@ -434,6 +640,18 @@ public class WalletClient {
         }
     }
 
+    private func restorePendingOidcRedirectAuth(_ pending: PendingOidcRedirectAuth) throws {
+        try requireActiveCredential()
+        let signerCredentialId = try credentialSession.signer.credentialId()
+        guard signerCredentialId.lowercased() == pending.signerCredentialId.lowercased(),
+              pending.signerKeyType == nil || pending.signerKeyType == credentialSession.signer.alg else {
+            throw OidcRedirectAuthError.signerMismatch
+        }
+
+        verifier = pending.verifier
+        challenge = pending.challenge
+    }
+
     /// Persists the given wallet address and signer metadata to the keychain
     /// so the session can be restored on a later launch.
     ///
@@ -464,7 +682,14 @@ public class WalletClient {
     /// and the user will need to sign in again via `startEmailAuth(email:)`. Navigate to your
     /// sign-in screen after calling this.
     public func signOut() throws {
+        try clearSession(clearOidcRedirectAuth: true)
+    }
+
+    private func clearSession(clearOidcRedirectAuth: Bool) throws {
         try credentialSession.clear()
+        if clearOidcRedirectAuth {
+            try oidcRedirectAuthStore.clear()
+        }
         walletAddress = ""
         walletId = ""
         verifier = ""
@@ -472,11 +697,7 @@ public class WalletClient {
         sessionExpiresAt = nil
         sessionLoginType = nil
         sessionEmail = nil
-        signedClient = Self.makeSignedClient(
-            projectAccessKey: projectAccessKey,
-            environment: environment,
-            signer: credentialSession.signer
-        )
+        signedClient = signedClientFactory(credentialSession.signer)
     }
 
     /// Returns a list of credentials that currently have access to this wallet.

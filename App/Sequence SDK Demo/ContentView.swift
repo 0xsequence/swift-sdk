@@ -3,6 +3,7 @@ import Combine
 import OMS_SDK
 #if os(iOS)
 import UIKit
+import SafariServices
 #elseif os(macOS)
 import AppKit
 #endif
@@ -24,6 +25,29 @@ enum Clipboard {
 // MARK: - Chains
 
 private let supportedNetworks: [Network] = Network.supportedNetworks
+private let oidcRedirectUri = "omsclientswiftdemo://auth/callback"
+
+struct SafariAuthSession: Identifiable {
+    let url: URL
+
+    var id: String {
+        url.absoluteString
+    }
+}
+
+private enum DemoAuthError: Error, LocalizedError {
+    case invalidAuthorizationURL
+    case noWalletsAvailable
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidAuthorizationURL:
+            return "The authorization URL could not be opened."
+        case .noWalletsAvailable:
+            return "No wallets are available for this account."
+        }
+    }
+}
 
 // MARK: - Styling
 
@@ -137,6 +161,7 @@ final class AppViewModel: ObservableObject {
     @Published var screen: AppScreen = .login
     @Published var isLoading: Bool = false
     @Published var error: GenericAppError?
+    @Published var safariAuthSession: SafariAuthSession?
     @Published var oms: OMSClient = OMSClient(
         projectAccessKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE"
     )
@@ -167,6 +192,56 @@ final class AppViewModel: ObservableObject {
             try await oms.wallet.startEmailAuth(email: input)
             screen = .confirmCode
         } catch {
+            present(error)
+        }
+    }
+
+    func startGoogleRedirectAuth() async {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let started = try await oms.wallet.startOidcRedirectAuth(
+                provider: OidcProviders.google(),
+                redirectUri: oidcRedirectUri
+            )
+            guard let authorizationUrl = URL(string: started.authorizationUrl) else {
+                throw DemoAuthError.invalidAuthorizationURL
+            }
+
+            #if os(iOS)
+            safariAuthSession = SafariAuthSession(url: authorizationUrl)
+            #elseif os(macOS)
+            NSWorkspace.shared.open(authorizationUrl)
+            #endif
+        } catch {
+            present(error)
+        }
+    }
+
+    func handleOpenURL(_ url: URL) async {
+        let result = await oms.wallet.handleOidcRedirectCallback(url.absoluteString)
+
+        switch result {
+        case .completed:
+            safariAuthSession = nil
+            screen = .wallet
+        case .walletSelection(let wallets, _):
+            do {
+                guard let wallet = wallets.first else {
+                    throw DemoAuthError.noWalletsAvailable
+                }
+                try await oms.wallet.useWallet(walletId: wallet.id)
+                safariAuthSession = nil
+                screen = .wallet
+            } catch {
+                safariAuthSession = nil
+                present(error)
+            }
+        case .notOidcRedirectCallback, .noPendingAuth:
+            break
+        case .failed(let error):
+            safariAuthSession = nil
             present(error)
         }
     }
@@ -215,6 +290,17 @@ struct ContentView: View {
         .task {
             await vm.checkSession()
         }
+        .onOpenURL { url in
+            Task {
+                await vm.handleOpenURL(url)
+            }
+        }
+        #if os(iOS)
+        .sheet(item: $vm.safariAuthSession) { session in
+            SafariView(url: session.url)
+                .ignoresSafeArea()
+        }
+        #endif
     }
 }
 
@@ -257,6 +343,16 @@ struct LoginWindow: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .disabled(inputText.isEmpty || vm.isLoading)
+
+                Button {
+                    Task { await vm.startGoogleRedirectAuth() }
+                } label: {
+                    label(for: "Continue with Google", systemImage: "globe", loading: vm.isLoading)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(vm.isLoading)
+                .padding(.top, 12)
                 .padding(.bottom, 24)
             }
         }
@@ -971,6 +1067,18 @@ struct CallContractWindow: View {
 }
 
 // MARK: - Helpers
+
+#if os(iOS)
+private struct SafariView: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        SFSafariViewController(url: url)
+    }
+
+    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
+}
+#endif
 
 private enum AppNavigationTitleDisplayMode {
     case large
