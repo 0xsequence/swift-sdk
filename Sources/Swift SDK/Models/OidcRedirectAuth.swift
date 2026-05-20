@@ -138,11 +138,12 @@ final class KeychainOidcRedirectAuthStore: OidcRedirectAuthStore, @unchecked Sen
     private let storageKey: String
 
     init(
+        projectId: String,
         environment: OMSClientEnvironment,
         keychain: any KeychainManaging = KeychainManager()
     ) {
         self.keychain = keychain
-        self.storageKey = Constants.oidcRedirectAuthStorageKey(environment: environment)
+        self.storageKey = Constants.oidcRedirectAuthStorageKey(environment: environment, scope: projectId)
     }
 
     func load() throws -> PendingOidcRedirectAuth? {

@@ -162,7 +162,8 @@ final class AppViewModel: ObservableObject {
     @Published var safariAuthSession: SafariAuthSession?
     @Published var useManualWalletSelection: Bool = false
     @Published var oms: OMSClient = OMSClient(
-        projectAccessKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE"
+        projectAccessKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE",
+        projectId: "proj_014kg56dc0a75"
     )
 
     init() {}

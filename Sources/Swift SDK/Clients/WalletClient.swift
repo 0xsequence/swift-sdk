@@ -26,6 +26,8 @@ public class WalletClient {
 
     private var signedClient: WaasWalletClient
     private var publicClient: WaasWalletPublicClient
+    
+    private let projectId: String
     private let projectAccessKey: String
     private let environment: OMSClientEnvironment
     private let credentialSession: WalletCredentialSession
@@ -43,16 +45,18 @@ public class WalletClient {
     var verifier = "";
     var challenge = "";
 
-    public init(projectAccessKey: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
+    public init(projectAccessKey: String, projectId: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
+        self.projectId = projectId
         self.projectAccessKey = projectAccessKey
         self.environment = environment
-        let credentialSession = WalletCredentialSession(environment: environment)
+        let credentialSession = WalletCredentialSession(environment: environment, projectId: projectId)
         let restoredWallet = credentialSession.restore()
-        self.oidcRedirectAuthStore = KeychainOidcRedirectAuthStore(environment: environment)
+        self.oidcRedirectAuthStore = KeychainOidcRedirectAuthStore(projectId: projectId, environment: environment)
         self.oidcNonceGenerator = OidcRedirectAuth.generateNonce
         let makeSignedClient: (any CredentialSigner) -> WaasWalletClient = { signer in
             Self.makeSignedClient(
                 projectAccessKey: projectAccessKey,
+                projectId: projectId,
                 environment: environment,
                 signer: signer
             )
@@ -75,6 +79,7 @@ public class WalletClient {
 
     init(
         projectAccessKey: String,
+        projectId: String,
         environment: OMSClientEnvironment = OMSClientEnvironment(),
         credentialSession: WalletCredentialSession,
         signedClient: WaasWalletClient,
@@ -83,10 +88,11 @@ public class WalletClient {
         oidcNonceGenerator: @escaping () throws -> String = OidcRedirectAuth.generateNonce,
         signedClientFactory: ((any CredentialSigner) -> WaasWalletClient)? = nil
     ) {
+        self.projectId = projectId
         self.projectAccessKey = projectAccessKey
         self.environment = environment
         let restoredWallet = credentialSession.restore()
-        self.oidcRedirectAuthStore = oidcRedirectAuthStore ?? KeychainOidcRedirectAuthStore(environment: environment)
+        self.oidcRedirectAuthStore = oidcRedirectAuthStore ?? KeychainOidcRedirectAuthStore(projectId: projectId, environment: environment)
         self.oidcNonceGenerator = oidcNonceGenerator
         let makeSignedClient = signedClientFactory ?? { _ in signedClient }
         self.signedClientFactory = makeSignedClient
@@ -217,7 +223,7 @@ public class WalletClient {
             let nonce = try oidcNonceGenerator()
             let state = try OidcRedirectAuth.encodeState(
                 nonce: nonce,
-                scope: environment.scope,
+                scope: projectId,
                 redirectUri: oauthRedirectUri == redirectUri ? nil : redirectUri
             )
 
@@ -230,7 +236,7 @@ public class WalletClient {
                     nonce: nonce,
                     redirectUri: redirectUri,
                     issuer: provider.issuer,
-                    authorizationScope: environment.scope,
+                    authorizationScope: self.projectId,
                     walletType: walletType,
                     signerCredentialId: signerCredentialId,
                     signerKeyType: credentialSession.signer.alg
@@ -929,6 +935,7 @@ public class WalletClient {
 
     private static func makeSignedClient(
         projectAccessKey: String,
+        projectId: String,
         environment: OMSClientEnvironment,
         signer: any CredentialSigner
     ) -> WaasWalletClient {
@@ -936,7 +943,7 @@ public class WalletClient {
             baseURL: environment.walletApiUrl,
             transport: SignedWaasTransport(
                 projectAccessKey: projectAccessKey,
-                scope: environment.scope,
+                scope: projectId,
                 signer: signer
             ),
             headers: { [:] }
