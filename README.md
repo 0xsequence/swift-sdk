@@ -24,7 +24,10 @@ import OMS_SDK
 let oms = OMSClient(projectAccessKey: "your-project-access-key")
 
 try await oms.wallet.startEmailAuth(email: "user@example.com")
-let wallet = try await oms.wallet.completeEmailAuth(code: "123456")
+let auth = try await oms.wallet.completeEmailAuth(code: "123456")
+guard case .walletSelected(_, let wallet, _, _) = auth else {
+    fatalError("Expected automatic wallet selection")
+}
 
 print("Wallet address:", wallet.address)
 print("Session email:", oms.wallet.session.sessionEmail ?? "unknown")
@@ -67,15 +70,17 @@ let amoy = oms.network(chainId: "80002")
 OMS supports email-based OTP and OIDC redirect auth. The email two-step flow is:
 
 1. **`startEmailAuth(email:)`** sends a one-time code to the user's inbox.
-2. **`completeEmailAuth(code:walletType:)`** verifies the code, then automatically loads an existing wallet or creates one. The wallet address, wallet ID, and signer metadata are saved to the device keychain.
+2. **`completeEmailAuth(code:walletType:walletSelection:)`** verifies the code. In the default `.automatic` mode it selects the first matching wallet or creates one. The wallet address, wallet ID, and signer metadata are saved to the device keychain.
 
 ```swift
 try await oms.wallet.startEmailAuth(email: "user@example.com")
 
 // Present your OTP entry UI.
-let wallet = try await oms.wallet.completeEmailAuth(code: "123456")
+let result = try await oms.wallet.completeEmailAuth(code: "123456")
 
-print(wallet.address)
+if case .walletSelected(_, let wallet, _, _) = result {
+    print(wallet.address)
+}
 let session = oms.wallet.session
 print(session.walletAddress ?? "signed out")
 if let expiresAt = session.expiresAt { print(expiresAt) }
@@ -88,14 +93,17 @@ To opt out of automatic activation and drive wallet selection yourself:
 ```swift
 let result = try await oms.wallet.completeEmailAuth(
     code: "123456",
-    autoActivate: false
+    walletSelection: .manual
 )
 
 switch result {
-case .walletSelection(let wallets, _):
-    let picked = wallets[0]
-    try await oms.wallet.useWallet(walletId: picked.id)
-case .activated:
+case .walletSelection(let pendingSelection):
+    if let picked = pendingSelection.wallets.first {
+        try await pendingSelection.selectWallet(walletId: picked.id)
+    } else {
+        try await pendingSelection.createAndSelectWallet()
+    }
+case .walletSelected:
     break
 }
 ```
@@ -111,12 +119,16 @@ let started = try await oms.wallet.startOidcRedirectAuth(
 
 // Open started.authorizationUrl.
 
-let result = await oms.wallet.handleOidcRedirectCallback(callbackURLString)
+let result = try await oms.wallet.handleOidcRedirectCallback(callbackURLString)
 switch result {
 case .completed(let wallet):
     print(wallet.address)
-case .walletSelection(let wallets, _):
-    try await oms.wallet.useWallet(walletId: wallets[0].id)
+case .walletSelection(let pendingSelection):
+    if let picked = pendingSelection.wallets.first {
+        try await pendingSelection.selectWallet(walletId: picked.id)
+    } else {
+        try await pendingSelection.createAndSelectWallet()
+    }
 case .notOidcRedirectCallback:
     break
 case .noPendingAuth:

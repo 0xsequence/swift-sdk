@@ -37,14 +37,11 @@ struct SafariAuthSession: Identifiable {
 
 private enum DemoAuthError: Error, LocalizedError {
     case invalidAuthorizationURL
-    case noWalletsAvailable
 
     var errorDescription: String? {
         switch self {
         case .invalidAuthorizationURL:
             return "The authorization URL could not be opened."
-        case .noWalletsAvailable:
-            return "No wallets are available for this account."
         }
     }
 }
@@ -220,27 +217,24 @@ final class AppViewModel: ObservableObject {
     }
 
     func handleOpenURL(_ url: URL) async {
-        let result = await oms.wallet.handleOidcRedirectCallback(url.absoluteString)
+        do {
+            let result = try await oms.wallet.handleOidcRedirectCallback(url.absoluteString)
 
-        switch result {
-        case .completed:
-            safariAuthSession = nil
-            screen = .wallet
-        case .walletSelection(let wallets, _):
-            do {
-                guard let wallet = wallets.first else {
-                    throw DemoAuthError.noWalletsAvailable
-                }
-                try await oms.wallet.useWallet(walletId: wallet.id)
+            switch result {
+            case .completed:
                 safariAuthSession = nil
                 screen = .wallet
-            } catch {
+            case .walletSelection(let pendingSelection):
+                _ = try await completePendingWalletSelection(pendingSelection)
+                safariAuthSession = nil
+                screen = .wallet
+            case .notOidcRedirectCallback, .noPendingAuth:
+                break
+            case .failed(let error):
                 safariAuthSession = nil
                 present(error)
             }
-        case .notOidcRedirectCallback, .noPendingAuth:
-            break
-        case .failed(let error):
+        } catch {
             safariAuthSession = nil
             present(error)
         }
@@ -253,11 +247,26 @@ final class AppViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            try await oms.wallet.completeEmailAuth(code: code)
+            let result = try await oms.wallet.completeEmailAuth(code: code)
+            switch result {
+            case .walletSelected:
+                break
+            case .walletSelection(let pendingSelection):
+                _ = try await completePendingWalletSelection(pendingSelection)
+            }
             screen = .wallet
         } catch {
             present(error)
         }
+    }
+
+    private func completePendingWalletSelection(
+        _ pendingSelection: PendingWalletSelection
+    ) async throws -> WalletActivationResult {
+        if let wallet = pendingSelection.wallets.first {
+            return try await pendingSelection.selectWallet(walletId: wallet.id)
+        }
+        return try await pendingSelection.createAndSelectWallet()
     }
 
     func present(_ error: Error) {

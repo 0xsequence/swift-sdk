@@ -12,37 +12,79 @@ public struct WalletActivationResult: Sendable {
 }
 
 @available(macOS 12.0, iOS 15.0, *)
+public enum WalletSelectionBehavior: Equatable, Sendable {
+    case automatic
+    case manual
+}
+
+@available(macOS 12.0, iOS 15.0, *)
+public final class PendingWalletSelection: @unchecked Sendable {
+    public let walletType: WalletType
+    public let wallets: [Wallet]
+    public let credential: CredentialInfo
+
+    private let selectWalletAction: (String) async throws -> WalletActivationResult
+    private let createAndSelectWalletAction: (String?) async throws -> WalletActivationResult
+
+    init(
+        walletType: WalletType,
+        wallets: [Wallet],
+        credential: CredentialInfo,
+        selectWalletAction: @escaping (String) async throws -> WalletActivationResult,
+        createAndSelectWalletAction: @escaping (String?) async throws -> WalletActivationResult
+    ) {
+        self.walletType = walletType
+        self.wallets = wallets
+        self.credential = credential
+        self.selectWalletAction = selectWalletAction
+        self.createAndSelectWalletAction = createAndSelectWalletAction
+    }
+
+    @discardableResult
+    public func selectWallet(walletId: String) async throws -> WalletActivationResult {
+        guard wallets.contains(where: { $0.id == walletId }) else {
+            throw WalletAuthError.selectedWalletUnavailable
+        }
+        return try await selectWalletAction(walletId)
+    }
+
+    @discardableResult
+    public func createAndSelectWallet(reference: String? = nil) async throws -> WalletActivationResult {
+        try await createAndSelectWalletAction(reference)
+    }
+}
+
+@available(macOS 12.0, iOS 15.0, *)
 public enum CompleteAuthResult: Sendable {
-    case activated(
+    case walletSelected(
         walletAddress: String,
         wallet: Wallet,
         wallets: [Wallet],
         credential: CredentialInfo
     )
-    case walletSelection(
-        wallets: [Wallet],
-        credential: CredentialInfo
-    )
+    case walletSelection(PendingWalletSelection)
 
     public var wallets: [Wallet] {
         switch self {
-        case .activated(_, _, let wallets, _),
-             .walletSelection(let wallets, _):
+        case .walletSelected(_, _, let wallets, _):
             return wallets
+        case .walletSelection(let pendingSelection):
+            return pendingSelection.wallets
         }
     }
 
     public var credential: CredentialInfo {
         switch self {
-        case .activated(_, _, _, let credential),
-             .walletSelection(_, let credential):
+        case .walletSelected(_, _, _, let credential):
             return credential
+        case .walletSelection(let pendingSelection):
+            return pendingSelection.credential
         }
     }
 
     public var walletAddress: String? {
         switch self {
-        case .activated(let walletAddress, _, _, _):
+        case .walletSelected(let walletAddress, _, _, _):
             return walletAddress
         case .walletSelection:
             return nil
@@ -51,7 +93,7 @@ public enum CompleteAuthResult: Sendable {
 
     public var wallet: Wallet? {
         switch self {
-        case .activated(_, let wallet, _, _):
+        case .walletSelected(_, let wallet, _, _):
             return wallet
         case .walletSelection:
             return nil
@@ -61,9 +103,7 @@ public enum CompleteAuthResult: Sendable {
 
 @available(macOS 12.0, iOS 15.0, *)
 public enum WalletAuthError: Error, Equatable, Sendable {
-    case multipleWalletsAvailable
     case selectedWalletUnavailable
-    case authCompletedWithoutWalletActivation
     case noAuthenticatedWalletSession
     case noActiveCredential
 }
@@ -72,12 +112,8 @@ public enum WalletAuthError: Error, Equatable, Sendable {
 extension WalletAuthError: LocalizedError {
     public var errorDescription: String? {
         switch self {
-        case .multipleWalletsAvailable:
-            return "Multiple wallets are available. Call completeEmailAuth(code:walletType:selectWallet:) to choose one."
         case .selectedWalletUnavailable:
             return "Selected wallet is not one of the available options."
-        case .authCompletedWithoutWalletActivation:
-            return "Auth completed without wallet activation."
         case .noAuthenticatedWalletSession:
             return "No authenticated wallet session."
         case .noActiveCredential:
