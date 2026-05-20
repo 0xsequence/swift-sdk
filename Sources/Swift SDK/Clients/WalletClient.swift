@@ -15,6 +15,13 @@ public class WalletClient {
         let sessionEmail: String?
     }
 
+    private struct PendingWalletSelectionSession {
+        let id: UUID
+        let signerCredentialId: String
+        let signerKeyType: SigningAlgorithm
+        let metadata: SessionMetadata
+    }
+
     private static let defaultSessionLifetimeSeconds: UInt32 = 604_800
 
     private var signedClient: WaasWalletClient
@@ -28,6 +35,7 @@ public class WalletClient {
     private var sessionExpiresAt: String?
     private var sessionLoginType: SessionLoginType?
     private var sessionEmail: String?
+    private var activePendingWalletSelection: PendingWalletSelectionSession?
 
     public var walletAddress: String
     public var walletId: String
@@ -359,6 +367,8 @@ public class WalletClient {
         walletType: WalletType,
         walletSelection: WalletSelectionBehavior
     ) async throws -> CompleteAuthResult {
+        activePendingWalletSelection = nil
+
         let sessionMetadata = SessionMetadata(
             expiresAt: response.credential.expiresAt,
             loginType: OMSClientIdentity(response.identity).sessionLoginType,
@@ -374,12 +384,13 @@ public class WalletClient {
 
         let candidateWallets = wallets.filter { $0.type == walletType }
         guard walletSelection == .automatic else {
+            let pendingSelectionSession = try beginPendingWalletSelection(sessionMetadata: sessionMetadata)
             return .walletSelection(
                 pendingWalletSelection(
                     walletType: walletType,
                     wallets: candidateWallets,
                     credential: response.credential,
-                    sessionMetadata: sessionMetadata
+                    selectionSession: pendingSelectionSession
                 )
             )
         }
@@ -413,28 +424,59 @@ public class WalletClient {
         walletType: WalletType,
         wallets: [Wallet],
         credential: CredentialInfo,
-        sessionMetadata: SessionMetadata
+        selectionSession: PendingWalletSelectionSession
     ) -> PendingWalletSelection {
         PendingWalletSelection(
             walletType: walletType,
             wallets: wallets,
             credential: credential,
             selectWalletAction: { walletId in
-                try self.requireActiveCredential()
-                return try await self.useWallet(
+                try self.requireActivePendingWalletSelection(selectionSession)
+                let result = try await self.useWallet(
                     walletId: walletId,
-                    sessionMetadata: sessionMetadata
+                    sessionMetadata: selectionSession.metadata
                 )
+                self.activePendingWalletSelection = nil
+                return result
             },
             createAndSelectWalletAction: { reference in
-                try self.requireActiveCredential()
-                return try await self.createWallet(
+                try self.requireActivePendingWalletSelection(selectionSession)
+                let result = try await self.createWallet(
                     walletType: walletType,
                     reference: reference,
-                    sessionMetadata: sessionMetadata
+                    sessionMetadata: selectionSession.metadata
                 )
+                self.activePendingWalletSelection = nil
+                return result
             }
         )
+    }
+
+    private func beginPendingWalletSelection(
+        sessionMetadata: SessionMetadata
+    ) throws -> PendingWalletSelectionSession {
+        let selectionSession = PendingWalletSelectionSession(
+            id: UUID(),
+            signerCredentialId: try credentialSession.signer.credentialId(),
+            signerKeyType: credentialSession.signer.alg,
+            metadata: sessionMetadata
+        )
+        activePendingWalletSelection = selectionSession
+        return selectionSession
+    }
+
+    private func requireActivePendingWalletSelection(
+        _ selectionSession: PendingWalletSelectionSession
+    ) throws {
+        guard activePendingWalletSelection?.id == selectionSession.id else {
+            throw WalletAuthError.staleWalletSelection
+        }
+        try requireActiveCredential()
+        let signerCredentialId = try credentialSession.signer.credentialId()
+        guard signerCredentialId.lowercased() == selectionSession.signerCredentialId.lowercased(),
+              credentialSession.signer.alg == selectionSession.signerKeyType else {
+            throw WalletAuthError.staleWalletSelection
+        }
     }
 
     private func signOutOnFailure<T>(_ operation: () async throws -> T) async throws -> T {
@@ -636,6 +678,7 @@ public class WalletClient {
     }
 
     private func clearSession(clearOidcRedirectAuth: Bool) throws {
+        activePendingWalletSelection = nil
         try credentialSession.clear()
         if clearOidcRedirectAuth {
             try oidcRedirectAuthStore.clear()

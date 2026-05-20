@@ -148,7 +148,10 @@ IDs that are not in that filtered list.
 In manual mode, apps should present `wallets` plus a create-new-wallet action,
 then call `selectWallet(walletId:)` or `createAndSelectWallet(reference:)` from
 that user choice. Automatic "first wallet" selection belongs to
-`WalletSelectionBehavior.automatic`, not manual mode.
+`WalletSelectionBehavior.automatic`, not manual mode. A pending selection is
+single-use and is invalidated by successful wallet selection, sign-out, or a
+new auth completion; using an invalidated selection throws
+`WalletAuthError.staleWalletSelection`.
 
 ### CompleteAuthResult
 

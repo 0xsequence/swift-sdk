@@ -126,6 +126,10 @@ case .walletSelected:
 }
 ```
 
+`PendingWalletSelection` values are single-use. They become invalid after a
+wallet is selected or created, after sign-out, or after another auth completion.
+Using an invalidated pending selection throws `WalletAuthError.staleWalletSelection`.
+
 For OIDC authorization-code PKCE redirect flows, start the redirect, open the
 returned URL with your browser UI, then safely handle incoming app links:
 

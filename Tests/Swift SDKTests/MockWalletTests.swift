@@ -118,24 +118,19 @@ import Testing
 }
 
 @Test func TestPendingWalletSelectionSelectsAndCreatesWallets() async throws {
-    let fixture = makeMockWalletClient()
+    let selectFixture = makeMockWalletClient()
     let firstWallet = testWallet(id: "wallet-1", address: "0x1111111111111111111111111111111111111111")
     let selectedWallet = testWallet(id: "wallet-2", address: "0x2222222222222222222222222222222222222222")
-    let createdWallet = testWallet(id: "wallet-3", address: "0x3333333333333333333333333333333333333333")
-    try fixture.transport.enqueue(
+    try selectFixture.transport.enqueue(
         completeAuthResponse(wallets: [firstWallet, selectedWallet]),
         for: WaasWalletAPI.CompleteAuth.urlPath
     )
-    try fixture.transport.enqueue(
+    try selectFixture.transport.enqueue(
         UseWalletResponse(wallet: selectedWallet),
         for: WaasWalletAPI.UseWallet.urlPath
     )
-    try fixture.transport.enqueue(
-        CreateWalletResponse(wallet: createdWallet),
-        for: WaasWalletAPI.CreateWallet.urlPath
-    )
 
-    let result = try await fixture.client.completeEmailAuth(
+    let result = try await selectFixture.client.completeEmailAuth(
         code: "123456",
         walletSelection: .manual
     )
@@ -154,21 +149,116 @@ import Testing
     }
 
     let selected = try await pendingSelection.selectWallet(walletId: selectedWallet.id)
-    let created = try await pendingSelection.createAndSelectWallet(reference: "reference-1")
-    let useWalletRequest = try fixture.transport.decodedRequest(
+    let useWalletRequest = try selectFixture.transport.decodedRequest(
         UseWalletRequest.self,
         for: WaasWalletAPI.UseWallet.urlPath
     )
-    let createWalletRequest = try fixture.transport.decodedRequest(
+
+    #expect(selected.wallet.id == selectedWallet.id)
+    #expect(useWalletRequest.walletId == selectedWallet.id)
+
+    do {
+        _ = try await pendingSelection.createAndSelectWallet(reference: "after-select")
+        #expect(Bool(false))
+    } catch let error as WalletAuthError {
+        #expect(error == .staleWalletSelection)
+    } catch {
+        #expect(Bool(false))
+    }
+    #expect(selectFixture.transport.requestCount(for: WaasWalletAPI.CreateWallet.urlPath) == 0)
+
+    let createFixture = makeMockWalletClient()
+    let createdWallet = testWallet(id: "wallet-3", address: "0x3333333333333333333333333333333333333333")
+    try createFixture.transport.enqueue(
+        completeAuthResponse(wallets: []),
+        for: WaasWalletAPI.CompleteAuth.urlPath
+    )
+    try createFixture.transport.enqueue(
+        CreateWalletResponse(wallet: createdWallet),
+        for: WaasWalletAPI.CreateWallet.urlPath
+    )
+
+    let createResult = try await createFixture.client.completeEmailAuth(
+        code: "123456",
+        walletSelection: .manual
+    )
+    guard case .walletSelection(let createPendingSelection) = createResult else {
+        #expect(Bool(false))
+        return
+    }
+
+    let created = try await createPendingSelection.createAndSelectWallet(reference: "reference-1")
+    let createWalletRequest = try createFixture.transport.decodedRequest(
         CreateWalletRequest.self,
         for: WaasWalletAPI.CreateWallet.urlPath
     )
 
-    #expect(selected.wallet.id == selectedWallet.id)
     #expect(created.wallet.id == createdWallet.id)
-    #expect(useWalletRequest.walletId == selectedWallet.id)
     #expect(createWalletRequest.type == .ethereum)
     #expect(createWalletRequest.reference == "reference-1")
+}
+
+@Test func TestStalePendingWalletSelectionCannotCreateWalletAfterNewAuth() async throws {
+    let fixture = makeMockWalletClient()
+    let staleCreatedWallet = testWallet(id: "wallet-stale", address: "0x1111111111111111111111111111111111111111")
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: [], email: "first@example.com"),
+        for: WaasWalletAPI.CompleteAuth.urlPath
+    )
+
+    let firstResult = try await fixture.client.completeEmailAuth(
+        code: "123456",
+        walletSelection: .manual
+    )
+    guard case .walletSelection(let stalePendingSelection) = firstResult else {
+        #expect(Bool(false))
+        return
+    }
+
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "second-verifier",
+            loginHint: "second@example.com",
+            challenge: "second-challenge"
+        ),
+        for: WaasWalletAPI.CommitVerifier.urlPath
+    )
+    try await fixture.client.startEmailAuth(email: "second@example.com")
+    _ = try fixture.signer.credentialId()
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: [], email: "second@example.com"),
+        for: WaasWalletAPI.CompleteAuth.urlPath
+    )
+
+    let secondResult = try await fixture.client.completeEmailAuth(
+        code: "654321",
+        walletSelection: .manual
+    )
+    guard case .walletSelection = secondResult else {
+        #expect(Bool(false))
+        return
+    }
+
+    try fixture.transport.enqueue(
+        CreateWalletResponse(wallet: staleCreatedWallet),
+        for: WaasWalletAPI.CreateWallet.urlPath
+    )
+
+    do {
+        _ = try await stalePendingSelection.createAndSelectWallet(reference: "stale")
+        #expect(Bool(false), "Stale pending wallet selection should not create and select a wallet after a newer auth flow")
+    } catch let error as WalletAuthError {
+        #expect(error == .staleWalletSelection)
+        #expect(fixture.transport.requestCount(for: WaasWalletAPI.CreateWallet.urlPath) == 0)
+        #expect(fixture.client.walletId == "")
+        #expect(fixture.client.walletAddress == "")
+        #expect(try fixture.storedCredentials() == nil)
+    } catch {
+        #expect(Bool(false))
+    }
+
+    let storedCredentials = try fixture.storedCredentials()
+    #expect(storedCredentials?.sessionEmail != "first@example.com")
 }
 
 @Test func TestWalletPublicUseCreateAndListWalletsUseVerifiedSession() async throws {
@@ -661,14 +751,16 @@ private func makeMockWalletClient(
 private func completeAuthResponse(
     identity: Identity = Identity(type: .email, sub: "user@example.com"),
     wallets: [Wallet],
-    page: Page? = nil
+    page: Page? = nil,
+    email: String? = "user@example.com",
+    credential: CredentialInfo = testCredential
 ) -> CompleteAuthResponse {
     CompleteAuthResponse(
         identity: identity,
         wallets: wallets,
         page: page,
-        email: "user@example.com",
-        credential: testCredential
+        email: email,
+        credential: credential
     )
 }
 
