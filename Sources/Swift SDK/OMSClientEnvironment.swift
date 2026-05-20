@@ -1,7 +1,7 @@
 import Foundation
 
 public struct OMSClientEnvironment : Equatable, Sendable {
-    public static let defaultWalletApiUrl: String = "https://d1sctl7y41hot5.cloudfront.net"
+    public static let defaultWalletApiUrl: String = "https://d26giflyqapd29.cloudfront.net"
     public static let defaultApiRpcUrl: String = "https://dev-api.sequence.app/rpc/API"
     public static let defaultIndexerUrlTemplate: String = "https://dev-{value}-indexer.sequence.app/rpc/Indexer/"
     public static let indexerURLTemplateDefault: String = defaultIndexerUrlTemplate
