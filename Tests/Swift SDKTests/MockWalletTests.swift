@@ -826,7 +826,7 @@ import Testing
     #expect(walletIdOnlyFixture.transport.requestCount(for: WaasWalletAPI.PrepareEthereumContractCall.urlPath) == 0)
 }
 
-@Test func TestWalletSendTransactionDefaultSelectsFirstFeeOptionByTokenIdWithoutBalanceLookup() async throws {
+@Test func TestWalletSendTransactionDefaultSelectsFirstFeeOptionIdentifierWithoutBalanceLookup() async throws {
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"
     fixture.client.walletAddress = "0xwallet"
@@ -861,7 +861,7 @@ import Testing
     )
 
     #expect(txHash == "0xdeadbeef")
-    #expect(executeRequest.feeOption?.token == "")
+    #expect(executeRequest.feeOption?.token == "POL")
     #expect(fixture.indexerClient.nativeBalanceRequestCount == 0)
     #expect(fixture.indexerClient.tokenBalanceContractAddresses.isEmpty)
 }

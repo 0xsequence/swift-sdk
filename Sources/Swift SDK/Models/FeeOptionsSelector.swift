@@ -33,7 +33,12 @@ public extension FeeOptionWithBalance {
 @available(macOS 12.0, iOS 15.0, *)
 public extension FeeOptionSelection {
     init(feeOption: FeeOption) {
-        self.init(token: feeOption.token.tokenId ?? "")
+        let tokenId = feeOption.token.tokenId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let tokenId, !tokenId.isEmpty {
+            self.init(token: tokenId)
+        } else {
+            self.init(token: feeOption.token.symbol)
+        }
     }
 }
 

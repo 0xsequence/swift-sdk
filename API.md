@@ -685,7 +685,8 @@ struct FeeOptionWithBalance {
 `balance` is the wallet's raw indexer balance for the fee token when available.
 `available` is formatted with `decimals`, while `availableRaw` keeps the raw
 integer balance. Use `selection` when returning a quoted option from a custom
-selector.
+selector; it preserves the option's `tokenID` when present and falls back to the
+symbol for native fee options.
 
 ### TransactionError
 
