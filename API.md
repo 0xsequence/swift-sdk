@@ -414,10 +414,15 @@ Returns all credentials that currently have access to this wallet.
 ### getIdToken
 
 ```swift
-func getIdToken() async throws -> String
+func getIdToken(
+    ttlSeconds: UInt32? = nil,
+    customClaims: [String: WebRPCJSONValue]? = nil
+) async throws -> String
 ```
 
-Returns an ID token for the active wallet.
+Returns an ID token for the active wallet. `ttlSeconds` requests a token
+lifetime in seconds, and `customClaims` adds app-defined claims encoded as
+`WebRPCJSONValue`. Omit both parameters to use the server defaults.
 
 ### revokeAccess
 

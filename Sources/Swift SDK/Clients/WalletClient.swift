@@ -725,9 +725,11 @@ public class WalletClient {
         return response.credentials
     }
     
-    public func getIdToken() async throws -> String {
+    public func getIdToken(ttlSeconds: UInt32? = nil, customClaims: [String: WebRPCJSONValue]? = nil) async throws -> String {
         let params = GetIDTokenRequest(
-            walletId: self.walletId
+            walletId: self.walletId,
+            ttlSeconds: ttlSeconds,
+            customClaims: customClaims
         )
         
         let response = try await signedClient.getIdToken(params)

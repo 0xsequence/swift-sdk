@@ -1,6 +1,6 @@
 # OMS SDK (Swift)
 
-A Swift SDK for the OMS (Open Money Stack) platform. Provides email and OIDC redirect wallet authentication, non-extractable Keychain request signing, keychain session persistence, wallet ID token retrieval, on-chain transaction submission with fee selection, message and typed-data signing, signature verification, token balance queries, and base-unit formatting helpers.
+A Swift SDK for the OMS (Open Money Stack) platform. Provides email and OIDC redirect wallet authentication, non-extractable Keychain request signing, keychain session persistence, wallet ID token retrieval with optional TTL and custom claims, on-chain transaction submission with fee selection, message and typed-data signing, signature verification, token balance queries, and base-unit formatting helpers.
 
 **Requirements:** iOS 15+ · macOS 12+
 
@@ -423,11 +423,24 @@ let balance = try await oms.indexer.getNativeTokenBalance(
 print(balance?.balance ?? "0")
 ```
 
+### Get a Wallet ID Token
+
+```swift
+let idToken = try await oms.wallet.getIdToken()
+
+let scopedIdToken = try await oms.wallet.getIdToken(
+    ttlSeconds: 3_600,
+    customClaims: [
+        "role": .string("member"),
+        "features": .array([.string("trading")])
+    ]
+)
+```
+
 ### Manage Wallet Access
 
 ```swift
 let credentials = try await oms.wallet.listAccess()
-let idToken = try await oms.wallet.getIdToken()
 
 if let credential = credentials.first {
     try await oms.wallet.revokeAccess(targetCredentialId: credential.credentialId)
