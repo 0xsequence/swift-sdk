@@ -59,7 +59,6 @@ init(
 ### network
 
 ```swift
-func network(chainId: String) -> Network?
 func network(chainId: Int) -> Network?
 func network(name: String) -> Network?
 ```
@@ -524,19 +523,21 @@ enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
     case mainnet
     case sepolia
     case polygon
-    case polygonAmoy
+    case polygonAmoy = "amoy"
     case arbitrum
-    case arbitrumSepolia
+    case arbitrumSepolia = "arbitrum-sepolia"
     case optimism
-    case optimismSepolia
+    case optimismSepolia = "optimism-sepolia"
     case base
-    case baseSepolia
+    case baseSepolia = "base-sepolia"
     case bsc
-    case bscTestnet
-    case arbitrumNova
+    case bscTestnet = "bsc-testnet"
+    case arbitrumNova = "arbitrum-nova"
     case avalanche
-    case avalancheTestnet
+    case avalancheTestnet = "avalanche-testnet"
     case katana
+
+    static let amoy: Network
 
     var id: Int
     var chainId: String
@@ -548,9 +549,6 @@ enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
     var description: String
 
     static var supportedNetworks: [Network]
-    static func from(chainId: String) -> Network?
-    static func from(chainId: Int) -> Network?
-    static func from(name: String) -> Network?
     static func findNetworkById(_ chainId: Int) -> Network?
     static func findNetworkByName(_ name: String) -> Network?
 }
@@ -558,7 +556,7 @@ enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
 
 | Case | Chain ID | Display name | Indexer value | Native token |
 |---|---|---|---|---|
-| `.mainnet` | `1` | Mainnet | `mainnet` | `ETH` |
+| `.mainnet` | `1` | Ethereum | `mainnet` | `ETH` |
 | `.sepolia` | `11155111` | Sepolia | `sepolia` | `ETH` |
 | `.polygon` | `137` | Polygon | `polygon` | `POL` |
 | `.polygonAmoy` | `80002` | Polygon Amoy | `amoy` | `POL` |
@@ -574,6 +572,8 @@ enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
 | `.avalanche` | `43114` | Avalanche | `avalanche` | `AVAX` |
 | `.avalancheTestnet` | `43113` | Avalanche Testnet | `avalanche-testnet` | `AVAX` |
 | `.katana` | `747474` | Katana | `katana` | `ETH` |
+
+`Network.amoy` is an alias for `.polygonAmoy`.
 
 ### OMSClientIdentity
 
@@ -655,6 +655,9 @@ struct OMSClientEnvironment: Equatable, Sendable {
 ```swift
 struct FeeOptionSelector {
     typealias Select = @Sendable ([FeeOptionWithBalance]) async throws -> FeeOptionSelection?
+    init(_ select: @escaping Select)
+    func callAsFunction(_ options: [FeeOptionWithBalance]) async throws -> FeeOptionSelection?
+    func callAsFunction(_ options: [FeeOption]) async throws -> FeeOptionSelection?
     static let first: FeeOptionSelector
     static func custom(_ pick: @escaping Select) -> FeeOptionSelector
 }
@@ -676,7 +679,22 @@ struct FeeOptionWithBalance {
     let available: String?
     let availableRaw: String?
     let decimals: Int?
+
+    init(
+        feeOption: FeeOption,
+        balance: TokenBalance? = nil,
+        available: String? = nil,
+        availableRaw: String? = nil,
+        decimals: Int? = nil
+    )
+
     var selection: FeeOptionSelection
+}
+```
+
+```swift
+extension FeeOptionSelection {
+    init(feeOption: FeeOption)
 }
 ```
 
@@ -728,27 +746,31 @@ Used with the full `sendTransaction(network:request:feeOptionSelector:)` overloa
 ### TokenBalancesResult
 
 ```swift
-struct TokenBalancesResult {
+struct TokenBalancesResult: Sendable {
     let status: Int
     let page: TokenBalancesPage?
     let balances: [TokenBalance]
+
+    init(status: Int, page: TokenBalancesPage?, balances: [TokenBalance])
 }
 ```
 
 ### TokenBalancesPage
 
 ```swift
-struct TokenBalancesPage: Codable {
+struct TokenBalancesPage: Codable, Sendable {
     let page: Int
     let pageSize: Int
     let more: Bool
+
+    init(page: Int, pageSize: Int, more: Bool)
 }
 ```
 
 ### TokenBalance
 
 ```swift
-struct TokenBalance: Codable {
+struct TokenBalance: Codable, Sendable {
     let contractType: String?
     let contractAddress: String?
     let accountAddress: String?
@@ -757,6 +779,17 @@ struct TokenBalance: Codable {
     let blockHash: String?
     let blockNumber: Int64?
     let chainId: Int64?
+
+    init(
+        contractType: String?,
+        contractAddress: String?,
+        accountAddress: String?,
+        tokenId: String?,
+        balance: String?,
+        blockHash: String?,
+        blockNumber: Int64?,
+        chainId: Int64?
+    )
 }
 ```
 
