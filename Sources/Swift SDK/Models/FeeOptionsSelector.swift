@@ -24,6 +24,20 @@ public struct FeeOptionWithBalance: Sendable {
 }
 
 @available(macOS 12.0, iOS 15.0, *)
+public extension FeeOptionWithBalance {
+    var selection: FeeOptionSelection {
+        FeeOptionSelection(feeOption: feeOption)
+    }
+}
+
+@available(macOS 12.0, iOS 15.0, *)
+public extension FeeOptionSelection {
+    init(feeOption: FeeOption) {
+        self.init(token: feeOption.token.tokenId ?? "")
+    }
+}
+
+@available(macOS 12.0, iOS 15.0, *)
 public struct FeeOptionSelector: Sendable {
     public typealias Select = @Sendable (_ options: [FeeOptionWithBalance]) async throws -> FeeOptionSelection?
 
@@ -31,7 +45,9 @@ public struct FeeOptionSelector: Sendable {
     public init(_ select: @escaping Select) { self.select = select }
 
     public func callAsFunction(_ options: [FeeOptionWithBalance]) async throws -> FeeOptionSelection? {
-        guard !options.isEmpty else { return nil }
+        guard !options.isEmpty else {
+            throw TransactionError.noFeeOptionsAvailable
+        }
         return try await select(options)
     }
 
@@ -43,13 +59,13 @@ public struct FeeOptionSelector: Sendable {
 @available(macOS 12.0, iOS 15.0, *)
 public extension FeeOptionSelector {
     static let first = FeeOptionSelector { options in
-        options.first.map { FeeOptionSelection(token: $0.feeOption.token.symbol) }
+        options.first?.selection
     }
 
     static let cheapest = FeeOptionSelector { options in
         options
             .min(by: { isNumericValueLessThan($0.feeOption.value, $1.feeOption.value) })
-            .map { FeeOptionSelection(token: $0.feeOption.token.symbol) }
+            .map(\.selection)
     }
 
     static func custom(_ pick: @escaping Select) -> FeeOptionSelector {

@@ -678,12 +678,14 @@ struct FeeOptionWithBalance {
     let available: String?
     let availableRaw: String?
     let decimals: Int?
+    var selection: FeeOptionSelection
 }
 ```
 
 `balance` is the wallet's raw indexer balance for the fee token when available.
 `available` is formatted with `decimals`, while `availableRaw` keeps the raw
-integer balance.
+integer balance. Use `selection` when returning a quoted option from a custom
+selector.
 
 ### TransactionError
 

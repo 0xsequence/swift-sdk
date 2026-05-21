@@ -826,7 +826,7 @@ import Testing
     #expect(walletIdOnlyFixture.transport.requestCount(for: WaasWalletAPI.PrepareEthereumContractCall.urlPath) == 0)
 }
 
-@Test func TestWalletSendTransactionDefaultSelectsFirstFeeOptionBySymbolWithoutBalanceLookup() async throws {
+@Test func TestWalletSendTransactionDefaultSelectsFirstFeeOptionByTokenIdWithoutBalanceLookup() async throws {
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"
     fixture.client.walletAddress = "0xwallet"
@@ -861,7 +861,7 @@ import Testing
     )
 
     #expect(txHash == "0xdeadbeef")
-    #expect(executeRequest.feeOption?.token == "POL")
+    #expect(executeRequest.feeOption?.token == "")
     #expect(fixture.indexerClient.nativeBalanceRequestCount == 0)
     #expect(fixture.indexerClient.tokenBalanceContractAddresses.isEmpty)
 }
@@ -932,7 +932,7 @@ import Testing
             #expect(feeOptions[1].available == "0.002")
             #expect(feeOptions[1].availableRaw == "2000")
             #expect(feeOptions[1].decimals == 6)
-            return FeeOptionSelection(token: feeOptions[1].feeOption.token.symbol)
+            return feeOptions[1].selection
         }
     )
     let executeRequest = try fixture.transport.decodedRequest(
@@ -941,9 +941,88 @@ import Testing
     )
 
     #expect(txHash == "0xdeadbeef")
-    #expect(executeRequest.feeOption?.token == "USDC")
+    #expect(executeRequest.feeOption?.token == "usdc")
     #expect(fixture.indexerClient.nativeBalanceRequestCount == 1)
     #expect(fixture.indexerClient.tokenBalanceContractAddresses == ["0xusdc"])
+}
+
+@Test func TestWalletSendTransactionSponsoredSkipsCustomFeeSelector() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-1",
+            status: .quoted,
+            feeOptions: testFeeOptions(),
+            sponsored: true,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasWalletAPI.PrepareEthereumTransaction.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .executed),
+        for: WaasWalletAPI.Execute.urlPath
+    )
+    try fixture.transport.enqueue(
+        TransactionStatusResponse(status: .executed, txnHash: "0xdeadbeef"),
+        for: WaasWalletAPI.TransactionStatus.urlPath
+    )
+
+    let txHash = try await fixture.client.sendTransaction(
+        network: .polygonAmoy,
+        request: SendTransactionRequest(to: "0xabc", value: "0"),
+        feeOptionSelector: .custom { feeOptions in
+            #expect(Bool(false), "Sponsored transactions should not ask for fee selection")
+            return feeOptions.first?.selection
+        }
+    )
+    let executeRequest = try fixture.transport.decodedRequest(
+        ExecuteRequest.self,
+        for: WaasWalletAPI.Execute.urlPath
+    )
+
+    #expect(txHash == "0xdeadbeef")
+    #expect(executeRequest.feeOption == nil)
+    #expect(fixture.indexerClient.nativeBalanceRequestCount == 0)
+    #expect(fixture.indexerClient.tokenBalanceContractAddresses.isEmpty)
+}
+
+@Test func TestWalletSendTransactionUnsponsoredWithoutFeeOptionsThrows() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-1",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: false,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasWalletAPI.PrepareEthereumTransaction.urlPath
+    )
+
+    do {
+        _ = try await fixture.client.sendTransaction(
+            network: .polygonAmoy,
+            request: SendTransactionRequest(to: "0xabc", value: "0")
+        )
+        #expect(Bool(false), "Expected no fee options error")
+    } catch let error as TransactionError {
+        switch error {
+        case .noFeeOptionsAvailable:
+            break
+        default:
+            #expect(Bool(false), "Expected TransactionError.noFeeOptionsAvailable")
+        }
+    } catch {
+        #expect(Bool(false), "Expected TransactionError.noFeeOptionsAvailable")
+    }
+
+    #expect(fixture.transport.requestCount(for: WaasWalletAPI.Execute.urlPath) == 0)
 }
 
 private let testCredential = CredentialInfo(

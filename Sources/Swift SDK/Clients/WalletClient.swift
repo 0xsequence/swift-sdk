@@ -1003,12 +1003,16 @@ public class WalletClient {
         feeOptionSelector: FeeOptionSelector?,
         walletAddress: String?
     ) async throws -> FeeOptionSelection? {
-        guard !prepareResponse.feeOptions.isEmpty else {
+        guard !prepareResponse.sponsored else {
             return nil
         }
 
+        guard !prepareResponse.feeOptions.isEmpty else {
+            throw TransactionError.noFeeOptionsAvailable
+        }
+
         guard let feeOptionSelector else {
-            return prepareResponse.feeOptions.defaultSelection(sponsored: prepareResponse.sponsored)
+            return prepareResponse.feeOptions.defaultSelection()
         }
 
         guard let walletAddress else {
@@ -1165,9 +1169,10 @@ public class WalletClient {
     }
 }
 
+@available(macOS 12.0, iOS 15.0, *)
 private extension Array where Element == FeeOption {
-    func defaultSelection(sponsored: Bool) -> FeeOptionSelection? {
-        sponsored ? nil : first.map { FeeOptionSelection(token: $0.token.symbol) }
+    func defaultSelection() -> FeeOptionSelection? {
+        first.map { FeeOptionSelection(feeOption: $0) }
     }
 }
 

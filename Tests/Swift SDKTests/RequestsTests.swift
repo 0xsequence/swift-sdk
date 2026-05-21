@@ -123,7 +123,7 @@ import Testing
 
     let selected = try await FeeOptionSelector.cheapest(options)
 
-    #expect(selected?.token == "USDC")
+    #expect(selected?.token == "usdc")
 }
 
 @Test func TestSessionStateParsesExpiresAt() throws {

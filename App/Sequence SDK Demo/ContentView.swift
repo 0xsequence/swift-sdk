@@ -66,7 +66,7 @@ fileprivate final class FeeOptionSelectionRequest: Identifiable {
     }
 
     func select(_ option: FeeOptionWithBalance) {
-        resume(returning: FeeOptionSelection(token: option.feeOption.token.symbol))
+        resume(returning: option.selection)
     }
 
     func cancel() {

@@ -241,7 +241,7 @@ let txHash = try await oms.wallet.sendTransaction(
     value: value,
     feeOptionSelector: .custom { options in
         let selected = options[selectedIndex]
-        return FeeOptionSelection(token: selected.feeOption.token.symbol)
+        return selected.selection
     }
 )
 ```
