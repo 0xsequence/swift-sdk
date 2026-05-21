@@ -358,7 +358,7 @@ import Testing
 
 @Test func TestWalletSignInWithOidcTokenCommitsCompletesAndResolvesWallet() async throws {
     let fixture = makeMockWalletClient()
-    let idToken = oidcIdTokenFixture
+    let idToken = try fakeOidcIdToken()
     let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
     try fixture.transport.enqueue(
         CommitVerifierResponse(
@@ -416,7 +416,7 @@ import Testing
         "aud": "demo-web-client-id",
         "exp": "1910000100"
     ])
-    #expect(commitRequest.handle == "nyaQb_2b6gSthzvKxcPn2oWZfRoUxQSFZS89_EwbYwY")
+    #expect(commitRequest.handle == expectedOidcHandleHash(idToken))
     #expect(completeAuthRequest.identityType == .oidc)
     #expect(completeAuthRequest.authMode == .idToken)
     #expect(completeAuthRequest.verifier == "oidc-verifier-123")
@@ -453,7 +453,7 @@ import Testing
     )
 
     let result = try await fixture.client.signInWithOidcIdToken(
-        idToken: oidcIdTokenFixture,
+        idToken: try fakeOidcIdToken(),
         issuer: "https://issuer.example",
         audience: "demo-web-client-id",
         walletSelection: .manual
@@ -511,7 +511,7 @@ import Testing
     )
 
     _ = try await fixture.client.signInWithOidcToken(
-        idToken: oidcIdTokenFixture,
+        idToken: try fakeOidcIdToken(),
         issuer: "https://accounts.google.com",
         audience: "demo-web-client-id"
     )
@@ -539,7 +539,7 @@ import Testing
 
     do {
         _ = try await fixture.client.signInWithOidcToken(
-            idToken: oidcIdTokenFixture,
+            idToken: try fakeOidcIdToken(),
             issuer: "https://accounts.google.com",
             audience: "demo-web-client-id"
         )
@@ -1555,12 +1555,6 @@ private func testWallet(
         address: address
     )
 }
-
-private let oidcIdTokenFixture = """
-eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.\
-eyJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20iLCJhdWQiOiJkZW1vLXdlYi1jbGllbnQtaWQiLCJzdWIiOiJnb29nbGUtc3ViLTEyMyIsImVtYWlsIjoidXNlckBleGFtcGxlLmNvbSIsImV4cCI6MTkxMDAwMDEwMH0.\
-signature
-"""
 
 private func testFeeOptions() -> [FeeOption] {
     [
