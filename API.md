@@ -56,11 +56,11 @@ init(
 | `indexer` | `IndexerClient` | Token balance query helper. |
 | `supportedNetworks` | `[Network]` | Supported SDK network list. |
 
-### network
+### Network Lookup
 
 ```swift
-func network(chainId: Int) -> Network?
-func network(name: String) -> Network?
+func findNetworkById(chainId: Int) -> Network?
+func findNetworkByName(name: String) -> Network?
 ```
 
 Returns the supported `Network` for a numeric chain ID or canonical network name, or `nil` when the chain is not supported.
@@ -549,8 +549,6 @@ enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
     var description: String
 
     static var supportedNetworks: [Network]
-    static func findNetworkById(_ chainId: Int) -> Network?
-    static func findNetworkByName(_ name: String) -> Network?
 }
 ```
 

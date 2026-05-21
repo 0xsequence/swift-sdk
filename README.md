@@ -57,14 +57,14 @@ Pass both your project access key and project ID when creating the client. The S
 
 ## Supported Networks
 
-Use `Network.supportedNetworks`, `Network.findNetworkById(_:)`, `Network.findNetworkByName(_:)`, or the `OMSClient` convenience helpers to bind numeric chain IDs to SDK networks.
+Use `Network.supportedNetworks` or the `OMSClient` convenience helpers to bind numeric chain IDs and canonical names to SDK networks.
 
 ```swift
 let networks = Network.supportedNetworks
-let polygon = Network.findNetworkById(137)
-let amoy = oms.network(chainId: 80002)
-let base = Network.findNetworkByName("base")
-let katana = oms.network(name: "katana")
+let polygon = oms.findNetworkById(chainId: 137)
+let amoy = oms.findNetworkById(chainId: 80002)
+let base = oms.findNetworkByName(name: "base")
+let katana = oms.findNetworkByName(name: "katana")
 ```
 
 | Chain ID | Network | Swift case | Indexer value | Native token |

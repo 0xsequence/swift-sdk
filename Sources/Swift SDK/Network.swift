@@ -168,14 +168,4 @@ public enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
     public static var supportedNetworks: [Network] {
         Array(allCases)
     }
-
-    public static func findNetworkById(_ chainId: Int) -> Network? {
-        supportedNetworks.first { $0.id == chainId }
-    }
-
-    public static func findNetworkByName(_ name: String) -> Network? {
-        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return supportedNetworks.first { $0.name.lowercased() == normalized }
-            ?? (normalized == "polygonamoy" ? .polygonAmoy : nil)
-    }
 }
