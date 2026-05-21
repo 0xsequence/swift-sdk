@@ -14,6 +14,8 @@
   - [OMSClientEnvironment](#omsclientenvironment)
   - [FeeOptionSelector](#feeoptionselector)
   - [TransactionError](#transactionerror)
+  - [SendTransactionResponse](#sendtransactionresponse)
+  - [TransactionMode](#transactionmode)
   - [UnitConversionError](#unitconversionerror)
   - [SendTransactionRequest](#sendtransactionrequest)
   - [TokenBalancesResult](#tokenbalancesresult)
@@ -56,13 +58,16 @@ init(
 | `indexer` | `IndexerClient` | Token balance query helper. |
 | `supportedNetworks` | `[Network]` | Supported SDK network list. |
 
-### network
+### Network Lookup
 
 ```swift
-func network(chainId: String) -> Network?
+func findNetworkById(chainId: Int) -> Network?
+func findNetworkByName(name: String) -> Network?
 ```
 
-Returns the supported `Network` for a numeric chain ID, or `nil` when the chain is not supported.
+Returns the supported `Network` for a numeric chain ID or network name, or `nil`
+when the chain is not supported. Names are trimmed and lowercased before lookup;
+`polygonamoy` is accepted as a legacy alias for `.polygonAmoy`.
 
 ---
 
@@ -354,19 +359,21 @@ func sendTransaction(
     network: Network,
     to: String,
     value: String,
-    feeOptionSelector: FeeOptionSelector = .first
-) async throws -> String
+    feeOptionSelector: FeeOptionSelector? = nil,
+    mode: TransactionMode = .relayer
+) async throws -> SendTransactionResponse
 ```
 
 Sends a native token transfer.
 
 ```swift
 let value = try parseUnits(value: "1", decimals: 18)
-let txHash = try await oms.wallet.sendTransaction(
+let txResult = try await oms.wallet.sendTransaction(
     network: .polygon,
     to: "0xRecipient",
     value: value
 )
+print(txResult.txnHash ?? "pending")
 ```
 
 Full-parameter overload:
@@ -375,8 +382,8 @@ Full-parameter overload:
 func sendTransaction(
     network: Network,
     request: SendTransactionRequest,
-    feeOptionSelector: FeeOptionSelector = .first
-) async throws -> String
+    feeOptionSelector: FeeOptionSelector? = nil
+) async throws -> SendTransactionResponse
 ```
 
 ### callContract
@@ -387,8 +394,9 @@ func callContract(
     contract: String,
     method: String,
     args: [AbiArg]?,
-    feeOptionSelector: FeeOptionSelector = .first
-) async throws -> String
+    feeOptionSelector: FeeOptionSelector? = nil,
+    mode: TransactionMode = .relayer
+) async throws -> SendTransactionResponse
 ```
 
 Calls a state-changing smart contract function.
@@ -408,6 +416,19 @@ func listAccess() async throws -> [CredentialInfo]
 ```
 
 Returns all credentials that currently have access to this wallet.
+
+### getIdToken
+
+```swift
+func getIdToken(
+    ttlSeconds: UInt32? = nil,
+    customClaims: [String: WebRPCJSONValue]? = nil
+) async throws -> String
+```
+
+Returns an ID token for the active wallet. `ttlSeconds` requests a token
+lifetime in seconds, and `customClaims` adds app-defined claims encoded as
+`WebRPCJSONValue`. Omit both parameters to use the server defaults.
 
 ### revokeAccess
 
@@ -506,22 +527,58 @@ let amount = try formatUnits(value: "12340000", decimals: 6)
 
 ```swift
 enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
+    case mainnet
+    case sepolia
     case polygon
-    case polygonAmoy
+    case polygonAmoy = "amoy"
+    case arbitrum
+    case arbitrumSepolia = "arbitrum-sepolia"
+    case optimism
+    case optimismSepolia = "optimism-sepolia"
+    case base
+    case baseSepolia = "base-sepolia"
+    case bsc
+    case bscTestnet = "bsc-testnet"
+    case arbitrumNova = "arbitrum-nova"
+    case avalanche
+    case avalancheTestnet = "avalanche-testnet"
+    case katana
 
+    static let amoy: Network
+
+    var id: Int
     var chainId: String
+    var name: String
+    var nativeTokenSymbol: String
+    var explorerUrl: String
+    var explorerURL: URL?
     var displayName: String
     var description: String
 
     static var supportedNetworks: [Network]
-    static func from(chainId: String) -> Network?
 }
 ```
 
-| Case | Chain ID | Display name | Indexer value |
-|---|---|---|---|
-| `.polygon` | `137` | Polygon | `polygon` |
-| `.polygonAmoy` | `80002` | Polygon Amoy | `amoy` |
+| Case | Chain ID | Display name | Indexer value | Native token |
+|---|---|---|---|---|
+| `.mainnet` | `1` | Ethereum | `mainnet` | `ETH` |
+| `.sepolia` | `11155111` | Sepolia | `sepolia` | `ETH` |
+| `.polygon` | `137` | Polygon | `polygon` | `POL` |
+| `.polygonAmoy` | `80002` | Polygon Amoy | `amoy` | `POL` |
+| `.arbitrum` | `42161` | Arbitrum | `arbitrum` | `ETH` |
+| `.arbitrumSepolia` | `421614` | Arbitrum Sepolia | `arbitrum-sepolia` | `ETH` |
+| `.optimism` | `10` | Optimism | `optimism` | `ETH` |
+| `.optimismSepolia` | `11155420` | Optimism Sepolia | `optimism-sepolia` | `ETH` |
+| `.base` | `8453` | Base | `base` | `ETH` |
+| `.baseSepolia` | `84532` | Base Sepolia | `base-sepolia` | `ETH` |
+| `.bsc` | `56` | BSC | `bsc` | `BNB` |
+| `.bscTestnet` | `97` | BSC Testnet | `bsc-testnet` | `BNB` |
+| `.arbitrumNova` | `42170` | Arbitrum Nova | `arbitrum-nova` | `ETH` |
+| `.avalanche` | `43114` | Avalanche | `avalanche` | `AVAX` |
+| `.avalancheTestnet` | `43113` | Avalanche Testnet | `avalanche-testnet` | `AVAX` |
+| `.katana` | `747474` | Katana | `katana` | `ETH` |
+
+`Network.amoy` is an alias for `.polygonAmoy`.
 
 ### OMSClientIdentity
 
@@ -602,32 +659,103 @@ struct OMSClientEnvironment: Equatable, Sendable {
 
 ```swift
 struct FeeOptionSelector {
+    typealias Select = @Sendable ([FeeOptionWithBalance]) async throws -> FeeOptionSelection?
+    init(_ select: @escaping Select)
+    func callAsFunction(_ options: [FeeOptionWithBalance]) async throws -> FeeOptionSelection?
+    func callAsFunction(_ options: [FeeOption]) async throws -> FeeOptionSelection?
     static let first: FeeOptionSelector
-    static let cheapest: FeeOptionSelector
     static func custom(_ pick: @escaping Select) -> FeeOptionSelector
 }
 ```
 
 Chooses a fee option during the transaction prepare/execute flow.
+When no selector is provided, the SDK uses the first required fee option, or no
+fee option when the transaction is sponsored.
 
 | Selector | Description |
 |---|---|
 | `.first` | Picks the first fee option returned by the server. |
-| `.cheapest` | Picks the option with the lowest numeric fee value. |
-| `.custom { options in ... }` | Calls your closure with the full `[FeeOption]` list. |
+| `.custom { options in ... }` | Calls your closure with the full `[FeeOptionWithBalance]` list and expects a `FeeOptionSelection?`. |
+
+```swift
+struct FeeOptionWithBalance {
+    let feeOption: FeeOption
+    let balance: TokenBalance?
+    let available: String?
+    let availableRaw: String?
+    let decimals: Int?
+
+    init(
+        feeOption: FeeOption,
+        balance: TokenBalance? = nil,
+        available: String? = nil,
+        availableRaw: String? = nil,
+        decimals: Int? = nil
+    )
+
+    var selection: FeeOptionSelection
+}
+```
+
+```swift
+extension FeeOptionSelection {
+    init(feeOption: FeeOption)
+}
+```
+
+`balance` is the wallet's raw indexer balance for the fee token when available.
+`available` is formatted with `decimals`, while `availableRaw` keeps the raw
+integer balance. Use `selection` when returning a quoted option from a custom
+selector; it preserves the option's `tokenID` when present and falls back to the
+symbol for native fee options.
 
 ### TransactionError
 
 ```swift
 enum TransactionError: Error {
     case noFeeOptionsAvailable
+    case noFeeOptionSelected
     case missingTransactionHash
     case transactionFailed(status: TransactionStatus)
     case pollingTimedOut
 }
 ```
 
-Thrown by `sendTransaction` and `callContract`.
+Transaction-flow error cases. `noFeeOptionsAvailable` is used when an
+unsponsored transaction has no fee options, and `noFeeOptionSelected` is used
+when a custom selector does not return a selection for an unsponsored
+transaction. Terminal non-executed statuses throw `transactionFailed`. A normal
+pending polling timeout returns
+`SendTransactionResponse(status: .pending, txnHash: nil)` instead of throwing.
+`missingTransactionHash` and `pollingTimedOut` remain public compatibility cases.
+
+### SendTransactionResponse
+
+```swift
+struct SendTransactionResponse {
+    let txnId: String
+    let status: TransactionStatus
+    let txnHash: String?
+}
+```
+
+Returned by `sendTransaction` and `callContract`. `txnId` and `status` are always
+available; `txnHash` is present when the service has a chain transaction hash.
+The transaction flow returns as soon as status is `.executed` or a non-empty
+`txnHash` is available.
+`TransactionResult` remains available as a compatibility alias.
+
+### TransactionMode
+
+```swift
+enum TransactionMode {
+    case native
+    case relayer
+    case unknown(String)
+}
+```
+
+Used by transaction prepare requests. Public helpers default to `.relayer`.
 
 ### UnitConversionError
 
@@ -648,35 +776,41 @@ struct SendTransactionRequest {
     let to: String
     let value: String
     let data: String?
+    let mode: TransactionMode
 }
 ```
 
 Used with the full `sendTransaction(network:request:feeOptionSelector:)` overload.
+`mode` defaults to `.relayer`.
 
 ### TokenBalancesResult
 
 ```swift
-struct TokenBalancesResult {
+struct TokenBalancesResult: Sendable {
     let status: Int
     let page: TokenBalancesPage?
     let balances: [TokenBalance]
+
+    init(status: Int, page: TokenBalancesPage?, balances: [TokenBalance])
 }
 ```
 
 ### TokenBalancesPage
 
 ```swift
-struct TokenBalancesPage: Codable {
+struct TokenBalancesPage: Codable, Sendable {
     let page: Int
     let pageSize: Int
     let more: Bool
+
+    init(page: Int, pageSize: Int, more: Bool)
 }
 ```
 
 ### TokenBalance
 
 ```swift
-struct TokenBalance: Codable {
+struct TokenBalance: Codable, Sendable {
     let contractType: String?
     let contractAddress: String?
     let accountAddress: String?
@@ -685,6 +819,17 @@ struct TokenBalance: Codable {
     let blockHash: String?
     let blockNumber: Int64?
     let chainId: Int64?
+
+    init(
+        contractType: String?,
+        contractAddress: String?,
+        accountAddress: String?,
+        tokenId: String?,
+        balance: String?,
+        blockHash: String?,
+        blockNumber: Int64?,
+        chainId: Int64?
+    )
 }
 ```
 

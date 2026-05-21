@@ -1,28 +1,70 @@
 import Foundation
 
 @available(macOS 12.0, iOS 15.0, *)
-public struct FeeOptionSelector : Sendable{
-    public typealias Select = @Sendable (_ options: [FeeOption]) async throws -> FeeOption
+public struct FeeOptionWithBalance: Sendable {
+    public let feeOption: FeeOption
+    public let balance: TokenBalance?
+    public let available: String?
+    public let availableRaw: String?
+    public let decimals: Int?
+
+    public init(
+        feeOption: FeeOption,
+        balance: TokenBalance? = nil,
+        available: String? = nil,
+        availableRaw: String? = nil,
+        decimals: Int? = nil
+    ) {
+        self.feeOption = feeOption
+        self.balance = balance
+        self.available = available
+        self.availableRaw = availableRaw
+        self.decimals = decimals
+    }
+}
+
+@available(macOS 12.0, iOS 15.0, *)
+public extension FeeOptionWithBalance {
+    var selection: FeeOptionSelection {
+        FeeOptionSelection(feeOption: feeOption)
+    }
+}
+
+@available(macOS 12.0, iOS 15.0, *)
+public extension FeeOptionSelection {
+    init(feeOption: FeeOption) {
+        let tokenId = feeOption.token.tokenId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let tokenId, !tokenId.isEmpty {
+            self.init(token: tokenId)
+        } else {
+            self.init(token: feeOption.token.symbol)
+        }
+    }
+}
+
+@available(macOS 12.0, iOS 15.0, *)
+public struct FeeOptionSelector: Sendable {
+    public typealias Select = @Sendable (_ options: [FeeOptionWithBalance]) async throws -> FeeOptionSelection?
 
     private let select: Select
     public init(_ select: @escaping Select) { self.select = select }
 
-    public func callAsFunction(_ options: [FeeOption]) async throws -> FeeOption {
+    public func callAsFunction(_ options: [FeeOptionWithBalance]) async throws -> FeeOptionSelection? {
         guard !options.isEmpty else {
             throw TransactionError.noFeeOptionsAvailable
         }
         return try await select(options)
+    }
+
+    public func callAsFunction(_ options: [FeeOption]) async throws -> FeeOptionSelection? {
+        try await callAsFunction(options.map { FeeOptionWithBalance(feeOption: $0) })
     }
 }
 
 @available(macOS 12.0, iOS 15.0, *)
 public extension FeeOptionSelector {
     static let first = FeeOptionSelector { options in
-        options.first!  // safe — emptiness is checked in callAsFunction
-    }
-
-    static let cheapest = FeeOptionSelector { options in
-        options.min(by: { isNumericValueLessThan($0.value, $1.value) })!
+        options.first?.selection
     }
 
     static func custom(_ pick: @escaping Select) -> FeeOptionSelector {

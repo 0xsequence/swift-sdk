@@ -1,6 +1,6 @@
 # OMS SDK (Swift)
 
-A Swift SDK for the OMS (Open Money Stack) platform. Provides email and OIDC redirect wallet authentication, non-extractable Keychain request signing, keychain session persistence, on-chain transaction submission with fee selection, message and typed-data signing, signature verification, token balance queries, and base-unit formatting helpers.
+A Swift SDK for the OMS (Open Money Stack) platform. Provides email and OIDC redirect wallet authentication, non-extractable Keychain request signing, keychain session persistence, wallet ID token retrieval with optional TTL and custom claims, on-chain transaction submission with fee selection, message and typed-data signing, signature verification, token balance queries, and base-unit formatting helpers.
 
 **Requirements:** iOS 15+ · macOS 12+
 
@@ -36,11 +36,12 @@ print("Wallet address:", wallet.address)
 print("Session email:", oms.wallet.session.sessionEmail ?? "unknown")
 
 let value = try parseUnits(value: "1", decimals: 18)
-let txHash = try await oms.wallet.sendTransaction(
+let txResult = try await oms.wallet.sendTransaction(
     network: .polygon,
     to: "0xRecipient",
     value: value
 )
+print("Transaction hash:", txResult.txnHash ?? "pending")
 ```
 
 ## Overview
@@ -57,18 +58,34 @@ Pass both your project access key and project ID when creating the client. The S
 
 ## Supported Networks
 
-Use `Network.supportedNetworks`, `Network.from(chainId:)`, or the `OMSClient` convenience properties to bind numeric chain IDs to SDK networks.
+Use `Network.supportedNetworks` or the `OMSClient` convenience helpers to bind numeric chain IDs and network names to SDK networks.
 
 ```swift
 let networks = Network.supportedNetworks
-let polygon = Network.from(chainId: "137")
-let amoy = oms.network(chainId: "80002")
+let polygon = oms.findNetworkById(chainId: 137)
+let amoy = oms.findNetworkById(chainId: 80002)
+let base = oms.findNetworkByName(name: "base")
+let katana = oms.findNetworkByName(name: "katana")
 ```
 
-| Chain ID | Network | Swift case | Indexer value |
-|---|---|---|---|
-| `137` | Polygon | `.polygon` | `polygon` |
-| `80002` | Polygon Amoy | `.polygonAmoy` | `amoy` |
+| Chain ID | Network | Swift case | Indexer value | Native token |
+|---|---|---|---|---|
+| `1` | Ethereum | `.mainnet` | `mainnet` | `ETH` |
+| `11155111` | Sepolia | `.sepolia` | `sepolia` | `ETH` |
+| `137` | Polygon | `.polygon` | `polygon` | `POL` |
+| `80002` | Polygon Amoy | `.polygonAmoy` | `amoy` | `POL` |
+| `42161` | Arbitrum | `.arbitrum` | `arbitrum` | `ETH` |
+| `421614` | Arbitrum Sepolia | `.arbitrumSepolia` | `arbitrum-sepolia` | `ETH` |
+| `10` | Optimism | `.optimism` | `optimism` | `ETH` |
+| `11155420` | Optimism Sepolia | `.optimismSepolia` | `optimism-sepolia` | `ETH` |
+| `8453` | Base | `.base` | `base` | `ETH` |
+| `84532` | Base Sepolia | `.baseSepolia` | `base-sepolia` | `ETH` |
+| `56` | BSC | `.bsc` | `bsc` | `BNB` |
+| `97` | BSC Testnet | `.bscTestnet` | `bsc-testnet` | `BNB` |
+| `42170` | Arbitrum Nova | `.arbitrumNova` | `arbitrum-nova` | `ETH` |
+| `43114` | Avalanche | `.avalanche` | `avalanche` | `AVAX` |
+| `43113` | Avalanche Testnet | `.avalancheTestnet` | `avalanche-testnet` | `AVAX` |
+| `747474` | Katana | `.katana` | `katana` | `ETH` |
 
 ## Authentication Flow
 
@@ -187,46 +204,46 @@ try oms.wallet.signOut()
 `sendTransaction` and `callContract` use a prepare/execute flow internally:
 
 1. **Prepare** - the server calculates fee options for the transaction.
-2. **Select fee** - your `FeeOptionSelector` picks which fee option to use.
+2. **Select fee** - the SDK picks the default fee option, or your `FeeOptionSelector` picks one.
 3. **Execute** - the transaction is submitted.
-4. **Poll** - the SDK polls until the transaction is confirmed on-chain.
+4. **Poll** - the SDK polls for about 60 seconds and returns once the status is `.executed` or a transaction hash is available.
 
-The default selector is `.first`.
+By default, the SDK uses the first required fee option, or no fee option when the
+transaction is sponsored. Transaction mode defaults to `.relayer`; pass
+`.native` when you want native mode.
 
 ```swift
 let value = try parseUnits(value: "1", decimals: 18)
-let txHash = try await oms.wallet.sendTransaction(
+let txResult = try await oms.wallet.sendTransaction(
     network: .polygon,
     to: "0xRecipient",
     value: value
 )
+print("Transaction ID:", txResult.txnId)
+print("Transaction status:", txResult.status)
+print("Transaction hash:", txResult.txnHash ?? "pending")
 ```
 
-Use `.cheapest` to choose the lowest numeric fee value:
+Provide a custom selector to choose from the returned fee options:
 
 ```swift
 let value = try parseUnits(value: "1", decimals: 18)
-let txHash = try await oms.wallet.sendTransaction(
-    network: .polygon,
-    to: "0xRecipient",
-    value: value,
-    feeOptionSelector: .cheapest
-)
-```
-
-Or provide a custom selector:
-
-```swift
-let value = try parseUnits(value: "1", decimals: 18)
-let txHash = try await oms.wallet.sendTransaction(
+let txResult = try await oms.wallet.sendTransaction(
     network: .polygon,
     to: "0xRecipient",
     value: value,
     feeOptionSelector: .custom { options in
-        return options[selectedIndex]
+        let selected = options[selectedIndex]
+        return selected.selection
     }
 )
 ```
+
+Custom selectors receive `FeeOptionWithBalance` values. `balance` is the wallet's
+raw indexer balance for that fee token when available, `available` is formatted
+with the token decimals, `availableRaw` is the raw integer balance, and
+`decimals` is the token decimal count used for formatting. Unsponsored
+transactions require the selector to return a fee selection.
 
 ## Configuration
 
@@ -329,12 +346,13 @@ let isValid = try await oms.wallet.isValidTypedDataSignature(
 
 ```swift
 let value = try parseUnits(value: "1", decimals: 18)
-let txHash = try await oms.wallet.sendTransaction(
+let txResult = try await oms.wallet.sendTransaction(
     network: .polygon,
     request: SendTransactionRequest(
         to: "0xRecipient",
         value: value,
-        data: nil
+        data: nil,
+        mode: .relayer
     )
 )
 ```
@@ -343,7 +361,7 @@ let txHash = try await oms.wallet.sendTransaction(
 
 ```swift
 let amount = try parseUnits(value: "1", decimals: 18)
-let txHash = try await oms.wallet.callContract(
+let txResult = try await oms.wallet.callContract(
     network: .polygon,
     contract: "0xTokenContract",
     method: "transfer(address,uint256)",
@@ -359,20 +377,18 @@ let txHash = try await oms.wallet.callContract(
 ```swift
 let value = try parseUnits(value: "1", decimals: 18)
 do {
-    let txHash = try await oms.wallet.sendTransaction(
+    let txResult = try await oms.wallet.sendTransaction(
         network: .polygon,
         to: "0xRecipient",
         value: value
     )
-    print("Sent:", txHash)
-} catch TransactionError.noFeeOptionsAvailable {
-    print("No fee options returned from server")
-} catch TransactionError.pollingTimedOut {
-    print("Transaction did not confirm in time")
+    if txResult.status == .pending {
+        print("Submitted:", txResult.txnId)
+    } else {
+        print("Sent:", txResult.txnHash ?? "no hash")
+    }
 } catch TransactionError.transactionFailed(let status) {
     print("Transaction failed with status:", status)
-} catch TransactionError.missingTransactionHash {
-    print("Transaction executed but no hash was returned")
 }
 ```
 
@@ -400,6 +416,20 @@ let balance = try await oms.indexer.getNativeTokenBalance(
 )
 
 print(balance?.balance ?? "0")
+```
+
+### Get a Wallet ID Token
+
+```swift
+let idToken = try await oms.wallet.getIdToken()
+
+let scopedIdToken = try await oms.wallet.getIdToken(
+    ttlSeconds: 3_600,
+    customClaims: [
+        "role": .string("member"),
+        "features": .array([.string("trading")])
+    ]
+)
 ```
 
 ### Manage Wallet Access

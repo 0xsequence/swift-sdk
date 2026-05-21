@@ -46,6 +46,42 @@ private enum DemoAuthError: Error, LocalizedError {
     }
 }
 
+@MainActor
+fileprivate final class FeeOptionSelectionRequest: Identifiable {
+    let id = UUID()
+    let options: [FeeOptionWithBalance]
+
+    private var continuation: CheckedContinuation<FeeOptionSelection?, Error>?
+
+    init(
+        options: [FeeOptionWithBalance],
+        continuation: CheckedContinuation<FeeOptionSelection?, Error>
+    ) {
+        self.options = options
+        self.continuation = continuation
+    }
+
+    var isResolved: Bool {
+        continuation == nil
+    }
+
+    func select(_ option: FeeOptionWithBalance) {
+        resume(returning: option.selection)
+    }
+
+    func cancel() {
+        guard let continuation else { return }
+        self.continuation = nil
+        continuation.resume(throwing: CancellationError())
+    }
+
+    private func resume(returning selection: FeeOptionSelection?) {
+        guard let continuation else { return }
+        self.continuation = nil
+        continuation.resume(returning: selection)
+    }
+}
+
 // MARK: - Styling
 
 private var appBackgroundColor: Color {
@@ -105,10 +141,7 @@ private func formatUSDCBalance(_ raw: String) -> String {
 }
 
 private func nativeTokenSymbol(for network: Network) -> String {
-    switch network {
-    case .polygon, .polygonAmoy:
-        return "POL"
-    }
+    network.nativeTokenSymbol
 }
 
 private func formatNativeTokenBalance(_ raw: String) -> String {
@@ -160,6 +193,7 @@ final class AppViewModel: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var error: GenericAppError?
     @Published var safariAuthSession: SafariAuthSession?
+    @Published fileprivate var feeOptionSelectionRequest: FeeOptionSelectionRequest?
     @Published var useManualWalletSelection: Bool = false
     @Published var oms: OMSClient = OMSClient(
         projectAccessKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE",
@@ -313,6 +347,23 @@ final class AppViewModel: ObservableObject {
         if let appError = GenericAppError(error) {
             self.error = appError
         }
+    }
+
+    func selectFeeOption(_ options: [FeeOptionWithBalance]) async throws -> FeeOptionSelection? {
+        guard !options.isEmpty else { return nil }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            feeOptionSelectionRequest?.cancel()
+            feeOptionSelectionRequest = FeeOptionSelectionRequest(
+                options: options,
+                continuation: continuation
+            )
+        }
+    }
+
+    fileprivate func clearFeeOptionSelectionRequest(_ request: FeeOptionSelectionRequest) {
+        guard feeOptionSelectionRequest?.id == request.id else { return }
+        feeOptionSelectionRequest = nil
     }
 }
 
@@ -1092,9 +1143,12 @@ struct SendTransactionWindow: View {
                         let txResult = try await vm.oms.wallet.sendTransaction(
                             network: network,
                             to: toText,
-                            value: amountText
+                            value: amountText,
+                            feeOptionSelector: .custom { options in
+                                try await vm.selectFeeOption(options)
+                            }
                         )
-                        result = txResult
+                        result = formatTransactionResult(txResult)
                     } catch {
                         self.error = GenericAppError(error)
                     }
@@ -1107,10 +1161,14 @@ struct SendTransactionWindow: View {
             .disabled(amountText.isEmpty || toText.isEmpty || isSending)
 
             if !result.isEmpty {
-                ResultPanel(title: "Transaction hash", text: result)
+                ResultPanel(title: "Transaction result", text: result)
             }
         }
         .genericErrorWindow(error: $error)
+        .sheet(item: $vm.feeOptionSelectionRequest) { request in
+            FeeOptionSelectionWindow(request: request)
+                .environmentObject(vm)
+        }
         .onAppear {
             if toText.isEmpty {
                 toText = vm.oms.wallet.walletAddress
@@ -1254,9 +1312,12 @@ struct CallContractWindow: View {
                             network: network,
                             contract: contractText,
                             method: methodText,
-                            args: abiArgs.isEmpty ? nil : abiArgs
+                            args: abiArgs.isEmpty ? nil : abiArgs,
+                            feeOptionSelector: .custom { options in
+                                try await vm.selectFeeOption(options)
+                            }
                         )
-                        result = txResult
+                        result = formatTransactionResult(txResult)
                         onCompleted?()
                     } catch {
                         self.error = GenericAppError(error)
@@ -1270,10 +1331,14 @@ struct CallContractWindow: View {
             .disabled(contractText.isEmpty || methodText.isEmpty || isSending)
 
             if !result.isEmpty {
-                ResultPanel(title: "Transaction hash", text: result)
+                ResultPanel(title: "Transaction result", text: result)
             }
         }
         .genericErrorWindow(error: $error)
+        .sheet(item: $vm.feeOptionSelectionRequest) { request in
+            FeeOptionSelectionWindow(request: request)
+                .environmentObject(vm)
+        }
     }
 
     private func abiTypeField(arg: Binding<AbiArgInput>) -> some View {
@@ -1305,6 +1370,233 @@ struct CallContractWindow: View {
         .disabled(args.count <= 1)
         .help("Remove argument")
     }
+}
+
+// MARK: - Fee Option Selection Window
+
+private struct FeeOptionSelectionWindow: View {
+    @EnvironmentObject private var vm: AppViewModel
+
+    let request: FeeOptionSelectionRequest
+
+    @State private var selectedIndex: Int?
+
+    private var selectedOption: FeeOptionWithBalance? {
+        guard let selectedIndex, request.options.indices.contains(selectedIndex) else {
+            return nil
+        }
+        return request.options[selectedIndex]
+    }
+
+    private var firstAvailableIndex: Int? {
+        request.options.firstIndex(where: hasEnoughBalance)
+    }
+
+    var body: some View {
+        ModalContainer(
+            title: "Select fee",
+            subtitle: "Choose which token to use for this transaction fee.",
+            minWidth: 540,
+            minHeight: 520
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(request.options.indices, id: \.self) { index in
+                    FeeOptionRow(
+                        option: request.options[index],
+                        isSelected: selectedIndex == index,
+                        onSelect: {
+                            selectedIndex = index
+                        },
+                        onConfirm: {
+                            select(request.options[index])
+                        }
+                    )
+                }
+            }
+
+            HStack(spacing: 12) {
+                Button("Cancel", role: .cancel) {
+                    cancel()
+                }
+
+                Spacer()
+
+                Button("Select first available") {
+                    if let firstAvailableIndex {
+                        select(request.options[firstAvailableIndex])
+                    }
+                }
+                .disabled(firstAvailableIndex == nil)
+
+                Button("Select fee") {
+                    if let selectedOption {
+                        select(selectedOption)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(selectedOption == nil)
+            }
+        }
+        .onAppear {
+            selectedIndex = firstAvailableIndex ?? request.options.indices.first
+        }
+        .onDisappear {
+            if !request.isResolved {
+                request.cancel()
+            }
+            vm.clearFeeOptionSelectionRequest(request)
+        }
+    }
+
+    private func select(_ option: FeeOptionWithBalance) {
+        request.select(option)
+        vm.clearFeeOptionSelectionRequest(request)
+    }
+
+    private func cancel() {
+        request.cancel()
+        vm.clearFeeOptionSelectionRequest(request)
+    }
+}
+
+private struct FeeOptionRow: View {
+    let option: FeeOptionWithBalance
+    let isSelected: Bool
+    let onSelect: () -> Void
+    let onConfirm: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .font(.title3)
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(feeTokenLabel(option))
+                        .font(.headline)
+                        .lineLimit(1)
+
+                    Text(feeAmountLabel(option))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Text(balanceStatusLabel(option))
+                    .font(.caption)
+                    .foregroundStyle(balanceStatusColor(option))
+                    .lineLimit(1)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Available: \(option.available ?? "unknown")")
+                    Text("Raw balance: \(option.availableRaw ?? "unknown")")
+                    Text("Raw fee: \(option.feeOption.value)")
+                    if let decimals = option.decimals {
+                        Text("Decimals: \(decimals)")
+                    }
+                }
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button("Select") {
+                onConfirm()
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(panelBackgroundColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isSelected ? Color.accentColor : panelBorderColor, lineWidth: isSelected ? 2 : 1)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onSelect()
+        }
+    }
+}
+
+private func feeTokenLabel(_ option: FeeOptionWithBalance) -> String {
+    let token = option.feeOption.token
+    let symbol = token.symbol.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !symbol.isEmpty {
+        return symbol
+    }
+
+    let name = token.name.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !name.isEmpty {
+        return name
+    }
+
+    return token.tokenId ?? "Unknown token"
+}
+
+private func feeAmountLabel(_ option: FeeOptionWithBalance) -> String {
+    let displayValue = option.feeOption.displayValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    return displayValue.isEmpty ? option.feeOption.value : displayValue
+}
+
+private func balanceStatusLabel(_ option: FeeOptionWithBalance) -> String {
+    guard let comparison = compareBalanceToFee(option) else {
+        return "Balance unavailable"
+    }
+    return comparison == .orderedAscending ? "Insufficient balance" : "Enough balance"
+}
+
+private func balanceStatusColor(_ option: FeeOptionWithBalance) -> Color {
+    guard let comparison = compareBalanceToFee(option) else {
+        return .secondary
+    }
+    return comparison == .orderedAscending ? .red : .green
+}
+
+private func hasEnoughBalance(_ option: FeeOptionWithBalance) -> Bool {
+    compareBalanceToFee(option).map { $0 != .orderedAscending } ?? false
+}
+
+private func compareBalanceToFee(_ option: FeeOptionWithBalance) -> ComparisonResult? {
+    guard let balance = normalizedUnsignedInteger(option.availableRaw),
+          let fee = normalizedUnsignedInteger(option.feeOption.value) else {
+        return nil
+    }
+
+    if balance.count != fee.count {
+        return balance.count < fee.count ? .orderedAscending : .orderedDescending
+    }
+
+    if balance == fee {
+        return .orderedSame
+    }
+
+    return balance < fee ? .orderedAscending : .orderedDescending
+}
+
+private func normalizedUnsignedInteger(_ value: String?) -> String? {
+    guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !trimmed.isEmpty,
+          trimmed.allSatisfy({ $0.isNumber }) else {
+        return nil
+    }
+
+    let stripped = trimmed.drop(while: { $0 == "0" })
+    return stripped.isEmpty ? "0" : String(stripped)
+}
+
+private func formatTransactionResult(_ result: SendTransactionResponse) -> String {
+    """
+    txnId: \(result.txnId)
+    status: \(result.status.wireValue)
+    txnHash: \(result.txnHash ?? "nil")
+    """
 }
 
 // MARK: - Helpers

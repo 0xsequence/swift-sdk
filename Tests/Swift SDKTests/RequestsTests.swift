@@ -99,25 +99,6 @@ import Testing
     }
 }
 
-@Test func TestCheapestFeeOptionUsesNumericValue() async throws {
-    let token = FeeToken(
-        network: "polygon",
-        name: "USDC",
-        symbol: "USDC",
-        type: "erc20",
-        logoUrl: "",
-        tokenId: "usdc"
-    )
-    let options = [
-        FeeOption(token: token, value: "100", displayValue: "100"),
-        FeeOption(token: token, value: "20", displayValue: "20")
-    ]
-
-    let selected = try await FeeOptionSelector.cheapest(options)
-
-    #expect(selected.value == "20")
-}
-
 @Test func TestSessionStateParsesExpiresAt() throws {
     let state = SessionState(
         walletAddress: "0xabc",

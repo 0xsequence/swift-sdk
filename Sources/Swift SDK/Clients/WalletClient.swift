@@ -2,6 +2,7 @@ import Foundation
 
 public enum TransactionError: Error {
     case noFeeOptionsAvailable
+    case noFeeOptionSelected
     case missingTransactionHash
     case transactionFailed(status: TransactionStatus)
     case pollingTimedOut
@@ -23,9 +24,13 @@ public class WalletClient {
     }
 
     private static let defaultSessionLifetimeSeconds: UInt32 = 604_800
+    private static let defaultTransactionPollingIntervals: [UInt64] =
+        Array(repeating: 750_000_000, count: 5) + Array(repeating: 2_000_000_000, count: 28)
 
     private var signedClient: WaasWalletClient
     private var publicClient: WaasWalletPublicClient
+    private let indexerClient: any WalletIndexerClient
+    private let transactionPollingIntervals: [UInt64]
     
     private let projectId: String
     private let projectAccessKey: String
@@ -62,6 +67,7 @@ public class WalletClient {
             )
         }
         self.signedClientFactory = makeSignedClient
+        self.transactionPollingIntervals = Self.defaultTransactionPollingIntervals
 
         self.walletId = restoredWallet?.walletId ?? ""
         self.walletAddress = restoredWallet?.walletAddress ?? ""
@@ -75,6 +81,10 @@ public class WalletClient {
             projectAccessKey: projectAccessKey,
             environment: environment
         )
+        self.indexerClient = IndexerClient(
+            projectAccessKey: projectAccessKey,
+            environment: environment
+        )
     }
 
     init(
@@ -84,9 +94,11 @@ public class WalletClient {
         credentialSession: WalletCredentialSession,
         signedClient: WaasWalletClient,
         publicClient: WaasWalletPublicClient,
+        indexerClient: (any WalletIndexerClient)? = nil,
         oidcRedirectAuthStore: (any OidcRedirectAuthStore)? = nil,
         oidcNonceGenerator: @escaping () throws -> String = OidcRedirectAuth.generateNonce,
-        signedClientFactory: ((any CredentialSigner) -> WaasWalletClient)? = nil
+        signedClientFactory: ((any CredentialSigner) -> WaasWalletClient)? = nil,
+        transactionPollingIntervals: [UInt64]? = nil
     ) {
         self.projectId = projectId
         self.projectAccessKey = projectAccessKey
@@ -96,6 +108,7 @@ public class WalletClient {
         self.oidcNonceGenerator = oidcNonceGenerator
         let makeSignedClient = signedClientFactory ?? { _ in signedClient }
         self.signedClientFactory = makeSignedClient
+        self.transactionPollingIntervals = transactionPollingIntervals ?? Self.defaultTransactionPollingIntervals
 
         self.walletId = restoredWallet?.walletId ?? ""
         self.walletAddress = restoredWallet?.walletAddress ?? ""
@@ -105,6 +118,10 @@ public class WalletClient {
         self.credentialSession = credentialSession
         self.signedClient = signedClient
         self.publicClient = publicClient
+        self.indexerClient = indexerClient ?? IndexerClient(
+            projectAccessKey: projectAccessKey,
+            environment: environment
+        )
     }
 
     /// Whether there is a persisted OIDC redirect flow that can still be completed by
@@ -632,6 +649,29 @@ public class WalletClient {
         }
     }
 
+    private func requireActiveWalletId() throws -> String {
+        let walletId = walletId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !walletId.isEmpty else {
+            throw WalletAuthError.noAuthenticatedWalletSession
+        }
+        return walletId
+    }
+
+    private func requireActiveWalletAddress() throws -> String {
+        let walletAddress = walletAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !walletAddress.isEmpty else {
+            throw WalletAuthError.noAuthenticatedWalletSession
+        }
+        return walletAddress
+    }
+
+    private func activeWalletAddressIfNeeded(for feeOptionSelector: FeeOptionSelector?) throws -> String? {
+        guard feeOptionSelector != nil else {
+            return nil
+        }
+        return try requireActiveWalletAddress()
+    }
+
     private func requireActiveCredential() throws {
         guard try credentialSession.signer.hasCredential() else {
             throw WalletAuthError.noActiveCredential
@@ -707,12 +747,25 @@ public class WalletClient {
     /// - Returns: An array of `CredentialInfo` values representing each credential
     ///   with access to this wallet.
     public func listAccess() async throws -> [CredentialInfo] {
+        let walletId = try requireActiveWalletId()
         let params = ListAccessRequest(
-            walletId: self.walletId
+            walletId: walletId
         )
 
         let response = try await signedClient.listAccess(params)
         return response.credentials
+    }
+    
+    public func getIdToken(ttlSeconds: UInt32? = nil, customClaims: [String: WebRPCJSONValue]? = nil) async throws -> String {
+        let walletId = try requireActiveWalletId()
+        let params = GetIDTokenRequest(
+            walletId: walletId,
+            ttlSeconds: ttlSeconds,
+            customClaims: customClaims
+        )
+        
+        let response = try await signedClient.getIdToken(params)
+        return response.idToken
     }
 
     /// Revokes access for a specific credential, preventing it from interacting
@@ -724,9 +777,10 @@ public class WalletClient {
     ///
     /// - Parameter targetCredentialId: The unique identifier of the credential to revoke.
     public func revokeAccess(targetCredentialId: String) async throws {
+        let walletId = try requireActiveWalletId()
         let params = RevokeAccessRequest(
             targetCredentialId: targetCredentialId,
-            walletId: self.walletId
+            walletId: walletId
         )
 
         _ = try await signedClient.revokeAccess(params)
@@ -739,9 +793,10 @@ public class WalletClient {
     ///   - message: The plaintext message to sign.
     /// - Returns: A hex-encoded signature string.
     public func signMessage(network: Network, message: String) async throws -> String {
+        let walletId = try requireActiveWalletId()
         let params = SignMessageRequest(
             network: network.chainId,
-            walletId: self.walletId,
+            walletId: walletId,
             message: message
         )
 
@@ -750,9 +805,10 @@ public class WalletClient {
     }
 
     public func signTypedData(network: Network, typedData: WebRPCJSONValue) async throws -> String {
+        let walletId = try requireActiveWalletId()
         let params = SignTypedDataRequest(
             network: network.chainId,
-            walletId: self.walletId,
+            walletId: walletId,
             typedData: typedData
         )
 
@@ -766,11 +822,12 @@ public class WalletClient {
         message: String,
         signature: String
     ) async throws -> Bool {
+        let walletId = try requireActiveWalletId()
         let response = try await publicClient.isValidMessageSignature(
             IsValidMessageSignatureRequest(
                 network: network.chainId,
                 walletAddress: walletAddress,
-                walletId: self.walletId,
+                walletId: walletId,
                 message: message,
                 signature: signature
             )
@@ -785,11 +842,12 @@ public class WalletClient {
         typedData: WebRPCJSONValue,
         signature: String
     ) async throws -> Bool {
+        let walletId = try requireActiveWalletId()
         let response = try await publicClient.isValidTypedDataSignature(
             IsValidTypedDataSignatureRequest(
                 network: network.chainId,
                 walletAddress: walletAddress,
-                walletId: self.walletId,
+                walletId: walletId,
                 typedData: typedData,
                 signature: signature
             )
@@ -802,34 +860,64 @@ public class WalletClient {
         network: Network,
         to: String,
         value: String,
-        feeOptionSelector: FeeOptionSelector = .first
-    ) async throws -> String {
-        return try await self.sendTransaction(network: network, request: SendTransactionRequest(
-            to: to,
-            value: value,
-            data: nil
-        ), feeOptionSelector: feeOptionSelector)
+        feeOptionSelector: FeeOptionSelector? = nil,
+        mode: TransactionMode = .relayer
+    ) async throws -> SendTransactionResponse {
+        let walletId = try requireActiveWalletId()
+        let walletAddress = try activeWalletAddressIfNeeded(for: feeOptionSelector)
+        return try await sendTransaction(
+            network: network,
+            request: SendTransactionRequest(
+                to: to,
+                value: value,
+                data: nil,
+                mode: mode
+            ),
+            feeOptionSelector: feeOptionSelector,
+            walletId: walletId,
+            walletAddress: walletAddress
+        )
     }
 
     public func sendTransaction(
         network: Network,
         request: SendTransactionRequest,
-        feeOptionSelector: FeeOptionSelector = .first
-    ) async throws -> String {
+        feeOptionSelector: FeeOptionSelector? = nil
+    ) async throws -> SendTransactionResponse {
+        let walletId = try requireActiveWalletId()
+        let walletAddress = try activeWalletAddressIfNeeded(for: feeOptionSelector)
+        return try await sendTransaction(
+            network: network,
+            request: request,
+            feeOptionSelector: feeOptionSelector,
+            walletId: walletId,
+            walletAddress: walletAddress
+        )
+    }
+
+    private func sendTransaction(
+        network: Network,
+        request: SendTransactionRequest,
+        feeOptionSelector: FeeOptionSelector?,
+        walletId: String,
+        walletAddress: String?
+    ) async throws -> SendTransactionResponse {
         let prepareResponse = try await signedClient.prepareEthereumTransaction(
             PrepareEthereumTransactionRequest(
                 network: network.chainId,
-                walletId: self.walletId,
+                walletId: walletId,
                 to: request.to,
                 value: request.value,
                 data: request.data,
-                mode: .relayer
+                mode: request.mode
             )
         )
 
         return try await self.execute(
+            network: network,
             prepareResponse: prepareResponse,
-            feeOptionSelector: feeOptionSelector
+            feeOptionSelector: feeOptionSelector,
+            walletAddress: walletAddress
         );
     }
 
@@ -838,22 +926,27 @@ public class WalletClient {
         contract: String,
         method: String,
         args: [AbiArg]?,
-        feeOptionSelector: FeeOptionSelector = .first
-    ) async throws -> String {
+        feeOptionSelector: FeeOptionSelector? = nil,
+        mode: TransactionMode = .relayer
+    ) async throws -> SendTransactionResponse {
+        let walletId = try requireActiveWalletId()
+        let walletAddress = try activeWalletAddressIfNeeded(for: feeOptionSelector)
         let prepareResponse = try await signedClient.prepareEthereumContractCall(
             PrepareEthereumContractCallRequest(
                 network: network.chainId,
-                walletId: self.walletId,
+                walletId: walletId,
                 contract: contract,
                 method: method,
                 args: args,
-                mode: .relayer
+                mode: mode
             )
         )
 
         return try await self.execute(
+            network: network,
             prepareResponse: prepareResponse,
-            feeOptionSelector: feeOptionSelector
+            feeOptionSelector: feeOptionSelector,
+            walletAddress: walletAddress
         );
     }
 
@@ -868,18 +961,17 @@ public class WalletClient {
     }
 
     private func execute(
+        network: Network,
         prepareResponse: PrepareResponse,
-        feeOptionSelector: FeeOptionSelector
-    ) async throws -> String {
-        var feeOption: FeeOption? = nil
-        if !prepareResponse.sponsored {
-            feeOption = try await feeOptionSelector.callAsFunction(prepareResponse.feeOptions)
-        }
-
-        var feeOptionSelection: FeeOptionSelection? = nil
-        if feeOption != nil {
-            feeOptionSelection = FeeOptionSelection(token: feeOption?.token.tokenId ?? "")
-        }
+        feeOptionSelector: FeeOptionSelector?,
+        walletAddress: String?
+    ) async throws -> SendTransactionResponse {
+        let feeOptionSelection = try await selectFeeOption(
+            network: network,
+            prepareResponse: prepareResponse,
+            feeOptionSelector: feeOptionSelector,
+            walletAddress: walletAddress
+        )
 
         let executeRequest = ExecuteRequest(
             txnId: prepareResponse.txnId,
@@ -887,50 +979,196 @@ public class WalletClient {
         )
 
         let executeResponse = try await signedClient.execute(executeRequest)
-        var status = executeResponse.status
-        if status == .executed {
-            return try await getExecutedTransactionHash(txnId: prepareResponse.txnId)
+        var response = SendTransactionResponse(
+            txnId: prepareResponse.txnId,
+            status: executeResponse.status
+        )
+        if response.status == .executed {
+            return try await getSubmittedTransactionResult(txnId: prepareResponse.txnId)
         }
 
-        let pollIntervalNanos: UInt64 = 750_000_000
-        let maxAttempts = 10  // ~45s ceiling
-        var attempts = 0
-
-        while status == .pending {
-            guard attempts < maxAttempts else {
-                throw TransactionError.pollingTimedOut
+        for pollIntervalNanos in transactionPollingIntervals {
+            guard response.status == .pending else {
+                break
             }
-            try await Task.sleep(nanoseconds: pollIntervalNanos)
-            attempts += 1
+            if pollIntervalNanos > 0 {
+                try await Task.sleep(nanoseconds: pollIntervalNanos)
+            }
 
             let statusResponse = try await getTransactionStatus(txnId: prepareResponse.txnId)
-            status = statusResponse.status
+            response = SendTransactionResponse(
+                txnId: prepareResponse.txnId,
+                status: statusResponse.status,
+                txnHash: statusResponse.txnHash
+            )
 
-            if status == .executed {
-                return try requireTransactionHash(from: statusResponse)
+            if isSubmittedTransactionResult(response) {
+                return response
             }
         }
 
-        // Loop exited without `.executed` — surface the terminal status.
-        throw TransactionError.transactionFailed(status: status)
+        if response.status == .pending {
+            return response
+        }
+
+        throw TransactionError.transactionFailed(status: response.status)
     }
 
-    private func getExecutedTransactionHash(txnId: String) async throws -> String {
-        let statusResponse = try await getTransactionStatus(txnId: txnId)
+    private func selectFeeOption(
+        network: Network,
+        prepareResponse: PrepareResponse,
+        feeOptionSelector: FeeOptionSelector?,
+        walletAddress: String?
+    ) async throws -> FeeOptionSelection? {
+        guard !prepareResponse.sponsored else {
+            return nil
+        }
 
-        guard statusResponse.status == .executed else {
+        guard !prepareResponse.feeOptions.isEmpty else {
+            throw TransactionError.noFeeOptionsAvailable
+        }
+
+        guard let feeOptionSelector else {
+            guard let feeOptionSelection = prepareResponse.feeOptions.defaultSelection() else {
+                throw TransactionError.noFeeOptionsAvailable
+            }
+            return feeOptionSelection
+        }
+
+        guard let walletAddress else {
+            throw WalletAuthError.noAuthenticatedWalletSession
+        }
+
+        let feeOptionSelection = try await feeOptionSelector(
+            enrichFeeOptionsWithBalances(
+                network: network,
+                walletAddress: walletAddress,
+                feeOptions: prepareResponse.feeOptions
+            )
+        )
+
+        guard let feeOptionSelection else {
+            throw TransactionError.noFeeOptionSelected
+        }
+
+        return feeOptionSelection
+    }
+
+    private func enrichFeeOptionsWithBalances(
+        network: Network,
+        walletAddress: String,
+        feeOptions: [FeeOption]
+    ) async -> [FeeOptionWithBalance] {
+        let nativeBalance: TokenBalance?
+        if feeOptions.contains(where: { $0.token.isNativeToken }) {
+            nativeBalance = await loadNativeTokenBalance(
+                network: network,
+                walletAddress: walletAddress
+            )
+        } else {
+            nativeBalance = nil
+        }
+
+        var balancesByContract: [String: TokenBalance?] = [:]
+        let contractAddresses = feeOptions
+            .compactMap { normalizedAddress($0.token.contractAddress) }
+            .reduce(into: [String]()) { addresses, address in
+                if !addresses.contains(address) {
+                    addresses.append(address)
+                }
+            }
+
+        for contractAddress in contractAddresses {
+            balancesByContract[contractAddress] = await loadTokenBalanceOrZero(
+                network: network,
+                contractAddress: contractAddress,
+                walletAddress: walletAddress
+            )
+        }
+
+        return feeOptions.map { feeOption in
+            let balance: TokenBalance?
+            if feeOption.token.isNativeToken {
+                balance = nativeBalance
+            } else {
+                balance = normalizedAddress(feeOption.token.contractAddress)
+                    .flatMap { balancesByContract[$0] ?? nil }
+            }
+
+            let decimals = feeOption.token.balanceDecimals
+            return FeeOptionWithBalance(
+                feeOption: feeOption,
+                balance: balance,
+                available: formatTokenAmount(balance?.balance, decimals: decimals),
+                availableRaw: balance?.balance,
+                decimals: decimals
+            )
+        }
+    }
+
+    private func loadNativeTokenBalance(
+        network: Network,
+        walletAddress: String
+    ) async -> TokenBalance? {
+        try? await indexerClient.getNativeTokenBalance(
+            network: network,
+            walletAddress: walletAddress
+        )
+    }
+
+    private func loadTokenBalanceOrZero(
+        network: Network,
+        contractAddress: String,
+        walletAddress: String
+    ) async -> TokenBalance? {
+        do {
+            let result = try await indexerClient.getTokenBalances(
+                network: network,
+                contractAddress: contractAddress,
+                walletAddress: walletAddress,
+                includeMetadata: false
+            )
+            return result.balances.first {
+                normalizedAddress($0.contractAddress) == contractAddress
+            } ?? TokenBalance(
+                contractType: "ERC20",
+                contractAddress: contractAddress,
+                accountAddress: walletAddress,
+                tokenId: nil,
+                balance: "0",
+                blockHash: nil,
+                blockNumber: nil,
+                chainId: Int64(network.chainId)
+            )
+        } catch {
+            return nil
+        }
+    }
+
+    private func getSubmittedTransactionResult(txnId: String) async throws -> SendTransactionResponse {
+        let statusResponse = try await getTransactionStatus(txnId: txnId)
+        let response = SendTransactionResponse(
+            txnId: txnId,
+            status: statusResponse.status,
+            txnHash: statusResponse.txnHash
+        )
+
+        guard isSubmittedTransactionResult(response) else {
             throw TransactionError.transactionFailed(status: statusResponse.status)
         }
 
-        return try requireTransactionHash(from: statusResponse)
+        return response
     }
 
-    private func requireTransactionHash(from statusResponse: TransactionStatusResponse) throws -> String {
-        guard let hash = statusResponse.txnHash else {
-            throw TransactionError.missingTransactionHash
-        }
+    private func isSubmittedTransactionResult(_ response: SendTransactionResponse) -> Bool {
+        response.status == .executed || hasTransactionHash(response.txnHash)
+    }
 
-        return hash
+    private func hasTransactionHash(_ txnHash: String?) -> Bool {
+        guard let txnHash = txnHash?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return false
+        }
+        return !txnHash.isEmpty
     }
 
     private static func makeSignedClient(
@@ -963,4 +1201,37 @@ public class WalletClient {
             }
         )
     }
+}
+
+@available(macOS 12.0, iOS 15.0, *)
+private extension Array where Element == FeeOption {
+    func defaultSelection() -> FeeOptionSelection? {
+        first.map { FeeOptionSelection(feeOption: $0) }
+    }
+}
+
+private extension FeeToken {
+    var isNativeToken: Bool {
+        type.caseInsensitiveCompare("native") == .orderedSame
+            || ((contractAddress?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+                && (tokenId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true))
+    }
+
+    var balanceDecimals: Int? {
+        decimals.map(Int.init) ?? (isNativeToken ? 18 : nil)
+    }
+}
+
+private func normalizedAddress(_ address: String?) -> String? {
+    guard let trimmed = address?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !trimmed.isEmpty else {
+        return nil
+    }
+    return trimmed.lowercased()
+}
+
+private func formatTokenAmount(_ value: String?, decimals: Int?) -> String? {
+    guard let value else { return nil }
+    guard let decimals else { return value }
+    return (try? formatUnits(value: value, decimals: decimals)) ?? value
 }

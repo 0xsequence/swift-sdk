@@ -15,12 +15,18 @@ public class OMSClient {
             environment: environment
         )
     }
-    
+
     public var supportedNetworks: [Network] {
         Network.supportedNetworks
     }
 
-    public func network(chainId: String) -> Network? {
-        Network.from(chainId: chainId)
+    public func findNetworkById(chainId: Int) -> Network? {
+        supportedNetworks.first { $0.id == chainId }
+    }
+
+    public func findNetworkByName(name: String) -> Network? {
+        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return supportedNetworks.first { $0.name.lowercased() == normalized }
+            ?? (normalized == "polygonamoy" ? .polygonAmoy : nil)
     }
 }

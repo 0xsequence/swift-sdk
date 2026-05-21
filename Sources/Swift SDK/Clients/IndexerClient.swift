@@ -1,12 +1,18 @@
 import Foundation
 
-public struct TokenBalancesPage: Codable {
+public struct TokenBalancesPage: Codable, Sendable {
     public let page: Int
     public let pageSize: Int
     public let more: Bool
+
+    public init(page: Int, pageSize: Int, more: Bool) {
+        self.page = page
+        self.pageSize = pageSize
+        self.more = more
+    }
 }
 
-public struct TokenBalance: Codable {
+public struct TokenBalance: Codable, Sendable {
     public let contractType: String?
     public let contractAddress: String?
     public let accountAddress: String?
@@ -15,6 +21,26 @@ public struct TokenBalance: Codable {
     public let blockHash: String?
     public let blockNumber: Int64?
     public let chainId: Int64?
+
+    public init(
+        contractType: String?,
+        contractAddress: String?,
+        accountAddress: String?,
+        tokenId: String?,
+        balance: String?,
+        blockHash: String?,
+        blockNumber: Int64?,
+        chainId: Int64?
+    ) {
+        self.contractType = contractType
+        self.contractAddress = contractAddress
+        self.accountAddress = accountAddress
+        self.tokenId = tokenId
+        self.balance = balance
+        self.blockHash = blockHash
+        self.blockNumber = blockNumber
+        self.chainId = chainId
+    }
 
     enum CodingKeys: String, CodingKey {
         case contractType
@@ -28,10 +54,16 @@ public struct TokenBalance: Codable {
     }
 }
 
-public struct TokenBalancesResult {
+public struct TokenBalancesResult: Sendable {
     public let status: Int
     public let page: TokenBalancesPage?
     public let balances: [TokenBalance]
+
+    public init(status: Int, page: TokenBalancesPage?, balances: [TokenBalance]) {
+        self.status = status
+        self.page = page
+        self.balances = balances
+    }
 }
 
 private struct TokenBalancesPayload: Codable {
@@ -51,7 +83,22 @@ private struct NativeTokenBalanceResponse: Decodable {
 }
 
 @available(macOS 12.0, iOS 15.0, *)
-public final class IndexerClient {
+protocol WalletIndexerClient {
+    func getTokenBalances(
+        network: Network,
+        contractAddress: String,
+        walletAddress: String,
+        includeMetadata: Bool
+    ) async throws -> TokenBalancesResult
+
+    func getNativeTokenBalance(
+        network: Network,
+        walletAddress: String
+    ) async throws -> TokenBalance?
+}
+
+@available(macOS 12.0, iOS 15.0, *)
+public final class IndexerClient: WalletIndexerClient {
     private let projectAccessKey: String
     private let environment: OMSClientEnvironment
     private let client: HttpClient
