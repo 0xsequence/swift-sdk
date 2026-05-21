@@ -411,6 +411,14 @@ func listAccess() async throws -> [CredentialInfo]
 
 Returns all credentials that currently have access to this wallet.
 
+### getIdToken
+
+```swift
+func getIdToken() async throws -> String
+```
+
+Returns an ID token for the active wallet.
+
 ### revokeAccess
 
 ```swift

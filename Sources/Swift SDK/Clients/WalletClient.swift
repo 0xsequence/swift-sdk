@@ -724,6 +724,15 @@ public class WalletClient {
         let response = try await signedClient.listAccess(params)
         return response.credentials
     }
+    
+    public func getIdToken() async throws -> String {
+        let params = GetIDTokenRequest(
+            walletId: self.walletId
+        )
+        
+        let response = try await signedClient.getIdToken(params)
+        return response.idToken
+    }
 
     /// Revokes access for a specific credential, preventing it from interacting
     /// with this wallet going forward.
