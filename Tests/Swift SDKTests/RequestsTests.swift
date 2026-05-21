@@ -100,7 +100,15 @@ import Testing
 }
 
 @Test func TestCheapestFeeOptionUsesNumericValue() async throws {
-    let token = FeeToken(
+    let expensiveToken = FeeToken(
+        network: "polygon",
+        name: "POL",
+        symbol: "POL",
+        type: "native",
+        logoUrl: "",
+        tokenId: "pol"
+    )
+    let cheapToken = FeeToken(
         network: "polygon",
         name: "USDC",
         symbol: "USDC",
@@ -109,13 +117,13 @@ import Testing
         tokenId: "usdc"
     )
     let options = [
-        FeeOption(token: token, value: "100", displayValue: "100"),
-        FeeOption(token: token, value: "20", displayValue: "20")
+        FeeOption(token: expensiveToken, value: "100", displayValue: "100"),
+        FeeOption(token: cheapToken, value: "20", displayValue: "20")
     ]
 
     let selected = try await FeeOptionSelector.cheapest(options)
 
-    #expect(selected.value == "20")
+    #expect(selected?.token == "USDC")
 }
 
 @Test func TestSessionStateParsesExpiresAt() throws {

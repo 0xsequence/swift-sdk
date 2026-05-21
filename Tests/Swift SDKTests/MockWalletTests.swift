@@ -732,6 +732,126 @@ import Testing
     #expect(fixture.oidcRedirectAuthStore.pending == nil)
 }
 
+@Test func TestWalletSendTransactionDefaultSelectsFirstFeeOptionBySymbolWithoutBalanceLookup() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-1",
+            status: .quoted,
+            feeOptions: testFeeOptions(),
+            sponsored: false,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasWalletAPI.PrepareEthereumTransaction.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .executed),
+        for: WaasWalletAPI.Execute.urlPath
+    )
+    try fixture.transport.enqueue(
+        TransactionStatusResponse(status: .executed, txnHash: "0xdeadbeef"),
+        for: WaasWalletAPI.TransactionStatus.urlPath
+    )
+
+    let txHash = try await fixture.client.sendTransaction(
+        network: .polygonAmoy,
+        to: "0xabc",
+        value: "0"
+    )
+    let executeRequest = try fixture.transport.decodedRequest(
+        ExecuteRequest.self,
+        for: WaasWalletAPI.Execute.urlPath
+    )
+
+    #expect(txHash == "0xdeadbeef")
+    #expect(executeRequest.feeOption?.token == "POL")
+    #expect(fixture.indexerClient.nativeBalanceRequestCount == 0)
+    #expect(fixture.indexerClient.tokenBalanceContractAddresses.isEmpty)
+}
+
+@Test func TestWalletSendTransactionCustomSelectorReceivesFeeOptionBalances() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+    fixture.indexerClient.setNativeBalance(
+        TokenBalance(
+            contractType: "NATIVE",
+            contractAddress: nil,
+            accountAddress: "0xwallet",
+            tokenId: nil,
+            balance: "100",
+            blockHash: nil,
+            blockNumber: nil,
+            chainId: 80002
+        )
+    )
+    fixture.indexerClient.setTokenBalances(
+        [
+            TokenBalance(
+                contractType: "ERC20",
+                contractAddress: "0xUSDC",
+                accountAddress: "0xwallet",
+                tokenId: nil,
+                balance: "2000",
+                blockHash: nil,
+                blockNumber: nil,
+                chainId: 80002
+            )
+        ],
+        for: "0xusdc"
+    )
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-1",
+            status: .quoted,
+            feeOptions: testFeeOptions(),
+            sponsored: false,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasWalletAPI.PrepareEthereumTransaction.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .executed),
+        for: WaasWalletAPI.Execute.urlPath
+    )
+    try fixture.transport.enqueue(
+        TransactionStatusResponse(status: .executed, txnHash: "0xdeadbeef"),
+        for: WaasWalletAPI.TransactionStatus.urlPath
+    )
+
+    let txHash = try await fixture.client.sendTransaction(
+        network: .polygonAmoy,
+        request: SendTransactionRequest(to: "0xabc", value: "0"),
+        feeOptionSelector: .custom { feeOptions in
+            #expect(feeOptions.count == 2)
+            #expect(feeOptions[0].feeOption.token.symbol == "POL")
+            #expect(feeOptions[0].balance?.balance == "100")
+            #expect(feeOptions[0].available == "0.0000000000000001")
+            #expect(feeOptions[0].availableRaw == "100")
+            #expect(feeOptions[0].decimals == 18)
+            #expect(feeOptions[1].feeOption.token.symbol == "USDC")
+            #expect(feeOptions[1].balance?.balance == "2000")
+            #expect(feeOptions[1].available == "0.002")
+            #expect(feeOptions[1].availableRaw == "2000")
+            #expect(feeOptions[1].decimals == 6)
+            return FeeOptionSelection(token: feeOptions[1].feeOption.token.symbol)
+        }
+    )
+    let executeRequest = try fixture.transport.decodedRequest(
+        ExecuteRequest.self,
+        for: WaasWalletAPI.Execute.urlPath
+    )
+
+    #expect(txHash == "0xdeadbeef")
+    #expect(executeRequest.feeOption?.token == "USDC")
+    #expect(fixture.indexerClient.nativeBalanceRequestCount == 1)
+    #expect(fixture.indexerClient.tokenBalanceContractAddresses == ["0xusdc"])
+}
+
 private let testCredential = CredentialInfo(
     credentialId: "0xcredential",
     expiresAt: "2026-01-01T00:00:00Z",
@@ -746,6 +866,7 @@ private struct MockWalletClientFixture {
     let environment: OMSClientEnvironment
     let projectId: String
     let oidcRedirectAuthStore: InMemoryOidcRedirectAuthStore
+    let indexerClient: MockWalletIndexerClient
 
     func storedCredentials() throws -> StorableCredentials? {
         guard let json = try keychain.string(
@@ -767,6 +888,7 @@ private func makeMockWalletClient(
     let transport = MockWaasTransport()
     let keychain = InMemoryKeychain()
     let signer = MockCredentialSigner()
+    let indexerClient = MockWalletIndexerClient()
     let oidcRedirectAuthStore = InMemoryOidcRedirectAuthStore()
     let credentialSession = WalletCredentialSession(
         environment: environment,
@@ -789,6 +911,7 @@ private func makeMockWalletClient(
         credentialSession: credentialSession,
         signedClient: signedClient,
         publicClient: publicClient,
+        indexerClient: indexerClient,
         oidcRedirectAuthStore: oidcRedirectAuthStore,
         oidcNonceGenerator: oidcNonceGenerator
     )
@@ -802,7 +925,8 @@ private func makeMockWalletClient(
         keychain: keychain,
         environment: environment,
         projectId: projectId,
-        oidcRedirectAuthStore: oidcRedirectAuthStore
+        oidcRedirectAuthStore: oidcRedirectAuthStore,
+        indexerClient: indexerClient
     )
 }
 
@@ -832,6 +956,104 @@ private func testWallet(
         type: type,
         address: address
     )
+}
+
+private func testFeeOptions() -> [FeeOption] {
+    [
+        FeeOption(
+            token: FeeToken(
+                network: "polygon",
+                name: "Polygon",
+                symbol: "POL",
+                type: "native",
+                decimals: nil,
+                logoUrl: "",
+                contractAddress: nil,
+                tokenId: nil
+            ),
+            value: "100",
+            displayValue: "0.0000000000000001"
+        ),
+        FeeOption(
+            token: FeeToken(
+                network: "polygon",
+                name: "USD Coin",
+                symbol: "USDC",
+                type: "erc20",
+                decimals: 6,
+                logoUrl: "",
+                contractAddress: "0xUSDC",
+                tokenId: "usdc"
+            ),
+            value: "20",
+            displayValue: "0.002"
+        )
+    ]
+}
+
+private final class MockWalletIndexerClient: WalletIndexerClient, @unchecked Sendable {
+    private let lock = NSLock()
+    private var nativeBalance: TokenBalance?
+    private var tokenBalancesByContract: [String: [TokenBalance]] = [:]
+    private var nativeBalanceRequests: [(network: Network, walletAddress: String)] = []
+    private var tokenBalanceRequests: [(network: Network, contractAddress: String, walletAddress: String)] = []
+
+    var nativeBalanceRequestCount: Int {
+        withLock { nativeBalanceRequests.count }
+    }
+
+    var tokenBalanceContractAddresses: [String] {
+        withLock { tokenBalanceRequests.map(\.contractAddress) }
+    }
+
+    func setNativeBalance(_ balance: TokenBalance?) {
+        withLock {
+            nativeBalance = balance
+        }
+    }
+
+    func setTokenBalances(_ balances: [TokenBalance], for contractAddress: String) {
+        withLock {
+            tokenBalancesByContract[contractAddress.lowercased()] = balances
+        }
+    }
+
+    func getNativeTokenBalance(
+        network: Network,
+        walletAddress: String
+    ) async throws -> TokenBalance? {
+        withLock {
+            nativeBalanceRequests.append((network: network, walletAddress: walletAddress))
+            return nativeBalance
+        }
+    }
+
+    func getTokenBalances(
+        network: Network,
+        contractAddress: String,
+        walletAddress: String,
+        includeMetadata: Bool
+    ) async throws -> TokenBalancesResult {
+        withLock {
+            let normalizedContractAddress = contractAddress.lowercased()
+            tokenBalanceRequests.append((
+                network: network,
+                contractAddress: normalizedContractAddress,
+                walletAddress: walletAddress
+            ))
+            return TokenBalancesResult(
+                status: 200,
+                page: nil,
+                balances: tokenBalancesByContract[normalizedContractAddress] ?? []
+            )
+        }
+    }
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
 }
 
 private func uriOriginAndPath(_ url: String) -> String {

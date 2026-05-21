@@ -26,6 +26,7 @@ public class WalletClient {
 
     private var signedClient: WaasWalletClient
     private var publicClient: WaasWalletPublicClient
+    private let indexerClient: any WalletIndexerClient
     
     private let projectId: String
     private let projectAccessKey: String
@@ -75,6 +76,10 @@ public class WalletClient {
             projectAccessKey: projectAccessKey,
             environment: environment
         )
+        self.indexerClient = IndexerClient(
+            projectAccessKey: projectAccessKey,
+            environment: environment
+        )
     }
 
     init(
@@ -84,6 +89,7 @@ public class WalletClient {
         credentialSession: WalletCredentialSession,
         signedClient: WaasWalletClient,
         publicClient: WaasWalletPublicClient,
+        indexerClient: (any WalletIndexerClient)? = nil,
         oidcRedirectAuthStore: (any OidcRedirectAuthStore)? = nil,
         oidcNonceGenerator: @escaping () throws -> String = OidcRedirectAuth.generateNonce,
         signedClientFactory: ((any CredentialSigner) -> WaasWalletClient)? = nil
@@ -105,6 +111,10 @@ public class WalletClient {
         self.credentialSession = credentialSession
         self.signedClient = signedClient
         self.publicClient = publicClient
+        self.indexerClient = indexerClient ?? IndexerClient(
+            projectAccessKey: projectAccessKey,
+            environment: environment
+        )
     }
 
     /// Whether there is a persisted OIDC redirect flow that can still be completed by
@@ -802,7 +812,7 @@ public class WalletClient {
         network: Network,
         to: String,
         value: String,
-        feeOptionSelector: FeeOptionSelector = .first
+        feeOptionSelector: FeeOptionSelector? = nil
     ) async throws -> String {
         return try await self.sendTransaction(network: network, request: SendTransactionRequest(
             to: to,
@@ -814,7 +824,7 @@ public class WalletClient {
     public func sendTransaction(
         network: Network,
         request: SendTransactionRequest,
-        feeOptionSelector: FeeOptionSelector = .first
+        feeOptionSelector: FeeOptionSelector? = nil
     ) async throws -> String {
         let prepareResponse = try await signedClient.prepareEthereumTransaction(
             PrepareEthereumTransactionRequest(
@@ -828,6 +838,7 @@ public class WalletClient {
         )
 
         return try await self.execute(
+            network: network,
             prepareResponse: prepareResponse,
             feeOptionSelector: feeOptionSelector
         );
@@ -838,7 +849,7 @@ public class WalletClient {
         contract: String,
         method: String,
         args: [AbiArg]?,
-        feeOptionSelector: FeeOptionSelector = .first
+        feeOptionSelector: FeeOptionSelector? = nil
     ) async throws -> String {
         let prepareResponse = try await signedClient.prepareEthereumContractCall(
             PrepareEthereumContractCallRequest(
@@ -852,6 +863,7 @@ public class WalletClient {
         )
 
         return try await self.execute(
+            network: network,
             prepareResponse: prepareResponse,
             feeOptionSelector: feeOptionSelector
         );
@@ -868,18 +880,15 @@ public class WalletClient {
     }
 
     private func execute(
+        network: Network,
         prepareResponse: PrepareResponse,
-        feeOptionSelector: FeeOptionSelector
+        feeOptionSelector: FeeOptionSelector?
     ) async throws -> String {
-        var feeOption: FeeOption? = nil
-        if !prepareResponse.sponsored {
-            feeOption = try await feeOptionSelector.callAsFunction(prepareResponse.feeOptions)
-        }
-
-        var feeOptionSelection: FeeOptionSelection? = nil
-        if feeOption != nil {
-            feeOptionSelection = FeeOptionSelection(token: feeOption?.token.tokenId ?? "")
-        }
+        let feeOptionSelection = try await selectFeeOption(
+            network: network,
+            prepareResponse: prepareResponse,
+            feeOptionSelector: feeOptionSelector
+        )
 
         let executeRequest = ExecuteRequest(
             txnId: prepareResponse.txnId,
@@ -913,6 +922,119 @@ public class WalletClient {
 
         // Loop exited without `.executed` — surface the terminal status.
         throw TransactionError.transactionFailed(status: status)
+    }
+
+    private func selectFeeOption(
+        network: Network,
+        prepareResponse: PrepareResponse,
+        feeOptionSelector: FeeOptionSelector?
+    ) async throws -> FeeOptionSelection? {
+        guard !prepareResponse.feeOptions.isEmpty else {
+            return nil
+        }
+
+        guard let feeOptionSelector else {
+            return prepareResponse.feeOptions.defaultSelection(sponsored: prepareResponse.sponsored)
+        }
+
+        return try await feeOptionSelector(
+            enrichFeeOptionsWithBalances(
+                network: network,
+                walletAddress: walletAddress,
+                feeOptions: prepareResponse.feeOptions
+            )
+        )
+    }
+
+    private func enrichFeeOptionsWithBalances(
+        network: Network,
+        walletAddress: String,
+        feeOptions: [FeeOption]
+    ) async -> [FeeOptionWithBalance] {
+        let nativeBalance: TokenBalance?
+        if feeOptions.contains(where: { $0.token.isNativeToken }) {
+            nativeBalance = await loadNativeTokenBalance(
+                network: network,
+                walletAddress: walletAddress
+            )
+        } else {
+            nativeBalance = nil
+        }
+
+        var balancesByContract: [String: TokenBalance?] = [:]
+        let contractAddresses = feeOptions
+            .compactMap { normalizedAddress($0.token.contractAddress) }
+            .reduce(into: [String]()) { addresses, address in
+                if !addresses.contains(address) {
+                    addresses.append(address)
+                }
+            }
+
+        for contractAddress in contractAddresses {
+            balancesByContract[contractAddress] = await loadTokenBalanceOrZero(
+                network: network,
+                contractAddress: contractAddress,
+                walletAddress: walletAddress
+            )
+        }
+
+        return feeOptions.map { feeOption in
+            let balance: TokenBalance?
+            if feeOption.token.isNativeToken {
+                balance = nativeBalance
+            } else {
+                balance = normalizedAddress(feeOption.token.contractAddress)
+                    .flatMap { balancesByContract[$0] ?? nil }
+            }
+
+            let decimals = feeOption.token.balanceDecimals
+            return FeeOptionWithBalance(
+                feeOption: feeOption,
+                balance: balance,
+                available: formatTokenAmount(balance?.balance, decimals: decimals),
+                availableRaw: balance?.balance,
+                decimals: decimals
+            )
+        }
+    }
+
+    private func loadNativeTokenBalance(
+        network: Network,
+        walletAddress: String
+    ) async -> TokenBalance? {
+        try? await indexerClient.getNativeTokenBalance(
+            network: network,
+            walletAddress: walletAddress
+        )
+    }
+
+    private func loadTokenBalanceOrZero(
+        network: Network,
+        contractAddress: String,
+        walletAddress: String
+    ) async -> TokenBalance? {
+        do {
+            let result = try await indexerClient.getTokenBalances(
+                network: network,
+                contractAddress: contractAddress,
+                walletAddress: walletAddress,
+                includeMetadata: false
+            )
+            return result.balances.first {
+                normalizedAddress($0.contractAddress) == contractAddress
+            } ?? TokenBalance(
+                contractType: "ERC20",
+                contractAddress: contractAddress,
+                accountAddress: walletAddress,
+                tokenId: nil,
+                balance: "0",
+                blockHash: nil,
+                blockNumber: nil,
+                chainId: Int64(network.chainId)
+            )
+        } catch {
+            return nil
+        }
     }
 
     private func getExecutedTransactionHash(txnId: String) async throws -> String {
@@ -963,4 +1085,36 @@ public class WalletClient {
             }
         )
     }
+}
+
+private extension Array where Element == FeeOption {
+    func defaultSelection(sponsored: Bool) -> FeeOptionSelection? {
+        sponsored ? nil : first.map { FeeOptionSelection(token: $0.token.symbol) }
+    }
+}
+
+private extension FeeToken {
+    var isNativeToken: Bool {
+        type.caseInsensitiveCompare("native") == .orderedSame
+            || ((contractAddress?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+                && (tokenId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true))
+    }
+
+    var balanceDecimals: Int? {
+        decimals.map(Int.init) ?? (isNativeToken ? 18 : nil)
+    }
+}
+
+private func normalizedAddress(_ address: String?) -> String? {
+    guard let trimmed = address?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !trimmed.isEmpty else {
+        return nil
+    }
+    return trimmed.lowercased()
+}
+
+private func formatTokenAmount(_ value: String?, decimals: Int?) -> String? {
+    guard let value else { return nil }
+    guard let decimals else { return value }
+    return (try? formatUnits(value: value, decimals: decimals)) ?? value
 }

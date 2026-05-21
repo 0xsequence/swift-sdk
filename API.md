@@ -356,7 +356,7 @@ func sendTransaction(
     network: Network,
     to: String,
     value: String,
-    feeOptionSelector: FeeOptionSelector = .first
+    feeOptionSelector: FeeOptionSelector? = nil
 ) async throws -> String
 ```
 
@@ -377,7 +377,7 @@ Full-parameter overload:
 func sendTransaction(
     network: Network,
     request: SendTransactionRequest,
-    feeOptionSelector: FeeOptionSelector = .first
+    feeOptionSelector: FeeOptionSelector? = nil
 ) async throws -> String
 ```
 
@@ -389,7 +389,7 @@ func callContract(
     contract: String,
     method: String,
     args: [AbiArg]?,
-    feeOptionSelector: FeeOptionSelector = .first
+    feeOptionSelector: FeeOptionSelector? = nil
 ) async throws -> String
 ```
 
@@ -641,6 +641,7 @@ struct OMSClientEnvironment: Equatable, Sendable {
 
 ```swift
 struct FeeOptionSelector {
+    typealias Select = @Sendable ([FeeOptionWithBalance]) async throws -> FeeOptionSelection?
     static let first: FeeOptionSelector
     static let cheapest: FeeOptionSelector
     static func custom(_ pick: @escaping Select) -> FeeOptionSelector
@@ -648,12 +649,28 @@ struct FeeOptionSelector {
 ```
 
 Chooses a fee option during the transaction prepare/execute flow.
+When no selector is provided, the SDK uses the first required fee option, or no
+fee option when the transaction is sponsored.
 
 | Selector | Description |
 |---|---|
 | `.first` | Picks the first fee option returned by the server. |
 | `.cheapest` | Picks the option with the lowest numeric fee value. |
-| `.custom { options in ... }` | Calls your closure with the full `[FeeOption]` list. |
+| `.custom { options in ... }` | Calls your closure with the full `[FeeOptionWithBalance]` list and expects a `FeeOptionSelection?`. |
+
+```swift
+struct FeeOptionWithBalance {
+    let feeOption: FeeOption
+    let balance: TokenBalance?
+    let available: String?
+    let availableRaw: String?
+    let decimals: Int?
+}
+```
+
+`balance` is the wallet's raw indexer balance for the fee token when available.
+`available` is formatted with `decimals`, while `availableRaw` keeps the raw
+integer balance.
 
 ### TransactionError
 
@@ -666,7 +683,9 @@ enum TransactionError: Error {
 }
 ```
 
-Thrown by `sendTransaction` and `callContract`.
+Transaction-flow errors surfaced by `sendTransaction` and `callContract`.
+`noFeeOptionsAvailable` is retained for selector code that wants to reject an
+empty fee-option list explicitly.
 
 ### UnitConversionError
 

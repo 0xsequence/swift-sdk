@@ -203,11 +203,12 @@ try oms.wallet.signOut()
 `sendTransaction` and `callContract` use a prepare/execute flow internally:
 
 1. **Prepare** - the server calculates fee options for the transaction.
-2. **Select fee** - your `FeeOptionSelector` picks which fee option to use.
+2. **Select fee** - the SDK picks the default fee option, or your `FeeOptionSelector` picks one.
 3. **Execute** - the transaction is submitted.
 4. **Poll** - the SDK polls until the transaction is confirmed on-chain.
 
-The default selector is `.first`.
+By default, the SDK uses the first required fee option, or no fee option when the
+transaction is sponsored.
 
 ```swift
 let value = try parseUnits(value: "1", decimals: 18)
@@ -239,10 +240,16 @@ let txHash = try await oms.wallet.sendTransaction(
     to: "0xRecipient",
     value: value,
     feeOptionSelector: .custom { options in
-        return options[selectedIndex]
+        let selected = options[selectedIndex]
+        return FeeOptionSelection(token: selected.feeOption.token.symbol)
     }
 )
 ```
+
+Custom selectors receive `FeeOptionWithBalance` values. `balance` is the wallet's
+raw indexer balance for that fee token when available, `available` is formatted
+with the token decimals, `availableRaw` is the raw integer balance, and
+`decimals` is the token decimal count used for formatting.
 
 ## Configuration
 
@@ -381,8 +388,6 @@ do {
         value: value
     )
     print("Sent:", txHash)
-} catch TransactionError.noFeeOptionsAvailable {
-    print("No fee options returned from server")
 } catch TransactionError.pollingTimedOut {
     print("Transaction did not confirm in time")
 } catch TransactionError.transactionFailed(let status) {

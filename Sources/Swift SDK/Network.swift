@@ -169,8 +169,21 @@ public enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
         Array(allCases)
     }
 
-    public static func findNetworkById(_ chainId: Int) -> Network? {
+    public static func from(chainId: String) -> Network? {
+        let normalized = chainId.trimmingCharacters(in: .whitespacesAndNewlines)
+        return supportedNetworks.first { $0.chainId == normalized }
+    }
+
+    public static func from(chainId: Int) -> Network? {
         supportedNetworks.first { $0.id == chainId }
+    }
+
+    public static func from(name: String) -> Network? {
+        findNetworkByName(name)
+    }
+
+    public static func findNetworkById(_ chainId: Int) -> Network? {
+        from(chainId: chainId)
     }
 
     public static func findNetworkByName(_ name: String) -> Network? {
