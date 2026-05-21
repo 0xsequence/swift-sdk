@@ -242,7 +242,8 @@ let txResult = try await oms.wallet.sendTransaction(
 Custom selectors receive `FeeOptionWithBalance` values. `balance` is the wallet's
 raw indexer balance for that fee token when available, `available` is formatted
 with the token decimals, `availableRaw` is the raw integer balance, and
-`decimals` is the token decimal count used for formatting.
+`decimals` is the token decimal count used for formatting. Unsponsored
+transactions require the selector to return a fee selection.
 
 ## Configuration
 

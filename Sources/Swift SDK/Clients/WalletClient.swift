@@ -2,6 +2,7 @@ import Foundation
 
 public enum TransactionError: Error {
     case noFeeOptionsAvailable
+    case noFeeOptionSelected
     case missingTransactionHash
     case transactionFailed(status: TransactionStatus)
     case pollingTimedOut
@@ -1024,24 +1025,33 @@ public class WalletClient {
         }
 
         guard !prepareResponse.feeOptions.isEmpty else {
-            return nil
+            throw TransactionError.noFeeOptionsAvailable
         }
 
         guard let feeOptionSelector else {
-            return prepareResponse.feeOptions.defaultSelection()
+            guard let feeOptionSelection = prepareResponse.feeOptions.defaultSelection() else {
+                throw TransactionError.noFeeOptionsAvailable
+            }
+            return feeOptionSelection
         }
 
         guard let walletAddress else {
             throw WalletAuthError.noAuthenticatedWalletSession
         }
 
-        return try await feeOptionSelector(
+        let feeOptionSelection = try await feeOptionSelector(
             enrichFeeOptionsWithBalances(
                 network: network,
                 walletAddress: walletAddress,
                 feeOptions: prepareResponse.feeOptions
             )
         )
+
+        guard let feeOptionSelection else {
+            throw TransactionError.noFeeOptionSelected
+        }
+
+        return feeOptionSelection
     }
 
     private func enrichFeeOptionsWithBalances(
