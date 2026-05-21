@@ -24,6 +24,30 @@ import Testing
     #expect(answer == expected)
 }
 
+@Test func TestOidcIdTokenPayloadHelpersMatchParityVector() throws {
+    let idToken = """
+    eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.\
+    eyJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20iLCJhdWQiOiJkZW1vLXdlYi1jbGllbnQtaWQiLCJzdWIiOiJnb29nbGUtc3ViLTEyMyIsImVtYWlsIjoidXNlckBleGFtcGxlLmNvbSIsImV4cCI6MTkxMDAwMDEwMH0.\
+    signature
+    """
+
+    #expect(try OidcIdToken.expiresAtEpochSeconds(idToken) == 1_910_000_100)
+    #expect(OidcIdToken.handleHash(idToken) == "nyaQb_2b6gSthzvKxcPn2oWZfRoUxQSFZS89_EwbYwY")
+}
+
+@Test func TestOidcIdTokenRequiresExpirationClaim() throws {
+    let idToken = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJvaWRjLXN1Yi0xMjMifQ.signature"
+
+    do {
+        _ = try OidcIdToken.expiresAtEpochSeconds(idToken)
+        #expect(Bool(false))
+    } catch let error as OidcIdTokenError {
+        #expect(error == .missingExpiration)
+    } catch {
+        #expect(Bool(false))
+    }
+}
+
 @Test func TestWalletRequestPreimageIncludesScope() async throws {
     let payload = "{\"verifier\":\"email@example.com\"}"
     let expected = """

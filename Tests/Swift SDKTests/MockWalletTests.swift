@@ -356,6 +356,209 @@ import Testing
     #expect(try fixture.storedCredentials() == nil)
 }
 
+@Test func TestWalletSignInWithOidcTokenCommitsCompletesAndResolvesWallet() async throws {
+    let fixture = makeMockWalletClient()
+    let idToken = oidcIdTokenFixture
+    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: ""
+        ),
+        for: WaasWalletAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            identity: Identity(
+                type: .oidc,
+                iss: "https://accounts.google.com",
+                sub: "google-sub-123"
+            ),
+            wallets: [selectedWallet],
+            email: "user@example.com"
+        ),
+        for: WaasWalletAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: selectedWallet),
+        for: WaasWalletAPI.UseWallet.urlPath
+    )
+
+    let result = try await fixture.client.signInWithOidcToken(
+        idToken: idToken,
+        issuer: "https://accounts.google.com",
+        audience: "demo-web-client-id"
+    )
+    guard case .walletSelected(_, let wallet, _, _) = result else {
+        #expect(Bool(false))
+        return
+    }
+
+    let commitRequest = try fixture.transport.decodedRequest(
+        CommitVerifierRequest.self,
+        for: WaasWalletAPI.CommitVerifier.urlPath
+    )
+    let completeAuthRequest = try fixture.transport.decodedRequest(
+        CompleteAuthRequest.self,
+        for: WaasWalletAPI.CompleteAuth.urlPath
+    )
+    let useWalletRequest = try fixture.transport.decodedRequest(
+        UseWalletRequest.self,
+        for: WaasWalletAPI.UseWallet.urlPath
+    )
+    let storedCredentials = try fixture.storedCredentials()
+
+    #expect(commitRequest.identityType == .oidc)
+    #expect(commitRequest.authMode == .idToken)
+    #expect(commitRequest.metadata == [
+        "iss": "https://accounts.google.com",
+        "aud": "demo-web-client-id",
+        "exp": "1910000100"
+    ])
+    #expect(commitRequest.handle == "nyaQb_2b6gSthzvKxcPn2oWZfRoUxQSFZS89_EwbYwY")
+    #expect(completeAuthRequest.identityType == .oidc)
+    #expect(completeAuthRequest.authMode == .idToken)
+    #expect(completeAuthRequest.verifier == "oidc-verifier-123")
+    #expect(completeAuthRequest.answer == idToken)
+    #expect(completeAuthRequest.lifetime == 604_800)
+    #expect(useWalletRequest.walletId == selectedWallet.id)
+    #expect(wallet.id == selectedWallet.id)
+    #expect(fixture.client.walletId == selectedWallet.id)
+    #expect(fixture.client.walletAddress == selectedWallet.address)
+    #expect(fixture.client.session.loginType == .googleAuth)
+    #expect(fixture.client.session.sessionEmail == "user@example.com")
+    #expect(storedCredentials?.loginType == .googleAuth)
+    #expect(storedCredentials?.sessionEmail == "user@example.com")
+}
+
+@Test func TestWalletSignInWithOidcIdTokenCanReturnManualWalletSelection() async throws {
+    let fixture = makeMockWalletClient()
+    let availableWallet = testWallet(id: "wallet-def", address: "0xdef")
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: ""
+        ),
+        for: WaasWalletAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            identity: Identity(type: .oidc, iss: "https://issuer.example", sub: "oidc-sub-123"),
+            wallets: [availableWallet],
+            email: "user@example.com"
+        ),
+        for: WaasWalletAPI.CompleteAuth.urlPath
+    )
+
+    let result = try await fixture.client.signInWithOidcIdToken(
+        idToken: oidcIdTokenFixture,
+        issuer: "https://issuer.example",
+        audience: "demo-web-client-id",
+        walletSelection: .manual
+    )
+    guard case .walletSelection(let pendingSelection) = result else {
+        #expect(Bool(false))
+        return
+    }
+
+    #expect(pendingSelection.walletType == .ethereum)
+    #expect(pendingSelection.wallets.map(\.id) == [availableWallet.id])
+    #expect(pendingSelection.credential.credentialId == testCredential.credentialId)
+    #expect(fixture.client.walletId == "")
+    #expect(fixture.client.walletAddress == "")
+    #expect(fixture.client.session.walletAddress == nil)
+    #expect(try fixture.storedCredentials() == nil)
+    #expect(fixture.transport.requestCount(for: WaasWalletAPI.UseWallet.urlPath) == 0)
+    #expect(fixture.transport.requestCount(for: WaasWalletAPI.CreateWallet.urlPath) == 0)
+}
+
+@Test func TestWalletSignInWithOidcTokenClearsPendingRedirectAuth() async throws {
+    let fixture = makeMockWalletClient()
+    try fixture.oidcRedirectAuthStore.save(
+        PendingOidcRedirectAuth(
+            verifier: "stale-verifier",
+            challenge: "stale-challenge",
+            nonce: "stale-nonce",
+            redirectUri: "omssdkdemo://auth/callback",
+            issuer: "https://issuer.example",
+            authorizationScope: fixture.projectId,
+            walletType: .ethereum,
+            signerCredentialId: "0xmock-credential",
+            signerKeyType: .ecdsaP256Sha256
+        )
+    )
+    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: ""
+        ),
+        for: WaasWalletAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            identity: Identity(type: .oidc, iss: "https://accounts.google.com", sub: "google-sub-123"),
+            wallets: [selectedWallet]
+        ),
+        for: WaasWalletAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: selectedWallet),
+        for: WaasWalletAPI.UseWallet.urlPath
+    )
+
+    _ = try await fixture.client.signInWithOidcToken(
+        idToken: oidcIdTokenFixture,
+        issuer: "https://accounts.google.com",
+        audience: "demo-web-client-id"
+    )
+
+    #expect(fixture.client.canResumeOidcRedirectAuth == false)
+    #expect(fixture.oidcRedirectAuthStore.pending == nil)
+}
+
+@Test func TestWalletSignInWithOidcTokenSignsOutWhenCompleteAuthFails() async throws {
+    let fixture = makeMockWalletClient()
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: ""
+        ),
+        for: WaasWalletAPI.CommitVerifier.urlPath
+    )
+    fixture.transport.enqueueHTTPError(
+        statusCode: 500,
+        errorCode: WebRPCErrorKind.identityProviderError.code,
+        message: "identity provider error",
+        for: WaasWalletAPI.CompleteAuth.urlPath
+    )
+
+    do {
+        _ = try await fixture.client.signInWithOidcToken(
+            idToken: oidcIdTokenFixture,
+            issuer: "https://accounts.google.com",
+            audience: "demo-web-client-id"
+        )
+        #expect(Bool(false))
+    } catch let error as WebRPCError {
+        #expect(error.code == WebRPCErrorKind.identityProviderError.code)
+    } catch {
+        #expect(Bool(false))
+    }
+
+    #expect(fixture.client.walletId == "")
+    #expect(fixture.client.walletAddress == "")
+    #expect(fixture.client.verifier == "")
+    #expect(fixture.client.challenge == "")
+    #expect(fixture.client.session == SessionState(walletAddress: nil))
+    #expect(fixture.signer.hasStoredCredential == false)
+    #expect(try fixture.storedCredentials() == nil)
+}
+
 @Test func TestWalletStartOidcRedirectAuthCommitsVerifierBuildsAuthorizationUrlAndStoresPendingAuth() async throws {
     let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
     try fixture.transport.enqueue(
@@ -1352,6 +1555,12 @@ private func testWallet(
         address: address
     )
 }
+
+private let oidcIdTokenFixture = """
+eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.\
+eyJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20iLCJhdWQiOiJkZW1vLXdlYi1jbGllbnQtaWQiLCJzdWIiOiJnb29nbGUtc3ViLTEyMyIsImVtYWlsIjoidXNlckBleGFtcGxlLmNvbSIsImV4cCI6MTkxMDAwMDEwMH0.\
+signature
+"""
 
 private func testFeeOptions() -> [FeeOption] {
     [

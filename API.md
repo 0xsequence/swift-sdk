@@ -142,6 +142,27 @@ matching `walletType`, or creates and selects one when none exists. With
 `.manual`, returns a pending wallet selection without selecting or creating a
 wallet.
 
+### signInWithOidcToken
+
+```swift
+func signInWithOidcToken(
+    idToken: String,
+    issuer: String,
+    audience: String,
+    walletType: WalletType = .ethereum,
+    walletSelection: WalletSelectionBehavior = .automatic
+) async throws -> CompleteAuthResult
+```
+
+Signs in with an OIDC ID token. The SDK commits an OIDC `id-token` verifier
+using `issuer`, `audience`, the token `exp` claim, and a SHA-256 base64url hash
+of the full token as the verifier handle, then completes auth with the original
+token. `signInWithOidcIdToken` is also available with the same parameters.
+
+With `.automatic`, selects the first existing wallet matching `walletType`, or
+creates and selects one when none exists. With `.manual`, returns a pending
+wallet selection without selecting or creating a wallet.
+
 ### WalletSelectionBehavior
 
 ```swift

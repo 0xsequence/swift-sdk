@@ -1,6 +1,6 @@
 # OMS SDK (Swift)
 
-A Swift SDK for the OMS (Open Money Stack) platform. Provides email and OIDC redirect wallet authentication, non-extractable Keychain request signing, keychain session persistence, wallet ID token retrieval with optional TTL and custom claims, on-chain transaction submission with fee selection, message and typed-data signing, signature verification, token balance queries, and base-unit formatting helpers.
+A Swift SDK for the OMS (Open Money Stack) platform. Provides email, OIDC ID-token, and OIDC redirect wallet authentication, non-extractable Keychain request signing, keychain session persistence, wallet ID token retrieval with optional TTL and custom claims, on-chain transaction submission with fee selection, message and typed-data signing, signature verification, token balance queries, and base-unit formatting helpers.
 
 **Requirements:** iOS 15+ · macOS 12+
 
@@ -89,7 +89,7 @@ let katana = oms.findNetworkByName(name: "katana")
 
 ## Authentication Flow
 
-OMS supports email-based OTP and OIDC redirect auth. The email two-step flow is:
+OMS supports email-based OTP, OIDC ID-token auth, and OIDC redirect auth. The email two-step flow is:
 
 1. **`startEmailAuth(email:)`** sends a one-time code to the user's inbox.
 2. **`completeEmailAuth(code:walletType:walletSelection:)`** verifies the code. In the default `.automatic` mode it selects the first matching wallet or creates one. The wallet address, wallet ID, and signer metadata are saved to the device keychain.
@@ -151,6 +151,24 @@ case .walletSelected:
 `PendingWalletSelection` values are single-use. They become invalid after a
 wallet is selected or created, after sign-out, or after another auth completion.
 Using an invalidated pending selection throws `WalletAuthError.staleWalletSelection`.
+
+For OIDC ID-token flows such as Google Sign-In, pass the provider token plus
+the issuer and audience used to mint it:
+
+```swift
+let result = try await oms.wallet.signInWithOidcToken(
+    idToken: googleIdToken,
+    issuer: "https://accounts.google.com",
+    audience: "YOUR_WEB_CLIENT_ID"
+)
+
+if case .walletSelected(_, let wallet, _, _) = result {
+    print(wallet.address)
+}
+```
+
+Use `walletSelection: .manual` with `signInWithOidcToken` when you want the
+same app-driven wallet picker shown in the email example.
 
 For OIDC authorization-code PKCE redirect flows, start the redirect, open the
 returned URL with your browser UI, then safely handle incoming app links:
