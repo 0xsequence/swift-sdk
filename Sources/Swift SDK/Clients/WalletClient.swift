@@ -15,16 +15,29 @@ public class WalletClient {
         let sessionEmail: String?
     }
 
+    private struct PendingWalletSelectionSession {
+        let id: UUID
+        let signerCredentialId: String
+        let signerKeyType: SigningAlgorithm
+        let metadata: SessionMetadata
+    }
+
     private static let defaultSessionLifetimeSeconds: UInt32 = 604_800
 
     private var signedClient: WaasWalletClient
     private var publicClient: WaasWalletPublicClient
+    
+    private let projectId: String
     private let projectAccessKey: String
     private let environment: OMSClientEnvironment
     private let credentialSession: WalletCredentialSession
+    private let oidcRedirectAuthStore: any OidcRedirectAuthStore
+    private let oidcNonceGenerator: () throws -> String
+    private let signedClientFactory: (any CredentialSigner) -> WaasWalletClient
     private var sessionExpiresAt: String?
     private var sessionLoginType: SessionLoginType?
     private var sessionEmail: String?
+    private var activePendingWalletSelection: PendingWalletSelectionSession?
 
     public var walletAddress: String
     public var walletId: String
@@ -32,11 +45,23 @@ public class WalletClient {
     var verifier = "";
     var challenge = "";
 
-    public init(projectAccessKey: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
+    public init(projectAccessKey: String, projectId: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
+        self.projectId = projectId
         self.projectAccessKey = projectAccessKey
         self.environment = environment
-        let credentialSession = WalletCredentialSession(environment: environment)
+        let credentialSession = WalletCredentialSession(environment: environment, projectId: projectId)
         let restoredWallet = credentialSession.restore()
+        self.oidcRedirectAuthStore = KeychainOidcRedirectAuthStore(projectId: projectId, environment: environment)
+        self.oidcNonceGenerator = OidcRedirectAuth.generateNonce
+        let makeSignedClient: (any CredentialSigner) -> WaasWalletClient = { signer in
+            Self.makeSignedClient(
+                projectAccessKey: projectAccessKey,
+                projectId: projectId,
+                environment: environment,
+                signer: signer
+            )
+        }
+        self.signedClientFactory = makeSignedClient
 
         self.walletId = restoredWallet?.walletId ?? ""
         self.walletAddress = restoredWallet?.walletAddress ?? ""
@@ -45,11 +70,7 @@ public class WalletClient {
         self.sessionEmail = restoredWallet?.sessionEmail
         self.credentialSession = credentialSession
 
-        self.signedClient = Self.makeSignedClient(
-            projectAccessKey: projectAccessKey,
-            environment: environment,
-            signer: credentialSession.signer
-        )
+        self.signedClient = makeSignedClient(credentialSession.signer)
         self.publicClient = Self.makePublicClient(
             projectAccessKey: projectAccessKey,
             environment: environment
@@ -58,14 +79,23 @@ public class WalletClient {
 
     init(
         projectAccessKey: String,
+        projectId: String,
         environment: OMSClientEnvironment = OMSClientEnvironment(),
         credentialSession: WalletCredentialSession,
         signedClient: WaasWalletClient,
-        publicClient: WaasWalletPublicClient
+        publicClient: WaasWalletPublicClient,
+        oidcRedirectAuthStore: (any OidcRedirectAuthStore)? = nil,
+        oidcNonceGenerator: @escaping () throws -> String = OidcRedirectAuth.generateNonce,
+        signedClientFactory: ((any CredentialSigner) -> WaasWalletClient)? = nil
     ) {
+        self.projectId = projectId
         self.projectAccessKey = projectAccessKey
         self.environment = environment
         let restoredWallet = credentialSession.restore()
+        self.oidcRedirectAuthStore = oidcRedirectAuthStore ?? KeychainOidcRedirectAuthStore(projectId: projectId, environment: environment)
+        self.oidcNonceGenerator = oidcNonceGenerator
+        let makeSignedClient = signedClientFactory ?? { _ in signedClient }
+        self.signedClientFactory = makeSignedClient
 
         self.walletId = restoredWallet?.walletId ?? ""
         self.walletAddress = restoredWallet?.walletAddress ?? ""
@@ -75,6 +105,12 @@ public class WalletClient {
         self.credentialSession = credentialSession
         self.signedClient = signedClient
         self.publicClient = publicClient
+    }
+
+    /// Whether there is a persisted OIDC redirect flow that can still be completed by
+    /// passing the app callback URL to `handleOidcRedirectCallback`.
+    public var canResumeOidcRedirectAuth: Bool {
+        (try? oidcRedirectAuthStore.load()) != nil
     }
 
     /// Snapshot of the current durable wallet-session state.
@@ -95,7 +131,7 @@ public class WalletClient {
     ///
     /// This method ensures a request-signing credential exists and stores the verifier state internally.
     /// After this call returns, present your OTP entry UI and pass the user's code to
-    /// `completeEmailAuth(code:walletType:)`.
+    /// `completeEmailAuth(code:walletType:walletSelection:)`.
     ///
     /// - Parameter email: The email address to send the one-time passcode to.
     public func startEmailAuth(email: String) async throws {
@@ -119,89 +155,203 @@ public class WalletClient {
         }
     }
 
-    /// Completes the email OTP authentication flow by verifying the code the user received.
+    /// Completes the email OTP authentication flow.
     ///
-    /// Must be called after `startEmailAuth(email:)`. The challenge and verifier from the
-    /// previous step are used automatically. On success, this method also provisions a wallet
-    /// of `walletType` for the authenticated user: if one already exists on the account it is
-    /// loaded, otherwise a new one is created. In both cases the wallet address and signer
-    /// metadata are persisted to the keychain.
-    ///
-    /// - Parameters:
-    ///   - code: The one-time passcode string entered by the user.
-    ///   - walletType: The wallet type to load or create for this user. Defaults to `.ethereumEoa`.
-    @discardableResult
-    public func completeEmailAuth(code: String, walletType: WalletType = WalletType.ethereum) async throws -> Wallet {
-        return try await completeEmailAuth(
-            code: code,
-            walletType: walletType,
-            selectWallet: { wallets in
-                guard wallets.count == 1, let wallet = wallets.first else {
-                    throw WalletAuthError.multipleWalletsAvailable
-                }
-                return wallet
-            }
-        )
-    }
-
-    /// Completes the email OTP authentication flow and either activates a wallet automatically
-    /// or returns all available wallets for app-driven selection.
-    ///
-    /// When `autoActivate` is `false`, this method verifies the auth challenge and leaves the
-    /// credential session authenticated but without a selected wallet. Call `useWallet(walletId:)`
-    /// or `createWallet(walletType:reference:)` to activate one later.
-    public func completeEmailAuth(
-        code: String,
-        autoActivate: Bool,
-        walletType: WalletType = WalletType.ethereum
-    ) async throws -> CompleteAuthResult {
-        return try await completeEmailAuth(
-            code: code,
-            walletType: walletType,
-            autoActivate: autoActivate,
-            selectWallet: { wallets in
-                guard wallets.count == 1, let wallet = wallets.first else {
-                    throw WalletAuthError.multipleWalletsAvailable
-                }
-                return wallet
-            }
-        )
-    }
-
-    /// Completes the email OTP authentication flow and lets the app choose a wallet when
-    /// multiple wallets match `walletType`.
+    /// With `.automatic`, this selects the first existing wallet matching `walletType`,
+    /// or creates one when none exists. With `.manual`, this verifies auth and returns
+    /// a `PendingWalletSelection` so the app can select or create a wallet later.
     @discardableResult
     public func completeEmailAuth(
         code: String,
         walletType: WalletType = WalletType.ethereum,
-        selectWallet: ([Wallet]) async throws -> Wallet
-    ) async throws -> Wallet {
-        let result = try await completeEmailAuth(
-            code: code,
-            walletType: walletType,
-            autoActivate: true,
-            selectWallet: selectWallet
-        )
-
-        guard let wallet = result.wallet else {
-            throw WalletAuthError.authCompletedWithoutWalletActivation
-        }
-        return wallet
-    }
-
-    private func completeEmailAuth(
-        code: String,
-        walletType: WalletType,
-        autoActivate: Bool,
-        selectWallet: ([Wallet]) async throws -> Wallet
+        walletSelection: WalletSelectionBehavior = .automatic
     ) async throws -> CompleteAuthResult {
         let response = try await confirmEmailSignIn(code: code)
         return try await completeWalletAuth(
             response,
             walletType: walletType,
-            autoActivate: autoActivate,
-            selectWallet: selectWallet
+            walletSelection: walletSelection
         )
+    }
+
+    /// Starts OIDC authorization-code PKCE redirect authentication.
+    ///
+    /// Open the returned `authorizationUrl` in a browser or `ASWebAuthenticationSession`.
+    /// After the provider redirects back to your app, pass the callback URL to
+    /// `handleOidcRedirectCallback(_:walletSelection:)`.
+    public func startOidcRedirectAuth(
+        provider: OidcProviderConfig,
+        redirectUri: String,
+        walletType: WalletType = WalletType.ethereum,
+        authorizeParams: [String: String] = [:]
+    ) async throws -> StartOidcRedirectAuthResult {
+        try await startOidcRedirectAuth(
+            provider: provider,
+            redirectUri: redirectUri,
+            walletType: walletType,
+            relayRedirectUri: provider.relayRedirectUri,
+            authorizeParams: authorizeParams
+        )
+    }
+
+    /// Starts OIDC authorization-code PKCE redirect authentication with an explicit
+    /// OAuth redirect URI override. Pass `nil` to use the app callback URI directly
+    /// even when the provider configuration has a relay redirect URI.
+    public func startOidcRedirectAuth(
+        provider: OidcProviderConfig,
+        redirectUri: String,
+        walletType: WalletType = WalletType.ethereum,
+        relayRedirectUri: String?,
+        authorizeParams: [String: String] = [:]
+    ) async throws -> StartOidcRedirectAuthResult {
+        try clearSession(clearOidcRedirectAuth: true)
+
+        do {
+            let signerCredentialId = try credentialSession.signer.credentialId()
+            let oauthRedirectUri = relayRedirectUri ?? redirectUri
+            let response = try await signedClient.commitVerifier(
+                CommitVerifierRequest(
+                    identityType: .oidc,
+                    authMode: .authCodePkce,
+                    metadata: [
+                        "iss": provider.issuer,
+                        "aud": provider.clientId,
+                        "redirect_uri": oauthRedirectUri
+                    ]
+                )
+            )
+            let nonce = try oidcNonceGenerator()
+            let state = try OidcRedirectAuth.encodeState(
+                nonce: nonce,
+                scope: projectId,
+                redirectUri: oauthRedirectUri == redirectUri ? nil : redirectUri
+            )
+
+            verifier = response.verifier
+            challenge = response.challenge
+            try oidcRedirectAuthStore.save(
+                PendingOidcRedirectAuth(
+                    verifier: response.verifier,
+                    challenge: response.challenge,
+                    nonce: nonce,
+                    redirectUri: redirectUri,
+                    issuer: provider.issuer,
+                    authorizationScope: self.projectId,
+                    walletType: walletType,
+                    signerCredentialId: signerCredentialId,
+                    signerKeyType: credentialSession.signer.alg
+                )
+            )
+
+            let authorizationUrl = try OidcRedirectAuth.buildAuthorizationUrl(
+                provider: provider,
+                redirectUri: oauthRedirectUri,
+                state: state,
+                challenge: response.challenge,
+                loginHint: response.loginHint,
+                authorizeParams: provider.authorizeParams.merging(authorizeParams) { _, new in new }
+            )
+
+            return StartOidcRedirectAuthResult(
+                authorizationUrl: authorizationUrl,
+                state: state,
+                challenge: response.challenge
+            )
+        } catch {
+            try? clearSession(clearOidcRedirectAuth: true)
+            throw error
+        }
+    }
+
+    /// Safely handles an incoming OIDC authorization-code PKCE redirect callback.
+    ///
+    /// This method is idempotent and safe to call for every incoming app link.
+    /// Unrelated links return `.notOidcRedirectCallback`, stale callbacks return
+    /// `.noPendingAuth`, and successful auth returns `.completed` or
+    /// `.walletSelection` when `walletSelection` is `.manual`.
+    public func handleOidcRedirectCallback(
+        _ callbackUrl: String?,
+        walletSelection: WalletSelectionBehavior = .automatic
+    ) async throws -> OidcRedirectAuthResult {
+        guard let callbackUrl = callbackUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !callbackUrl.isEmpty else {
+            return .notOidcRedirectCallback
+        }
+
+        let callback = OidcRedirectAuth.parseCallbackUrl(callbackUrl)
+        guard callback.hasOidcResponse else {
+            return .notOidcRedirectCallback
+        }
+
+        let pending: PendingOidcRedirectAuth
+        do {
+            guard let loaded = try oidcRedirectAuthStore.load() else {
+                return .noPendingAuth
+            }
+            pending = loaded
+        } catch {
+            return .noPendingAuth
+        }
+
+        guard OidcRedirectAuth.matchesRedirectUri(
+            callbackUrl: callbackUrl,
+            redirectUri: pending.redirectUri
+        ) else {
+            return .notOidcRedirectCallback
+        }
+
+        guard let state = callback.state,
+              (try? OidcRedirectAuth.validateState(state, pending: pending)) != nil else {
+            return .notOidcRedirectCallback
+        }
+
+        var clearPendingAuth = false
+        defer {
+            if clearPendingAuth {
+                try? oidcRedirectAuthStore.clear()
+            }
+        }
+
+        do {
+            clearPendingAuth = true
+            if let error = callback.error {
+                throw OidcRedirectAuthError.providerError(
+                    callback.errorDescription ?? "OIDC provider returned error: \(error)"
+                )
+            }
+            guard let code = callback.code else {
+                throw OidcRedirectAuthError.missingCode
+            }
+
+            try restorePendingOidcRedirectAuth(pending)
+            let response = try await signedClient.completeAuth(
+                CompleteAuthRequest(
+                    identityType: .oidc,
+                    authMode: .authCodePkce,
+                    verifier: pending.verifier,
+                    answer: code,
+                    lifetime: Self.defaultSessionLifetimeSeconds
+                )
+            )
+            let result = try await completeWalletAuth(
+                response,
+                walletType: pending.walletType,
+                walletSelection: walletSelection
+            )
+
+            switch result {
+            case .walletSelected(_, let wallet, _, _):
+                return .completed(wallet: wallet)
+            case .walletSelection(let pendingSelection):
+                return .walletSelection(pendingSelection)
+            }
+        } catch let error as CancellationError {
+            clearPendingAuth = false
+            throw error
+        } catch {
+            try? clearSession(clearOidcRedirectAuth: false)
+            return .failed(error)
+        }
     }
 
     private func confirmEmailSignIn(code: String) async throws -> CompleteAuthResponse {
@@ -221,9 +371,10 @@ public class WalletClient {
     private func completeWalletAuth(
         _ response: CompleteAuthResponse,
         walletType: WalletType,
-        autoActivate: Bool,
-        selectWallet: ([Wallet]) async throws -> Wallet
+        walletSelection: WalletSelectionBehavior
     ) async throws -> CompleteAuthResult {
+        activePendingWalletSelection = nil
+
         let sessionMetadata = SessionMetadata(
             expiresAt: response.credential.expiresAt,
             loginType: OMSClientIdentity(response.identity).sessionLoginType,
@@ -236,46 +387,38 @@ public class WalletClient {
         let wallets = try await signOutOnFailure {
             try await walletsFromAuthResponse(response)
         }
-        guard autoActivate else {
+
+        let candidateWallets = wallets.filter { $0.type == walletType }
+        guard walletSelection == .automatic else {
+            let pendingSelectionSession = try beginPendingWalletSelection(sessionMetadata: sessionMetadata)
             return .walletSelection(
-                wallets: wallets,
-                credential: response.credential
+                pendingWalletSelection(
+                    walletType: walletType,
+                    wallets: candidateWallets,
+                    credential: response.credential,
+                    selectionSession: pendingSelectionSession
+                )
             )
         }
 
-        let candidateWallets = wallets.filter { $0.type == walletType }
         let activated: WalletActivationResult
-
-        switch candidateWallets.count {
-        case 0:
+        if let selectedWallet = candidateWallets.first {
+            activated = try await signOutOnFailure {
+                try await useWallet(
+                    walletId: selectedWallet.id,
+                    sessionMetadata: sessionMetadata
+                )
+            }
+        } else {
             activated = try await signOutOnFailure {
                 try await createWallet(
                     walletType: walletType,
                     sessionMetadata: sessionMetadata
                 )
             }
-        case 1:
-            activated = try await signOutOnFailure {
-                try await useWallet(
-                    walletId: candidateWallets[0].id,
-                    sessionMetadata: sessionMetadata
-                )
-            }
-        default:
-            // Selection errors are app control flow; keep the verified session alive.
-            let selected = try await selectWallet(candidateWallets)
-            guard candidateWallets.contains(where: { $0.id == selected.id }) else {
-                throw WalletAuthError.selectedWalletUnavailable
-            }
-            activated = try await signOutOnFailure {
-                try await useWallet(
-                    walletId: selected.id,
-                    sessionMetadata: sessionMetadata
-                )
-            }
         }
 
-        return .activated(
+        return .walletSelected(
             walletAddress: activated.walletAddress,
             wallet: activated.wallet,
             wallets: candidateWallets.isEmpty ? wallets + [activated.wallet] : wallets,
@@ -283,9 +426,70 @@ public class WalletClient {
         )
     }
 
+    private func pendingWalletSelection(
+        walletType: WalletType,
+        wallets: [Wallet],
+        credential: CredentialInfo,
+        selectionSession: PendingWalletSelectionSession
+    ) -> PendingWalletSelection {
+        PendingWalletSelection(
+            walletType: walletType,
+            wallets: wallets,
+            credential: credential,
+            selectWalletAction: { walletId in
+                try self.requireActivePendingWalletSelection(selectionSession)
+                let result = try await self.useWallet(
+                    walletId: walletId,
+                    sessionMetadata: selectionSession.metadata
+                )
+                self.activePendingWalletSelection = nil
+                return result
+            },
+            createAndSelectWalletAction: { reference in
+                try self.requireActivePendingWalletSelection(selectionSession)
+                let result = try await self.createWallet(
+                    walletType: walletType,
+                    reference: reference,
+                    sessionMetadata: selectionSession.metadata
+                )
+                self.activePendingWalletSelection = nil
+                return result
+            }
+        )
+    }
+
+    private func beginPendingWalletSelection(
+        sessionMetadata: SessionMetadata
+    ) throws -> PendingWalletSelectionSession {
+        let selectionSession = PendingWalletSelectionSession(
+            id: UUID(),
+            signerCredentialId: try credentialSession.signer.credentialId(),
+            signerKeyType: credentialSession.signer.alg,
+            metadata: sessionMetadata
+        )
+        activePendingWalletSelection = selectionSession
+        return selectionSession
+    }
+
+    private func requireActivePendingWalletSelection(
+        _ selectionSession: PendingWalletSelectionSession
+    ) throws {
+        guard activePendingWalletSelection?.id == selectionSession.id else {
+            throw WalletAuthError.staleWalletSelection
+        }
+        try requireActiveCredential()
+        let signerCredentialId = try credentialSession.signer.credentialId()
+        guard signerCredentialId.lowercased() == selectionSession.signerCredentialId.lowercased(),
+              credentialSession.signer.alg == selectionSession.signerKeyType else {
+            throw WalletAuthError.staleWalletSelection
+        }
+    }
+
     private func signOutOnFailure<T>(_ operation: () async throws -> T) async throws -> T {
         do {
             return try await operation()
+        } catch let error as CancellationError {
+            throw error
         } catch {
             try? signOut()
             throw error
@@ -307,7 +511,7 @@ public class WalletClient {
     /// Creates a new wallet of the specified type for the authenticated user and persists
     /// its address and signer metadata to the keychain.
     ///
-    /// Call this after `completeEmailAuth(code:autoActivate:walletType:)` returns
+    /// Call this after `completeEmailAuth(code:walletType:walletSelection:)` returns
     /// `.walletSelection`, or when an authenticated session already exists.
     ///
     /// - Parameter walletType: The wallet type to create (e.g. `.ethereumEoa`).
@@ -358,7 +562,7 @@ public class WalletClient {
     /// Loads an existing wallet of the specified type for the authenticated user and persists
     /// its address and signer metadata to the keychain.
     ///
-    /// Called internally by `completeEmailAuth(code:walletType:)` when the user already has
+    /// Called internally by auth completion when the user already has
     /// a wallet of the requested type on their account.
     ///
     /// - Parameter walletType: The wallet type to load (e.g. `.ethereumEoa`).
@@ -434,6 +638,18 @@ public class WalletClient {
         }
     }
 
+    private func restorePendingOidcRedirectAuth(_ pending: PendingOidcRedirectAuth) throws {
+        try requireActiveCredential()
+        let signerCredentialId = try credentialSession.signer.credentialId()
+        guard signerCredentialId.lowercased() == pending.signerCredentialId.lowercased(),
+              pending.signerKeyType == nil || pending.signerKeyType == credentialSession.signer.alg else {
+            throw OidcRedirectAuthError.signerMismatch
+        }
+
+        verifier = pending.verifier
+        challenge = pending.challenge
+    }
+
     /// Persists the given wallet address and signer metadata to the keychain
     /// so the session can be restored on a later launch.
     ///
@@ -464,7 +680,15 @@ public class WalletClient {
     /// and the user will need to sign in again via `startEmailAuth(email:)`. Navigate to your
     /// sign-in screen after calling this.
     public func signOut() throws {
+        try clearSession(clearOidcRedirectAuth: true)
+    }
+
+    private func clearSession(clearOidcRedirectAuth: Bool) throws {
+        activePendingWalletSelection = nil
         try credentialSession.clear()
+        if clearOidcRedirectAuth {
+            try oidcRedirectAuthStore.clear()
+        }
         walletAddress = ""
         walletId = ""
         verifier = ""
@@ -472,11 +696,7 @@ public class WalletClient {
         sessionExpiresAt = nil
         sessionLoginType = nil
         sessionEmail = nil
-        signedClient = Self.makeSignedClient(
-            projectAccessKey: projectAccessKey,
-            environment: environment,
-            signer: credentialSession.signer
-        )
+        signedClient = signedClientFactory(credentialSession.signer)
     }
 
     /// Returns a list of credentials that currently have access to this wallet.
@@ -715,6 +935,7 @@ public class WalletClient {
 
     private static func makeSignedClient(
         projectAccessKey: String,
+        projectId: String,
         environment: OMSClientEnvironment,
         signer: any CredentialSigner
     ) -> WaasWalletClient {
@@ -722,7 +943,7 @@ public class WalletClient {
             baseURL: environment.walletApiUrl,
             transport: SignedWaasTransport(
                 projectAccessKey: projectAccessKey,
-                scope: environment.scope,
+                scope: projectId,
                 signer: signer
             ),
             headers: { [:] }

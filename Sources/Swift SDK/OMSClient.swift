@@ -3,9 +3,10 @@ public class OMSClient {
     public let wallet: WalletClient
     public let indexer: IndexerClient
 
-    public init(projectAccessKey: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
+    public init(projectAccessKey: String, projectId: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
         self.wallet = WalletClient(
             projectAccessKey: projectAccessKey,
+            projectId: projectId,
             environment: environment
         )
 

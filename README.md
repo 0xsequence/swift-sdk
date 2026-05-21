@@ -1,6 +1,6 @@
 # OMS SDK (Swift)
 
-A Swift SDK for the OMS (Open Money Stack) platform. Provides email-based wallet authentication, non-extractable Keychain request signing, keychain session persistence, on-chain transaction submission with fee selection, message and typed-data signing, signature verification, token balance queries, and base-unit formatting helpers.
+A Swift SDK for the OMS (Open Money Stack) platform. Provides email and OIDC redirect wallet authentication, non-extractable Keychain request signing, keychain session persistence, on-chain transaction submission with fee selection, message and typed-data signing, signature verification, token balance queries, and base-unit formatting helpers.
 
 **Requirements:** iOS 15+ · macOS 12+
 
@@ -21,10 +21,16 @@ Or add it via Xcode: **File -> Add Package Dependencies**.
 ```swift
 import OMS_SDK
 
-let oms = OMSClient(projectAccessKey: "your-project-access-key")
+let oms = OMSClient(
+    projectAccessKey: "your-project-access-key",
+    projectId: "your-project-id"
+)
 
 try await oms.wallet.startEmailAuth(email: "user@example.com")
-let wallet = try await oms.wallet.completeEmailAuth(code: "123456")
+let auth = try await oms.wallet.completeEmailAuth(code: "123456")
+guard case .walletSelected(_, let wallet, _, _) = auth else {
+    fatalError("Expected automatic wallet selection")
+}
 
 print("Wallet address:", wallet.address)
 print("Session email:", oms.wallet.session.sessionEmail ?? "unknown")
@@ -40,6 +46,8 @@ let txHash = try await oms.wallet.sendTransaction(
 ## Overview
 
 `OMSClient` is the root object for the SDK. Create a single instance at app startup and keep it alive for the session. It constructs the SDK sub-clients and restores any saved keychain session automatically.
+
+Pass both your project access key and project ID when creating the client. The SDK uses `projectId` as the signed Wallet API request scope and as part of the keychain namespace for persisted wallet sessions and OIDC redirect state.
 
 | Property | Type | Description |
 |---|---|---|
@@ -64,18 +72,20 @@ let amoy = oms.network(chainId: "80002")
 
 ## Authentication Flow
 
-OMS uses email-based OTP. The two-step flow is:
+OMS supports email-based OTP and OIDC redirect auth. The email two-step flow is:
 
 1. **`startEmailAuth(email:)`** sends a one-time code to the user's inbox.
-2. **`completeEmailAuth(code:walletType:)`** verifies the code, then automatically loads an existing wallet or creates one. The wallet address, wallet ID, and signer metadata are saved to the device keychain.
+2. **`completeEmailAuth(code:walletType:walletSelection:)`** verifies the code. In the default `.automatic` mode it selects the first matching wallet or creates one. The wallet address, wallet ID, and signer metadata are saved to the device keychain.
 
 ```swift
 try await oms.wallet.startEmailAuth(email: "user@example.com")
 
 // Present your OTP entry UI.
-let wallet = try await oms.wallet.completeEmailAuth(code: "123456")
+let result = try await oms.wallet.completeEmailAuth(code: "123456")
 
-print(wallet.address)
+if case .walletSelected(_, let wallet, _, _) = result {
+    print(wallet.address)
+}
 let session = oms.wallet.session
 print(session.walletAddress ?? "signed out")
 if let expiresAt = session.expiresAt { print(expiresAt) }
@@ -86,17 +96,81 @@ print(session.sessionEmail ?? "unknown")
 To opt out of automatic activation and drive wallet selection yourself:
 
 ```swift
+enum WalletPickerChoice {
+    case existing(Wallet)
+    case createNew
+}
+
+func showWalletPicker(
+    wallets: [Wallet],
+    includeCreateNewWallet: Bool
+) async -> WalletPickerChoice {
+    // Present app UI and return the user's choice.
+}
+
 let result = try await oms.wallet.completeEmailAuth(
     code: "123456",
-    autoActivate: false
+    walletSelection: .manual
 )
 
 switch result {
-case .walletSelection(let wallets, _):
-    let picked = wallets[0]
-    try await oms.wallet.useWallet(walletId: picked.id)
-case .activated:
+case .walletSelection(let pendingSelection):
+    let choice = await showWalletPicker(
+        wallets: pendingSelection.wallets,
+        includeCreateNewWallet: true
+    )
+
+    switch choice {
+    case .existing(let wallet):
+        try await pendingSelection.selectWallet(walletId: wallet.id)
+    case .createNew:
+        try await pendingSelection.createAndSelectWallet()
+    }
+case .walletSelected:
     break
+}
+```
+
+`PendingWalletSelection` values are single-use. They become invalid after a
+wallet is selected or created, after sign-out, or after another auth completion.
+Using an invalidated pending selection throws `WalletAuthError.staleWalletSelection`.
+
+For OIDC authorization-code PKCE redirect flows, start the redirect, open the
+returned URL with your browser UI, then safely handle incoming app links:
+
+```swift
+let started = try await oms.wallet.startOidcRedirectAuth(
+    provider: OidcProviders.google(clientId: "YOUR_WEB_CLIENT_ID"),
+    redirectUri: "omssdkdemo://auth/callback"
+)
+
+// Open started.authorizationUrl.
+
+let result = try await oms.wallet.handleOidcRedirectCallback(
+    callbackURLString,
+    walletSelection: .manual
+)
+switch result {
+case .completed(let wallet):
+    print(wallet.address)
+case .walletSelection(let pendingSelection):
+    let choice = await showWalletPicker(
+        wallets: pendingSelection.wallets,
+        includeCreateNewWallet: true
+    )
+
+    switch choice {
+    case .existing(let wallet):
+        try await pendingSelection.selectWallet(walletId: wallet.id)
+    case .createNew:
+        try await pendingSelection.createAndSelectWallet()
+    }
+case .notOidcRedirectCallback:
+    break
+case .noPendingAuth:
+    break
+case .failed(let error):
+    print(error.localizedDescription)
 }
 ```
 
@@ -162,19 +236,22 @@ let txHash = try await oms.wallet.sendTransaction(
 let env = OMSClientEnvironment(
     walletApiUrl: "https://staging-wallet.example.com",
     apiRpcUrl: "https://staging-api.example.com/rpc/API",
-    indexerUrlTemplate: "https://staging-{value}-indexer.example.com/rpc/Indexer/",
-    scope: "proj_staging"
+    indexerUrlTemplate: "https://staging-{value}-indexer.example.com/rpc/Indexer/"
 )
 
-let oms = OMSClient(projectAccessKey: "your-key", environment: env)
+let oms = OMSClient(
+    projectAccessKey: "your-key",
+    projectId: "proj_staging",
+    environment: env
+)
 ```
 
-To keep the default endpoints and only change the signed-request scope:
+To keep the default endpoints and use a different project:
 
 ```swift
 let oms = OMSClient(
     projectAccessKey: "your-key",
-    environment: OMSClientEnvironment(scope: "proj_staging")
+    projectId: "proj_staging"
 )
 ```
 

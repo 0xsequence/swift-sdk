@@ -29,19 +29,24 @@
 The top-level entry point for the SDK. Requires iOS 15+ or macOS 12+.
 
 ```swift
-let oms = OMSClient(projectAccessKey: "your-key")
+let oms = OMSClient(projectAccessKey: "your-key", projectId: "your-project-id")
 ```
 
 ### init
 
 ```swift
-init(projectAccessKey: String, environment: OMSClientEnvironment = OMSClientEnvironment())
+init(
+    projectAccessKey: String,
+    projectId: String,
+    environment: OMSClientEnvironment = OMSClientEnvironment()
+)
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | `projectAccessKey` | `String` | OMS project access key. |
-| `environment` | `OMSClientEnvironment` | API endpoint and authorization-scope configuration. |
+| `projectId` | `String` | OMS project ID. Used as the signed Wallet API request scope and keychain namespace. |
+| `environment` | `OMSClientEnvironment` | API endpoint configuration. |
 
 ### Properties
 
@@ -64,6 +69,18 @@ Returns the supported `Network` for a numeric chain ID, or `nil` when the chain 
 ## WalletClient
 
 Accessed via `oms.wallet`. Manages wallet authentication, non-extractable Keychain request signing, keychain session persistence, signing, signature verification, and transaction submission.
+
+### init
+
+```swift
+init(
+    projectAccessKey: String,
+    projectId: String,
+    environment: OMSClientEnvironment = OMSClientEnvironment()
+)
+```
+
+Most apps create a wallet client through `OMSClient`. Use this initializer only when constructing `WalletClient` directly.
 
 ### walletAddress
 
@@ -89,6 +106,14 @@ var session: SessionState
 
 Snapshot of the currently completed wallet session for this wallet client.
 
+### canResumeOidcRedirectAuth
+
+```swift
+var canResumeOidcRedirectAuth: Bool
+```
+
+Whether there is a persisted OIDC redirect flow waiting for its callback URL.
+
 ### startEmailAuth
 
 ```swift
@@ -100,46 +125,141 @@ Sends a one-time passcode to the provided email address.
 ### completeEmailAuth
 
 ```swift
-func completeEmailAuth(code: String, walletType: WalletType = .ethereum) async throws -> Wallet
-```
-
-Verifies the OTP code and activates an existing or newly created wallet.
-
-```swift
-func completeEmailAuth(
-    code: String,
-    autoActivate: Bool,
-    walletType: WalletType = .ethereum
-) async throws -> CompleteAuthResult
-```
-
-When `autoActivate` is `false`, verifies the OTP code and returns all available
-wallets without selecting or creating one. Call `useWallet(walletId:)` or
-`createWallet(walletType:reference:)` afterward to activate a wallet.
-
-```swift
 func completeEmailAuth(
     code: String,
     walletType: WalletType = .ethereum,
-    selectWallet: ([Wallet]) async throws -> Wallet
-) async throws -> Wallet
+    walletSelection: WalletSelectionBehavior = .automatic
+) async throws -> CompleteAuthResult
 ```
 
-Lets the app select from multiple available wallets matching `walletType`.
+Verifies the OTP code. With `.automatic`, selects the first existing wallet
+matching `walletType`, or creates and selects one when none exists. With
+`.manual`, returns a pending wallet selection without selecting or creating a
+wallet.
+
+### WalletSelectionBehavior
+
+```swift
+enum WalletSelectionBehavior {
+    case automatic
+    case manual
+}
+```
+
+### PendingWalletSelection
+
+```swift
+final class PendingWalletSelection {
+    let walletType: WalletType
+    let wallets: [Wallet]
+    let credential: CredentialInfo
+
+    func selectWallet(walletId: String) async throws -> WalletActivationResult
+    func createAndSelectWallet(reference: String? = nil) async throws -> WalletActivationResult
+}
+```
+
+`wallets` is filtered to `walletType`. `selectWallet(walletId:)` rejects wallet
+IDs that are not in that filtered list.
+
+In manual mode, apps should present `wallets` plus a create-new-wallet action,
+then call `selectWallet(walletId:)` or `createAndSelectWallet(reference:)` from
+that user choice. Automatic "first wallet" selection belongs to
+`WalletSelectionBehavior.automatic`, not manual mode. A pending selection is
+single-use and is invalidated by successful wallet selection, sign-out, or a
+new auth completion; using an invalidated selection throws
+`WalletAuthError.staleWalletSelection`.
 
 ### CompleteAuthResult
 
 ```swift
 enum CompleteAuthResult {
-    case activated(
+    case walletSelected(
         walletAddress: String,
         wallet: Wallet,
         wallets: [Wallet],
         credential: CredentialInfo
     )
-    case walletSelection(wallets: [Wallet], credential: CredentialInfo)
+    case walletSelection(PendingWalletSelection)
 }
 ```
+
+### OIDC Redirect Auth
+
+```swift
+struct OidcProviderConfig {
+    let issuer: String
+    let clientId: String
+    let authorizationUrl: String
+    let scopes: [String]
+    let relayRedirectUri: String?
+    let authorizeParams: [String: String]
+}
+```
+
+```swift
+enum OidcProviders {
+    static func google(
+        clientId: String = OidcProviders.defaultGoogleClientId,
+        relayRedirectUri: String? = OidcProviders.defaultRelayRedirectUri,
+        scopes: [String] = ["openid", "email", "profile"],
+        authorizeParams: [String: String] = [:]
+    ) -> OidcProviderConfig
+}
+```
+
+```swift
+func startOidcRedirectAuth(
+    provider: OidcProviderConfig,
+    redirectUri: String,
+    walletType: WalletType = .ethereum,
+    authorizeParams: [String: String] = [:]
+) async throws -> StartOidcRedirectAuthResult
+```
+
+```swift
+func startOidcRedirectAuth(
+    provider: OidcProviderConfig,
+    redirectUri: String,
+    walletType: WalletType = .ethereum,
+    relayRedirectUri: String?,
+    authorizeParams: [String: String] = [:]
+) async throws -> StartOidcRedirectAuthResult
+```
+
+```swift
+struct StartOidcRedirectAuthResult {
+    let authorizationUrl: String
+    let state: String
+    let challenge: String
+}
+```
+
+```swift
+func handleOidcRedirectCallback(
+    _ callbackUrl: String?,
+    walletSelection: WalletSelectionBehavior = .automatic
+) async throws -> OidcRedirectAuthResult
+```
+
+```swift
+enum OidcRedirectAuthResult {
+    case completed(wallet: Wallet)
+    case walletSelection(PendingWalletSelection)
+    case notOidcRedirectCallback
+    case noPendingAuth
+    case failed(Error)
+}
+```
+
+OIDC redirect auth stores transient verifier/state data separately from completed
+wallet sessions so apps can resume after the browser redirect. The callback
+handler is safe to call for every incoming app link: unrelated links return
+`.notOidcRedirectCallback`, stale links return `.noPendingAuth`, and provider or
+completion failures return `.failed`. Invalid or unrelated callbacks do not clear
+pending redirect auth. Valid callbacks clear pending redirect auth after success
+or non-cancellation failure. Cancellation rethrows `CancellationError` without
+clearing pending redirect auth.
 
 ### useWallet
 
@@ -449,27 +569,23 @@ struct OMSClientEnvironment: Equatable, Sendable {
     static let defaultApiRpcUrl: String
     static let defaultIndexerUrlTemplate: String
     static let indexerURLTemplateDefault: String
-    static let defaultScope: String
 
     let walletApiUrl: String
     let apiRpcUrl: String
     let indexerUrlTemplate: String
-    let scope: String
 
     var indexerURLTemplate: String
 
     init(
         walletApiUrl: String = OMSClientEnvironment.defaultWalletApiUrl,
         apiRpcUrl: String = OMSClientEnvironment.defaultApiRpcUrl,
-        indexerUrlTemplate: String = OMSClientEnvironment.defaultIndexerUrlTemplate,
-        scope: String = OMSClientEnvironment.defaultScope
+        indexerUrlTemplate: String = OMSClientEnvironment.defaultIndexerUrlTemplate
     )
 
     init(
         walletApiUrl: String = OMSClientEnvironment.defaultWalletApiUrl,
         apiRpcUrl: String = OMSClientEnvironment.defaultApiRpcUrl,
-        indexerURLTemplate: String,
-        scope: String = OMSClientEnvironment.defaultScope
+        indexerURLTemplate: String
     )
 
     func indexerURL(for network: Network) -> URL?
@@ -481,7 +597,6 @@ struct OMSClientEnvironment: Equatable, Sendable {
 | `walletApiUrl` | `String` | Base URL of the OMS Wallet API. |
 | `apiRpcUrl` | `String` | Base URL of the OMS API RPC. |
 | `indexerUrlTemplate` | `String` | URL template for the Indexer. `{value}` is replaced with the network indexer name. |
-| `scope` | `String` | Authorization scope used for signed wallet requests. |
 
 ### FeeOptionSelector
 

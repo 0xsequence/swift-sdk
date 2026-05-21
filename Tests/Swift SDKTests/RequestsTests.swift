@@ -37,7 +37,7 @@ import Testing
     let preimage = RequestUtils.buildWalletRequestPreimage(
         endpoint: "/CommitVerifier",
         nonce: "1234567890",
-        scope: OMSClientEnvironment.defaultScope,
+        scope: "proj_1",
         payload: payload
     )
 
@@ -164,4 +164,36 @@ import Testing
     #expect(googleIdentity.sessionLoginType == .googleAuth)
     #expect(oidcIdentity.sessionLoginType == .oidc)
     #expect(phoneIdentity.sessionLoginType == nil)
+}
+
+@Test func TestOidcRedirectAuthMatchesCustomSchemesWithoutAuthority() throws {
+    #expect(
+        OidcRedirectAuth.matchesRedirectUri(
+            callbackUrl: "omssdkdemo:/callback?code=auth-code&state=state-123",
+            redirectUri: "omssdkdemo:/callback"
+        )
+    )
+}
+
+@Test func TestOidcRedirectAuthRejectsInvalidStateWithoutClearingPendingAuth() throws {
+    let pending = PendingOidcRedirectAuth(
+        verifier: "verifier",
+        challenge: "challenge",
+        nonce: "nonce-123",
+        redirectUri: "omssdkdemo://auth/callback",
+        issuer: "https://issuer.example",
+        authorizationScope: "proj_1",
+        walletType: .ethereum,
+        signerCredentialId: "0xcredential",
+        signerKeyType: .ecdsaP256Sha256
+    )
+
+    do {
+        try OidcRedirectAuth.validateState("not-base64", pending: pending)
+        #expect(Bool(false))
+    } catch let error as OidcRedirectAuthError {
+        #expect(error == .invalidState)
+    } catch {
+        #expect(Bool(false))
+    }
 }

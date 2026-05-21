@@ -20,14 +20,15 @@ final class WalletCredentialSession {
 
     init(
         environment: OMSClientEnvironment,
+        projectId: String,
         keychain: any KeychainManaging = KeychainManager(),
-        signerFactory: ((OMSClientEnvironment, any KeychainManaging) -> any CredentialSigner)? = nil
+        signerFactory: ((String, OMSClientEnvironment, any KeychainManaging) -> any CredentialSigner)? = nil
     ) {
         self.environment = environment
         self.keychain = keychain
-        self.credentialsStorageKey = Constants.credentialsStorageKey(environment: environment)
+        self.credentialsStorageKey = Constants.credentialsStorageKey(environment: environment, scope: projectId)
         let makeSigner = signerFactory ?? Self.makeDefaultCredentialSigner
-        let factory = { makeSigner(environment, keychain) }
+        let factory = { makeSigner(projectId, environment, keychain) }
         self.signerFactory = factory
         self.currentSigner = factory()
     }
@@ -116,12 +117,13 @@ final class WalletCredentialSession {
     }
 
     private static func makeDefaultCredentialSigner(
+        projectId: String,
         environment: OMSClientEnvironment,
         keychain: any KeychainManaging
     ) -> any CredentialSigner {
         AppleKeychainP256CredentialSigner(
-            applicationTag: Constants.credentialApplicationTag(environment: environment),
-            nonceStorageKey: Constants.credentialNonceStorageKey(environment: environment),
+            applicationTag: Constants.credentialApplicationTag(environment: environment, scope: projectId),
+            nonceStorageKey: Constants.credentialNonceStorageKey(environment: environment, scope: projectId),
             keychain: keychain
         )
     }

@@ -3,6 +3,7 @@ import Combine
 import OMS_SDK
 #if os(iOS)
 import UIKit
+import SafariServices
 #elseif os(macOS)
 import AppKit
 #endif
@@ -24,6 +25,26 @@ enum Clipboard {
 // MARK: - Chains
 
 private let supportedNetworks: [Network] = Network.supportedNetworks
+private let oidcRedirectUri = "omsclientswiftdemo://auth/callback"
+
+struct SafariAuthSession: Identifiable {
+    let url: URL
+
+    var id: String {
+        url.absoluteString
+    }
+}
+
+private enum DemoAuthError: Error, LocalizedError {
+    case invalidAuthorizationURL
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidAuthorizationURL:
+            return "The authorization URL could not be opened."
+        }
+    }
+}
 
 // MARK: - Styling
 
@@ -129,6 +150,7 @@ private func trimBalanceDisplay(_ value: String, maxFractionDigits: Int) -> Stri
 enum AppScreen {
     case login
     case confirmCode
+    case walletSelection(PendingWalletSelection)
     case wallet
 }
 
@@ -137,11 +159,18 @@ final class AppViewModel: ObservableObject {
     @Published var screen: AppScreen = .login
     @Published var isLoading: Bool = false
     @Published var error: GenericAppError?
+    @Published var safariAuthSession: SafariAuthSession?
+    @Published var useManualWalletSelection: Bool = false
     @Published var oms: OMSClient = OMSClient(
-        projectAccessKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE"
+        projectAccessKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE",
+        projectId: "proj_014kg56dc0a75"
     )
 
     init() {}
+
+    private var walletSelectionBehavior: WalletSelectionBehavior {
+        useManualWalletSelection ? .manual : .automatic
+    }
 
     func checkSession() async {
         let hasSession = !oms.wallet.walletAddress.isEmpty
@@ -151,6 +180,7 @@ final class AppViewModel: ObservableObject {
     func signOut() {
         do {
             try oms.wallet.signOut()
+            safariAuthSession = nil
             screen = .login
         } catch {
             present(error)
@@ -171,6 +201,55 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func startGoogleRedirectAuth() async {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let started = try await oms.wallet.startOidcRedirectAuth(
+                provider: OidcProviders.google(),
+                redirectUri: oidcRedirectUri
+            )
+            guard let authorizationUrl = URL(string: started.authorizationUrl) else {
+                throw DemoAuthError.invalidAuthorizationURL
+            }
+
+            #if os(iOS)
+            safariAuthSession = SafariAuthSession(url: authorizationUrl)
+            #elseif os(macOS)
+            NSWorkspace.shared.open(authorizationUrl)
+            #endif
+        } catch {
+            present(error)
+        }
+    }
+
+    func handleOpenURL(_ url: URL) async {
+        do {
+            let result = try await oms.wallet.handleOidcRedirectCallback(
+                url.absoluteString,
+                walletSelection: walletSelectionBehavior
+            )
+
+            switch result {
+            case .completed:
+                safariAuthSession = nil
+                screen = .wallet
+            case .walletSelection(let pendingSelection):
+                safariAuthSession = nil
+                screen = .walletSelection(pendingSelection)
+            case .notOidcRedirectCallback, .noPendingAuth:
+                break
+            case .failed(let error):
+                safariAuthSession = nil
+                present(error)
+            }
+        } catch {
+            safariAuthSession = nil
+            present(error)
+        }
+    }
+
     // MARK: Confirm Code
 
     func submitConfirmCode(code: String) async {
@@ -178,7 +257,52 @@ final class AppViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            try await oms.wallet.completeEmailAuth(code: code)
+            let result = try await oms.wallet.completeEmailAuth(
+                code: code,
+                walletSelection: walletSelectionBehavior
+            )
+            switch result {
+            case .walletSelected:
+                screen = .wallet
+            case .walletSelection(let pendingSelection):
+                screen = .walletSelection(pendingSelection)
+            }
+        } catch {
+            present(error)
+        }
+    }
+
+    func selectWallet(_ wallet: Wallet, from pendingSelection: PendingWalletSelection) async {
+        await completeWalletSelection {
+            try await pendingSelection.selectWallet(walletId: wallet.id)
+        }
+    }
+
+    func createWallet(from pendingSelection: PendingWalletSelection) async {
+        await completeWalletSelection {
+            try await pendingSelection.createAndSelectWallet()
+        }
+    }
+
+    func cancelWalletSelection() {
+        isLoading = false
+        safariAuthSession = nil
+        do {
+            try oms.wallet.signOut()
+        } catch {
+            present(error)
+        }
+        screen = .login
+    }
+
+    private func completeWalletSelection(
+        _ operation: () async throws -> WalletActivationResult
+    ) async {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            _ = try await operation()
             screen = .wallet
         } catch {
             present(error)
@@ -204,6 +328,8 @@ struct ContentView: View {
                 LoginWindow()
             case .confirmCode:
                 ConfirmCodeWindow()
+            case .walletSelection(let pendingSelection):
+                WalletSelectionWindow(pendingSelection: pendingSelection)
             case .wallet:
                 WalletWindow()
             }
@@ -215,6 +341,17 @@ struct ContentView: View {
         .task {
             await vm.checkSession()
         }
+        .onOpenURL { url in
+            Task {
+                await vm.handleOpenURL(url)
+            }
+        }
+        #if os(iOS)
+        .sheet(item: $vm.safariAuthSession) { session in
+            SafariView(url: session.url)
+                .ignoresSafeArea()
+        }
+        #endif
     }
 }
 
@@ -247,6 +384,9 @@ struct LoginWindow: View {
                 }
                 .padding(.top, 32)
 
+                ManualWalletSelectionToggle()
+                    .padding(.top, 16)
+
                 Spacer()
 
                 Button {
@@ -257,6 +397,16 @@ struct LoginWindow: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .disabled(inputText.isEmpty || vm.isLoading)
+
+                Button {
+                    Task { await vm.startGoogleRedirectAuth() }
+                } label: {
+                    label(for: "Continue with Google", systemImage: "globe", loading: vm.isLoading)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(vm.isLoading)
+                .padding(.top, 12)
                 .padding(.bottom, 24)
             }
         }
@@ -287,6 +437,9 @@ struct ConfirmCodeWindow: View {
                 VerificationCodeInput(code: $codeText)
                     .padding(.top, 32)
 
+                ManualWalletSelectionToggle()
+                    .padding(.top, 24)
+
                 Spacer()
 
                 Button {
@@ -300,6 +453,190 @@ struct ConfirmCodeWindow: View {
                 .padding(.bottom, 24)
             }
         }
+    }
+}
+
+// MARK: - Wallet Selection Window
+
+struct WalletSelectionWindow: View {
+    @EnvironmentObject private var vm: AppViewModel
+    let pendingSelection: PendingWalletSelection
+
+    var body: some View {
+        NavigationScreenContainer(maxWidth: 520) {
+            VStack(alignment: .leading, spacing: 0) {
+                AuthWelcomeHeader(
+                    subtitle: "Select a wallet to finish signing in."
+                )
+                .padding(.top, 48)
+
+                VStack(alignment: .leading, spacing: 20) {
+                    walletsSection
+                    createSection
+
+                    if vm.isLoading {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                }
+                .padding(.top, 32)
+
+                Spacer()
+
+                Button {
+                    vm.cancelWalletSelection()
+                } label: {
+                    label(for: "Cancel", systemImage: "xmark", loading: false)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(vm.isLoading)
+                .padding(.bottom, 24)
+            }
+        }
+    }
+
+    private var walletsSection: some View {
+        FieldGroup(title: "Wallets", titleStyle: .secondary) {
+            VStack(spacing: 8) {
+                if pendingSelection.wallets.isEmpty {
+                    WalletSelectionRow(
+                        title: "No \(walletTypeLabel) wallets",
+                        subtitle: "Create a wallet to continue",
+                        leadingText: "0x",
+                        isEnabled: false
+                    )
+                } else {
+                    ForEach(pendingSelection.wallets, id: \.id) { wallet in
+                        Button {
+                            Task { await vm.selectWallet(wallet, from: pendingSelection) }
+                        } label: {
+                            WalletSelectionRow(
+                                title: shortWalletAddress(wallet.address),
+                                subtitle: walletSelectionSubtitle(wallet),
+                                leadingText: "0x"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(vm.isLoading)
+                    }
+                }
+            }
+        }
+    }
+
+    private var createSection: some View {
+        FieldGroup(title: "Create", titleStyle: .secondary) {
+            Button {
+                Task { await vm.createWallet(from: pendingSelection) }
+            } label: {
+                WalletSelectionRow(
+                    title: "Create New Wallet",
+                    subtitle: "\(walletTypeLabel) wallet",
+                    leadingText: "+"
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(vm.isLoading)
+        }
+    }
+
+    private var walletTypeLabel: String {
+        pendingSelection.walletType.wireValue
+    }
+
+    private func walletSelectionSubtitle(_ wallet: Wallet) -> String {
+        [
+            nonEmpty(wallet.reference),
+            wallet.type.wireValue,
+            nonEmpty(wallet.id)
+        ]
+        .compactMap { $0 }
+        .joined(separator: " / ")
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private func shortWalletAddress(_ address: String) -> String {
+        guard address.count > 18 else { return address }
+        return "\(address.prefix(10))...\(address.suffix(6))"
+    }
+}
+
+private struct ManualWalletSelectionToggle: View {
+    @EnvironmentObject private var vm: AppViewModel
+
+    var body: some View {
+        Toggle(isOn: $vm.useManualWalletSelection) {
+            Text("Use manual wallet selection")
+                .font(.subheadline)
+                .fontWeight(.medium)
+        }
+        .toggleStyle(.switch)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct WalletSelectionRow: View {
+    let title: String
+    let subtitle: String
+    let leadingText: String
+    var isEnabled: Bool = true
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(leadingText)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(.primary)
+                .frame(width: 38, height: 38)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(appBackgroundColor)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(panelBorderColor, lineWidth: 1)
+                )
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+            }
+
+            Spacer(minLength: 8)
+
+            if isEnabled {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(panelBackgroundColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(panelBorderColor, lineWidth: 1)
+        )
+        .opacity(isEnabled ? 1 : 0.72)
+        .contentShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -971,6 +1308,18 @@ struct CallContractWindow: View {
 }
 
 // MARK: - Helpers
+
+#if os(iOS)
+private struct SafariView: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        SFSafariViewController(url: url)
+    }
+
+    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
+}
+#endif
 
 private enum AppNavigationTitleDisplayMode {
     case large
