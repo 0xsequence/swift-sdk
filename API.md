@@ -656,7 +656,6 @@ struct OMSClientEnvironment: Equatable, Sendable {
 struct FeeOptionSelector {
     typealias Select = @Sendable ([FeeOptionWithBalance]) async throws -> FeeOptionSelection?
     static let first: FeeOptionSelector
-    static let cheapest: FeeOptionSelector
     static func custom(_ pick: @escaping Select) -> FeeOptionSelector
 }
 ```
@@ -668,7 +667,6 @@ fee option when the transaction is sponsored.
 | Selector | Description |
 |---|---|
 | `.first` | Picks the first fee option returned by the server. |
-| `.cheapest` | Picks the option with the lowest numeric fee value. |
 | `.custom { options in ... }` | Calls your closure with the full `[FeeOptionWithBalance]` list and expects a `FeeOptionSelection?`. |
 
 ```swift

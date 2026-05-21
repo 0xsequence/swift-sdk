@@ -67,12 +67,6 @@ public extension FeeOptionSelector {
         options.first?.selection
     }
 
-    static let cheapest = FeeOptionSelector { options in
-        options
-            .min(by: { isNumericValueLessThan($0.feeOption.value, $1.feeOption.value) })
-            .map(\.selection)
-    }
-
     static func custom(_ pick: @escaping Select) -> FeeOptionSelector {
         FeeOptionSelector(pick)
     }

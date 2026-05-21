@@ -219,19 +219,7 @@ let txHash = try await oms.wallet.sendTransaction(
 )
 ```
 
-Use `.cheapest` to choose the lowest numeric fee value:
-
-```swift
-let value = try parseUnits(value: "1", decimals: 18)
-let txHash = try await oms.wallet.sendTransaction(
-    network: .polygon,
-    to: "0xRecipient",
-    value: value,
-    feeOptionSelector: .cheapest
-)
-```
-
-Or provide a custom selector:
+Provide a custom selector to choose from the returned fee options:
 
 ```swift
 let value = try parseUnits(value: "1", decimals: 18)
