@@ -2,6 +2,7 @@ import Foundation
 
 public enum TransactionError: Error {
     case noFeeOptionsAvailable
+    case noFeeOptionSelected
     case missingTransactionHash
     case transactionFailed(status: TransactionStatus)
     case pollingTimedOut
@@ -983,7 +984,7 @@ public class WalletClient {
             status: executeResponse.status
         )
         if response.status == .executed {
-            return try await getExecutedTransactionResult(txnId: prepareResponse.txnId)
+            return try await getSubmittedTransactionResult(txnId: prepareResponse.txnId)
         }
 
         for pollIntervalNanos in transactionPollingIntervals {
@@ -1001,7 +1002,7 @@ public class WalletClient {
                 txnHash: statusResponse.txnHash
             )
 
-            if response.status == .executed {
+            if isSubmittedTransactionResult(response) {
                 return response
             }
         }
@@ -1028,20 +1029,29 @@ public class WalletClient {
         }
 
         guard let feeOptionSelector else {
-            return prepareResponse.feeOptions.defaultSelection()
+            guard let feeOptionSelection = prepareResponse.feeOptions.defaultSelection() else {
+                throw TransactionError.noFeeOptionsAvailable
+            }
+            return feeOptionSelection
         }
 
         guard let walletAddress else {
             throw WalletAuthError.noAuthenticatedWalletSession
         }
 
-        return try await feeOptionSelector(
+        let feeOptionSelection = try await feeOptionSelector(
             enrichFeeOptionsWithBalances(
                 network: network,
                 walletAddress: walletAddress,
                 feeOptions: prepareResponse.feeOptions
             )
         )
+
+        guard let feeOptionSelection else {
+            throw TransactionError.noFeeOptionSelected
+        }
+
+        return feeOptionSelection
     }
 
     private func enrichFeeOptionsWithBalances(
@@ -1135,18 +1145,30 @@ public class WalletClient {
         }
     }
 
-    private func getExecutedTransactionResult(txnId: String) async throws -> SendTransactionResponse {
+    private func getSubmittedTransactionResult(txnId: String) async throws -> SendTransactionResponse {
         let statusResponse = try await getTransactionStatus(txnId: txnId)
-
-        guard statusResponse.status == .executed else {
-            throw TransactionError.transactionFailed(status: statusResponse.status)
-        }
-
-        return SendTransactionResponse(
+        let response = SendTransactionResponse(
             txnId: txnId,
             status: statusResponse.status,
             txnHash: statusResponse.txnHash
         )
+
+        guard isSubmittedTransactionResult(response) else {
+            throw TransactionError.transactionFailed(status: statusResponse.status)
+        }
+
+        return response
+    }
+
+    private func isSubmittedTransactionResult(_ response: SendTransactionResponse) -> Bool {
+        response.status == .executed || hasTransactionHash(response.txnHash)
+    }
+
+    private func hasTransactionHash(_ txnHash: String?) -> Bool {
+        guard let txnHash = txnHash?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return false
+        }
+        return !txnHash.isEmpty
     }
 
     private static func makeSignedClient(

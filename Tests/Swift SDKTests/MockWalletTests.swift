@@ -960,6 +960,43 @@ import Testing
     #expect(fixture.indexerClient.tokenBalanceContractAddresses == ["0xusdc"])
 }
 
+@Test func TestWalletSendTransactionUnsponsoredCustomSelectorRequiresSelection() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-1",
+            status: .quoted,
+            feeOptions: testFeeOptions(),
+            sponsored: false,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasWalletAPI.PrepareEthereumTransaction.urlPath
+    )
+
+    do {
+        _ = try await fixture.client.sendTransaction(
+            network: .polygonAmoy,
+            request: SendTransactionRequest(to: "0xabc", value: "0"),
+            feeOptionSelector: .custom { _ in nil }
+        )
+        #expect(Bool(false), "Expected no fee option selected error")
+    } catch let error as TransactionError {
+        switch error {
+        case .noFeeOptionSelected:
+            break
+        default:
+            #expect(Bool(false), "Expected TransactionError.noFeeOptionSelected")
+        }
+    } catch {
+        #expect(Bool(false), "Expected TransactionError.noFeeOptionSelected")
+    }
+
+    #expect(fixture.transport.requestCount(for: WaasWalletAPI.Execute.urlPath) == 0)
+}
+
 @Test func TestWalletSendTransactionSponsoredSkipsCustomFeeSelector() async throws {
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"
@@ -1089,6 +1126,74 @@ import Testing
     #expect(txResult.status == .pending)
     #expect(txResult.txnHash == nil)
     #expect(fixture.transport.requestCount(for: WaasWalletAPI.TransactionStatus.urlPath) == 2)
+}
+
+@Test func TestWalletSendTransactionReturnsWhenPollingFindsHashBeforeExecuted() async throws {
+    let fixture = makeMockWalletClient(transactionPollingIntervals: [0, 0])
+    fixture.client.walletId = "wallet-main"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-hash-1",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: true,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasWalletAPI.PrepareEthereumTransaction.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .pending),
+        for: WaasWalletAPI.Execute.urlPath
+    )
+    try fixture.transport.enqueue(
+        TransactionStatusResponse(status: .pending, txnHash: "0xsubmitted"),
+        for: WaasWalletAPI.TransactionStatus.urlPath
+    )
+
+    let txResult = try await fixture.client.sendTransaction(
+        network: .polygonAmoy,
+        request: SendTransactionRequest(to: "0xabc", value: "0")
+    )
+
+    #expect(txResult.txnId == "txn-hash-1")
+    #expect(txResult.status == .pending)
+    #expect(txResult.txnHash == "0xsubmitted")
+    #expect(fixture.transport.requestCount(for: WaasWalletAPI.TransactionStatus.urlPath) == 1)
+}
+
+@Test func TestWalletSendTransactionExecutedFastPathAcceptsStatusHash() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-fast-hash-1",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: true,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasWalletAPI.PrepareEthereumTransaction.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .executed),
+        for: WaasWalletAPI.Execute.urlPath
+    )
+    try fixture.transport.enqueue(
+        TransactionStatusResponse(status: .pending, txnHash: "0xfastsubmitted"),
+        for: WaasWalletAPI.TransactionStatus.urlPath
+    )
+
+    let txResult = try await fixture.client.sendTransaction(
+        network: .polygonAmoy,
+        request: SendTransactionRequest(to: "0xabc", value: "0")
+    )
+
+    #expect(txResult.txnId == "txn-fast-hash-1")
+    #expect(txResult.status == .pending)
+    #expect(txResult.txnHash == "0xfastsubmitted")
+    #expect(fixture.transport.requestCount(for: WaasWalletAPI.TransactionStatus.urlPath) == 1)
 }
 
 @Test func TestWalletSendTransactionUnsponsoredWithoutFeeOptionsThrows() async throws {

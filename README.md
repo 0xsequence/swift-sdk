@@ -206,7 +206,7 @@ try oms.wallet.signOut()
 1. **Prepare** - the server calculates fee options for the transaction.
 2. **Select fee** - the SDK picks the default fee option, or your `FeeOptionSelector` picks one.
 3. **Execute** - the transaction is submitted.
-4. **Poll** - the SDK polls for about 60 seconds for on-chain confirmation, then returns the latest status.
+4. **Poll** - the SDK polls for about 60 seconds and returns once the status is `.executed` or a transaction hash is available.
 
 By default, the SDK uses the first required fee option, or no fee option when the
 transaction is sponsored. Transaction mode defaults to `.relayer`; pass
@@ -242,7 +242,8 @@ let txResult = try await oms.wallet.sendTransaction(
 Custom selectors receive `FeeOptionWithBalance` values. `balance` is the wallet's
 raw indexer balance for that fee token when available, `available` is formatted
 with the token decimals, `availableRaw` is the raw integer balance, and
-`decimals` is the token decimal count used for formatting.
+`decimals` is the token decimal count used for formatting. Unsponsored
+transactions require the selector to return a fee selection.
 
 ## Configuration
 

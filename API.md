@@ -714,6 +714,7 @@ symbol for native fee options.
 ```swift
 enum TransactionError: Error {
     case noFeeOptionsAvailable
+    case noFeeOptionSelected
     case missingTransactionHash
     case transactionFailed(status: TransactionStatus)
     case pollingTimedOut
@@ -721,8 +722,10 @@ enum TransactionError: Error {
 ```
 
 Transaction-flow error cases. `noFeeOptionsAvailable` is used when an
-unsponsored transaction has no fee options. Terminal non-executed statuses throw
-`transactionFailed`. A normal pending polling timeout returns
+unsponsored transaction has no fee options, and `noFeeOptionSelected` is used
+when a custom selector does not return a selection for an unsponsored
+transaction. Terminal non-executed statuses throw `transactionFailed`. A normal
+pending polling timeout returns
 `SendTransactionResponse(status: .pending, txnHash: nil)` instead of throwing.
 `missingTransactionHash` and `pollingTimedOut` remain public compatibility cases.
 
@@ -738,6 +741,8 @@ struct SendTransactionResponse {
 
 Returned by `sendTransaction` and `callContract`. `txnId` and `status` are always
 available; `txnHash` is present when the service has a chain transaction hash.
+The transaction flow returns as soon as status is `.executed` or a non-empty
+`txnHash` is available.
 `TransactionResult` remains available as a compatibility alias.
 
 ### TransactionMode
