@@ -191,6 +191,71 @@ public class WalletClient {
         )
     }
 
+    /// Signs in with an OIDC ID token.
+    ///
+    /// With `.automatic`, this selects the first existing wallet matching `walletType`,
+    /// or creates one when none exists. With `.manual`, this verifies auth and returns
+    /// a `PendingWalletSelection` so the app can select or create a wallet later.
+    @discardableResult
+    public func signInWithOidcIdToken(
+        idToken: String,
+        issuer: String,
+        audience: String,
+        walletType: WalletType = WalletType.ethereum,
+        walletSelection: WalletSelectionBehavior = .automatic
+    ) async throws -> CompleteAuthResult {
+        try clearSession(clearOidcRedirectAuth: true)
+
+        do {
+            let expiresAt = try OidcIdToken.expiresAtEpochSeconds(idToken)
+            let response = try await signedClient.commitVerifier(
+                CommitVerifierRequest(
+                    identityType: .oidc,
+                    authMode: .idToken,
+                    metadata: [
+                        "iss": issuer,
+                        "aud": audience,
+                        "exp": String(expiresAt)
+                    ],
+                    handle: OidcIdToken.handleHash(idToken)
+                )
+            )
+
+            verifier = response.verifier
+            challenge = response.challenge
+
+            let auth = try await confirmOidcIdTokenSignIn(idToken: idToken)
+            return try await completeWalletAuth(
+                auth,
+                walletType: walletType,
+                walletSelection: walletSelection
+            )
+        } catch let error as CancellationError {
+            throw error
+        } catch {
+            try? signOut()
+            throw error
+        }
+    }
+
+    /// Signs in with an OIDC ID token.
+    @discardableResult
+    public func signInWithOidcToken(
+        idToken: String,
+        issuer: String,
+        audience: String,
+        walletType: WalletType = WalletType.ethereum,
+        walletSelection: WalletSelectionBehavior = .automatic
+    ) async throws -> CompleteAuthResult {
+        try await signInWithOidcIdToken(
+            idToken: idToken,
+            issuer: issuer,
+            audience: audience,
+            walletType: walletType,
+            walletSelection: walletSelection
+        )
+    }
+
     /// Starts OIDC authorization-code PKCE redirect authentication.
     ///
     /// Open the returned `authorizationUrl` in a browser or `ASWebAuthenticationSession`.
@@ -379,6 +444,18 @@ public class WalletClient {
             authMode: AuthMode.otp,
             verifier: verifier,
             answer: answer,
+            lifetime: Self.defaultSessionLifetimeSeconds
+        )
+
+        return try await signedClient.completeAuth(params)
+    }
+
+    private func confirmOidcIdTokenSignIn(idToken: String) async throws -> CompleteAuthResponse {
+        let params = CompleteAuthRequest(
+            identityType: IdentityType.oidc,
+            authMode: AuthMode.idToken,
+            verifier: verifier,
+            answer: idToken,
             lifetime: Self.defaultSessionLifetimeSeconds
         )
 

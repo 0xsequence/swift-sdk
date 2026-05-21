@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Testing
 @testable import OMS_SDK
 
@@ -22,6 +23,39 @@ import Testing
     )
 
     #expect(answer == expected)
+}
+
+@Test func TestOidcIdTokenPayloadHelpersMatchParityVector() throws {
+    let idToken = try fakeOidcIdToken(exp: 1_910_000_100)
+
+    #expect(try OidcIdToken.expiresAtEpochSeconds(idToken) == 1_910_000_100)
+    #expect(OidcIdToken.handleHash(idToken) == expectedOidcHandleHash(idToken))
+}
+
+@Test func TestOidcIdTokenRequiresExpirationClaim() throws {
+    let idToken = try fakeOidcIdToken(payload: ["sub": "oidc-sub-123"])
+
+    do {
+        _ = try OidcIdToken.expiresAtEpochSeconds(idToken)
+        #expect(Bool(false))
+    } catch let error as OidcIdTokenError {
+        #expect(error == .missingExpiration)
+    } catch {
+        #expect(Bool(false))
+    }
+}
+
+@Test func TestOidcIdTokenRejectsOutOfRangeNumericExpirationClaim() throws {
+    let idToken = try fakeOidcIdToken(payload: ["exp": 1e100])
+
+    do {
+        _ = try OidcIdToken.expiresAtEpochSeconds(idToken)
+        #expect(Bool(false))
+    } catch let error as OidcIdTokenError {
+        #expect(error == .invalidExpiration)
+    } catch {
+        #expect(Bool(false))
+    }
 }
 
 @Test func TestWalletRequestPreimageIncludesScope() async throws {
@@ -177,4 +211,40 @@ import Testing
     } catch {
         #expect(Bool(false))
     }
+}
+
+func fakeOidcIdToken(exp: Int64 = 1_910_000_100) throws -> String {
+    try fakeOidcIdToken(payload: [
+        "iss": "https://accounts.google.com",
+        "aud": "demo-web-client-id",
+        "sub": "google-sub-123",
+        "email": "user@example.com",
+        "exp": exp
+    ])
+}
+
+func fakeOidcIdToken(payload: [String: Any]) throws -> String {
+    let header = try base64UrlEncodeJSONObject([
+        "alg": "none",
+        "typ": "JWT"
+    ])
+    let body = try base64UrlEncodeJSONObject(payload)
+    return [header, body, "test-signature"].joined(separator: ".")
+}
+
+func expectedOidcHandleHash(_ idToken: String) -> String {
+    let digest = SHA256.hash(data: Data(idToken.utf8))
+    return base64UrlEncode(Data(digest))
+}
+
+private func base64UrlEncodeJSONObject(_ object: [String: Any]) throws -> String {
+    let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    return base64UrlEncode(data)
+}
+
+private func base64UrlEncode(_ data: Data) -> String {
+    data.base64EncodedString()
+        .replacingOccurrences(of: "+", with: "-")
+        .replacingOccurrences(of: "/", with: "_")
+        .replacingOccurrences(of: "=", with: "")
 }
