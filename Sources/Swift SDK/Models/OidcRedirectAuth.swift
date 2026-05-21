@@ -252,7 +252,9 @@ enum OidcRedirectAuth {
         let query = callbackUrl
             .substring(after: "?")
             .substring(before: "#")
-        let params = parseQuery(query)
+        let fragment = callbackUrl.substring(after: "#")
+        let params = parseQuery(query).merging(parseQuery(fragment)) { queryValue, _ in queryValue }
+
         return OidcCallbackParams(
             code: params["code"],
             state: params["state"],

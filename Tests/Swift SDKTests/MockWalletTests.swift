@@ -483,6 +483,58 @@ import Testing
     #expect(storedCredentials?.sessionEmail == "user@example.com")
 }
 
+@Test func TestWalletHandleOidcRedirectCallbackCompletesAuthFromFragmentResponseMode() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    let selectedWallet = testWallet(id: "wallet-fragment", address: "0xfragment")
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasWalletAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            identity: Identity(type: .oidc, iss: "https://issuer.example", sub: "oidc-sub-123"),
+            wallets: [selectedWallet]
+        ),
+        for: WaasWalletAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: selectedWallet),
+        for: WaasWalletAPI.UseWallet.urlPath
+    )
+    let started = try await fixture.client.startOidcRedirectAuth(
+        provider: OidcProviderConfig(
+            issuer: "https://issuer.example",
+            clientId: "client-123",
+            authorizationUrl: "https://issuer.example/oauth/authorize"
+        ),
+        redirectUri: "omssdkdemo://auth/callback",
+        authorizeParams: ["response_mode": "fragment"]
+    )
+
+    #expect(queryParams(started.authorizationUrl)["response_mode"] == "fragment")
+    let result = try await fixture.client.handleOidcRedirectCallback(
+        "omssdkdemo://auth/callback#code=fragment-code&state=\(started.state)&scope=openid"
+    )
+    guard case .completed(let wallet) = result else {
+        #expect(Bool(false))
+        return
+    }
+    let completeAuthRequest = try fixture.transport.decodedRequest(
+        CompleteAuthRequest.self,
+        for: WaasWalletAPI.CompleteAuth.urlPath
+    )
+
+    #expect(completeAuthRequest.answer == "fragment-code")
+    #expect(wallet.id == selectedWallet.id)
+    #expect(fixture.client.walletId == selectedWallet.id)
+    #expect(fixture.client.canResumeOidcRedirectAuth == false)
+    #expect(fixture.oidcRedirectAuthStore.pending == nil)
+}
+
 @Test func TestWalletHandleOidcRedirectCallbackCanReturnPendingWalletSelectionWithoutActivatingWallet() async throws {
     let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
     let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
