@@ -14,6 +14,7 @@
   - [OMSClientEnvironment](#omsclientenvironment)
   - [FeeOptionSelector](#feeoptionselector)
   - [TransactionError](#transactionerror)
+  - [TransactionResult](#transactionresult)
   - [UnitConversionError](#unitconversionerror)
   - [SendTransactionRequest](#sendtransactionrequest)
   - [TokenBalancesResult](#tokenbalancesresult)
@@ -356,18 +357,19 @@ func sendTransaction(
     to: String,
     value: String,
     feeOptionSelector: FeeOptionSelector? = nil
-) async throws -> String
+) async throws -> TransactionResult
 ```
 
 Sends a native token transfer.
 
 ```swift
 let value = try parseUnits(value: "1", decimals: 18)
-let txHash = try await oms.wallet.sendTransaction(
+let txResult = try await oms.wallet.sendTransaction(
     network: .polygon,
     to: "0xRecipient",
     value: value
 )
+print(txResult.txnHash)
 ```
 
 Full-parameter overload:
@@ -377,7 +379,7 @@ func sendTransaction(
     network: Network,
     request: SendTransactionRequest,
     feeOptionSelector: FeeOptionSelector? = nil
-) async throws -> String
+) async throws -> TransactionResult
 ```
 
 ### callContract
@@ -389,7 +391,7 @@ func callContract(
     method: String,
     args: [AbiArg]?,
     feeOptionSelector: FeeOptionSelector? = nil
-) async throws -> String
+) async throws -> TransactionResult
 ```
 
 Calls a state-changing smart contract function.
@@ -716,6 +718,19 @@ enum TransactionError: Error {
 Transaction-flow errors surfaced by `sendTransaction` and `callContract`.
 `noFeeOptionsAvailable` is retained for selector code that wants to reject an
 empty fee-option list explicitly.
+
+### TransactionResult
+
+```swift
+struct TransactionResult {
+    let txnId: String
+    let status: TransactionStatus
+    let txnHash: String
+}
+```
+
+Returned by `sendTransaction` and `callContract` after the transaction reaches
+`executed` and a transaction hash is available.
 
 ### UnitConversionError
 

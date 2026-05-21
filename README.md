@@ -36,11 +36,12 @@ print("Wallet address:", wallet.address)
 print("Session email:", oms.wallet.session.sessionEmail ?? "unknown")
 
 let value = try parseUnits(value: "1", decimals: 18)
-let txHash = try await oms.wallet.sendTransaction(
+let txResult = try await oms.wallet.sendTransaction(
     network: .polygon,
     to: "0xRecipient",
     value: value
 )
+print("Transaction hash:", txResult.txnHash)
 ```
 
 ## Overview
@@ -212,18 +213,21 @@ transaction is sponsored.
 
 ```swift
 let value = try parseUnits(value: "1", decimals: 18)
-let txHash = try await oms.wallet.sendTransaction(
+let txResult = try await oms.wallet.sendTransaction(
     network: .polygon,
     to: "0xRecipient",
     value: value
 )
+print("Transaction ID:", txResult.txnId)
+print("Transaction status:", txResult.status)
+print("Transaction hash:", txResult.txnHash)
 ```
 
 Provide a custom selector to choose from the returned fee options:
 
 ```swift
 let value = try parseUnits(value: "1", decimals: 18)
-let txHash = try await oms.wallet.sendTransaction(
+let txResult = try await oms.wallet.sendTransaction(
     network: .polygon,
     to: "0xRecipient",
     value: value,
@@ -340,7 +344,7 @@ let isValid = try await oms.wallet.isValidTypedDataSignature(
 
 ```swift
 let value = try parseUnits(value: "1", decimals: 18)
-let txHash = try await oms.wallet.sendTransaction(
+let txResult = try await oms.wallet.sendTransaction(
     network: .polygon,
     request: SendTransactionRequest(
         to: "0xRecipient",
@@ -354,7 +358,7 @@ let txHash = try await oms.wallet.sendTransaction(
 
 ```swift
 let amount = try parseUnits(value: "1", decimals: 18)
-let txHash = try await oms.wallet.callContract(
+let txResult = try await oms.wallet.callContract(
     network: .polygon,
     contract: "0xTokenContract",
     method: "transfer(address,uint256)",
@@ -370,12 +374,12 @@ let txHash = try await oms.wallet.callContract(
 ```swift
 let value = try parseUnits(value: "1", decimals: 18)
 do {
-    let txHash = try await oms.wallet.sendTransaction(
+    let txResult = try await oms.wallet.sendTransaction(
         network: .polygon,
         to: "0xRecipient",
         value: value
     )
-    print("Sent:", txHash)
+    print("Sent:", txResult.txnHash)
 } catch TransactionError.pollingTimedOut {
     print("Transaction did not confirm in time")
 } catch TransactionError.transactionFailed(let status) {

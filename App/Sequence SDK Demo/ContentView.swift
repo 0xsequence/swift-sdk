@@ -1148,7 +1148,7 @@ struct SendTransactionWindow: View {
                                 try await vm.selectFeeOption(options)
                             }
                         )
-                        result = txResult
+                        result = formatTransactionResult(txResult)
                     } catch {
                         self.error = GenericAppError(error)
                     }
@@ -1161,7 +1161,7 @@ struct SendTransactionWindow: View {
             .disabled(amountText.isEmpty || toText.isEmpty || isSending)
 
             if !result.isEmpty {
-                ResultPanel(title: "Transaction hash", text: result)
+                ResultPanel(title: "Transaction result", text: result)
             }
         }
         .genericErrorWindow(error: $error)
@@ -1317,7 +1317,7 @@ struct CallContractWindow: View {
                                 try await vm.selectFeeOption(options)
                             }
                         )
-                        result = txResult
+                        result = formatTransactionResult(txResult)
                         onCompleted?()
                     } catch {
                         self.error = GenericAppError(error)
@@ -1331,7 +1331,7 @@ struct CallContractWindow: View {
             .disabled(contractText.isEmpty || methodText.isEmpty || isSending)
 
             if !result.isEmpty {
-                ResultPanel(title: "Transaction hash", text: result)
+                ResultPanel(title: "Transaction result", text: result)
             }
         }
         .genericErrorWindow(error: $error)
@@ -1589,6 +1589,14 @@ private func normalizedUnsignedInteger(_ value: String?) -> String? {
 
     let stripped = trimmed.drop(while: { $0 == "0" })
     return stripped.isEmpty ? "0" : String(stripped)
+}
+
+private func formatTransactionResult(_ result: TransactionResult) -> String {
+    """
+    txnId: \(result.txnId)
+    status: \(result.status.wireValue)
+    txnHash: \(result.txnHash)
+    """
 }
 
 // MARK: - Helpers

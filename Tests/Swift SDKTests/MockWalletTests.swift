@@ -850,7 +850,7 @@ import Testing
         for: WaasWalletAPI.TransactionStatus.urlPath
     )
 
-    let txHash = try await fixture.client.sendTransaction(
+    let txResult = try await fixture.client.sendTransaction(
         network: .polygonAmoy,
         to: "0xabc",
         value: "0"
@@ -860,7 +860,9 @@ import Testing
         for: WaasWalletAPI.Execute.urlPath
     )
 
-    #expect(txHash == "0xdeadbeef")
+    #expect(txResult.txnId == "txn-1")
+    #expect(txResult.status == .executed)
+    #expect(txResult.txnHash == "0xdeadbeef")
     #expect(executeRequest.feeOption?.token == "POL")
     #expect(fixture.indexerClient.nativeBalanceRequestCount == 0)
     #expect(fixture.indexerClient.tokenBalanceContractAddresses.isEmpty)
@@ -917,7 +919,7 @@ import Testing
         for: WaasWalletAPI.TransactionStatus.urlPath
     )
 
-    let txHash = try await fixture.client.sendTransaction(
+    let txResult = try await fixture.client.sendTransaction(
         network: .polygonAmoy,
         request: SendTransactionRequest(to: "0xabc", value: "0"),
         feeOptionSelector: .custom { feeOptions in
@@ -940,7 +942,9 @@ import Testing
         for: WaasWalletAPI.Execute.urlPath
     )
 
-    #expect(txHash == "0xdeadbeef")
+    #expect(txResult.txnId == "txn-1")
+    #expect(txResult.status == .executed)
+    #expect(txResult.txnHash == "0xdeadbeef")
     #expect(executeRequest.feeOption?.token == "usdc")
     #expect(fixture.indexerClient.nativeBalanceRequestCount == 1)
     #expect(fixture.indexerClient.tokenBalanceContractAddresses == ["0xusdc"])
@@ -970,7 +974,7 @@ import Testing
         for: WaasWalletAPI.TransactionStatus.urlPath
     )
 
-    let txHash = try await fixture.client.sendTransaction(
+    let txResult = try await fixture.client.sendTransaction(
         network: .polygonAmoy,
         request: SendTransactionRequest(to: "0xabc", value: "0"),
         feeOptionSelector: .custom { feeOptions in
@@ -983,10 +987,54 @@ import Testing
         for: WaasWalletAPI.Execute.urlPath
     )
 
-    #expect(txHash == "0xdeadbeef")
+    #expect(txResult.txnId == "txn-1")
+    #expect(txResult.status == .executed)
+    #expect(txResult.txnHash == "0xdeadbeef")
     #expect(executeRequest.feeOption == nil)
     #expect(fixture.indexerClient.nativeBalanceRequestCount == 0)
     #expect(fixture.indexerClient.tokenBalanceContractAddresses.isEmpty)
+}
+
+@Test func TestWalletCallContractReturnsTransactionResult() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-contract-1",
+            status: .quoted,
+            feeOptions: testFeeOptions(),
+            sponsored: false,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasWalletAPI.PrepareEthereumContractCall.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .executed),
+        for: WaasWalletAPI.Execute.urlPath
+    )
+    try fixture.transport.enqueue(
+        TransactionStatusResponse(status: .executed, txnHash: "0xcontractdeadbeef"),
+        for: WaasWalletAPI.TransactionStatus.urlPath
+    )
+
+    let txResult = try await fixture.client.callContract(
+        network: .polygonAmoy,
+        contract: "0xcontract",
+        method: "mint(address)",
+        args: [AbiArg(type: "address", value: .string("0xrecipient"))]
+    )
+    let executeRequest = try fixture.transport.decodedRequest(
+        ExecuteRequest.self,
+        for: WaasWalletAPI.Execute.urlPath
+    )
+
+    #expect(txResult.txnId == "txn-contract-1")
+    #expect(txResult.status == .executed)
+    #expect(txResult.txnHash == "0xcontractdeadbeef")
+    #expect(executeRequest.txnId == "txn-contract-1")
+    #expect(executeRequest.feeOption?.token == "POL")
 }
 
 @Test func TestWalletSendTransactionUnsponsoredWithoutFeeOptionsThrows() async throws {

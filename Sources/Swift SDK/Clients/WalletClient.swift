@@ -854,7 +854,7 @@ public class WalletClient {
         to: String,
         value: String,
         feeOptionSelector: FeeOptionSelector? = nil
-    ) async throws -> String {
+    ) async throws -> TransactionResult {
         let walletId = try requireActiveWalletId()
         let walletAddress = try activeWalletAddressIfNeeded(for: feeOptionSelector)
         return try await sendTransaction(
@@ -874,7 +874,7 @@ public class WalletClient {
         network: Network,
         request: SendTransactionRequest,
         feeOptionSelector: FeeOptionSelector? = nil
-    ) async throws -> String {
+    ) async throws -> TransactionResult {
         let walletId = try requireActiveWalletId()
         let walletAddress = try activeWalletAddressIfNeeded(for: feeOptionSelector)
         return try await sendTransaction(
@@ -892,7 +892,7 @@ public class WalletClient {
         feeOptionSelector: FeeOptionSelector?,
         walletId: String,
         walletAddress: String?
-    ) async throws -> String {
+    ) async throws -> TransactionResult {
         let prepareResponse = try await signedClient.prepareEthereumTransaction(
             PrepareEthereumTransactionRequest(
                 network: network.chainId,
@@ -918,7 +918,7 @@ public class WalletClient {
         method: String,
         args: [AbiArg]?,
         feeOptionSelector: FeeOptionSelector? = nil
-    ) async throws -> String {
+    ) async throws -> TransactionResult {
         let walletId = try requireActiveWalletId()
         let walletAddress = try activeWalletAddressIfNeeded(for: feeOptionSelector)
         let prepareResponse = try await signedClient.prepareEthereumContractCall(
@@ -955,7 +955,7 @@ public class WalletClient {
         prepareResponse: PrepareResponse,
         feeOptionSelector: FeeOptionSelector?,
         walletAddress: String?
-    ) async throws -> String {
+    ) async throws -> TransactionResult {
         let feeOptionSelection = try await selectFeeOption(
             network: network,
             prepareResponse: prepareResponse,
@@ -971,7 +971,7 @@ public class WalletClient {
         let executeResponse = try await signedClient.execute(executeRequest)
         var status = executeResponse.status
         if status == .executed {
-            return try await getExecutedTransactionHash(txnId: prepareResponse.txnId)
+            return try await getExecutedTransactionResult(txnId: prepareResponse.txnId)
         }
 
         let pollIntervalNanos: UInt64 = 750_000_000
@@ -989,7 +989,12 @@ public class WalletClient {
             status = statusResponse.status
 
             if status == .executed {
-                return try requireTransactionHash(from: statusResponse)
+                let txnHash = try requireTransactionHash(from: statusResponse)
+                return TransactionResult(
+                    txnId: prepareResponse.txnId,
+                    status: statusResponse.status,
+                    txnHash: txnHash
+                )
             }
         }
 
@@ -1119,14 +1124,19 @@ public class WalletClient {
         }
     }
 
-    private func getExecutedTransactionHash(txnId: String) async throws -> String {
+    private func getExecutedTransactionResult(txnId: String) async throws -> TransactionResult {
         let statusResponse = try await getTransactionStatus(txnId: txnId)
 
         guard statusResponse.status == .executed else {
             throw TransactionError.transactionFailed(status: statusResponse.status)
         }
 
-        return try requireTransactionHash(from: statusResponse)
+        let txnHash = try requireTransactionHash(from: statusResponse)
+        return TransactionResult(
+            txnId: txnId,
+            status: statusResponse.status,
+            txnHash: txnHash
+        )
     }
 
     private func requireTransactionHash(from statusResponse: TransactionStatusResponse) throws -> String {
