@@ -40,8 +40,6 @@ private func errorMessage(for error: Error) -> String {
         switch error {
         case .noFeeOptionsAvailable:
             return "No fee options are available for this transaction."
-        case .noFeeOptionSelected:
-            return "Select a fee option to continue."
         case .missingTransactionHash:
             return "The transaction was submitted, but no transaction hash was returned."
         case .transactionFailed(let status):
