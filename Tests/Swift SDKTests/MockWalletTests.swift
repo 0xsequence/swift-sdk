@@ -732,6 +732,100 @@ import Testing
     #expect(fixture.oidcRedirectAuthStore.pending == nil)
 }
 
+@Test func TestWalletPublicMethodsRequireActiveWalletBeforeUsingWalletState() async throws {
+    let fixture = makeMockWalletClient()
+
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.listAccess()
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.getIdToken()
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.revokeAccess(targetCredentialId: "credential-1")
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.signMessage(network: .polygonAmoy, message: "hello")
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.signTypedData(network: .polygonAmoy, typedData: .object([:]))
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.isValidMessageSignature(
+            network: .polygonAmoy,
+            walletAddress: "0xwallet",
+            message: "hello",
+            signature: "0xsig"
+        )
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.isValidTypedDataSignature(
+            network: .polygonAmoy,
+            walletAddress: "0xwallet",
+            typedData: .object([:]),
+            signature: "0xsig"
+        )
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.sendTransaction(
+            network: .polygonAmoy,
+            to: "0xabc",
+            value: "0"
+        )
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.sendTransaction(
+            network: .polygonAmoy,
+            request: SendTransactionRequest(to: "0xabc", value: "0")
+        )
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.callContract(
+            network: .polygonAmoy,
+            contract: "0xcontract",
+            method: "mint(address)",
+            args: nil
+        )
+    }
+
+    let blockedPaths = [
+        WaasWalletAPI.ListAccess.urlPath,
+        WaasWalletAPI.GetIDToken.urlPath,
+        WaasWalletAPI.RevokeAccess.urlPath,
+        WaasWalletAPI.SignMessage.urlPath,
+        WaasWalletAPI.SignTypedData.urlPath,
+        WaasWalletPublicAPI.IsValidMessageSignature.urlPath,
+        WaasWalletPublicAPI.IsValidTypedDataSignature.urlPath,
+        WaasWalletAPI.PrepareEthereumTransaction.urlPath,
+        WaasWalletAPI.PrepareEthereumContractCall.urlPath
+    ]
+    for path in blockedPaths {
+        #expect(fixture.transport.requestCount(for: path) == 0)
+    }
+
+    let walletIdOnlyFixture = makeMockWalletClient()
+    walletIdOnlyFixture.client.walletId = "wallet-main"
+    await expectNoAuthenticatedWalletSession {
+        try await walletIdOnlyFixture.client.sendTransaction(
+            network: .polygonAmoy,
+            to: "0xabc",
+            value: "0",
+            feeOptionSelector: .first
+        )
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await walletIdOnlyFixture.client.callContract(
+            network: .polygonAmoy,
+            contract: "0xcontract",
+            method: "mint(address)",
+            args: nil,
+            feeOptionSelector: .first
+        )
+    }
+    #expect(walletIdOnlyFixture.transport.requestCount(for: WaasWalletAPI.PrepareEthereumTransaction.urlPath) == 0)
+    #expect(walletIdOnlyFixture.transport.requestCount(for: WaasWalletAPI.PrepareEthereumContractCall.urlPath) == 0)
+}
+
 @Test func TestWalletSendTransactionDefaultSelectsFirstFeeOptionBySymbolWithoutBalanceLookup() async throws {
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"
@@ -857,6 +951,19 @@ private let testCredential = CredentialInfo(
     expiresAt: "2026-01-01T00:00:00Z",
     isCaller: true
 )
+
+private func expectNoAuthenticatedWalletSession<T>(
+    _ operation: () async throws -> T
+) async {
+    do {
+        _ = try await operation()
+        #expect(Bool(false), "Expected no authenticated wallet session error")
+    } catch let error as WalletAuthError {
+        #expect(error == .noAuthenticatedWalletSession)
+    } catch {
+        #expect(Bool(false), "Expected WalletAuthError.noAuthenticatedWalletSession")
+    }
+}
 
 private struct MockWalletClientFixture {
     let client: WalletClient

@@ -1,4 +1,3 @@
-/// App-facing identity details returned by wallet authentication.
 public final class OMSClientIdentity: Sendable {
     private static let googleIssuer = "https://accounts.google.com"
 
@@ -18,7 +17,6 @@ public final class OMSClientIdentity: Sendable {
         self.subject = identity.sub
     }
 
-    /// Auth method represented by this identity when it can produce a completed wallet session.
     public var sessionLoginType: SessionLoginType? {
         switch type {
         case .email:

@@ -642,6 +642,29 @@ public class WalletClient {
         }
     }
 
+    private func requireActiveWalletId() throws -> String {
+        let walletId = walletId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !walletId.isEmpty else {
+            throw WalletAuthError.noAuthenticatedWalletSession
+        }
+        return walletId
+    }
+
+    private func requireActiveWalletAddress() throws -> String {
+        let walletAddress = walletAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !walletAddress.isEmpty else {
+            throw WalletAuthError.noAuthenticatedWalletSession
+        }
+        return walletAddress
+    }
+
+    private func activeWalletAddressIfNeeded(for feeOptionSelector: FeeOptionSelector?) throws -> String? {
+        guard feeOptionSelector != nil else {
+            return nil
+        }
+        return try requireActiveWalletAddress()
+    }
+
     private func requireActiveCredential() throws {
         guard try credentialSession.signer.hasCredential() else {
             throw WalletAuthError.noActiveCredential
@@ -717,8 +740,9 @@ public class WalletClient {
     /// - Returns: An array of `CredentialInfo` values representing each credential
     ///   with access to this wallet.
     public func listAccess() async throws -> [CredentialInfo] {
+        let walletId = try requireActiveWalletId()
         let params = ListAccessRequest(
-            walletId: self.walletId
+            walletId: walletId
         )
 
         let response = try await signedClient.listAccess(params)
@@ -726,8 +750,9 @@ public class WalletClient {
     }
     
     public func getIdToken(ttlSeconds: UInt32? = nil, customClaims: [String: WebRPCJSONValue]? = nil) async throws -> String {
+        let walletId = try requireActiveWalletId()
         let params = GetIDTokenRequest(
-            walletId: self.walletId,
+            walletId: walletId,
             ttlSeconds: ttlSeconds,
             customClaims: customClaims
         )
@@ -745,9 +770,10 @@ public class WalletClient {
     ///
     /// - Parameter targetCredentialId: The unique identifier of the credential to revoke.
     public func revokeAccess(targetCredentialId: String) async throws {
+        let walletId = try requireActiveWalletId()
         let params = RevokeAccessRequest(
             targetCredentialId: targetCredentialId,
-            walletId: self.walletId
+            walletId: walletId
         )
 
         _ = try await signedClient.revokeAccess(params)
@@ -760,9 +786,10 @@ public class WalletClient {
     ///   - message: The plaintext message to sign.
     /// - Returns: A hex-encoded signature string.
     public func signMessage(network: Network, message: String) async throws -> String {
+        let walletId = try requireActiveWalletId()
         let params = SignMessageRequest(
             network: network.chainId,
-            walletId: self.walletId,
+            walletId: walletId,
             message: message
         )
 
@@ -771,9 +798,10 @@ public class WalletClient {
     }
 
     public func signTypedData(network: Network, typedData: WebRPCJSONValue) async throws -> String {
+        let walletId = try requireActiveWalletId()
         let params = SignTypedDataRequest(
             network: network.chainId,
-            walletId: self.walletId,
+            walletId: walletId,
             typedData: typedData
         )
 
@@ -787,11 +815,12 @@ public class WalletClient {
         message: String,
         signature: String
     ) async throws -> Bool {
+        let walletId = try requireActiveWalletId()
         let response = try await publicClient.isValidMessageSignature(
             IsValidMessageSignatureRequest(
                 network: network.chainId,
                 walletAddress: walletAddress,
-                walletId: self.walletId,
+                walletId: walletId,
                 message: message,
                 signature: signature
             )
@@ -806,11 +835,12 @@ public class WalletClient {
         typedData: WebRPCJSONValue,
         signature: String
     ) async throws -> Bool {
+        let walletId = try requireActiveWalletId()
         let response = try await publicClient.isValidTypedDataSignature(
             IsValidTypedDataSignatureRequest(
                 network: network.chainId,
                 walletAddress: walletAddress,
-                walletId: self.walletId,
+                walletId: walletId,
                 typedData: typedData,
                 signature: signature
             )
@@ -825,11 +855,19 @@ public class WalletClient {
         value: String,
         feeOptionSelector: FeeOptionSelector? = nil
     ) async throws -> String {
-        return try await self.sendTransaction(network: network, request: SendTransactionRequest(
-            to: to,
-            value: value,
-            data: nil
-        ), feeOptionSelector: feeOptionSelector)
+        let walletId = try requireActiveWalletId()
+        let walletAddress = try activeWalletAddressIfNeeded(for: feeOptionSelector)
+        return try await sendTransaction(
+            network: network,
+            request: SendTransactionRequest(
+                to: to,
+                value: value,
+                data: nil
+            ),
+            feeOptionSelector: feeOptionSelector,
+            walletId: walletId,
+            walletAddress: walletAddress
+        )
     }
 
     public func sendTransaction(
@@ -837,10 +875,28 @@ public class WalletClient {
         request: SendTransactionRequest,
         feeOptionSelector: FeeOptionSelector? = nil
     ) async throws -> String {
+        let walletId = try requireActiveWalletId()
+        let walletAddress = try activeWalletAddressIfNeeded(for: feeOptionSelector)
+        return try await sendTransaction(
+            network: network,
+            request: request,
+            feeOptionSelector: feeOptionSelector,
+            walletId: walletId,
+            walletAddress: walletAddress
+        )
+    }
+
+    private func sendTransaction(
+        network: Network,
+        request: SendTransactionRequest,
+        feeOptionSelector: FeeOptionSelector?,
+        walletId: String,
+        walletAddress: String?
+    ) async throws -> String {
         let prepareResponse = try await signedClient.prepareEthereumTransaction(
             PrepareEthereumTransactionRequest(
                 network: network.chainId,
-                walletId: self.walletId,
+                walletId: walletId,
                 to: request.to,
                 value: request.value,
                 data: request.data,
@@ -851,7 +907,8 @@ public class WalletClient {
         return try await self.execute(
             network: network,
             prepareResponse: prepareResponse,
-            feeOptionSelector: feeOptionSelector
+            feeOptionSelector: feeOptionSelector,
+            walletAddress: walletAddress
         );
     }
 
@@ -862,10 +919,12 @@ public class WalletClient {
         args: [AbiArg]?,
         feeOptionSelector: FeeOptionSelector? = nil
     ) async throws -> String {
+        let walletId = try requireActiveWalletId()
+        let walletAddress = try activeWalletAddressIfNeeded(for: feeOptionSelector)
         let prepareResponse = try await signedClient.prepareEthereumContractCall(
             PrepareEthereumContractCallRequest(
                 network: network.chainId,
-                walletId: self.walletId,
+                walletId: walletId,
                 contract: contract,
                 method: method,
                 args: args,
@@ -876,7 +935,8 @@ public class WalletClient {
         return try await self.execute(
             network: network,
             prepareResponse: prepareResponse,
-            feeOptionSelector: feeOptionSelector
+            feeOptionSelector: feeOptionSelector,
+            walletAddress: walletAddress
         );
     }
 
@@ -893,12 +953,14 @@ public class WalletClient {
     private func execute(
         network: Network,
         prepareResponse: PrepareResponse,
-        feeOptionSelector: FeeOptionSelector?
+        feeOptionSelector: FeeOptionSelector?,
+        walletAddress: String?
     ) async throws -> String {
         let feeOptionSelection = try await selectFeeOption(
             network: network,
             prepareResponse: prepareResponse,
-            feeOptionSelector: feeOptionSelector
+            feeOptionSelector: feeOptionSelector,
+            walletAddress: walletAddress
         )
 
         let executeRequest = ExecuteRequest(
@@ -938,7 +1000,8 @@ public class WalletClient {
     private func selectFeeOption(
         network: Network,
         prepareResponse: PrepareResponse,
-        feeOptionSelector: FeeOptionSelector?
+        feeOptionSelector: FeeOptionSelector?,
+        walletAddress: String?
     ) async throws -> FeeOptionSelection? {
         guard !prepareResponse.feeOptions.isEmpty else {
             return nil
@@ -946,6 +1009,10 @@ public class WalletClient {
 
         guard let feeOptionSelector else {
             return prepareResponse.feeOptions.defaultSelection(sponsored: prepareResponse.sponsored)
+        }
+
+        guard let walletAddress else {
+            throw WalletAuthError.noAuthenticatedWalletSession
         }
 
         return try await feeOptionSelector(
