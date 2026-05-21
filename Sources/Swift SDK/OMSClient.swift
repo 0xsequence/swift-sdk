@@ -20,15 +20,11 @@ public class OMSClient {
         Network.supportedNetworks
     }
 
-    public func network(chainId: String) -> Network? {
-        Network.from(chainId: chainId)
-    }
-
     public func network(chainId: Int) -> Network? {
-        Network.from(chainId: chainId)
+        Network.findNetworkById(chainId)
     }
 
     public func network(name: String) -> Network? {
-        Network.from(name: name)
+        Network.findNetworkByName(name)
     }
 }

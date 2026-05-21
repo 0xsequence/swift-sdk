@@ -22,13 +22,7 @@ import Testing
         .katana,
     ])
 
-    #expect(Network.from(chainId: "1") == .mainnet)
-    #expect(Network.from(chainId: "137") == .polygon)
-    #expect(Network.from(chainId: "80002") == .polygonAmoy)
-    #expect(Network.from(chainId: "421614") == .arbitrumSepolia)
-    #expect(Network.from(chainId: "999999") == nil)
-    #expect(Network.from(chainId: 8453) == .base)
-    #expect(Network.from(name: " amoy ") == .polygonAmoy)
+    #expect(Network.findNetworkById(8453) == .base)
     #expect(Network.findNetworkById(747474) == .katana)
     #expect(Network.findNetworkByName("optimism-sepolia") == .optimismSepolia)
     #expect(Network(rawValue: "arbitrum-sepolia") == .arbitrumSepolia)
