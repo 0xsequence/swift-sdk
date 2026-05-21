@@ -37,7 +37,7 @@ import Testing
     let preimage = RequestUtils.buildWalletRequestPreimage(
         endpoint: "/CommitVerifier",
         nonce: "1234567890",
-        scope: OMSClientEnvironment.defaultScope,
+        scope: "proj_1",
         payload: payload
     )
 

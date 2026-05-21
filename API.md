@@ -29,19 +29,24 @@
 The top-level entry point for the SDK. Requires iOS 15+ or macOS 12+.
 
 ```swift
-let oms = OMSClient(projectAccessKey: "your-key")
+let oms = OMSClient(projectAccessKey: "your-key", projectId: "your-project-id")
 ```
 
 ### init
 
 ```swift
-init(projectAccessKey: String, environment: OMSClientEnvironment = OMSClientEnvironment())
+init(
+    projectAccessKey: String,
+    projectId: String,
+    environment: OMSClientEnvironment = OMSClientEnvironment()
+)
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | `projectAccessKey` | `String` | OMS project access key. |
-| `environment` | `OMSClientEnvironment` | API endpoint and authorization-scope configuration. |
+| `projectId` | `String` | OMS project ID. Used as the signed Wallet API request scope and keychain namespace. |
+| `environment` | `OMSClientEnvironment` | API endpoint configuration. |
 
 ### Properties
 
@@ -64,6 +69,18 @@ Returns the supported `Network` for a numeric chain ID, or `nil` when the chain 
 ## WalletClient
 
 Accessed via `oms.wallet`. Manages wallet authentication, non-extractable Keychain request signing, keychain session persistence, signing, signature verification, and transaction submission.
+
+### init
+
+```swift
+init(
+    projectAccessKey: String,
+    projectId: String,
+    environment: OMSClientEnvironment = OMSClientEnvironment()
+)
+```
+
+Most apps create a wallet client through `OMSClient`. Use this initializer only when constructing `WalletClient` directly.
 
 ### walletAddress
 
@@ -552,27 +569,23 @@ struct OMSClientEnvironment: Equatable, Sendable {
     static let defaultApiRpcUrl: String
     static let defaultIndexerUrlTemplate: String
     static let indexerURLTemplateDefault: String
-    static let defaultScope: String
 
     let walletApiUrl: String
     let apiRpcUrl: String
     let indexerUrlTemplate: String
-    let scope: String
 
     var indexerURLTemplate: String
 
     init(
         walletApiUrl: String = OMSClientEnvironment.defaultWalletApiUrl,
         apiRpcUrl: String = OMSClientEnvironment.defaultApiRpcUrl,
-        indexerUrlTemplate: String = OMSClientEnvironment.defaultIndexerUrlTemplate,
-        scope: String = OMSClientEnvironment.defaultScope
+        indexerUrlTemplate: String = OMSClientEnvironment.defaultIndexerUrlTemplate
     )
 
     init(
         walletApiUrl: String = OMSClientEnvironment.defaultWalletApiUrl,
         apiRpcUrl: String = OMSClientEnvironment.defaultApiRpcUrl,
-        indexerURLTemplate: String,
-        scope: String = OMSClientEnvironment.defaultScope
+        indexerURLTemplate: String
     )
 
     func indexerURL(for network: Network) -> URL?
@@ -584,7 +597,6 @@ struct OMSClientEnvironment: Equatable, Sendable {
 | `walletApiUrl` | `String` | Base URL of the OMS Wallet API. |
 | `apiRpcUrl` | `String` | Base URL of the OMS API RPC. |
 | `indexerUrlTemplate` | `String` | URL template for the Indexer. `{value}` is replaced with the network indexer name. |
-| `scope` | `String` | Authorization scope used for signed wallet requests. |
 
 ### FeeOptionSelector
 

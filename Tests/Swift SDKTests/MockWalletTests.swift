@@ -403,7 +403,7 @@ import Testing
     #expect(query["prompt"] == "select_account")
     #expect(query["audience"] == "wallet")
     #expect(decodedState["nonce"] as? String == "nonce-123")
-    #expect(decodedState["scope"] as? String == fixture.environment.scope)
+    #expect(decodedState["scope"] as? String == fixture.projectId)
     #expect(decodedState["redirect_uri"] as? String == "omssdkdemo://auth/callback")
     #expect(result.challenge == "pkce-challenge")
     #expect(fixture.oidcRedirectAuthStore.pending?.verifier == "oidc-verifier-123")
@@ -692,10 +692,13 @@ private struct MockWalletClientFixture {
     let signer: MockCredentialSigner
     let keychain: InMemoryKeychain
     let environment: OMSClientEnvironment
+    let projectId: String
     let oidcRedirectAuthStore: InMemoryOidcRedirectAuthStore
 
     func storedCredentials() throws -> StorableCredentials? {
-        guard let json = try keychain.string(forKey: Constants.credentialsStorageKey(environment: environment)) else {
+        guard let json = try keychain.string(
+            forKey: Constants.credentialsStorageKey(environment: environment, scope: projectId)
+        ) else {
             return nil
         }
         return try StorableCredentials.from(jsonString: json)
@@ -706,17 +709,18 @@ private func makeMockWalletClient(
     oidcNonceGenerator: @escaping () throws -> String = OidcRedirectAuth.generateNonce
 ) -> MockWalletClientFixture {
     let environment = OMSClientEnvironment(
-        walletApiUrl: "https://wallet.example.test",
-        scope: UUID().uuidString
+        walletApiUrl: "https://wallet.example.test"
     )
+    let projectId = "proj_\(UUID().uuidString)"
     let transport = MockWaasTransport()
     let keychain = InMemoryKeychain()
     let signer = MockCredentialSigner()
     let oidcRedirectAuthStore = InMemoryOidcRedirectAuthStore()
     let credentialSession = WalletCredentialSession(
         environment: environment,
+        projectId: projectId,
         keychain: keychain,
-        signerFactory: { _, _ in signer }
+        signerFactory: { _, _, _ in signer }
     )
     let signedClient = WaasWalletClient(
         baseURL: environment.walletApiUrl,
@@ -728,6 +732,7 @@ private func makeMockWalletClient(
     )
     let client = WalletClient(
         projectAccessKey: "test-access-key",
+        projectId: projectId,
         environment: environment,
         credentialSession: credentialSession,
         signedClient: signedClient,
@@ -744,6 +749,7 @@ private func makeMockWalletClient(
         signer: signer,
         keychain: keychain,
         environment: environment,
+        projectId: projectId,
         oidcRedirectAuthStore: oidcRedirectAuthStore
     )
 }

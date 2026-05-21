@@ -21,7 +21,10 @@ Or add it via Xcode: **File -> Add Package Dependencies**.
 ```swift
 import OMS_SDK
 
-let oms = OMSClient(projectAccessKey: "your-project-access-key")
+let oms = OMSClient(
+    projectAccessKey: "your-project-access-key",
+    projectId: "your-project-id"
+)
 
 try await oms.wallet.startEmailAuth(email: "user@example.com")
 let auth = try await oms.wallet.completeEmailAuth(code: "123456")
@@ -43,6 +46,8 @@ let txHash = try await oms.wallet.sendTransaction(
 ## Overview
 
 `OMSClient` is the root object for the SDK. Create a single instance at app startup and keep it alive for the session. It constructs the SDK sub-clients and restores any saved keychain session automatically.
+
+Pass both your project access key and project ID when creating the client. The SDK uses `projectId` as the signed Wallet API request scope and as part of the keychain namespace for persisted wallet sessions and OIDC redirect state.
 
 | Property | Type | Description |
 |---|---|---|
@@ -231,19 +236,22 @@ let txHash = try await oms.wallet.sendTransaction(
 let env = OMSClientEnvironment(
     walletApiUrl: "https://staging-wallet.example.com",
     apiRpcUrl: "https://staging-api.example.com/rpc/API",
-    indexerUrlTemplate: "https://staging-{value}-indexer.example.com/rpc/Indexer/",
-    scope: "proj_staging"
+    indexerUrlTemplate: "https://staging-{value}-indexer.example.com/rpc/Indexer/"
 )
 
-let oms = OMSClient(projectAccessKey: "your-key", environment: env)
+let oms = OMSClient(
+    projectAccessKey: "your-key",
+    projectId: "proj_staging",
+    environment: env
+)
 ```
 
-To keep the default endpoints and only change the signed-request scope:
+To keep the default endpoints and use a different project:
 
 ```swift
 let oms = OMSClient(
     projectAccessKey: "your-key",
-    environment: OMSClientEnvironment(scope: "proj_staging")
+    projectId: "proj_staging"
 )
 ```
 
