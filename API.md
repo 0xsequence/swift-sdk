@@ -14,7 +14,8 @@
   - [OMSClientEnvironment](#omsclientenvironment)
   - [FeeOptionSelector](#feeoptionselector)
   - [TransactionError](#transactionerror)
-  - [TransactionResult](#transactionresult)
+  - [SendTransactionResponse](#sendtransactionresponse)
+  - [TransactionMode](#transactionmode)
   - [UnitConversionError](#unitconversionerror)
   - [SendTransactionRequest](#sendtransactionrequest)
   - [TokenBalancesResult](#tokenbalancesresult)
@@ -64,7 +65,9 @@ func findNetworkById(chainId: Int) -> Network?
 func findNetworkByName(name: String) -> Network?
 ```
 
-Returns the supported `Network` for a numeric chain ID or canonical network name, or `nil` when the chain is not supported.
+Returns the supported `Network` for a numeric chain ID or network name, or `nil`
+when the chain is not supported. Names are trimmed and lowercased before lookup;
+`polygonamoy` is accepted as a legacy alias for `.polygonAmoy`.
 
 ---
 
@@ -356,8 +359,9 @@ func sendTransaction(
     network: Network,
     to: String,
     value: String,
-    feeOptionSelector: FeeOptionSelector? = nil
-) async throws -> TransactionResult
+    feeOptionSelector: FeeOptionSelector? = nil,
+    mode: TransactionMode = .relayer
+) async throws -> SendTransactionResponse
 ```
 
 Sends a native token transfer.
@@ -369,7 +373,7 @@ let txResult = try await oms.wallet.sendTransaction(
     to: "0xRecipient",
     value: value
 )
-print(txResult.txnHash)
+print(txResult.txnHash ?? "pending")
 ```
 
 Full-parameter overload:
@@ -379,7 +383,7 @@ func sendTransaction(
     network: Network,
     request: SendTransactionRequest,
     feeOptionSelector: FeeOptionSelector? = nil
-) async throws -> TransactionResult
+) async throws -> SendTransactionResponse
 ```
 
 ### callContract
@@ -390,8 +394,9 @@ func callContract(
     contract: String,
     method: String,
     args: [AbiArg]?,
-    feeOptionSelector: FeeOptionSelector? = nil
-) async throws -> TransactionResult
+    feeOptionSelector: FeeOptionSelector? = nil,
+    mode: TransactionMode = .relayer
+) async throws -> SendTransactionResponse
 ```
 
 Calls a state-changing smart contract function.
@@ -715,22 +720,37 @@ enum TransactionError: Error {
 }
 ```
 
-Transaction-flow errors surfaced by `sendTransaction` and `callContract`.
-`noFeeOptionsAvailable` is retained for selector code that wants to reject an
-empty fee-option list explicitly.
+Transaction-flow error cases. `noFeeOptionsAvailable` is used when an
+unsponsored transaction has no fee options. Terminal non-executed statuses throw
+`transactionFailed`. A normal pending polling timeout returns
+`SendTransactionResponse(status: .pending, txnHash: nil)` instead of throwing.
+`missingTransactionHash` and `pollingTimedOut` remain public compatibility cases.
 
-### TransactionResult
+### SendTransactionResponse
 
 ```swift
-struct TransactionResult {
+struct SendTransactionResponse {
     let txnId: String
     let status: TransactionStatus
-    let txnHash: String
+    let txnHash: String?
 }
 ```
 
-Returned by `sendTransaction` and `callContract` after the transaction reaches
-`executed` and a transaction hash is available.
+Returned by `sendTransaction` and `callContract`. `txnId` and `status` are always
+available; `txnHash` is present when the service has a chain transaction hash.
+`TransactionResult` remains available as a compatibility alias.
+
+### TransactionMode
+
+```swift
+enum TransactionMode {
+    case native
+    case relayer
+    case unknown(String)
+}
+```
+
+Used by transaction prepare requests. Public helpers default to `.relayer`.
 
 ### UnitConversionError
 
@@ -751,10 +771,12 @@ struct SendTransactionRequest {
     let to: String
     let value: String
     let data: String?
+    let mode: TransactionMode
 }
 ```
 
 Used with the full `sendTransaction(network:request:feeOptionSelector:)` overload.
+`mode` defaults to `.relayer`.
 
 ### TokenBalancesResult
 

@@ -1591,11 +1591,11 @@ private func normalizedUnsignedInteger(_ value: String?) -> String? {
     return stripped.isEmpty ? "0" : String(stripped)
 }
 
-private func formatTransactionResult(_ result: TransactionResult) -> String {
+private func formatTransactionResult(_ result: SendTransactionResponse) -> String {
     """
     txnId: \(result.txnId)
     status: \(result.status.wireValue)
-    txnHash: \(result.txnHash)
+    txnHash: \(result.txnHash ?? "nil")
     """
 }
 

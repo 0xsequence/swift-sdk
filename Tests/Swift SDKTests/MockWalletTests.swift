@@ -855,6 +855,10 @@ import Testing
         to: "0xabc",
         value: "0"
     )
+    let prepareRequest = try fixture.transport.decodedRequest(
+        PrepareEthereumTransactionRequest.self,
+        for: WaasWalletAPI.PrepareEthereumTransaction.urlPath
+    )
     let executeRequest = try fixture.transport.decodedRequest(
         ExecuteRequest.self,
         for: WaasWalletAPI.Execute.urlPath
@@ -863,6 +867,7 @@ import Testing
     #expect(txResult.txnId == "txn-1")
     #expect(txResult.status == .executed)
     #expect(txResult.txnHash == "0xdeadbeef")
+    #expect(prepareRequest.mode == .relayer)
     #expect(executeRequest.feeOption?.token == "POL")
     #expect(fixture.indexerClient.nativeBalanceRequestCount == 0)
     #expect(fixture.indexerClient.tokenBalanceContractAddresses.isEmpty)
@@ -921,7 +926,7 @@ import Testing
 
     let txResult = try await fixture.client.sendTransaction(
         network: .polygonAmoy,
-        request: SendTransactionRequest(to: "0xabc", value: "0"),
+        request: SendTransactionRequest(to: "0xabc", value: "0", mode: .native),
         feeOptionSelector: .custom { feeOptions in
             #expect(feeOptions.count == 2)
             #expect(feeOptions[0].feeOption.token.symbol == "POL")
@@ -937,6 +942,10 @@ import Testing
             return feeOptions[1].selection
         }
     )
+    let prepareRequest = try fixture.transport.decodedRequest(
+        PrepareEthereumTransactionRequest.self,
+        for: WaasWalletAPI.PrepareEthereumTransaction.urlPath
+    )
     let executeRequest = try fixture.transport.decodedRequest(
         ExecuteRequest.self,
         for: WaasWalletAPI.Execute.urlPath
@@ -945,6 +954,7 @@ import Testing
     #expect(txResult.txnId == "txn-1")
     #expect(txResult.status == .executed)
     #expect(txResult.txnHash == "0xdeadbeef")
+    #expect(prepareRequest.mode == .native)
     #expect(executeRequest.feeOption?.token == "usdc")
     #expect(fixture.indexerClient.nativeBalanceRequestCount == 1)
     #expect(fixture.indexerClient.tokenBalanceContractAddresses == ["0xusdc"])
@@ -970,7 +980,7 @@ import Testing
         for: WaasWalletAPI.Execute.urlPath
     )
     try fixture.transport.enqueue(
-        TransactionStatusResponse(status: .executed, txnHash: "0xdeadbeef"),
+        TransactionStatusResponse(status: .executed),
         for: WaasWalletAPI.TransactionStatus.urlPath
     )
 
@@ -989,13 +999,13 @@ import Testing
 
     #expect(txResult.txnId == "txn-1")
     #expect(txResult.status == .executed)
-    #expect(txResult.txnHash == "0xdeadbeef")
+    #expect(txResult.txnHash == nil)
     #expect(executeRequest.feeOption == nil)
     #expect(fixture.indexerClient.nativeBalanceRequestCount == 0)
     #expect(fixture.indexerClient.tokenBalanceContractAddresses.isEmpty)
 }
 
-@Test func TestWalletCallContractReturnsTransactionResult() async throws {
+@Test func TestWalletCallContractReturnsSendTransactionResponse() async throws {
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"
     fixture.client.walletAddress = "0xwallet"
@@ -1023,7 +1033,12 @@ import Testing
         network: .polygonAmoy,
         contract: "0xcontract",
         method: "mint(address)",
-        args: [AbiArg(type: "address", value: .string("0xrecipient"))]
+        args: [AbiArg(type: "address", value: .string("0xrecipient"))],
+        mode: .native
+    )
+    let prepareRequest = try fixture.transport.decodedRequest(
+        PrepareEthereumContractCallRequest.self,
+        for: WaasWalletAPI.PrepareEthereumContractCall.urlPath
     )
     let executeRequest = try fixture.transport.decodedRequest(
         ExecuteRequest.self,
@@ -1033,8 +1048,47 @@ import Testing
     #expect(txResult.txnId == "txn-contract-1")
     #expect(txResult.status == .executed)
     #expect(txResult.txnHash == "0xcontractdeadbeef")
+    #expect(prepareRequest.mode == .native)
     #expect(executeRequest.txnId == "txn-contract-1")
     #expect(executeRequest.feeOption?.token == "POL")
+}
+
+@Test func TestWalletSendTransactionReturnsPendingResponseAfterPollingTimeout() async throws {
+    let fixture = makeMockWalletClient(transactionPollingIntervals: [0, 0])
+    fixture.client.walletId = "wallet-main"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-pending-1",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: true,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasWalletAPI.PrepareEthereumTransaction.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .pending),
+        for: WaasWalletAPI.Execute.urlPath
+    )
+    try fixture.transport.enqueue(
+        TransactionStatusResponse(status: .pending),
+        for: WaasWalletAPI.TransactionStatus.urlPath
+    )
+    try fixture.transport.enqueue(
+        TransactionStatusResponse(status: .pending),
+        for: WaasWalletAPI.TransactionStatus.urlPath
+    )
+
+    let txResult = try await fixture.client.sendTransaction(
+        network: .polygonAmoy,
+        request: SendTransactionRequest(to: "0xabc", value: "0")
+    )
+
+    #expect(txResult.txnId == "txn-pending-1")
+    #expect(txResult.status == .pending)
+    #expect(txResult.txnHash == nil)
+    #expect(fixture.transport.requestCount(for: WaasWalletAPI.TransactionStatus.urlPath) == 2)
 }
 
 @Test func TestWalletSendTransactionUnsponsoredWithoutFeeOptionsThrows() async throws {
@@ -1113,7 +1167,8 @@ private struct MockWalletClientFixture {
 }
 
 private func makeMockWalletClient(
-    oidcNonceGenerator: @escaping () throws -> String = OidcRedirectAuth.generateNonce
+    oidcNonceGenerator: @escaping () throws -> String = OidcRedirectAuth.generateNonce,
+    transactionPollingIntervals: [UInt64]? = nil
 ) -> MockWalletClientFixture {
     let environment = OMSClientEnvironment(
         walletApiUrl: "https://wallet.example.test"
@@ -1147,7 +1202,8 @@ private func makeMockWalletClient(
         publicClient: publicClient,
         indexerClient: indexerClient,
         oidcRedirectAuthStore: oidcRedirectAuthStore,
-        oidcNonceGenerator: oidcNonceGenerator
+        oidcNonceGenerator: oidcNonceGenerator,
+        transactionPollingIntervals: transactionPollingIntervals
     )
     client.verifier = "verifier"
     client.challenge = "challenge"

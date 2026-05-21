@@ -41,7 +41,7 @@ let txResult = try await oms.wallet.sendTransaction(
     to: "0xRecipient",
     value: value
 )
-print("Transaction hash:", txResult.txnHash)
+print("Transaction hash:", txResult.txnHash ?? "pending")
 ```
 
 ## Overview
@@ -58,7 +58,7 @@ Pass both your project access key and project ID when creating the client. The S
 
 ## Supported Networks
 
-Use `Network.supportedNetworks` or the `OMSClient` convenience helpers to bind numeric chain IDs and canonical names to SDK networks.
+Use `Network.supportedNetworks` or the `OMSClient` convenience helpers to bind numeric chain IDs and network names to SDK networks.
 
 ```swift
 let networks = Network.supportedNetworks
@@ -206,10 +206,11 @@ try oms.wallet.signOut()
 1. **Prepare** - the server calculates fee options for the transaction.
 2. **Select fee** - the SDK picks the default fee option, or your `FeeOptionSelector` picks one.
 3. **Execute** - the transaction is submitted.
-4. **Poll** - the SDK polls until the transaction is confirmed on-chain.
+4. **Poll** - the SDK polls for about 60 seconds for on-chain confirmation, then returns the latest status.
 
 By default, the SDK uses the first required fee option, or no fee option when the
-transaction is sponsored.
+transaction is sponsored. Transaction mode defaults to `.relayer`; pass
+`.native` when you want native mode.
 
 ```swift
 let value = try parseUnits(value: "1", decimals: 18)
@@ -220,7 +221,7 @@ let txResult = try await oms.wallet.sendTransaction(
 )
 print("Transaction ID:", txResult.txnId)
 print("Transaction status:", txResult.status)
-print("Transaction hash:", txResult.txnHash)
+print("Transaction hash:", txResult.txnHash ?? "pending")
 ```
 
 Provide a custom selector to choose from the returned fee options:
@@ -349,7 +350,8 @@ let txResult = try await oms.wallet.sendTransaction(
     request: SendTransactionRequest(
         to: "0xRecipient",
         value: value,
-        data: nil
+        data: nil,
+        mode: .relayer
     )
 )
 ```
@@ -379,13 +381,13 @@ do {
         to: "0xRecipient",
         value: value
     )
-    print("Sent:", txResult.txnHash)
-} catch TransactionError.pollingTimedOut {
-    print("Transaction did not confirm in time")
+    if txResult.status == .pending {
+        print("Submitted:", txResult.txnId)
+    } else {
+        print("Sent:", txResult.txnHash ?? "no hash")
+    }
 } catch TransactionError.transactionFailed(let status) {
     print("Transaction failed with status:", status)
-} catch TransactionError.missingTransactionHash {
-    print("Transaction executed but no hash was returned")
 }
 ```
 
