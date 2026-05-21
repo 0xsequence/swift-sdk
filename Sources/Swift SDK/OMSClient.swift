@@ -15,12 +15,20 @@ public class OMSClient {
             environment: environment
         )
     }
-    
+
     public var supportedNetworks: [Network] {
         Network.supportedNetworks
     }
 
     public func network(chainId: String) -> Network? {
         Network.from(chainId: chainId)
+    }
+
+    public func network(chainId: Int) -> Network? {
+        Network.from(chainId: chainId)
+    }
+
+    public func network(name: String) -> Network? {
+        Network.from(name: name)
     }
 }

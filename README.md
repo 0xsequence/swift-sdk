@@ -57,18 +57,34 @@ Pass both your project access key and project ID when creating the client. The S
 
 ## Supported Networks
 
-Use `Network.supportedNetworks`, `Network.from(chainId:)`, or the `OMSClient` convenience properties to bind numeric chain IDs to SDK networks.
+Use `Network.supportedNetworks`, `Network.from(chainId:)`, `Network.from(name:)`, or the `OMSClient` convenience helpers to bind numeric chain IDs to SDK networks.
 
 ```swift
 let networks = Network.supportedNetworks
 let polygon = Network.from(chainId: "137")
 let amoy = oms.network(chainId: "80002")
+let base = Network.from(name: "base")
+let katana = oms.network(name: "katana")
 ```
 
-| Chain ID | Network | Swift case | Indexer value |
-|---|---|---|---|
-| `137` | Polygon | `.polygon` | `polygon` |
-| `80002` | Polygon Amoy | `.polygonAmoy` | `amoy` |
+| Chain ID | Network | Swift case | Indexer value | Native token |
+|---|---|---|---|---|
+| `1` | Mainnet | `.mainnet` | `mainnet` | `ETH` |
+| `11155111` | Sepolia | `.sepolia` | `sepolia` | `ETH` |
+| `137` | Polygon | `.polygon` | `polygon` | `POL` |
+| `80002` | Polygon Amoy | `.polygonAmoy` | `amoy` | `POL` |
+| `42161` | Arbitrum | `.arbitrum` | `arbitrum` | `ETH` |
+| `421614` | Arbitrum Sepolia | `.arbitrumSepolia` | `arbitrum-sepolia` | `ETH` |
+| `10` | Optimism | `.optimism` | `optimism` | `ETH` |
+| `11155420` | Optimism Sepolia | `.optimismSepolia` | `optimism-sepolia` | `ETH` |
+| `8453` | Base | `.base` | `base` | `ETH` |
+| `84532` | Base Sepolia | `.baseSepolia` | `base-sepolia` | `ETH` |
+| `56` | BSC | `.bsc` | `bsc` | `BNB` |
+| `97` | BSC Testnet | `.bscTestnet` | `bsc-testnet` | `BNB` |
+| `42170` | Arbitrum Nova | `.arbitrumNova` | `arbitrum-nova` | `ETH` |
+| `43114` | Avalanche | `.avalanche` | `avalanche` | `AVAX` |
+| `43113` | Avalanche Testnet | `.avalancheTestnet` | `avalanche-testnet` | `AVAX` |
+| `747474` | Katana | `.katana` | `katana` | `ETH` |
 
 ## Authentication Flow
 

@@ -60,9 +60,11 @@ init(
 
 ```swift
 func network(chainId: String) -> Network?
+func network(chainId: Int) -> Network?
+func network(name: String) -> Network?
 ```
 
-Returns the supported `Network` for a numeric chain ID, or `nil` when the chain is not supported.
+Returns the supported `Network` for a numeric chain ID or canonical network name, or `nil` when the chain is not supported.
 
 ---
 
@@ -506,22 +508,59 @@ let amount = try formatUnits(value: "12340000", decimals: 6)
 
 ```swift
 enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
+    case mainnet
+    case sepolia
     case polygon
     case polygonAmoy
+    case arbitrum
+    case arbitrumSepolia
+    case optimism
+    case optimismSepolia
+    case base
+    case baseSepolia
+    case bsc
+    case bscTestnet
+    case arbitrumNova
+    case avalanche
+    case avalancheTestnet
+    case katana
 
+    var id: Int
     var chainId: String
+    var name: String
+    var nativeTokenSymbol: String
+    var explorerUrl: String
+    var explorerURL: URL?
     var displayName: String
     var description: String
 
     static var supportedNetworks: [Network]
     static func from(chainId: String) -> Network?
+    static func from(chainId: Int) -> Network?
+    static func from(name: String) -> Network?
+    static func findNetworkById(_ chainId: Int) -> Network?
+    static func findNetworkByName(_ name: String) -> Network?
 }
 ```
 
-| Case | Chain ID | Display name | Indexer value |
-|---|---|---|---|
-| `.polygon` | `137` | Polygon | `polygon` |
-| `.polygonAmoy` | `80002` | Polygon Amoy | `amoy` |
+| Case | Chain ID | Display name | Indexer value | Native token |
+|---|---|---|---|---|
+| `.mainnet` | `1` | Mainnet | `mainnet` | `ETH` |
+| `.sepolia` | `11155111` | Sepolia | `sepolia` | `ETH` |
+| `.polygon` | `137` | Polygon | `polygon` | `POL` |
+| `.polygonAmoy` | `80002` | Polygon Amoy | `amoy` | `POL` |
+| `.arbitrum` | `42161` | Arbitrum | `arbitrum` | `ETH` |
+| `.arbitrumSepolia` | `421614` | Arbitrum Sepolia | `arbitrum-sepolia` | `ETH` |
+| `.optimism` | `10` | Optimism | `optimism` | `ETH` |
+| `.optimismSepolia` | `11155420` | Optimism Sepolia | `optimism-sepolia` | `ETH` |
+| `.base` | `8453` | Base | `base` | `ETH` |
+| `.baseSepolia` | `84532` | Base Sepolia | `base-sepolia` | `ETH` |
+| `.bsc` | `56` | BSC | `bsc` | `BNB` |
+| `.bscTestnet` | `97` | BSC Testnet | `bsc-testnet` | `BNB` |
+| `.arbitrumNova` | `42170` | Arbitrum Nova | `arbitrum-nova` | `ETH` |
+| `.avalanche` | `43114` | Avalanche | `avalanche` | `AVAX` |
+| `.avalancheTestnet` | `43113` | Avalanche Testnet | `avalanche-testnet` | `AVAX` |
+| `.katana` | `747474` | Katana | `katana` | `ETH` |
 
 ### OMSClientIdentity
 

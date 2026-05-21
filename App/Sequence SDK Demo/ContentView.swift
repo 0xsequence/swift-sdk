@@ -105,10 +105,7 @@ private func formatUSDCBalance(_ raw: String) -> String {
 }
 
 private func nativeTokenSymbol(for network: Network) -> String {
-    switch network {
-    case .polygon, .polygonAmoy:
-        return "POL"
-    }
+    network.nativeTokenSymbol
 }
 
 private func formatNativeTokenBalance(_ raw: String) -> String {
