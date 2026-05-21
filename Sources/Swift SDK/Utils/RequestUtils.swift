@@ -99,7 +99,11 @@ public enum OidcIdToken {
         if let value = value as? UInt64, value <= UInt64(Int64.max) {
             return Int64(value)
         }
-        if let value = value as? Double, value.rounded(.towardZero) == value {
+        if let value = value as? Double,
+           value.isFinite,
+           value.rounded(.towardZero) == value,
+           value >= Double(Int64.min),
+           value < Double(Int64.max) {
             return Int64(value)
         }
         if let value = value as? String {

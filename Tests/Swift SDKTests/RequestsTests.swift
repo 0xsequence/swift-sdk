@@ -48,6 +48,19 @@ import Testing
     }
 }
 
+@Test func TestOidcIdTokenRejectsOutOfRangeNumericExpirationClaim() throws {
+    let idToken = "eyJhbGciOiJub25lIn0.eyJleHAiOjFlMTAwfQ.signature"
+
+    do {
+        _ = try OidcIdToken.expiresAtEpochSeconds(idToken)
+        #expect(Bool(false))
+    } catch let error as OidcIdTokenError {
+        #expect(error == .invalidExpiration)
+    } catch {
+        #expect(Bool(false))
+    }
+}
+
 @Test func TestWalletRequestPreimageIncludesScope() async throws {
     let payload = "{\"verifier\":\"email@example.com\"}"
     let expected = """
