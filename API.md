@@ -22,6 +22,7 @@
   - [TokenBalancesPage](#tokenbalancespage)
   - [TokenBalance](#tokenbalance)
   - [CredentialInfo](#credentialinfo)
+  - [ListAccessPages](#listaccesspages)
   - [WebRPCJSONValue](#webrpcjsonvalue)
 
 ---
@@ -132,8 +133,8 @@ Sends a one-time passcode to the provided email address.
 ```swift
 func completeEmailAuth(
     code: String,
-    walletType: WalletType = .ethereum,
-    walletSelection: WalletSelectionBehavior = .automatic
+    walletSelection: WalletSelectionBehavior = .automatic,
+    walletType: WalletType = .ethereum
 ) async throws -> CompleteAuthResult
 ```
 
@@ -380,7 +381,7 @@ func sendTransaction(
     network: Network,
     to: String,
     value: String,
-    feeOptionSelector: FeeOptionSelector? = nil,
+    selectFeeOption: FeeOptionSelector? = nil,
     mode: TransactionMode = .relayer
 ) async throws -> SendTransactionResponse
 ```
@@ -403,7 +404,7 @@ Full-parameter overload:
 func sendTransaction(
     network: Network,
     request: SendTransactionRequest,
-    feeOptionSelector: FeeOptionSelector? = nil
+    selectFeeOption: FeeOptionSelector? = nil
 ) async throws -> SendTransactionResponse
 ```
 
@@ -822,7 +823,7 @@ struct SendTransactionRequest {
 }
 ```
 
-Used with the full `sendTransaction(network:request:feeOptionSelector:)` overload.
+Used with the full `sendTransaction(network:request:selectFeeOption:)` overload.
 `mode` defaults to `.relayer`.
 
 ### TokenBalancesResult
