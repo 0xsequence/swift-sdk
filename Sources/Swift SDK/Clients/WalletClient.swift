@@ -148,7 +148,7 @@ public class WalletClient {
     ///
     /// This method ensures a request-signing credential exists and stores the verifier state internally.
     /// After this call returns, present your OTP entry UI and pass the user's code to
-    /// `completeEmailAuth(code:walletType:walletSelection:)`.
+    /// `completeEmailAuth(code:walletSelection:walletType:)`.
     ///
     /// - Parameter email: The email address to send the one-time passcode to.
     public func startEmailAuth(email: String) async throws {
@@ -180,8 +180,8 @@ public class WalletClient {
     @discardableResult
     public func completeEmailAuth(
         code: String,
-        walletType: WalletType = WalletType.ethereum,
-        walletSelection: WalletSelectionBehavior = .automatic
+        walletSelection: WalletSelectionBehavior = .automatic,
+        walletType: WalletType = WalletType.ethereum
     ) async throws -> CompleteAuthResult {
         let response = try await confirmEmailSignIn(code: code)
         return try await completeWalletAuth(
@@ -605,7 +605,7 @@ public class WalletClient {
     /// Creates a new wallet of the specified type for the authenticated user and persists
     /// its address and signer metadata to the keychain.
     ///
-    /// Call this after `completeEmailAuth(code:walletType:walletSelection:)` returns
+    /// Call this after `completeEmailAuth(code:walletSelection:walletType:)` returns
     /// `.walletSelection`, or when an authenticated session already exists.
     ///
     /// - Parameter walletType: The wallet type to create (e.g. `.ethereumEoa`).
@@ -742,8 +742,8 @@ public class WalletClient {
         return walletAddress
     }
 
-    private func activeWalletAddressIfNeeded(for feeOptionSelector: FeeOptionSelector?) throws -> String? {
-        guard feeOptionSelector != nil else {
+    private func activeWalletAddressIfNeeded(for selectFeeOption: FeeOptionSelector?) throws -> String? {
+        guard selectFeeOption != nil else {
             return nil
         }
         return try requireActiveWalletAddress()
@@ -823,14 +823,32 @@ public class WalletClient {
     ///
     /// - Returns: An array of `CredentialInfo` values representing each credential
     ///   with access to this wallet.
-    public func listAccess() async throws -> [CredentialInfo] {
-        let walletId = try requireActiveWalletId()
-        let params = ListAccessRequest(
-            walletId: walletId
-        )
+    public func listAccess(pageSize: UInt32? = nil) async throws -> [CredentialInfo] {
+        var credentials: [CredentialInfo] = []
+        for try await response in listAccessPages(pageSize: pageSize) {
+            credentials += response.credentials
+        }
+        return credentials
+    }
 
-        let response = try await signedClient.listAccess(params)
-        return response.credentials
+    /// Returns credential-access pages for this wallet until WaaS stops returning a cursor.
+    public func listAccessPages(pageSize: UInt32? = nil) -> ListAccessPages {
+        ListAccessPages(client: self, pageSize: pageSize)
+    }
+
+    /// Returns one credential-access page for this wallet.
+    public func listAccessPage(
+        pageSize: UInt32? = nil,
+        cursor: String? = nil
+    ) async throws -> ListAccessResponse {
+        let walletId = try requireActiveWalletId()
+        try requireActiveCredential()
+        return try await signedClient.listAccess(
+            ListAccessRequest(
+                walletId: walletId,
+                page: accessPage(pageSize: pageSize, cursor: cursor)
+            )
+        )
     }
     
     public func getIdToken(ttlSeconds: UInt32? = nil, customClaims: [String: WebRPCJSONValue]? = nil) async throws -> String {
@@ -848,7 +866,8 @@ public class WalletClient {
     /// Revokes access for a specific credential, preventing it from interacting
     /// with this wallet going forward.
     ///
-    /// Use `listAccess()` first to retrieve the credential IDs available to revoke.
+    /// Use `listAccess()` or `listAccessPage(pageSize:cursor:)` first to retrieve
+    /// the credential IDs available to revoke.
     /// This action cannot be undone — the credential will need to be re-authorized
     /// to regain access.
     ///
@@ -861,6 +880,14 @@ public class WalletClient {
         )
 
         _ = try await signedClient.revokeAccess(params)
+    }
+
+    private func accessPage(pageSize: UInt32?, cursor: String?) -> Page? {
+        if pageSize == nil && cursor == nil {
+            return nil
+        }
+
+        return Page(limit: pageSize, cursor: cursor)
     }
 
     /// Signs an arbitrary message using the wallet's session key.
@@ -937,11 +964,11 @@ public class WalletClient {
         network: Network,
         to: String,
         value: String,
-        feeOptionSelector: FeeOptionSelector? = nil,
+        selectFeeOption: FeeOptionSelector? = nil,
         mode: TransactionMode = .relayer
     ) async throws -> SendTransactionResponse {
         let walletId = try requireActiveWalletId()
-        let walletAddress = try activeWalletAddressIfNeeded(for: feeOptionSelector)
+        let walletAddress = try activeWalletAddressIfNeeded(for: selectFeeOption)
         return try await sendTransaction(
             network: network,
             request: SendTransactionRequest(
@@ -950,7 +977,7 @@ public class WalletClient {
                 data: nil,
                 mode: mode
             ),
-            feeOptionSelector: feeOptionSelector,
+            selectFeeOption: selectFeeOption,
             walletId: walletId,
             walletAddress: walletAddress
         )
@@ -959,14 +986,14 @@ public class WalletClient {
     public func sendTransaction(
         network: Network,
         request: SendTransactionRequest,
-        feeOptionSelector: FeeOptionSelector? = nil
+        selectFeeOption: FeeOptionSelector? = nil
     ) async throws -> SendTransactionResponse {
         let walletId = try requireActiveWalletId()
-        let walletAddress = try activeWalletAddressIfNeeded(for: feeOptionSelector)
+        let walletAddress = try activeWalletAddressIfNeeded(for: selectFeeOption)
         return try await sendTransaction(
             network: network,
             request: request,
-            feeOptionSelector: feeOptionSelector,
+            selectFeeOption: selectFeeOption,
             walletId: walletId,
             walletAddress: walletAddress
         )
@@ -975,7 +1002,7 @@ public class WalletClient {
     private func sendTransaction(
         network: Network,
         request: SendTransactionRequest,
-        feeOptionSelector: FeeOptionSelector?,
+        selectFeeOption: FeeOptionSelector?,
         walletId: String,
         walletAddress: String?
     ) async throws -> SendTransactionResponse {
@@ -993,7 +1020,7 @@ public class WalletClient {
         return try await self.execute(
             network: network,
             prepareResponse: prepareResponse,
-            feeOptionSelector: feeOptionSelector,
+            feeOptionSelector: selectFeeOption,
             walletAddress: walletAddress
         );
     }
@@ -1003,11 +1030,11 @@ public class WalletClient {
         contract: String,
         method: String,
         args: [AbiArg]?,
-        feeOptionSelector: FeeOptionSelector? = nil,
+        selectFeeOption: FeeOptionSelector? = nil,
         mode: TransactionMode = .relayer
     ) async throws -> SendTransactionResponse {
         let walletId = try requireActiveWalletId()
-        let walletAddress = try activeWalletAddressIfNeeded(for: feeOptionSelector)
+        let walletAddress = try activeWalletAddressIfNeeded(for: selectFeeOption)
         let prepareResponse = try await signedClient.prepareEthereumContractCall(
             PrepareEthereumContractCallRequest(
                 network: network.chainId,
@@ -1022,7 +1049,7 @@ public class WalletClient {
         return try await self.execute(
             network: network,
             prepareResponse: prepareResponse,
-            feeOptionSelector: feeOptionSelector,
+            feeOptionSelector: selectFeeOption,
             walletAddress: walletAddress
         );
     }
@@ -1277,6 +1304,56 @@ public class WalletClient {
                 ]
             }
         )
+    }
+}
+
+@available(macOS 12.0, iOS 15.0, *)
+public struct ListAccessPages: AsyncSequence {
+    public typealias Element = ListAccessResponse
+
+    private let client: WalletClient
+    private let pageSize: UInt32?
+
+    fileprivate init(client: WalletClient, pageSize: UInt32?) {
+        self.client = client
+        self.pageSize = pageSize
+    }
+
+    public func makeAsyncIterator() -> AsyncIterator {
+        AsyncIterator(client: client, pageSize: pageSize)
+    }
+
+    public struct AsyncIterator: AsyncIteratorProtocol {
+        private let client: WalletClient
+        private let pageSize: UInt32?
+        private var cursor: String?
+        private var hasStarted = false
+
+        fileprivate init(client: WalletClient, pageSize: UInt32?) {
+            self.client = client
+            self.pageSize = pageSize
+        }
+
+        public mutating func next() async throws -> ListAccessResponse? {
+            if hasStarted && cursor == nil {
+                return nil
+            }
+
+            let response = try await client.listAccessPage(
+                pageSize: pageSize,
+                cursor: cursor
+            )
+            hasStarted = true
+            cursor = nonEmptyCursor(response.page?.cursor)
+            return response
+        }
+
+        private func nonEmptyCursor(_ cursor: String?) -> String? {
+            guard let cursor = cursor?.trimmingCharacters(in: .whitespacesAndNewlines), !cursor.isEmpty else {
+                return nil
+            }
+            return cursor
+        }
     }
 }
 

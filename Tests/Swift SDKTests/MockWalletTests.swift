@@ -942,6 +942,13 @@ import Testing
         try await fixture.client.listAccess()
     }
     await expectNoAuthenticatedWalletSession {
+        try await fixture.client.listAccessPage()
+    }
+    await expectNoAuthenticatedWalletSession {
+        var iterator = fixture.client.listAccessPages().makeAsyncIterator()
+        _ = try await iterator.next()
+    }
+    await expectNoAuthenticatedWalletSession {
         try await fixture.client.getIdToken()
     }
     await expectNoAuthenticatedWalletSession {
@@ -1013,7 +1020,7 @@ import Testing
             network: .polygonAmoy,
             to: "0xabc",
             value: "0",
-            feeOptionSelector: .first
+            selectFeeOption: .first
         )
     }
     await expectNoAuthenticatedWalletSession {
@@ -1022,11 +1029,116 @@ import Testing
             contract: "0xcontract",
             method: "mint(address)",
             args: nil,
-            feeOptionSelector: .first
+            selectFeeOption: .first
         )
     }
     #expect(walletIdOnlyFixture.transport.requestCount(for: WaasWalletAPI.PrepareEthereumTransaction.urlPath) == 0)
     #expect(walletIdOnlyFixture.transport.requestCount(for: WaasWalletAPI.PrepareEthereumContractCall.urlPath) == 0)
+}
+
+@Test func TestWalletListAccessPaginationHelpersUseWaasPages() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    let firstCredential = CredentialInfo(
+        credentialId: "credential-1",
+        expiresAt: "2026-01-01T00:00:00Z",
+        isCaller: true
+    )
+    let secondCredential = CredentialInfo(
+        credentialId: "credential-2",
+        expiresAt: "2026-01-02T00:00:00Z",
+        isCaller: false
+    )
+    let manualCredential = CredentialInfo(
+        credentialId: "credential-3",
+        expiresAt: "2026-01-03T00:00:00Z",
+        isCaller: false
+    )
+
+    try fixture.transport.enqueue(
+        ListAccessResponse(credentials: [firstCredential], page: Page(cursor: "next")),
+        for: WaasWalletAPI.ListAccess.urlPath
+    )
+    try fixture.transport.enqueue(
+        ListAccessResponse(credentials: [secondCredential]),
+        for: WaasWalletAPI.ListAccess.urlPath
+    )
+    try fixture.transport.enqueue(
+        ListAccessResponse(credentials: [manualCredential], page: Page(cursor: "after-manual")),
+        for: WaasWalletAPI.ListAccess.urlPath
+    )
+
+    var pages: [ListAccessResponse] = []
+    for try await page in fixture.client.listAccessPages(pageSize: 1) {
+        pages.append(page)
+    }
+    let manualPage = try await fixture.client.listAccessPage(pageSize: 2, cursor: "manual")
+    let listAccessRequests = try fixture.transport.decodedRequests(
+        ListAccessRequest.self,
+        for: WaasWalletAPI.ListAccess.urlPath
+    )
+
+    #expect(pages.count == 2)
+    #expect(pages[0].credentials.map(\.credentialId) == ["credential-1"])
+    #expect(pages[0].page?.cursor == "next")
+    #expect(pages[1].credentials.map(\.credentialId) == ["credential-2"])
+    #expect(pages[1].page?.cursor == nil)
+    #expect(manualPage.credentials.map(\.credentialId) == ["credential-3"])
+    #expect(manualPage.page?.cursor == "after-manual")
+    #expect(listAccessRequests.count == 3)
+    #expect(listAccessRequests[0].walletId == "wallet-main")
+    #expect(listAccessRequests[0].page?.limit == 1)
+    #expect(listAccessRequests[0].page?.cursor == nil)
+    #expect(listAccessRequests[1].walletId == "wallet-main")
+    #expect(listAccessRequests[1].page?.limit == 1)
+    #expect(listAccessRequests[1].page?.cursor == "next")
+    #expect(listAccessRequests[2].walletId == "wallet-main")
+    #expect(listAccessRequests[2].page?.limit == 2)
+    #expect(listAccessRequests[2].page?.cursor == "manual")
+}
+
+@Test func TestWalletListAccessReturnsCombinedCredentialPages() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+
+    try fixture.transport.enqueue(
+        ListAccessResponse(
+            credentials: [
+                CredentialInfo(
+                    credentialId: "credential-1",
+                    expiresAt: "2026-01-01T00:00:00Z",
+                    isCaller: true
+                )
+            ],
+            page: Page(cursor: "next")
+        ),
+        for: WaasWalletAPI.ListAccess.urlPath
+    )
+    try fixture.transport.enqueue(
+        ListAccessResponse(
+            credentials: [
+                CredentialInfo(
+                    credentialId: "credential-2",
+                    expiresAt: "2026-01-02T00:00:00Z",
+                    isCaller: false
+                )
+            ]
+        ),
+        for: WaasWalletAPI.ListAccess.urlPath
+    )
+
+    let credentials = try await fixture.client.listAccess(pageSize: 25)
+    let listAccessRequests = try fixture.transport.decodedRequests(
+        ListAccessRequest.self,
+        for: WaasWalletAPI.ListAccess.urlPath
+    )
+
+    #expect(credentials.map(\.credentialId) == ["credential-1", "credential-2"])
+    #expect(listAccessRequests.count == 2)
+    #expect(listAccessRequests[0].page?.limit == 25)
+    #expect(listAccessRequests[0].page?.cursor == nil)
+    #expect(listAccessRequests[1].page?.limit == 25)
+    #expect(listAccessRequests[1].page?.cursor == "next")
 }
 
 @Test func TestWalletSendTransactionDefaultSelectsFirstFeeOptionIdentifierWithoutBalanceLookup() async throws {
@@ -1130,7 +1242,7 @@ import Testing
     let txResult = try await fixture.client.sendTransaction(
         network: .polygonAmoy,
         request: SendTransactionRequest(to: "0xabc", value: "0", mode: .native),
-        feeOptionSelector: .custom { feeOptions in
+        selectFeeOption: .custom { feeOptions in
             #expect(feeOptions.count == 2)
             #expect(feeOptions[0].feeOption.token.symbol == "POL")
             #expect(feeOptions[0].balance?.balance == "100")
@@ -1183,7 +1295,7 @@ import Testing
         _ = try await fixture.client.sendTransaction(
             network: .polygonAmoy,
             request: SendTransactionRequest(to: "0xabc", value: "0"),
-            feeOptionSelector: .custom { _ in nil }
+            selectFeeOption: .custom { _ in nil }
         )
         #expect(Bool(false), "Expected no fee option selected error")
     } catch let error as TransactionError {
@@ -1227,7 +1339,7 @@ import Testing
     let txResult = try await fixture.client.sendTransaction(
         network: .polygonAmoy,
         request: SendTransactionRequest(to: "0xabc", value: "0"),
-        feeOptionSelector: .custom { feeOptions in
+        selectFeeOption: .custom { feeOptions in
             #expect(Bool(false), "Sponsored transactions should not ask for fee selection")
             return feeOptions.first?.selection
         }

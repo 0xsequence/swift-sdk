@@ -92,7 +92,7 @@ let katana = oms.findNetworkByName(name: "katana")
 OMS supports email-based OTP, OIDC ID-token auth, and OIDC redirect auth. The email two-step flow is:
 
 1. **`startEmailAuth(email:)`** sends a one-time code to the user's inbox.
-2. **`completeEmailAuth(code:walletType:walletSelection:)`** verifies the code. In the default `.automatic` mode it selects the first matching wallet or creates one. The wallet address, wallet ID, and signer metadata are saved to the device keychain.
+2. **`completeEmailAuth(code:walletSelection:walletType:)`** verifies the code. In the default `.automatic` mode it selects the first matching wallet or creates one. The wallet address, wallet ID, and signer metadata are saved to the device keychain.
 
 ```swift
 try await oms.wallet.startEmailAuth(email: "user@example.com")
@@ -242,7 +242,8 @@ print("Transaction status:", txResult.status)
 print("Transaction hash:", txResult.txnHash ?? "pending")
 ```
 
-Provide a custom selector to choose from the returned fee options:
+Provide `selectFeeOption` on `sendTransaction` or `callContract` to choose
+from the returned fee options:
 
 ```swift
 let value = try parseUnits(value: "1", decimals: 18)
@@ -250,7 +251,7 @@ let txResult = try await oms.wallet.sendTransaction(
     network: .polygon,
     to: "0xRecipient",
     value: value,
-    feeOptionSelector: .custom { options in
+    selectFeeOption: .custom { options in
         let selected = options[selectedIndex]
         return selected.selection
     }
@@ -454,6 +455,10 @@ let scopedIdToken = try await oms.wallet.getIdToken(
 
 ```swift
 let credentials = try await oms.wallet.listAccess()
+
+for try await page in oms.wallet.listAccessPages(pageSize: 25) {
+    print(page.credentials)
+}
 
 if let credential = credentials.first {
     try await oms.wallet.revokeAccess(targetCredentialId: credential.credentialId)

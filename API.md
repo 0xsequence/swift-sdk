@@ -22,6 +22,7 @@
   - [TokenBalancesPage](#tokenbalancespage)
   - [TokenBalance](#tokenbalance)
   - [CredentialInfo](#credentialinfo)
+  - [ListAccessPages](#listaccesspages)
   - [WebRPCJSONValue](#webrpcjsonvalue)
 
 ---
@@ -132,8 +133,8 @@ Sends a one-time passcode to the provided email address.
 ```swift
 func completeEmailAuth(
     code: String,
-    walletType: WalletType = .ethereum,
-    walletSelection: WalletSelectionBehavior = .automatic
+    walletSelection: WalletSelectionBehavior = .automatic,
+    walletType: WalletType = .ethereum
 ) async throws -> CompleteAuthResult
 ```
 
@@ -380,7 +381,7 @@ func sendTransaction(
     network: Network,
     to: String,
     value: String,
-    feeOptionSelector: FeeOptionSelector? = nil,
+    selectFeeOption: FeeOptionSelector? = nil,
     mode: TransactionMode = .relayer
 ) async throws -> SendTransactionResponse
 ```
@@ -403,7 +404,7 @@ Full-parameter overload:
 func sendTransaction(
     network: Network,
     request: SendTransactionRequest,
-    feeOptionSelector: FeeOptionSelector? = nil
+    selectFeeOption: FeeOptionSelector? = nil
 ) async throws -> SendTransactionResponse
 ```
 
@@ -415,7 +416,7 @@ func callContract(
     contract: String,
     method: String,
     args: [AbiArg]?,
-    feeOptionSelector: FeeOptionSelector? = nil,
+    selectFeeOption: FeeOptionSelector? = nil,
     mode: TransactionMode = .relayer
 ) async throws -> SendTransactionResponse
 ```
@@ -433,10 +434,31 @@ Returns the current execution status for a prepared or submitted transaction.
 ### listAccess
 
 ```swift
-func listAccess() async throws -> [CredentialInfo]
+func listAccess(pageSize: UInt32? = nil) async throws -> [CredentialInfo]
 ```
 
-Returns all credentials that currently have access to this wallet.
+Returns all credentials that currently have access to this wallet, following
+WaaS cursors until every page has been loaded.
+
+### listAccessPages
+
+```swift
+func listAccessPages(pageSize: UInt32? = nil) -> ListAccessPages
+```
+
+Returns credential-access pages for this wallet until WaaS stops returning a
+cursor.
+
+### listAccessPage
+
+```swift
+func listAccessPage(
+    pageSize: UInt32? = nil,
+    cursor: String? = nil
+) async throws -> ListAccessResponse
+```
+
+Returns one credential-access page for this wallet.
 
 ### getIdToken
 
@@ -801,7 +823,7 @@ struct SendTransactionRequest {
 }
 ```
 
-Used with the full `sendTransaction(network:request:feeOptionSelector:)` overload.
+Used with the full `sendTransaction(network:request:selectFeeOption:)` overload.
 `mode` defaults to `.relayer`.
 
 ### TokenBalancesResult
@@ -863,6 +885,14 @@ struct CredentialInfo: Codable, Sendable {
     let isCaller: Bool
 }
 ```
+
+### ListAccessPages
+
+```swift
+struct ListAccessPages: AsyncSequence
+```
+
+Async sequence returned by `WalletClient.listAccessPages(pageSize:)`.
 
 ### WebRPCJSONValue
 
