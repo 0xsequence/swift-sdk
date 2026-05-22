@@ -455,6 +455,10 @@ let scopedIdToken = try await oms.wallet.getIdToken(
 ```swift
 let credentials = try await oms.wallet.listAccess()
 
+for try await page in oms.wallet.listAccessPages(pageSize: 25) {
+    print(page.credentials)
+}
+
 if let credential = credentials.first {
     try await oms.wallet.revokeAccess(targetCredentialId: credential.credentialId)
 }

@@ -433,10 +433,31 @@ Returns the current execution status for a prepared or submitted transaction.
 ### listAccess
 
 ```swift
-func listAccess() async throws -> [CredentialInfo]
+func listAccess(pageSize: UInt32? = nil) async throws -> [CredentialInfo]
 ```
 
-Returns all credentials that currently have access to this wallet.
+Returns all credentials that currently have access to this wallet, following
+WaaS cursors until every page has been loaded.
+
+### listAccessPages
+
+```swift
+func listAccessPages(pageSize: UInt32? = nil) -> ListAccessPages
+```
+
+Returns credential-access pages for this wallet until WaaS stops returning a
+cursor.
+
+### listAccessPage
+
+```swift
+func listAccessPage(
+    pageSize: UInt32? = nil,
+    cursor: String? = nil
+) async throws -> ListAccessResponse
+```
+
+Returns one credential-access page for this wallet.
 
 ### getIdToken
 
@@ -863,6 +884,14 @@ struct CredentialInfo: Codable, Sendable {
     let isCaller: Bool
 }
 ```
+
+### ListAccessPages
+
+```swift
+struct ListAccessPages: AsyncSequence
+```
+
+Async sequence returned by `WalletClient.listAccessPages(pageSize:)`.
 
 ### WebRPCJSONValue
 
