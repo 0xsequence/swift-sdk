@@ -148,7 +148,7 @@ public class WalletClient {
     ///
     /// This method ensures a request-signing credential exists and stores the verifier state internally.
     /// After this call returns, present your OTP entry UI and pass the user's code to
-    /// `completeEmailAuth(code:walletType:walletSelection:)`.
+    /// `completeEmailAuth(code:walletSelection:walletType:)`.
     ///
     /// - Parameter email: The email address to send the one-time passcode to.
     public func startEmailAuth(email: String) async throws {
@@ -605,7 +605,7 @@ public class WalletClient {
     /// Creates a new wallet of the specified type for the authenticated user and persists
     /// its address and signer metadata to the keychain.
     ///
-    /// Call this after `completeEmailAuth(code:walletType:walletSelection:)` returns
+    /// Call this after `completeEmailAuth(code:walletSelection:walletType:)` returns
     /// `.walletSelection`, or when an authenticated session already exists.
     ///
     /// - Parameter walletType: The wallet type to create (e.g. `.ethereumEoa`).
