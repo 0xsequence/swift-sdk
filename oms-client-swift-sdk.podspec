@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name = "oms-client-swift-sdk"
-  s.version = "0.0.1"
+  s.version = "0.1.0-alpha.1"
   s.summary = "OMS Client Swift SDK."
   s.description = <<-DESC
     OMS Client Swift SDK provides email and OIDC redirect wallet authentication,
