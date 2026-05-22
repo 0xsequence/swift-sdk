@@ -416,7 +416,7 @@ func callContract(
     contract: String,
     method: String,
     args: [AbiArg]?,
-    feeOptionSelector: FeeOptionSelector? = nil,
+    selectFeeOption: FeeOptionSelector? = nil,
     mode: TransactionMode = .relayer
 ) async throws -> SendTransactionResponse
 ```

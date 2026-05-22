@@ -1030,11 +1030,11 @@ public class WalletClient {
         contract: String,
         method: String,
         args: [AbiArg]?,
-        feeOptionSelector: FeeOptionSelector? = nil,
+        selectFeeOption: FeeOptionSelector? = nil,
         mode: TransactionMode = .relayer
     ) async throws -> SendTransactionResponse {
         let walletId = try requireActiveWalletId()
-        let walletAddress = try activeWalletAddressIfNeeded(for: feeOptionSelector)
+        let walletAddress = try activeWalletAddressIfNeeded(for: selectFeeOption)
         let prepareResponse = try await signedClient.prepareEthereumContractCall(
             PrepareEthereumContractCallRequest(
                 network: network.chainId,
@@ -1049,7 +1049,7 @@ public class WalletClient {
         return try await self.execute(
             network: network,
             prepareResponse: prepareResponse,
-            feeOptionSelector: feeOptionSelector,
+            feeOptionSelector: selectFeeOption,
             walletAddress: walletAddress
         );
     }

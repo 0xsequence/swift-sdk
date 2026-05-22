@@ -242,7 +242,8 @@ print("Transaction status:", txResult.status)
 print("Transaction hash:", txResult.txnHash ?? "pending")
 ```
 
-Provide a custom selector to choose from the returned fee options:
+Provide `selectFeeOption` on `sendTransaction` or `callContract` to choose
+from the returned fee options:
 
 ```swift
 let value = try parseUnits(value: "1", decimals: 18)

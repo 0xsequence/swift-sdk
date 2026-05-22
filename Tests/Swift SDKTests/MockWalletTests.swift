@@ -1020,7 +1020,7 @@ import Testing
             network: .polygonAmoy,
             to: "0xabc",
             value: "0",
-            feeOptionSelector: .first
+            selectFeeOption: .first
         )
     }
     await expectNoAuthenticatedWalletSession {
@@ -1029,7 +1029,7 @@ import Testing
             contract: "0xcontract",
             method: "mint(address)",
             args: nil,
-            feeOptionSelector: .first
+            selectFeeOption: .first
         )
     }
     #expect(walletIdOnlyFixture.transport.requestCount(for: WaasWalletAPI.PrepareEthereumTransaction.urlPath) == 0)
@@ -1242,7 +1242,7 @@ import Testing
     let txResult = try await fixture.client.sendTransaction(
         network: .polygonAmoy,
         request: SendTransactionRequest(to: "0xabc", value: "0", mode: .native),
-        feeOptionSelector: .custom { feeOptions in
+        selectFeeOption: .custom { feeOptions in
             #expect(feeOptions.count == 2)
             #expect(feeOptions[0].feeOption.token.symbol == "POL")
             #expect(feeOptions[0].balance?.balance == "100")
@@ -1295,7 +1295,7 @@ import Testing
         _ = try await fixture.client.sendTransaction(
             network: .polygonAmoy,
             request: SendTransactionRequest(to: "0xabc", value: "0"),
-            feeOptionSelector: .custom { _ in nil }
+            selectFeeOption: .custom { _ in nil }
         )
         #expect(Bool(false), "Expected no fee option selected error")
     } catch let error as TransactionError {
@@ -1339,7 +1339,7 @@ import Testing
     let txResult = try await fixture.client.sendTransaction(
         network: .polygonAmoy,
         request: SendTransactionRequest(to: "0xabc", value: "0"),
-        feeOptionSelector: .custom { feeOptions in
+        selectFeeOption: .custom { feeOptions in
             #expect(Bool(false), "Sponsored transactions should not ask for fee selection")
             return feeOptions.first?.selection
         }

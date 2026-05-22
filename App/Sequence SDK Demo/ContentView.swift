@@ -1144,7 +1144,7 @@ struct SendTransactionWindow: View {
                             network: network,
                             to: toText,
                             value: amountText,
-                            feeOptionSelector: .custom { options in
+                            selectFeeOption: .custom { options in
                                 try await vm.selectFeeOption(options)
                             }
                         )
@@ -1313,7 +1313,7 @@ struct CallContractWindow: View {
                             contract: contractText,
                             method: methodText,
                             args: abiArgs.isEmpty ? nil : abiArgs,
-                            feeOptionSelector: .custom { options in
+                            selectFeeOption: .custom { options in
                                 try await vm.selectFeeOption(options)
                             }
                         )
