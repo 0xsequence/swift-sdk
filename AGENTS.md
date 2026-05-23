@@ -89,7 +89,7 @@ as authentication and indexer tests.
 Update `README.md` when user-facing setup or flow examples change. Update
 `API.md` when public methods, parameters, models, or behavior change. Keep docs
 aligned with the actual Swift names, labels, return types, and the `OMS_SDK`
-import name. Avoid any method descriptions.
+import name. Avoid adding method descriptions in source code.
 
 ## Demo App
 
