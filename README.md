@@ -8,15 +8,11 @@ A Swift SDK for the OMS (Open Money Stack) platform. Provides email, OIDC ID-tok
 
 ### Swift Package Manager
 
-Add the package to your `Package.swift`:
+Add the package in Xcode with **File -> Add Package Dependencies** and enter the following git URL.
 
-```swift
-dependencies: [
-    .package(url: "https://github.com/0xsequence/swift-sdk.git", exact: "0.1.0-alpha.1")
-]
 ```
-
-Or add it via Xcode: **File -> Add Package Dependencies**.
+https://github.com/0xsequence/swift-sdk.git
+```
 
 ### CocoaPods
 
