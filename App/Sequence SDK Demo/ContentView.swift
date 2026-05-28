@@ -196,7 +196,7 @@ final class AppViewModel: ObservableObject {
     @Published fileprivate var feeOptionSelectionRequest: FeeOptionSelectionRequest?
     @Published var useManualWalletSelection: Bool = false
     @Published var oms: OMSClient = OMSClient(
-        projectAccessKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE",
+        publishableKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE",
         projectId: "proj_014kg56dc0a75"
     )
 

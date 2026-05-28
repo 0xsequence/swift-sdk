@@ -3,7 +3,7 @@ import Testing
 @testable import OMS_SDK
 
 @Test func TestSupportedNetworks() throws {
-    let oms = OMSClient(projectAccessKey: "test", projectId: "test")
+    let oms = OMSClient(publishableKey: "test", projectId: "test")
     
     #expect(Network.supportedNetworks == [
         .mainnet,
