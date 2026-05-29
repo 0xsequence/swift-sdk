@@ -99,18 +99,18 @@ protocol WalletIndexerClient {
 
 @available(macOS 12.0, iOS 15.0, *)
 public final class IndexerClient: WalletIndexerClient {
-    private let projectAccessKey: String
+    private let publishableKey: String
     private let environment: OMSClientEnvironment
     private let client: HttpClient
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
     internal init(
-        projectAccessKey: String,
+        publishableKey: String,
         environment: OMSClientEnvironment,
         client: HttpClient = HttpClient()
     ) {
-        self.projectAccessKey = projectAccessKey
+        self.publishableKey = publishableKey
         self.environment = environment
         self.client = client
         self.encoder = JSONEncoder()
@@ -192,7 +192,7 @@ public final class IndexerClient: WalletIndexerClient {
 
     private func defaultHeaders() -> [String: String] {
         return [
-            "X-Access-Key": projectAccessKey,
+            "X-Access-Key": publishableKey,
             "Accept": "application/json"
         ]
     }

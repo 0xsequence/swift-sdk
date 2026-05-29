@@ -33,7 +33,7 @@ public class WalletClient {
     private let transactionPollingIntervals: [UInt64]
     
     private let projectId: String
-    private let projectAccessKey: String
+    private let publishableKey: String
     private let environment: OMSClientEnvironment
     private let credentialSession: WalletCredentialSession
     private let oidcRedirectAuthStore: any OidcRedirectAuthStore
@@ -50,9 +50,9 @@ public class WalletClient {
     var verifier = "";
     var challenge = "";
 
-    public init(projectAccessKey: String, projectId: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
+    public init(publishableKey: String, projectId: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
         self.projectId = projectId
-        self.projectAccessKey = projectAccessKey
+        self.publishableKey = publishableKey
         self.environment = environment
         let credentialSession = WalletCredentialSession(environment: environment, projectId: projectId)
         let restoredWallet = credentialSession.restore()
@@ -60,7 +60,7 @@ public class WalletClient {
         self.oidcNonceGenerator = OidcRedirectAuth.generateNonce
         let makeSignedClient: (any CredentialSigner) -> WaasWalletClient = { signer in
             Self.makeSignedClient(
-                projectAccessKey: projectAccessKey,
+                publishableKey: publishableKey,
                 projectId: projectId,
                 environment: environment,
                 signer: signer
@@ -78,17 +78,17 @@ public class WalletClient {
 
         self.signedClient = makeSignedClient(credentialSession.signer)
         self.publicClient = Self.makePublicClient(
-            projectAccessKey: projectAccessKey,
+            publishableKey: publishableKey,
             environment: environment
         )
         self.indexerClient = IndexerClient(
-            projectAccessKey: projectAccessKey,
+            publishableKey: publishableKey,
             environment: environment
         )
     }
 
     init(
-        projectAccessKey: String,
+        publishableKey: String,
         projectId: String,
         environment: OMSClientEnvironment = OMSClientEnvironment(),
         credentialSession: WalletCredentialSession,
@@ -101,7 +101,7 @@ public class WalletClient {
         transactionPollingIntervals: [UInt64]? = nil
     ) {
         self.projectId = projectId
-        self.projectAccessKey = projectAccessKey
+        self.publishableKey = publishableKey
         self.environment = environment
         let restoredWallet = credentialSession.restore()
         self.oidcRedirectAuthStore = oidcRedirectAuthStore ?? KeychainOidcRedirectAuthStore(projectId: projectId, environment: environment)
@@ -119,7 +119,7 @@ public class WalletClient {
         self.signedClient = signedClient
         self.publicClient = publicClient
         self.indexerClient = indexerClient ?? IndexerClient(
-            projectAccessKey: projectAccessKey,
+            publishableKey: publishableKey,
             environment: environment
         )
     }
@@ -1276,7 +1276,7 @@ public class WalletClient {
     }
 
     private static func makeSignedClient(
-        projectAccessKey: String,
+        publishableKey: String,
         projectId: String,
         environment: OMSClientEnvironment,
         signer: any CredentialSigner
@@ -1284,7 +1284,7 @@ public class WalletClient {
         return WaasWalletClient(
             baseURL: environment.walletApiUrl,
             transport: SignedWaasTransport(
-                projectAccessKey: projectAccessKey,
+                publishableKey: publishableKey,
                 scope: projectId,
                 signer: signer
             ),
@@ -1293,14 +1293,14 @@ public class WalletClient {
     }
 
     private static func makePublicClient(
-        projectAccessKey: String,
+        publishableKey: String,
         environment: OMSClientEnvironment
     ) -> WaasWalletPublicClient {
         return WaasWalletPublicClient(
             baseURL: environment.walletApiUrl,
             headers: {
                 [
-                    "X-Access-Key": projectAccessKey
+                    "X-Access-Key": publishableKey
                 ]
             }
         )

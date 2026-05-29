@@ -32,14 +32,14 @@
 The top-level entry point for the SDK. Requires iOS 15+ or macOS 12+.
 
 ```swift
-let oms = OMSClient(projectAccessKey: "your-key", projectId: "your-project-id")
+let oms = OMSClient(publishableKey: "your-key", projectId: "your-project-id")
 ```
 
 ### init
 
 ```swift
 init(
-    projectAccessKey: String,
+    publishableKey: String,
     projectId: String,
     environment: OMSClientEnvironment = OMSClientEnvironment()
 )
@@ -47,7 +47,7 @@ init(
 
 | Parameter | Type | Description |
 |---|---|---|
-| `projectAccessKey` | `String` | OMS project access key. |
+| `publishableKey` | `String` | OMS publishable key. |
 | `projectId` | `String` | OMS project ID. Used as the signed Wallet API request scope and keychain namespace. |
 | `environment` | `OMSClientEnvironment` | API endpoint configuration. |
 
@@ -80,7 +80,7 @@ Accessed via `oms.wallet`. Manages wallet authentication, non-extractable Keycha
 
 ```swift
 init(
-    projectAccessKey: String,
+    publishableKey: String,
     projectId: String,
     environment: OMSClientEnvironment = OMSClientEnvironment()
 )
