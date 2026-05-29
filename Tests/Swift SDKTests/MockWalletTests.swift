@@ -1614,7 +1614,7 @@ private func makeMockWalletClient(
         transport: transport
     )
     let client = WalletClient(
-        projectAccessKey: "test-access-key",
+        publishableKey: "test-publishable-key",
         projectId: projectId,
         environment: environment,
         credentialSession: credentialSession,

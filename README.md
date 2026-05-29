@@ -8,15 +8,11 @@ A Swift SDK for the OMS (Open Money Stack) platform. Provides email, OIDC ID-tok
 
 ### Swift Package Manager
 
-Add the package to your `Package.swift`:
+Add the package in Xcode with **File -> Add Package Dependencies** and enter the following git URL.
 
-```swift
-dependencies: [
-    .package(url: "https://github.com/0xsequence/swift-sdk.git", exact: "0.1.0-alpha.1")
-]
 ```
-
-Or add it via Xcode: **File -> Add Package Dependencies**.
+https://github.com/0xsequence/swift-sdk.git
+```
 
 ### CocoaPods
 
@@ -32,7 +28,7 @@ pod 'oms-client-swift-sdk', '0.1.0-alpha.1'
 import OMS_SDK
 
 let oms = OMSClient(
-    projectAccessKey: "your-project-access-key",
+    publishableKey: "your-publishable-key",
     projectId: "your-project-id"
 )
 
@@ -58,7 +54,7 @@ print("Transaction hash:", txResult.txnHash ?? "pending")
 
 `OMSClient` is the root object for the SDK. Create a single instance at app startup and keep it alive for the session. It constructs the SDK sub-clients and restores any saved keychain session automatically.
 
-Pass both your project access key and project ID when creating the client. The SDK uses `projectId` as the signed Wallet API request scope and as part of the keychain namespace for persisted wallet sessions and OIDC redirect state.
+Pass both your publishable key and project ID when creating the client. The SDK uses `projectId` as the signed Wallet API request scope and as part of the keychain namespace for persisted wallet sessions and OIDC redirect state.
 
 | Property | Type | Description |
 |---|---|---|
@@ -286,7 +282,7 @@ let env = OMSClientEnvironment(
 )
 
 let oms = OMSClient(
-    projectAccessKey: "your-key",
+    publishableKey: "your-key",
     projectId: "proj_staging",
     environment: env
 )
@@ -296,7 +292,7 @@ To keep the default endpoints and use a different project:
 
 ```swift
 let oms = OMSClient(
-    projectAccessKey: "your-key",
+    publishableKey: "your-key",
     projectId: "proj_staging"
 )
 ```
