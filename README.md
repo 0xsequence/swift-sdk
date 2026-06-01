@@ -299,11 +299,14 @@ let oms = OMSClient(
 
 ## Unit Formatting
 
-Use the top-level helpers to convert between display amounts and base-unit integer strings without floating-point precision loss.
+Use the top-level helpers to convert between display amounts and base-unit integer strings without floating-point precision loss. Fractional precision beyond `decimals` is rounded to the nearest base unit.
 
 ```swift
 let usdcRaw = try parseUnits(value: "12.34", decimals: 6)
 // "12340000"
+
+let rounded = try parseUnits(value: "1.235", decimals: 2)
+// "124"
 
 let usdcDisplay = try formatUnits(value: usdcRaw, decimals: 6)
 // "12.34"
