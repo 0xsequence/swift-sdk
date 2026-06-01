@@ -393,9 +393,6 @@ private struct TrailsWalletWindow: View {
                 badgeVariant: .info,
                 isLoading: vm.loadingAction == "Refresh data"
             )
-
-            StatusText(vm.balances.status)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -503,9 +500,6 @@ private struct TrailsTokenCard: View {
                     .foregroundStyle(OMSTokens.Color.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                Text(symbol)
-                    .font(trailsFont(size: 12))
-                    .foregroundStyle(OMSTokens.Color.mutedInk)
             }
 
             Spacer()
@@ -521,10 +515,6 @@ private struct TrailsTokenCard: View {
                         .monospacedDigit()
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
-                    Text(symbol)
-                        .font(trailsFont(size: 12))
-                        .foregroundStyle(OMSTokens.Color.mutedInk)
-                        .monospacedDigit()
                 }
             }
         }
@@ -1077,11 +1067,14 @@ private struct TrailsActionCard: View {
                 .disabled(vm.isBusy || sendDisabled)
             }
 
-            StatusText(prepareSendStatusText(status))
+            let visibleStatus = prepareSendStatusText(status)
+            if !visibleStatus.isEmpty {
+                StatusText(visibleStatus)
+            }
             PreparedSummaryView(summary: summary)
             TransactionOutput(result: result)
         }
-        .frame(maxWidth: .infinity, minHeight: 260, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
 

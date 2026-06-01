@@ -25,9 +25,9 @@ final class TrailsDemoViewModel: ObservableObject {
     @Published var preparedSwap: PreparedSwapTransaction?
     @Published var preparedDeposit: PreparedYieldTransactions?
     @Published var preparedEarn: PreparedSwapAndEarnPlan?
-    @Published var swapStatus = "Swap status: waiting to prepare."
-    @Published var depositStatus = "Deposit status: waiting to prepare."
-    @Published var earnStatus = "Swap and Deposit status: waiting to prepare."
+    @Published var swapStatus = ""
+    @Published var depositStatus = ""
+    @Published var earnStatus = ""
     @Published var lastSwapTransaction: TransactionResultViewState?
     @Published var lastDepositTransaction: TransactionResultViewState?
     @Published var lastEarnTransaction: TransactionResultViewState?
@@ -262,7 +262,7 @@ final class TrailsDemoViewModel: ObservableObject {
         swapPOLAmount = normalizeAmountInput(value)
         preparedSwap = nil
         lastSwapTransaction = nil
-        swapStatus = "Swap status: waiting to prepare."
+        swapStatus = ""
     }
 
     func updateDepositUSDCAmount(_ value: String) {
@@ -270,7 +270,7 @@ final class TrailsDemoViewModel: ObservableObject {
         depositUSDCAmount = normalizeAmountInput(value)
         preparedDeposit = nil
         lastDepositTransaction = nil
-        depositStatus = "Deposit status: waiting to prepare."
+        depositStatus = ""
     }
 
     func updateEarnPOLAmount(_ value: String) {
@@ -278,7 +278,7 @@ final class TrailsDemoViewModel: ObservableObject {
         earnPOLAmount = normalizeAmountInput(value)
         preparedEarn = nil
         lastEarnTransaction = nil
-        earnStatus = "Swap and Deposit status: waiting to prepare."
+        earnStatus = ""
     }
 
     func prepareSwap() {
@@ -594,9 +594,9 @@ final class TrailsDemoViewModel: ObservableObject {
         lastEarnTransaction = nil
         lastWithdrawTransactions = [:]
         withdrawStatuses = [:]
-        swapStatus = "Swap status: waiting to prepare."
-        depositStatus = "Deposit status: waiting to prepare."
-        earnStatus = "Swap and Deposit status: waiting to prepare."
+        swapStatus = ""
+        depositStatus = ""
+        earnStatus = ""
     }
 
     private func runAction(
@@ -695,7 +695,7 @@ final class TrailsDemoViewModel: ObservableObject {
                 usdc: formatTokenAmount(usdcRaw, decimals: 6, symbol: "USDC"),
                 polRaw: polRaw,
                 usdcRaw: usdcRaw,
-                status: "Balances updated."
+                status: ""
             )
             balances = next
             return next
