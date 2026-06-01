@@ -24,10 +24,10 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>com.sequence.omsclientkotlindemo</string>
+			<string>com.polygon.swifttrailsactions</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>omsclientkotlindemo</string>
+				<string>omsclientswiftdemo</string>
 			</array>
 		</dict>
 	</array>
@@ -46,8 +46,6 @@
 	<dict/>
 	<key>UIStatusBarStyle</key>
 	<string>UIStatusBarStyleDefault</string>
-	<key>UIUserInterfaceStyle</key>
-	<string>Light</string>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
@@ -61,5 +59,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>UIUserInterfaceStyle</key>
+	<string>Light</string>
 </dict>
 </plist>

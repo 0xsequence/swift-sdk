@@ -2,7 +2,7 @@ import Foundation
 @preconcurrency import OMS_SDK
 
 let trailsAPIURL = "https://trails-api.sequence.app"
-let trailsRedirectURI = "omsclientkotlindemo://auth/callback"
+let trailsRedirectURI = "omsclientswiftdemo://auth/callback"
 let defaultPublishableKey = "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE"
 let defaultProjectID = "proj_014kg56dc0a75"
 let trailsAccessKey = "AQAAAAAAAMCYJYqQIBlKgsdYZIC44JP84lo"
@@ -151,6 +151,25 @@ final class PreparedSwapExecutionState {
     var didExecuteIntent = false
 }
 
+final class PreparedYieldExecutionState {
+    private var submittedResponses: [SendTransactionResponse?] = []
+
+    func submittedResponse(at index: Int) -> SendTransactionResponse? {
+        guard submittedResponses.indices.contains(index) else { return nil }
+        return submittedResponses[index]
+    }
+
+    func recordSubmittedResponse(_ response: SendTransactionResponse, at index: Int) {
+        ensureCapacity(for: index)
+        submittedResponses[index] = response
+    }
+
+    private func ensureCapacity(for index: Int) {
+        guard index >= submittedResponses.count else { return }
+        submittedResponses.append(contentsOf: Array(repeating: nil, count: index - submittedResponses.count + 1))
+    }
+}
+
 struct PreparedSwapTransaction: Identifiable {
     let id = UUID()
     let title: String
@@ -164,13 +183,18 @@ struct PreparedSwapTransaction: Identifiable {
     let executionState = PreparedSwapExecutionState()
 }
 
-struct PreparedYieldTransactions: Identifiable, Equatable {
+struct PreparedYieldTransactions: Identifiable {
     let id = UUID()
     let title: String
     let transactions: [ParsedYieldTransaction]
     let postSendExpectation: PostSendExpectation
     let marketName: String?
     let marketID: String?
+    let executionState = PreparedYieldExecutionState()
+}
+
+final class PreparedSwapAndEarnExecutionState {
+    var preparedDeposit: PreparedYieldTransactions?
 }
 
 struct PreparedSwapAndEarnPlan: Identifiable {
@@ -178,6 +202,7 @@ struct PreparedSwapAndEarnPlan: Identifiable {
     let swap: PreparedSwapTransaction
     let market: YieldMarket
     let depositAmount: String
+    let executionState = PreparedSwapAndEarnExecutionState()
 }
 
 struct TransactionResultViewState: Identifiable, Equatable {
@@ -201,24 +226,29 @@ struct SignedInDataRefresh {
     let positions: [EarnPosition]?
 }
 
-func normalizeAmountInput(_ value: String) -> String {
-    var result = ""
-    var hasDecimal = false
+func normalizeAmountInput(_ value: String) -> String? {
+    let normalizedSeparator = value
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .replacingOccurrences(of: ",", with: ".")
+    var decimalCount = 0
 
-    for character in value.replacingOccurrences(of: ",", with: ".") {
+    for character in normalizedSeparator {
         if character >= "0" && character <= "9" {
-            result.append(character)
-        } else if character == "." && !hasDecimal {
-            result.append(character)
-            hasDecimal = true
+            continue
         }
+        if character == "." {
+            decimalCount += 1
+            guard decimalCount <= 1 else { return nil }
+            continue
+        }
+        return nil
     }
 
-    return result.first == "." ? "0\(result)" : result
+    return normalizedSeparator.first == "." ? "0\(normalizedSeparator)" : normalizedSeparator
 }
 
 func parsePositiveAmount(_ value: String, decimals: Int, label: String) throws -> String {
-    let normalized = normalizeAmountInput(value).trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalized = try requireNormalizedAmountInput(value, label: label)
     guard !normalized.isEmpty else {
         throw TrailsDemoError(message: "Enter a \(label) amount.")
     }
@@ -229,6 +259,13 @@ func parsePositiveAmount(_ value: String, decimals: Int, label: String) throws -
     }
 
     return raw
+}
+
+func requireNormalizedAmountInput(_ value: String, label: String) throws -> String {
+    guard let normalized = normalizeAmountInput(value) else {
+        throw TrailsDemoError(message: "Enter a valid \(label) amount.")
+    }
+    return normalized
 }
 
 func formatTokenAmount(_ rawBalance: String?, decimals: Int, symbol: String) -> String {

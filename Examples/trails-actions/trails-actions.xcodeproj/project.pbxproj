@@ -266,10 +266,11 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 2468N4XT94;
+				DEVELOPMENT_TEAM = 5987P7MLK8;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "trails-actions/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "OMS SDK Demo";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -281,7 +282,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.sequence.trailsactions;
+				PRODUCT_BUNDLE_IDENTIFIER = com.polygon.swifttrailsactions;
 				PRODUCT_MODULE_NAME = TrailsActions;
 				PRODUCT_NAME = "trails-actions";
 				SDKROOT = iphoneos;
@@ -296,10 +297,11 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 2468N4XT94;
+				DEVELOPMENT_TEAM = 5987P7MLK8;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "trails-actions/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "OMS SDK Demo";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -311,7 +313,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.sequence.trailsactions;
+				PRODUCT_BUNDLE_IDENTIFIER = com.polygon.swifttrailsactions;
 				PRODUCT_MODULE_NAME = TrailsActions;
 				PRODUCT_NAME = "trails-actions";
 				SDKROOT = iphoneos;

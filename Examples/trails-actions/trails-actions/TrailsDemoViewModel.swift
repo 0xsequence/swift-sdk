@@ -57,6 +57,7 @@ final class TrailsDemoViewModel: ObservableObject {
         }
     )
     private var selectedFeeOption: FeeOptionWithBalance?
+    private var preparedWithdraws: [String: PreparedYieldTransactions] = [:]
     private let manualWalletSelectionKey = "oms-trails-actions-manual-wallet-selection"
 
     init() {
@@ -258,24 +259,27 @@ final class TrailsDemoViewModel: ObservableObject {
     }
 
     func updateSwapPOLAmount(_ value: String) {
+        guard let normalized = normalizeAmountInput(value) else { return }
         cancelFeeSelection(message: "Amount changed")
-        swapPOLAmount = normalizeAmountInput(value)
+        swapPOLAmount = normalized
         preparedSwap = nil
         lastSwapTransaction = nil
         swapStatus = ""
     }
 
     func updateDepositUSDCAmount(_ value: String) {
+        guard let normalized = normalizeAmountInput(value) else { return }
         cancelFeeSelection(message: "Amount changed")
-        depositUSDCAmount = normalizeAmountInput(value)
+        depositUSDCAmount = normalized
         preparedDeposit = nil
         lastDepositTransaction = nil
         depositStatus = ""
     }
 
     func updateEarnPOLAmount(_ value: String) {
+        guard let normalized = normalizeAmountInput(value) else { return }
         cancelFeeSelection(message: "Amount changed")
-        earnPOLAmount = normalizeAmountInput(value)
+        earnPOLAmount = normalized
         preparedEarn = nil
         lastEarnTransaction = nil
         earnStatus = ""
@@ -389,21 +393,13 @@ final class TrailsDemoViewModel: ObservableObject {
                     clearFeeOptions()
                 }
 
-                var lastResult: TransactionResultViewState?
-                for (index, transaction) in preparedDeposit.transactions.enumerated() {
-                    let label = preparedDeposit.transactions.count == 1
-                        ? "transaction"
-                        : "transaction \(index + 1)/\(preparedDeposit.transactions.count)"
-                    depositStatus = "Deposit status: sending \(label)..."
-                    let response = try await sendYieldTransaction(transaction)
-                    lastResult = TransactionResultViewState(response)
-                    lastDepositTransaction = lastResult
-                    depositStatus = "Deposit status: sent \(label) \(shortHash(lastResult?.value ?? ""))."
-                }
-
-                guard let lastResult else {
-                    throw TrailsDemoError.missingYieldTransaction
-                }
+                let lastResult = try await sendPreparedYieldTransactions(
+                    preparedDeposit,
+                    statusPrefix: "Deposit status",
+                    label: transactionLabel,
+                    setStatus: { depositStatus = $0 },
+                    onResult: { lastDepositTransaction = $0 }
+                )
 
                 depositStatus = "Deposit status: sent \(shortHash(lastResult.value)). Refreshing balances and earn positions..."
                 await waitForPostSendRefresh(
@@ -456,26 +452,26 @@ final class TrailsDemoViewModel: ObservableObject {
                     staleStatus: "Swap and Deposit status: USDC output has not appeared yet."
                 )
 
-                let deposit = try await prepareDepositUSDC(
-                    walletAddress: requireWalletAddress(),
-                    usdcAmount: preparedEarn.depositAmount,
-                    preferredMarket: preparedEarn.market
+                let deposit: PreparedYieldTransactions
+                if let preparedDeposit = preparedEarn.executionState.preparedDeposit {
+                    deposit = preparedDeposit
+                    appendLog("Resuming prepared earn deposit transactions.")
+                } else {
+                    deposit = try await prepareDepositUSDC(
+                        walletAddress: requireWalletAddress(),
+                        usdcAmount: preparedEarn.depositAmount,
+                        preferredMarket: preparedEarn.market
+                    )
+                    preparedEarn.executionState.preparedDeposit = deposit
+                }
+
+                let lastDepositResult = try await sendPreparedYieldTransactions(
+                    deposit,
+                    statusPrefix: "Swap and Deposit status",
+                    label: depositTransactionLabel,
+                    setStatus: { earnStatus = $0 },
+                    onResult: { lastEarnTransaction = $0 }
                 )
-
-                var lastDepositResult: TransactionResultViewState?
-                for (index, transaction) in deposit.transactions.enumerated() {
-                    let label = deposit.transactions.count == 1
-                        ? "deposit transaction"
-                        : "deposit transaction \(index + 1)/\(deposit.transactions.count)"
-                    earnStatus = "Swap and Deposit status: sending \(label)..."
-                    let response = try await sendYieldTransaction(transaction)
-                    lastDepositResult = TransactionResultViewState(response)
-                    lastEarnTransaction = lastDepositResult
-                }
-
-                guard let lastDepositResult else {
-                    throw TrailsDemoError.missingYieldTransaction
-                }
 
                 await waitForPostSendRefresh(
                     initialBalances: initialBalances,
@@ -511,29 +507,28 @@ final class TrailsDemoViewModel: ObservableObject {
                     clearFeeOptions()
                 }
 
-                let prepared = try await prepareWithdrawEarnPosition(
-                    walletAddress: requireWalletAddress(),
-                    position: position
+                let prepared: PreparedYieldTransactions
+                if let preparedWithdraw = preparedWithdraws[position.id] {
+                    prepared = preparedWithdraw
+                    appendLog("Resuming withdraw for \(position.marketName).")
+                } else {
+                    prepared = try await prepareWithdrawEarnPosition(
+                        walletAddress: requireWalletAddress(),
+                        position: position
+                    )
+                    preparedWithdraws[position.id] = prepared
+                }
+
+                let lastResult = try await sendPreparedYieldTransactions(
+                    prepared,
+                    statusPrefix: "Withdraw status",
+                    label: transactionLabel,
+                    setStatus: { status in
+                        withdrawStatuses[position.id] = status
+                        earnPositionsStatus = status
+                    },
+                    onResult: { lastWithdrawTransactions[position.id] = $0 }
                 )
-                var lastResult: TransactionResultViewState?
-
-                for (index, transaction) in prepared.transactions.enumerated() {
-                    let label = prepared.transactions.count == 1
-                        ? "transaction"
-                        : "transaction \(index + 1)/\(prepared.transactions.count)"
-                    withdrawStatuses[position.id] = "Withdraw status: sending \(label)..."
-                    earnPositionsStatus = "Withdraw status: sending \(label)..."
-                    let response = try await sendYieldTransaction(transaction)
-                    let result = TransactionResultViewState(response)
-                    lastResult = result
-                    lastWithdrawTransactions[position.id] = result
-                    withdrawStatuses[position.id] = "Withdraw status: sent \(label) \(shortHash(result.value))."
-                    earnPositionsStatus = "Withdraw status: sent \(label) \(shortHash(result.value))."
-                }
-
-                guard let lastResult else {
-                    throw TrailsDemoError.missingYieldTransaction
-                }
 
                 await waitForPostSendRefresh(
                     initialBalances: initialBalances,
@@ -594,6 +589,7 @@ final class TrailsDemoViewModel: ObservableObject {
         lastEarnTransaction = nil
         lastWithdrawTransactions = [:]
         withdrawStatuses = [:]
+        preparedWithdraws = [:]
         swapStatus = ""
         depositStatus = ""
         earnStatus = ""
@@ -819,7 +815,7 @@ final class TrailsDemoViewModel: ObservableObject {
         preferredMarket: YieldMarket? = nil
     ) async throws -> PreparedYieldTransactions {
         _ = try parsePositiveAmount(usdcAmount, decimals: 6, label: "USDC")
-        let amount = normalizeAmountInput(usdcAmount)
+        let amount = try requireNormalizedAmountInput(usdcAmount, label: "USDC")
         let market: YieldMarket
         if let preferredMarket {
             market = preferredMarket
@@ -1008,6 +1004,43 @@ final class TrailsDemoViewModel: ObservableObject {
         )
     }
 
+    private func sendPreparedYieldTransactions(
+        _ prepared: PreparedYieldTransactions,
+        statusPrefix: String,
+        label: (_ index: Int, _ total: Int) -> String,
+        setStatus: (String) -> Void,
+        onResult: (TransactionResultViewState) -> Void
+    ) async throws -> TransactionResultViewState {
+        var lastResult: TransactionResultViewState?
+
+        for (index, transaction) in prepared.transactions.enumerated() {
+            let transactionLabel = label(index, prepared.transactions.count)
+
+            if let submittedResponse = prepared.executionState.submittedResponse(at: index) {
+                let result = TransactionResultViewState(submittedResponse)
+                lastResult = result
+                onResult(result)
+                setStatus("\(statusPrefix): already sent \(transactionLabel) \(shortHash(result.value)).")
+                continue
+            }
+
+            setStatus("\(statusPrefix): sending \(transactionLabel)...")
+            let response = try await sendYieldTransaction(transaction)
+            prepared.executionState.recordSubmittedResponse(response, at: index)
+
+            let result = TransactionResultViewState(response)
+            lastResult = result
+            onResult(result)
+            setStatus("\(statusPrefix): sent \(transactionLabel) \(shortHash(result.value)).")
+        }
+
+        guard let lastResult else {
+            throw TrailsDemoError.missingYieldTransaction
+        }
+
+        return lastResult
+    }
+
     private func waitForPostSendRefresh(
         initialBalances: BalanceState,
         initialEarnPositions: [EarnPosition],
@@ -1156,4 +1189,12 @@ private func nonEmptyString(_ value: String?) -> String? {
         return nil
     }
     return trimmed
+}
+
+private func transactionLabel(index: Int, total: Int) -> String {
+    total == 1 ? "transaction" : "transaction \(index + 1)/\(total)"
+}
+
+private func depositTransactionLabel(index: Int, total: Int) -> String {
+    total == 1 ? "deposit transaction" : "deposit transaction \(index + 1)/\(total)"
 }
