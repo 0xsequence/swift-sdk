@@ -695,7 +695,7 @@ final class TrailsDemoViewModel: ObservableObject {
                 lastEarnTransaction = swapResult
                 let selectedFee = preparedEarn.swap.executionState.selectedFeeOption ?? selectedFeeOption
 
-                await waitForPostSendRefresh(
+                let didReceiveSwapOutput = await waitForPostSendRefresh(
                     initialBalances: initialBalances,
                     initialEarnPositions: initialPositions,
                     expectation: preparedEarn.swap.postSendExpectation,
@@ -705,6 +705,10 @@ final class TrailsDemoViewModel: ObservableObject {
                     successStatus: "Swap and Deposit status: USDC output detected. Preparing deposit step...",
                     staleStatus: "Swap and Deposit status: USDC output has not appeared yet."
                 )
+                guard didReceiveSwapOutput else {
+                    appendLog("Skipping deposit because the swap output was not detected.")
+                    return
+                }
 
                 let deposit: PreparedYieldTransactions
                 if let preparedDeposit = preparedEarn.executionState.preparedDeposit {
@@ -854,6 +858,11 @@ final class TrailsDemoViewModel: ObservableObject {
         operation: () async throws -> Void,
         onFailure: ((Error) -> Void)? = nil
     ) async {
+        if let loadingAction {
+            appendLog("! \(label) skipped because \(loadingAction) is still running.")
+            return
+        }
+
         appendLog("> \(label)")
         loadingAction = label
         defer { loadingAction = nil }
@@ -1291,6 +1300,7 @@ final class TrailsDemoViewModel: ObservableObject {
         return lastResult
     }
 
+    @discardableResult
     private func waitForPostSendRefresh(
         initialBalances: BalanceState,
         initialEarnPositions: [EarnPosition],
@@ -1300,7 +1310,7 @@ final class TrailsDemoViewModel: ObservableObject {
         pendingStatus: String,
         successStatus: String,
         staleStatus: String
-    ) async {
+    ) async -> Bool {
         for attempt in 1...postSendRefreshAttempts {
             let suffix = attempt == 1 ? "..." : " (\(attempt)/\(postSendRefreshAttempts))..."
             setStatus("\(pendingStatus)\(suffix)")
@@ -1314,7 +1324,7 @@ final class TrailsDemoViewModel: ObservableObject {
                 refreshed: refreshed
             ) {
                 setStatus(successStatus)
-                return
+                return true
             }
 
             if attempt < postSendRefreshAttempts {
@@ -1323,6 +1333,7 @@ final class TrailsDemoViewModel: ObservableObject {
         }
 
         setStatus("\(staleStatus) Use Refresh to check again.")
+        return false
     }
 
     private func hasPostSendDataUpdate(
