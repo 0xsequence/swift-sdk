@@ -121,16 +121,13 @@ import Testing
     #expect(try formatUnits(value: "1", decimals: 18) == "0.000000000000000001")
 }
 
-@Test func TestParseUnitsRejectsTooManyDecimals() {
-    do {
-        _ = try parseUnits(value: "1.234", decimals: 2)
-        #expect(Bool(false))
-    } catch UnitConversionError.fractionalComponentExceedsDecimals(let value, let decimals) {
-        #expect(value == "1.234")
-        #expect(decimals == 2)
-    } catch {
-        #expect(Bool(false))
-    }
+@Test func TestParseUnitsRoundsExtraPrecisionToNearestBaseUnit() throws {
+    #expect(try parseUnits(value: "1.2345", decimals: 2) == "123")
+    #expect(try parseUnits(value: "1.235", decimals: 2) == "124")
+    #expect(try parseUnits(value: "1.995", decimals: 2) == "200")
+    #expect(try parseUnits(value: "1.5", decimals: 0) == "2")
+    #expect(try parseUnits(value: "-1.5", decimals: 0) == "-2")
+    #expect(try parseUnits(value: "0.0000000000000000005", decimals: 18) == "1")
 }
 
 @Test func TestSessionStateParsesExpiresAt() throws {

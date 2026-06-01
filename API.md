@@ -539,11 +539,14 @@ Top-level helpers convert between display amounts and base-unit integer strings 
 func parseUnits(value: String, decimals: Int = 18) throws -> String
 ```
 
-Converts a decimal amount into its base-unit integer string.
+Converts a decimal amount into its base-unit integer string. Fractional precision beyond `decimals` is rounded to the nearest base unit.
 
 ```swift
 let raw = try parseUnits(value: "12.34", decimals: 6)
 // "12340000"
+
+let rounded = try parseUnits(value: "1.235", decimals: 2)
+// "124"
 ```
 
 ### formatUnits
@@ -810,7 +813,7 @@ enum UnitConversionError: Error, Equatable {
 }
 ```
 
-Thrown by `parseUnits` and `formatUnits`.
+Thrown by `parseUnits` and `formatUnits`. The `fractionalComponentExceedsDecimals` case is retained for source compatibility; `parseUnits` rounds excess fractional precision to the nearest base unit.
 
 ### SendTransactionRequest
 

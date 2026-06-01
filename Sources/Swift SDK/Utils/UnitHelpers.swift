@@ -33,18 +33,18 @@ public func parseUnits(value: String, decimals: Int = 18) throws -> String {
         throw UnitConversionError.invalidValue(value)
     }
 
-    let normalizedFractionalPart = try normalizeFractionalPart(
-        fractionalPart,
-        decimals: decimals,
-        originalValue: value
+    let rawValue = roundedRawValue(
+        wholePart: wholePart,
+        fractionalPart: fractionalPart,
+        decimals: decimals
     )
 
-    let rawValue = trimLeadingZeros(wholePart + normalizedFractionalPart)
-    guard rawValue != "0" else {
+    let normalizedRawValue = trimLeadingZeros(rawValue)
+    guard normalizedRawValue != "0" else {
         return "0"
     }
 
-    return sign.isNegative ? "-\(rawValue)" : rawValue
+    return sign.isNegative ? "-\(normalizedRawValue)" : normalizedRawValue
 }
 
 public func formatUnits(
@@ -109,30 +109,55 @@ private func parseSign(from value: String) -> (isNegative: Bool, value: String) 
     return (false, value)
 }
 
-private func normalizeFractionalPart(
-    _ fractionalPart: String,
-    decimals: Int,
-    originalValue: String
-) throws -> String {
+private func roundedRawValue(
+    wholePart: String,
+    fractionalPart: String,
+    decimals: Int
+) -> String {
+    let normalizedFractionalPart: String
+    let shouldRound: Bool
+
     if fractionalPart.count > decimals {
-        let allowedEndIndex = fractionalPart.index(fractionalPart.startIndex, offsetBy: decimals)
-        let extraFractionalPart = fractionalPart[allowedEndIndex...]
-
-        guard extraFractionalPart.allSatisfy({ $0 == "0" }) else {
-            throw UnitConversionError.fractionalComponentExceedsDecimals(
-                value: originalValue,
-                decimals: decimals
-            )
-        }
-
-        return String(fractionalPart[..<allowedEndIndex])
+        let roundingIndex = fractionalPart.index(fractionalPart.startIndex, offsetBy: decimals)
+        normalizedFractionalPart = String(fractionalPart[..<roundingIndex])
+        shouldRound = fractionalPart[roundingIndex] >= "5"
+    } else {
+        normalizedFractionalPart = fractionalPart
+            + String(repeating: "0", count: decimals - fractionalPart.count)
+        shouldRound = false
     }
 
-    return fractionalPart + String(repeating: "0", count: decimals - fractionalPart.count)
+    let rawValue = wholePart + normalizedFractionalPart
+    return shouldRound ? incrementDecimalString(rawValue) : rawValue
 }
 
 private func isDigits(_ value: String) -> Bool {
     value.allSatisfy { $0 >= "0" && $0 <= "9" }
+}
+
+private func incrementDecimalString(_ value: String) -> String {
+    var digits = Array(value.utf8)
+    guard !digits.isEmpty else {
+        return "1"
+    }
+
+    var index = digits.count - 1
+    while true {
+        if digits[index] == UInt8(ascii: "9") {
+            digits[index] = UInt8(ascii: "0")
+            if index == 0 {
+                digits.insert(UInt8(ascii: "1"), at: 0)
+                break
+            }
+
+            index -= 1
+        } else {
+            digits[index] += 1
+            break
+        }
+    }
+
+    return String(decoding: digits, as: UTF8.self)
 }
 
 private func trimLeadingZeros(_ value: String) -> String {
