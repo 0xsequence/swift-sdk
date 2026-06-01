@@ -84,6 +84,92 @@ import Testing
     #expect(storedCredentials?.sessionEmail == "user@example.com")
 }
 
+@Test func TestWalletRestoresUnexpiredPersistedSession() throws {
+    let environment = OMSClientEnvironment(walletApiUrl: "https://wallet.example.test")
+    let projectId = "proj_restore_unexpired"
+    let keychain = InMemoryKeychain()
+    let signer = MockCredentialSigner()
+    let expiresAt = "2999-01-01T00:00:00Z"
+    try persistRestorableCredentials(
+        keychain: keychain,
+        environment: environment,
+        projectId: projectId,
+        walletId: "wallet-restore",
+        walletAddress: "0xrestore",
+        expiresAt: expiresAt
+    )
+
+    let fixture = makeMockWalletClient(
+        environment: environment,
+        projectId: projectId,
+        keychain: keychain,
+        signer: signer
+    )
+
+    #expect(fixture.client.walletId == "wallet-restore")
+    #expect(fixture.client.walletAddress == "0xrestore")
+    #expect(fixture.client.session.walletAddress == "0xrestore")
+    #expect(fixture.client.session.expiresAt ?? .distantPast > Date())
+    #expect(try fixture.storedCredentials()?.expiresAt == expiresAt)
+    #expect(signer.hasStoredCredential == true)
+}
+
+@Test func TestWalletRestoreClearsExpiredPersistedSession() throws {
+    let environment = OMSClientEnvironment(walletApiUrl: "https://wallet.example.test")
+    let projectId = "proj_restore_expired"
+    let keychain = InMemoryKeychain()
+    let signer = MockCredentialSigner()
+    try persistRestorableCredentials(
+        keychain: keychain,
+        environment: environment,
+        projectId: projectId,
+        walletId: "wallet-expired",
+        walletAddress: "0xexpired",
+        expiresAt: "2000-01-01T00:00:00Z"
+    )
+
+    let fixture = makeMockWalletClient(
+        environment: environment,
+        projectId: projectId,
+        keychain: keychain,
+        signer: signer
+    )
+
+    #expect(fixture.client.walletId == "")
+    #expect(fixture.client.walletAddress == "")
+    #expect(fixture.client.session == SessionState(walletAddress: nil))
+    #expect(try fixture.storedCredentials() == nil)
+    #expect(signer.hasStoredCredential == false)
+}
+
+@Test func TestWalletRestoreClearsMissingOrMalformedSessionExpiry() throws {
+    for expiresAt in [nil, "", "not-a-date"] as [String?] {
+        let environment = OMSClientEnvironment(walletApiUrl: "https://wallet.example.test")
+        let projectId = "proj_restore_invalid_\(UUID().uuidString)"
+        let keychain = InMemoryKeychain()
+        let signer = MockCredentialSigner()
+        try persistRestorableCredentials(
+            keychain: keychain,
+            environment: environment,
+            projectId: projectId,
+            walletId: "wallet-invalid",
+            walletAddress: "0xinvalid",
+            expiresAt: expiresAt
+        )
+
+        let fixture = makeMockWalletClient(
+            environment: environment,
+            projectId: projectId,
+            keychain: keychain,
+            signer: signer
+        )
+
+        #expect(fixture.client.session == SessionState(walletAddress: nil))
+        #expect(try fixture.storedCredentials() == nil)
+        #expect(signer.hasStoredCredential == false)
+    }
+}
+
 @Test func TestWalletCompleteEmailAuthFetchesPaginatedWallets() async throws {
     let fixture = makeMockWalletClient()
     let firstWallet = testWallet(id: "wallet-1", address: "0x1111111111111111111111111111111111111111")
@@ -1587,18 +1673,18 @@ private struct MockWalletClientFixture {
 }
 
 private func makeMockWalletClient(
+    environment: OMSClientEnvironment = OMSClientEnvironment(
+        walletApiUrl: "https://wallet.example.test"
+    ),
+    projectId: String = "proj_\(UUID().uuidString)",
+    keychain: InMemoryKeychain = InMemoryKeychain(),
+    signer: MockCredentialSigner = MockCredentialSigner(),
+    oidcRedirectAuthStore: InMemoryOidcRedirectAuthStore = InMemoryOidcRedirectAuthStore(),
     oidcNonceGenerator: @escaping () throws -> String = OidcRedirectAuth.generateNonce,
     transactionPollingIntervals: [UInt64]? = nil
 ) -> MockWalletClientFixture {
-    let environment = OMSClientEnvironment(
-        walletApiUrl: "https://wallet.example.test"
-    )
-    let projectId = "proj_\(UUID().uuidString)"
     let transport = MockWaasTransport()
-    let keychain = InMemoryKeychain()
-    let signer = MockCredentialSigner()
     let indexerClient = MockWalletIndexerClient()
-    let oidcRedirectAuthStore = InMemoryOidcRedirectAuthStore()
     let credentialSession = WalletCredentialSession(
         environment: environment,
         projectId: projectId,
@@ -1637,6 +1723,29 @@ private func makeMockWalletClient(
         projectId: projectId,
         oidcRedirectAuthStore: oidcRedirectAuthStore,
         indexerClient: indexerClient
+    )
+}
+
+private func persistRestorableCredentials(
+    keychain: InMemoryKeychain,
+    environment: OMSClientEnvironment,
+    projectId: String,
+    walletId: String,
+    walletAddress: String,
+    expiresAt: String?
+) throws {
+    let credentials = StorableCredentials(
+        walletId: walletId,
+        walletAddress: walletAddress,
+        signerCredentialId: "0xmock-credential",
+        alg: .ecdsaP256Sha256,
+        expiresAt: expiresAt,
+        loginType: .email,
+        sessionEmail: "user@example.com"
+    )
+    try keychain.set(
+        credentials.jsonString(),
+        forKey: Constants.credentialsStorageKey(environment: environment, scope: projectId)
     )
 }
 
