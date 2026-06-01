@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct Sequence_SDK_DemoApp: App {
+struct OMSSDKDemoApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()

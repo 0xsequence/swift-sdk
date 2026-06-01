@@ -3,7 +3,7 @@ import Foundation
 
 let trailsAPIURL = "https://trails-api.sequence.app"
 let trailsRedirectURI = "omsclientkotlindemo://auth/callback"
-let defaultProjectAccessKey = "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE"
+let defaultPublishableKey = "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE"
 let defaultProjectID = "proj_014kg56dc0a75"
 let trailsAccessKey = "AQAAAAAAAMCYJYqQIBlKgsdYZIC44JP84lo"
 let trailsAccessKeyHeader = "X-Access-Key"
@@ -144,6 +144,13 @@ enum PostSendExpectation: Equatable {
     case earnMarketDecrease(marketID: String)
 }
 
+final class PreparedSwapExecutionState {
+    var submittedResponse: SendTransactionResponse?
+    var selectedFeeOption: FeeOptionWithBalance?
+    var committedIntentID: String?
+    var didExecuteIntent = false
+}
+
 struct PreparedSwapTransaction: Identifiable {
     let id = UUID()
     let title: String
@@ -154,6 +161,7 @@ struct PreparedSwapTransaction: Identifiable {
     let postSendExpectation: PostSendExpectation
     let marketName: String?
     let marketID: String?
+    let executionState = PreparedSwapExecutionState()
 }
 
 struct PreparedYieldTransactions: Identifiable, Equatable {

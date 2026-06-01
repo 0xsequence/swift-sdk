@@ -40,7 +40,7 @@ final class TrailsDemoViewModel: ObservableObject {
     @Published var safariAuthSession: SafariAuthSession?
 
     let oms = OMSClient(
-        projectAccessKey: defaultProjectAccessKey,
+        publishableKey: defaultPublishableKey,
         projectId: defaultProjectID
     )
 
@@ -350,10 +350,12 @@ final class TrailsDemoViewModel: ObservableObject {
                 }
 
                 swapStatus = "Swap status: sending..."
-                let response = try await sendPreparedSwap(preparedSwap)
+                let response = try await sendPreparedSwap(preparedSwap) { response in
+                    lastSwapTransaction = TransactionResultViewState(response)
+                }
                 let result = TransactionResultViewState(response)
                 lastSwapTransaction = result
-                let selectedFee = selectedFeeOption
+                let selectedFee = preparedSwap.executionState.selectedFeeOption ?? selectedFeeOption
                 swapStatus = "Swap status: sent \(shortHash(result.value)). Refreshing balances..."
                 await waitForPostSendRefresh(
                     initialBalances: initialBalances,
@@ -436,10 +438,12 @@ final class TrailsDemoViewModel: ObservableObject {
                 }
 
                 earnStatus = "Swap and Deposit status: sending swap step..."
-                let swapResponse = try await sendPreparedSwap(preparedEarn.swap)
+                let swapResponse = try await sendPreparedSwap(preparedEarn.swap) { response in
+                    lastEarnTransaction = TransactionResultViewState(response)
+                }
                 let swapResult = TransactionResultViewState(swapResponse)
                 lastEarnTransaction = swapResult
-                let selectedFee = selectedFeeOption
+                let selectedFee = preparedEarn.swap.executionState.selectedFeeOption ?? selectedFeeOption
 
                 await waitForPostSendRefresh(
                     initialBalances: initialBalances,
@@ -912,20 +916,45 @@ final class TrailsDemoViewModel: ObservableObject {
         return parsed
     }
 
-    private func sendPreparedSwap(_ prepared: PreparedSwapTransaction) async throws -> SendTransactionResponse {
-        let response = try await oms.wallet.sendTransaction(
-            network: polygonNetwork,
-            request: prepared.request,
-            selectFeeOption: .custom { options in
-                try await self.selectFeeOption(options)
-            }
-        )
+    private func sendPreparedSwap(
+        _ prepared: PreparedSwapTransaction,
+        onWalletSent: (SendTransactionResponse) -> Void
+    ) async throws -> SendTransactionResponse {
+        let state = prepared.executionState
+        let response: SendTransactionResponse
 
-        let intentID = try await trailsIntentClient.commitIntent(prepared.intent)
-        try await trailsIntentClient.executeIntent(
-            intentID: intentID,
-            depositTransactionHash: response.txnHash
-        )
+        if let submittedResponse = state.submittedResponse {
+            response = submittedResponse
+            appendLog("Resuming Trails intent for sent swap \(shortHash(response.txnHash ?? response.txnId)).")
+        } else {
+            response = try await oms.wallet.sendTransaction(
+                network: polygonNetwork,
+                request: prepared.request,
+                selectFeeOption: .custom { options in
+                    try await self.selectFeeOption(options)
+                }
+            )
+            state.submittedResponse = response
+            state.selectedFeeOption = selectedFeeOption
+        }
+
+        onWalletSent(response)
+
+        if state.committedIntentID == nil {
+            state.committedIntentID = try await trailsIntentClient.commitIntent(prepared.intent)
+        }
+
+        guard let intentID = state.committedIntentID else {
+            throw TrailsDemoError(message: "Trails commit did not return an intent id.")
+        }
+
+        if !state.didExecuteIntent {
+            try await trailsIntentClient.executeIntent(
+                intentID: intentID,
+                depositTransactionHash: response.txnHash
+            )
+            state.didExecuteIntent = true
+        }
 
         return response
     }

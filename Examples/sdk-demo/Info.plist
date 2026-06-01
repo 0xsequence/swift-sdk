@@ -22,7 +22,7 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>com.polygon.Sequence-SDK-Demo</string>
+			<string>com.polygon.oms-sdk-demo</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>omsclientswiftdemo</string>
