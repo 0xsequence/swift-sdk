@@ -1,6 +1,260 @@
 import Combine
 import Foundation
-@preconcurrency import OMS_SDK
+import OMS_SDK
+
+// Serializes OMS wallet/indexer access so the Swift 6 example never sends the
+// mutable wallet client directly out of the MainActor view model.
+private final class TrailsOMSStorage: @unchecked Sendable {
+    let oms: OMSClient
+
+    init(publishableKey: String, projectId: String) {
+        self.oms = OMSClient(
+            publishableKey: publishableKey,
+            projectId: projectId
+        )
+    }
+}
+
+actor TrailsOMSClient {
+    private let storage: TrailsOMSStorage
+    private var tail: Task<Void, Never>?
+
+    nonisolated let initialSession: SessionState
+
+    init(publishableKey: String, projectId: String) {
+        let storage = TrailsOMSStorage(publishableKey: publishableKey, projectId: projectId)
+        self.storage = storage
+        self.initialSession = storage.oms.wallet.session
+    }
+
+    func session() async -> SessionState {
+        await perform { client in
+            client.wallet.session
+        }
+    }
+
+    func startEmailAuth(email: String) async throws {
+        try await performThrowing { client in
+            try await client.wallet.startEmailAuth(email: email)
+        }
+    }
+
+    func completeEmailAuth(
+        code: String,
+        walletSelection: WalletSelectionBehavior
+    ) async throws -> TrailsCompleteAuthResult {
+        let result = try await performThrowing { client in
+            try await client.wallet.completeEmailAuth(
+                code: code,
+                walletSelection: walletSelection
+            )
+        }
+        return wrap(result)
+    }
+
+    func startOidcRedirectAuth(
+        provider: OidcProviderConfig,
+        redirectUri: String
+    ) async throws -> StartOidcRedirectAuthResult {
+        try await performThrowing { client in
+            try await client.wallet.startOidcRedirectAuth(
+                provider: provider,
+                redirectUri: redirectUri
+            )
+        }
+    }
+
+    func handleOidcRedirectCallback(
+        _ callbackUrl: String,
+        walletSelection: WalletSelectionBehavior
+    ) async throws -> TrailsOidcRedirectAuthResult {
+        let result = try await performThrowing { client in
+            try await client.wallet.handleOidcRedirectCallback(
+                callbackUrl,
+                walletSelection: walletSelection
+            )
+        }
+        return wrap(result)
+    }
+
+    func signOut() async throws {
+        try await performThrowing { client in
+            try client.wallet.signOut()
+        }
+    }
+
+    func getNativeTokenBalance(
+        network: Network,
+        walletAddress: String
+    ) async throws -> TokenBalance? {
+        try await performThrowing { client in
+            try await client.indexer.getNativeTokenBalance(
+                network: network,
+                walletAddress: walletAddress
+            )
+        }
+    }
+
+    func getTokenBalances(
+        network: Network,
+        contractAddress: String,
+        walletAddress: String,
+        includeMetadata: Bool
+    ) async throws -> TokenBalancesResult {
+        try await performThrowing { client in
+            try await client.indexer.getTokenBalances(
+                network: network,
+                contractAddress: contractAddress,
+                walletAddress: walletAddress,
+                includeMetadata: includeMetadata
+            )
+        }
+    }
+
+    func sendTransaction(
+        network: Network,
+        request: SendTransactionRequest,
+        selectFeeOption: FeeOptionSelector
+    ) async throws -> SendTransactionResponse {
+        try await performThrowing { client in
+            try await client.wallet.sendTransaction(
+                network: network,
+                request: request,
+                selectFeeOption: selectFeeOption
+            )
+        }
+    }
+
+    func getTransactionStatus(txnId: String) async throws -> TransactionStatusResponse {
+        try await performThrowing { client in
+            try await client.wallet.getTransactionStatus(txnId: txnId)
+        }
+    }
+
+    fileprivate func selectWallet(
+        _ pendingSelection: PendingWalletSelection,
+        walletId: String
+    ) async throws -> WalletActivationResult {
+        try await performThrowing { _ in
+            try await pendingSelection.selectWallet(walletId: walletId)
+        }
+    }
+
+    fileprivate func createAndSelectWallet(
+        _ pendingSelection: PendingWalletSelection,
+        reference: String?
+    ) async throws -> WalletActivationResult {
+        try await performThrowing { _ in
+            try await pendingSelection.createAndSelectWallet(reference: reference)
+        }
+    }
+
+    private func wrap(_ result: CompleteAuthResult) -> TrailsCompleteAuthResult {
+        switch result {
+        case .walletSelected(let walletAddress, let wallet, let wallets, let credential):
+            return .walletSelected(
+                walletAddress: walletAddress,
+                wallet: wallet,
+                wallets: wallets,
+                credential: credential
+            )
+        case .walletSelection(let pendingSelection):
+            return .walletSelection(
+                TrailsPendingWalletSelection(pendingSelection, client: self)
+            )
+        }
+    }
+
+    private func wrap(_ result: OidcRedirectAuthResult) -> TrailsOidcRedirectAuthResult {
+        switch result {
+        case .completed(let wallet):
+            return .completed(wallet: wallet)
+        case .walletSelection(let pendingSelection):
+            return .walletSelection(
+                TrailsPendingWalletSelection(pendingSelection, client: self)
+            )
+        case .notOidcRedirectCallback:
+            return .notOidcRedirectCallback
+        case .noPendingAuth:
+            return .noPendingAuth
+        case .failed(let error):
+            return .failed(error)
+        }
+    }
+
+    private func perform<T: Sendable>(
+        _ operation: @escaping @Sendable (OMSClient) async -> T
+    ) async -> T {
+        let previous = tail
+        let storage = storage
+        let task = Task.detached {
+            await previous?.value
+            return await operation(storage.oms)
+        }
+        tail = Task {
+            _ = await task.value
+        }
+        return await task.value
+    }
+
+    private func performThrowing<T: Sendable>(
+        _ operation: @escaping @Sendable (OMSClient) async throws -> T
+    ) async throws -> T {
+        let previous = tail
+        let storage = storage
+        let task = Task.detached {
+            await previous?.value
+            return try await operation(storage.oms)
+        }
+        tail = Task {
+            _ = try? await task.value
+        }
+        return try await task.value
+    }
+}
+
+enum TrailsCompleteAuthResult: Sendable {
+    case walletSelected(
+        walletAddress: String,
+        wallet: Wallet,
+        wallets: [Wallet],
+        credential: CredentialInfo
+    )
+    case walletSelection(TrailsPendingWalletSelection)
+}
+
+enum TrailsOidcRedirectAuthResult: Sendable {
+    case completed(wallet: Wallet)
+    case walletSelection(TrailsPendingWalletSelection)
+    case notOidcRedirectCallback
+    case noPendingAuth
+    case failed(Error)
+}
+
+final class TrailsPendingWalletSelection: @unchecked Sendable {
+    let walletType: WalletType
+    let wallets: [Wallet]
+    let credential: CredentialInfo
+
+    private let pendingSelection: PendingWalletSelection
+    private let client: TrailsOMSClient
+
+    init(_ pendingSelection: PendingWalletSelection, client: TrailsOMSClient) {
+        self.walletType = pendingSelection.walletType
+        self.wallets = pendingSelection.wallets
+        self.credential = pendingSelection.credential
+        self.pendingSelection = pendingSelection
+        self.client = client
+    }
+
+    func selectWallet(walletId: String) async throws -> WalletActivationResult {
+        try await client.selectWallet(pendingSelection, walletId: walletId)
+    }
+
+    func createAndSelectWallet(reference: String? = nil) async throws -> WalletActivationResult {
+        try await client.createAndSelectWallet(pendingSelection, reference: reference)
+    }
+}
 
 @MainActor
 final class TrailsDemoViewModel: ObservableObject {
@@ -8,7 +262,7 @@ final class TrailsDemoViewModel: ObservableObject {
     @Published var authStep: AuthStep = .email
     @Published var email = ""
     @Published var code = ""
-    @Published var pendingWalletSelection: PendingWalletSelection?
+    @Published var pendingWalletSelection: TrailsPendingWalletSelection?
     @Published var useManualWalletSelection: Bool {
         didSet {
             UserDefaults.standard.set(useManualWalletSelection, forKey: manualWalletSelectionKey)
@@ -39,7 +293,7 @@ final class TrailsDemoViewModel: ObservableObject {
     @Published var error: AppError?
     @Published var safariAuthSession: SafariAuthSession?
 
-    let oms = OMSClient(
+    let oms = TrailsOMSClient(
         publishableKey: defaultPublishableKey,
         projectId: defaultProjectID
     )
@@ -62,7 +316,7 @@ final class TrailsDemoViewModel: ObservableObject {
 
     init() {
         self.useManualWalletSelection = UserDefaults.standard.bool(forKey: manualWalletSelectionKey)
-        self.session = oms.wallet.session
+        self.session = oms.initialSession
         if isSignedIn {
             authStatus = "Wallet session restored."
             appendLog("Wallet ready: \(walletAddress ?? "")")
@@ -85,12 +339,12 @@ final class TrailsDemoViewModel: ObservableObject {
         useManualWalletSelection ? .manual : .automatic
     }
 
-    func refreshSession() {
-        session = oms.wallet.session
+    func refreshSession() async {
+        session = await oms.session()
     }
 
     func refreshAfterLaunch() async {
-        refreshSession()
+        await refreshSession()
         if let walletAddress {
             await refreshBalances(walletAddress: walletAddress)
             await refreshEarnPositions(walletAddress: walletAddress)
@@ -107,7 +361,7 @@ final class TrailsDemoViewModel: ObservableObject {
 
                 pendingWalletSelection = nil
                 authStatus = "Requesting email code..."
-                try await oms.wallet.startEmailAuth(email: normalizedEmail)
+                try await oms.startEmailAuth(email: normalizedEmail)
                 email = ""
                 authStep = .code
                 authStatus = "Code requested for \(normalizedEmail)"
@@ -126,13 +380,13 @@ final class TrailsDemoViewModel: ObservableObject {
                 }
 
                 authStatus = "Verifying code..."
-                let result = try await oms.wallet.completeEmailAuth(
+                let result = try await oms.completeEmailAuth(
                     code: normalizedCode,
                     walletSelection: walletSelectionBehavior
                 )
                 code = ""
                 authStep = .email
-                handleAuthCompletion(result, status: "Email login complete.")
+                await handleAuthCompletion(result, status: "Email login complete.")
             } onFailure: { [self] error in
                 authStatus = "Verify error: \(describe(error))"
             }
@@ -144,7 +398,7 @@ final class TrailsDemoViewModel: ObservableObject {
             await runAction("Start Google sign-in") {
                 pendingWalletSelection = nil
                 redirectStatus = "Opening provider..."
-                let started = try await oms.wallet.startOidcRedirectAuth(
+                let started = try await oms.startOidcRedirectAuth(
                     provider: OidcProviders.google(),
                     redirectUri: trailsRedirectURI
                 )
@@ -160,7 +414,7 @@ final class TrailsDemoViewModel: ObservableObject {
 
     func handleOpenURL(_ url: URL) async {
         await runAction("Complete Google sign-in") {
-            let result = try await oms.wallet.handleOidcRedirectCallback(
+            let result = try await oms.handleOidcRedirectCallback(
                 url.absoluteString,
                 walletSelection: walletSelectionBehavior
             )
@@ -170,7 +424,7 @@ final class TrailsDemoViewModel: ObservableObject {
                 safariAuthSession = nil
                 pendingWalletSelection = nil
                 redirectStatus = "Google login complete."
-                refreshSession()
+                await refreshSession()
                 appendLog("Wallet ready: \(walletAddress ?? "")")
                 if let walletAddress {
                     await refreshBalances(walletAddress: walletAddress)
@@ -197,7 +451,7 @@ final class TrailsDemoViewModel: ObservableObject {
         Task {
             await runAction("Selecting wallet") {
                 let result = try await pendingWalletSelection.selectWallet(walletId: wallet.id)
-                handleWalletActivation(result, status: "Wallet selected.")
+                await handleWalletActivation(result, status: "Wallet selected.")
             } onFailure: { [self] error in
                 authStatus = "Wallet selection error: \(describe(error))"
             }
@@ -209,7 +463,7 @@ final class TrailsDemoViewModel: ObservableObject {
         Task {
             await runAction("Creating wallet") {
                 let result = try await pendingWalletSelection.createAndSelectWallet(reference: "trails-actions")
-                handleWalletActivation(result, status: "Wallet created.")
+                await handleWalletActivation(result, status: "Wallet created.")
             } onFailure: { [self] error in
                 authStatus = "Wallet creation error: \(describe(error))"
             }
@@ -219,14 +473,14 @@ final class TrailsDemoViewModel: ObservableObject {
     func cancelPendingWalletSelection() {
         Task {
             await runAction("Cancel wallet selection") {
-                try oms.wallet.signOut()
+                try await oms.signOut()
                 pendingWalletSelection = nil
                 authStep = .email
                 code = ""
                 authStatus = "Enter an email to start."
                 redirectStatus = ""
                 clearPreparedState()
-                refreshSession()
+                await refreshSession()
             }
         }
     }
@@ -234,7 +488,7 @@ final class TrailsDemoViewModel: ObservableObject {
     func signOut() {
         Task {
             await runAction("Sign out") {
-                try oms.wallet.signOut()
+                try await oms.signOut()
                 safariAuthSession = nil
                 pendingWalletSelection = nil
                 authStep = .email
@@ -245,7 +499,7 @@ final class TrailsDemoViewModel: ObservableObject {
                 earnPositions = []
                 earnPositionsStatus = "Sign in to load earn positions."
                 clearPreparedState()
-                refreshSession()
+                await refreshSession()
             }
         }
     }
@@ -615,19 +869,17 @@ final class TrailsDemoViewModel: ObservableObject {
         }
     }
 
-    private func handleAuthCompletion(_ result: CompleteAuthResult, status: String) {
+    private func handleAuthCompletion(_ result: TrailsCompleteAuthResult, status: String) async {
         switch result {
         case .walletSelected:
             pendingWalletSelection = nil
             authStatus = status
             redirectStatus = ""
-            refreshSession()
+            await refreshSession()
             appendLog("Wallet ready: \(walletAddress ?? "")")
             if let walletAddress {
-                Task {
-                    await refreshBalances(walletAddress: walletAddress)
-                    await refreshEarnPositions(walletAddress: walletAddress)
-                }
+                await refreshBalances(walletAddress: walletAddress)
+                await refreshEarnPositions(walletAddress: walletAddress)
             }
         case .walletSelection(let pendingSelection):
             pendingWalletSelection = pendingSelection
@@ -636,16 +888,14 @@ final class TrailsDemoViewModel: ObservableObject {
         }
     }
 
-    private func handleWalletActivation(_ result: WalletActivationResult, status: String) {
+    private func handleWalletActivation(_ result: WalletActivationResult, status: String) async {
         pendingWalletSelection = nil
         authStatus = status
         redirectStatus = ""
-        refreshSession()
+        await refreshSession()
         appendLog("Wallet ready: \(result.walletAddress)")
-        Task {
-            await refreshBalances(walletAddress: result.walletAddress)
-            await refreshEarnPositions(walletAddress: result.walletAddress)
-        }
+        await refreshBalances(walletAddress: result.walletAddress)
+        await refreshEarnPositions(walletAddress: result.walletAddress)
     }
 
     @discardableResult
@@ -673,11 +923,11 @@ final class TrailsDemoViewModel: ObservableObject {
         )
 
         do {
-            let pol = try await oms.indexer.getNativeTokenBalance(
+            let pol = try await oms.getNativeTokenBalance(
                 network: polygonNetwork,
                 walletAddress: walletAddress
             )
-            let usdc = try await oms.indexer.getTokenBalances(
+            let usdc = try await oms.getTokenBalances(
                 network: polygonNetwork,
                 contractAddress: polygonUSDC,
                 walletAddress: walletAddress,
@@ -923,7 +1173,7 @@ final class TrailsDemoViewModel: ObservableObject {
             response = submittedResponse
             appendLog("Resuming Trails intent for sent swap \(shortHash(response.txnHash ?? response.txnId)).")
         } else {
-            response = try await oms.wallet.sendTransaction(
+            response = try await oms.sendTransaction(
                 network: polygonNetwork,
                 request: prepared.request,
                 selectFeeOption: .custom { options in
@@ -969,7 +1219,7 @@ final class TrailsDemoViewModel: ObservableObject {
         appendLog("Waiting for chain hash for \(shortHash(response.txnId)).")
         var latest = response
         for attempt in 1...postSendRefreshAttempts {
-            let status = try await oms.wallet.getTransactionStatus(txnId: response.txnId)
+            let status = try await oms.getTransactionStatus(txnId: response.txnId)
             latest = SendTransactionResponse(
                 txnId: response.txnId,
                 status: status.status,
@@ -995,7 +1245,7 @@ final class TrailsDemoViewModel: ObservableObject {
     }
 
     private func sendYieldTransaction(_ transaction: ParsedYieldTransaction) async throws -> SendTransactionResponse {
-        try await oms.wallet.sendTransaction(
+        try await oms.sendTransaction(
             network: polygonNetwork,
             request: transaction.request,
             selectFeeOption: .custom { options in

@@ -27,7 +27,7 @@
 			<string>com.polygon.swifttrailsactions</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>omsclientswiftdemo</string>
+				<string>omsclienttrailsdemo</string>
 			</array>
 		</dict>
 	</array>

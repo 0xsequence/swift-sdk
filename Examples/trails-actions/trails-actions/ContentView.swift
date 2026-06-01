@@ -1,4 +1,4 @@
-@preconcurrency import OMS_SDK
+import OMS_SDK
 import SafariServices
 import SwiftUI
 import UIKit
@@ -163,7 +163,7 @@ private struct TrailsConfirmCodeWindow: View {
 
 private struct TrailsWalletSelectionWindow: View {
     @EnvironmentObject private var vm: TrailsDemoViewModel
-    let pendingWalletSelection: PendingWalletSelection
+    let pendingWalletSelection: TrailsPendingWalletSelection
 
     var body: some View {
         TrailsNavigationScreenContainer(maxWidth: 520) {

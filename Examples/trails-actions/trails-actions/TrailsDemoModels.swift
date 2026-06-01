@@ -1,8 +1,8 @@
 import Foundation
-@preconcurrency import OMS_SDK
+import OMS_SDK
 
 let trailsAPIURL = "https://trails-api.sequence.app"
-let trailsRedirectURI = "omsclientswiftdemo://auth/callback"
+let trailsRedirectURI = "omsclienttrailsdemo://auth/callback"
 let defaultPublishableKey = "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE"
 let defaultProjectID = "proj_014kg56dc0a75"
 let trailsAccessKey = "AQAAAAAAAMCYJYqQIBlKgsdYZIC44JP84lo"

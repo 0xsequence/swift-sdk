@@ -1,4 +1,4 @@
-public struct SendTransactionRequest {
+public struct SendTransactionRequest: Sendable {
     public let to: String
     public let value: String
     public let data: String?
