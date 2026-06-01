@@ -215,9 +215,9 @@ case .failed(let error):
 }
 ```
 
-Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. Only completed wallet session metadata is restored automatically, including wallet address, expiry, login type, and session email when available. The private credential key remains owned by the Keychain and is not written into SDK session storage.
+Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. Only completed wallet session metadata is restored automatically, including wallet address, expiry, login type, and session email when available. The SDK checks the cached session expiry before restoring a session and clears expired or invalid session metadata. The private credential key remains owned by the Keychain and is not written into SDK session storage.
 
-On subsequent launches, the completed session is restored from the keychain automatically. To end the session:
+On subsequent launches, an unexpired completed session is restored from the keychain automatically. To end the session:
 
 ```swift
 try oms.wallet.signOut()
