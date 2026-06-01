@@ -69,7 +69,7 @@ public struct StartOidcRedirectAuthResult: Sendable {
 }
 
 /// Result of handling an incoming OIDC authorization-code redirect callback.
-public enum OidcRedirectAuthResult {
+public enum OidcRedirectAuthResult: Sendable {
     case completed(wallet: Wallet)
     case walletSelection(PendingWalletSelection)
     case notOidcRedirectCallback

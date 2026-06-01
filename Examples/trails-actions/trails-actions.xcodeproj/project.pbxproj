@@ -7,53 +7,58 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		3D2708222F98AE7300CD78D9 /* OMS SDK in Frameworks */ = {isa = PBXBuildFile; productRef = 3D2708212F98AE7300CD78D9 /* OMS SDK */; };
+		7A0000010000000000000016 /* OMS SDK in Frameworks */ = {isa = PBXBuildFile; productRef = 7A0000010000000000000018 /* OMS SDK */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		3D65FC962F86D5AC009476BA /* Sequence SDK Demo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Sequence SDK Demo.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		7A0000010000000000000001 /* trails-actions.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "trails-actions.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		7A0000010000000000000019 /* Exceptions for "trails-actions" folder in "trails-actions" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 7A0000010000000000000006 /* trails-actions */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		3D65FC982F86D5AC009476BA /* Sequence SDK Demo */ = {
+		7A0000010000000000000002 /* trails-actions */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "Sequence SDK Demo";
+			exceptions = (
+				7A0000010000000000000019 /* Exceptions for "trails-actions" folder in "trails-actions" target */,
+			);
+			path = "trails-actions";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		3D65FC932F86D5AC009476BA /* Frameworks */ = {
+		7A0000010000000000000003 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				3D2708222F98AE7300CD78D9 /* OMS SDK in Frameworks */,
+				7A0000010000000000000016 /* OMS SDK in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		3D2708202F98AE7300CD78D9 /* Frameworks */ = {
+		7A0000010000000000000004 = {
 			isa = PBXGroup;
 			children = (
-			);
-			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		3D65FC8D2F86D5AC009476BA = {
-			isa = PBXGroup;
-			children = (
-				3D65FC982F86D5AC009476BA /* Sequence SDK Demo */,
-				3D2708202F98AE7300CD78D9 /* Frameworks */,
-				3D65FC972F86D5AC009476BA /* Products */,
+				7A0000010000000000000002 /* trails-actions */,
+				7A0000010000000000000005 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		3D65FC972F86D5AC009476BA /* Products */ = {
+		7A0000010000000000000005 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				3D65FC962F86D5AC009476BA /* Sequence SDK Demo.app */,
+				7A0000010000000000000001 /* trails-actions.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -61,68 +66,68 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		3D65FC952F86D5AC009476BA /* Sequence SDK Demo */ = {
+		7A0000010000000000000006 /* trails-actions */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 3D65FCA12F86D5AD009476BA /* Build configuration list for PBXNativeTarget "Sequence SDK Demo" */;
+			buildConfigurationList = 7A0000010000000000000007 /* Build configuration list for PBXNativeTarget "trails-actions" */;
 			buildPhases = (
-				3D65FC922F86D5AC009476BA /* Sources */,
-				3D65FC932F86D5AC009476BA /* Frameworks */,
-				3D65FC942F86D5AC009476BA /* Resources */,
+				7A0000010000000000000008 /* Sources */,
+				7A0000010000000000000003 /* Frameworks */,
+				7A0000010000000000000009 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				3D65FC982F86D5AC009476BA /* Sequence SDK Demo */,
+				7A0000010000000000000002 /* trails-actions */,
 			);
-			name = "Sequence SDK Demo";
+			name = "trails-actions";
 			packageProductDependencies = (
-				3D2708212F98AE7300CD78D9 /* OMS SDK */,
+				7A0000010000000000000018 /* OMS SDK */,
 			);
-			productName = "Sequence SDK Demo";
-			productReference = 3D65FC962F86D5AC009476BA /* Sequence SDK Demo.app */;
+			productName = "trails-actions";
+			productReference = 7A0000010000000000000001 /* trails-actions.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		3D65FC8E2F86D5AC009476BA /* Project object */ = {
+		7A0000010000000000000010 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2640;
-				LastUpgradeCheck = 2640;
+				LastSwiftUpdateCheck = 2650;
+				LastUpgradeCheck = 2650;
 				TargetAttributes = {
-					3D65FC952F86D5AC009476BA = {
-						CreatedOnToolsVersion = 26.4;
+					7A0000010000000000000006 = {
+						CreatedOnToolsVersion = 26.5;
 					};
 				};
 			};
-			buildConfigurationList = 3D65FC912F86D5AC009476BA /* Build configuration list for PBXProject "Sequence SDK Demo" */;
+			buildConfigurationList = 7A0000010000000000000011 /* Build configuration list for PBXProject "trails-actions" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
 				Base,
 			);
-			mainGroup = 3D65FC8D2F86D5AC009476BA;
+			mainGroup = 7A0000010000000000000004;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				3D34460D2F86D65D0088EAAB /* XCLocalSwiftPackageReference "../../swift-sdk" */,
+				7A0000010000000000000017 /* XCLocalSwiftPackageReference "../.." */,
 			);
 			preferredProjectObjectVersion = 77;
-			productRefGroup = 3D65FC972F86D5AC009476BA /* Products */;
+			productRefGroup = 7A0000010000000000000005 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				3D65FC952F86D5AC009476BA /* Sequence SDK Demo */,
+				7A0000010000000000000006 /* trails-actions */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		3D65FC942F86D5AC009476BA /* Resources */ = {
+		7A0000010000000000000009 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -132,7 +137,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		3D65FC922F86D5AC009476BA /* Sources */ = {
+		7A0000010000000000000008 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -142,11 +147,10 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		3D65FC9F2F86D5AD009476BA /* Debug */ = {
+		7A0000010000000000000012 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
@@ -198,16 +202,16 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Debug;
 		};
-		3D65FCA02F86D5AD009476BA /* Release */ = {
+		7A0000010000000000000013 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
@@ -252,137 +256,90 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
 			name = Release;
 		};
-		3D65FCA22F86D5AD009476BA /* Debug */ = {
+		7A0000010000000000000014 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = XR9N5MTG4N;
-				ENABLE_APP_SANDBOX = YES;
-				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
-				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				DEVELOPMENT_TEAM = 5987P7MLK8;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
-				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
-				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
-				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
-				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
-				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
-				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
-				ENABLE_RESOURCE_ACCESS_USB = NO;
-				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "OMS Demo";
+				INFOPLIST_FILE = "trails-actions/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "OMS SDK Demo";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
-				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
-				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 26.3;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.polygon.swiftsdkdemo;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				REGISTER_APP_GROUPS = YES;
-				SDKROOT = auto;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
-				XROS_DEPLOYMENT_TARGET = 26.4;
+				PRODUCT_BUNDLE_IDENTIFIER = com.polygon.swifttrailsactions;
+				PRODUCT_MODULE_NAME = TrailsActions;
+				PRODUCT_NAME = "trails-actions";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
-		3D65FCA32F86D5AD009476BA /* Release */ = {
+		7A0000010000000000000015 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = XR9N5MTG4N;
-				ENABLE_APP_SANDBOX = YES;
-				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
-				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				DEVELOPMENT_TEAM = 5987P7MLK8;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
-				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
-				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
-				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
-				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
-				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
-				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
-				ENABLE_RESOURCE_ACCESS_USB = NO;
-				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "OMS Demo";
+				INFOPLIST_FILE = "trails-actions/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "OMS SDK Demo";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
-				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
-				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 26.3;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.polygon.swiftsdkdemo;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				REGISTER_APP_GROUPS = YES;
-				SDKROOT = auto;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
-				XROS_DEPLOYMENT_TARGET = 26.4;
+				PRODUCT_BUNDLE_IDENTIFIER = com.polygon.swifttrailsactions;
+				PRODUCT_MODULE_NAME = TrailsActions;
+				PRODUCT_NAME = "trails-actions";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		3D65FC912F86D5AC009476BA /* Build configuration list for PBXProject "Sequence SDK Demo" */ = {
+		7A0000010000000000000007 /* Build configuration list for PBXNativeTarget "trails-actions" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				3D65FC9F2F86D5AD009476BA /* Debug */,
-				3D65FCA02F86D5AD009476BA /* Release */,
+				7A0000010000000000000014 /* Debug */,
+				7A0000010000000000000015 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		3D65FCA12F86D5AD009476BA /* Build configuration list for PBXNativeTarget "Sequence SDK Demo" */ = {
+		7A0000010000000000000011 /* Build configuration list for PBXProject "trails-actions" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				3D65FCA22F86D5AD009476BA /* Debug */,
-				3D65FCA32F86D5AD009476BA /* Release */,
+				7A0000010000000000000012 /* Debug */,
+				7A0000010000000000000013 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -390,19 +347,19 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		3D34460D2F86D65D0088EAAB /* XCLocalSwiftPackageReference "../../swift-sdk" */ = {
+		7A0000010000000000000017 /* XCLocalSwiftPackageReference "../.." */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "../../swift-sdk";
+			relativePath = ../..;
 		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		3D2708212F98AE7300CD78D9 /* OMS SDK */ = {
+		7A0000010000000000000018 /* OMS SDK */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 3D34460D2F86D65D0088EAAB /* XCLocalSwiftPackageReference "../../swift-sdk" */;
+			package = 7A0000010000000000000017 /* XCLocalSwiftPackageReference "../.." */;
 			productName = "OMS SDK";
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
-	rootObject = 3D65FC8E2F86D5AC009476BA /* Project object */;
+	rootObject = 7A0000010000000000000010 /* Project object */;
 }

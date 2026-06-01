@@ -28,8 +28,8 @@ and target names in shell commands, for example `"Sources/Swift SDK"` and
   patch.
 - `Tests/Swift SDKTests/` contains Swift Testing tests using `@Test` and
   `#expect`.
-- `App/Sequence SDK Demo.xcodeproj` and `App/Sequence SDK Demo/` contain the
-  SwiftUI demo app.
+- `Examples/sdk-demo/oms-sdk-demo.xcodeproj` and
+  `Examples/sdk-demo/oms-sdk-demo/` contain the SwiftUI demo app.
 - `README.md` is the user-facing guide; `API.md` is the detailed API reference.
 
 ## Common Commands
@@ -37,12 +37,12 @@ and target names in shell commands, for example `"Sources/Swift SDK"` and
 ```sh
 swift build
 swift test
-xcodebuild -list -project "App/Sequence SDK Demo.xcodeproj"
-xcodebuild -project "App/Sequence SDK Demo.xcodeproj" -scheme "Sequence SDK Demo" build
+xcodebuild -list -project Examples/sdk-demo/oms-sdk-demo.xcodeproj
+xcodebuild -project Examples/sdk-demo/oms-sdk-demo.xcodeproj -scheme oms-sdk-demo build
 ```
 
 Run `swift test` for SDK changes. For demo app changes, also build the Xcode
-project with the `Sequence SDK Demo` scheme when feasible.
+project with the `oms-sdk-demo` scheme when feasible.
 
 ## Coding Conventions
 
