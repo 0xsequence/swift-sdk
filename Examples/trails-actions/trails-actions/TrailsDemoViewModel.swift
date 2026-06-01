@@ -921,7 +921,7 @@ final class TrailsDemoViewModel: ObservableObject {
         onWalletSent: (SendTransactionResponse) -> Void
     ) async throws -> SendTransactionResponse {
         let state = prepared.executionState
-        let response: SendTransactionResponse
+        var response: SendTransactionResponse
 
         if let submittedResponse = state.submittedResponse {
             response = submittedResponse
@@ -939,6 +939,9 @@ final class TrailsDemoViewModel: ObservableObject {
         }
 
         onWalletSent(response)
+        response = try await waitForTransactionHash(response)
+        state.submittedResponse = response
+        onWalletSent(response)
 
         if state.committedIntentID == nil {
             state.committedIntentID = try await trailsIntentClient.commitIntent(prepared.intent)
@@ -947,16 +950,52 @@ final class TrailsDemoViewModel: ObservableObject {
         guard let intentID = state.committedIntentID else {
             throw TrailsDemoError(message: "Trails commit did not return an intent id.")
         }
+        guard let transactionHash = nonEmptyString(response.txnHash) else {
+            throw TrailsDemoError(message: "Wallet transaction hash was not available yet. Try sending again in a few seconds.")
+        }
 
         if !state.didExecuteIntent {
             try await trailsIntentClient.executeIntent(
                 intentID: intentID,
-                depositTransactionHash: response.txnHash
+                depositTransactionHash: transactionHash
             )
             state.didExecuteIntent = true
         }
 
         return response
+    }
+
+    private func waitForTransactionHash(_ response: SendTransactionResponse) async throws -> SendTransactionResponse {
+        if nonEmptyString(response.txnHash) != nil {
+            return response
+        }
+
+        appendLog("Waiting for chain hash for \(shortHash(response.txnId)).")
+        var latest = response
+        for attempt in 1...postSendRefreshAttempts {
+            let status = try await oms.wallet.getTransactionStatus(txnId: response.txnId)
+            latest = SendTransactionResponse(
+                txnId: response.txnId,
+                status: status.status,
+                txnHash: status.txnHash
+            )
+
+            if let transactionHash = nonEmptyString(latest.txnHash) {
+                appendLog("Chain hash ready: \(shortHash(transactionHash)).")
+                return latest
+            }
+
+            if case .unknown(let status) = status.status {
+                throw TrailsDemoError(message: "Wallet transaction returned unsupported status \(status).")
+            }
+
+            if attempt < postSendRefreshAttempts {
+                try await Task.sleep(nanoseconds: postSendRefreshDelayNanoseconds)
+            }
+        }
+
+        appendLog("! Chain hash did not appear for \(shortHash(latest.txnId)).")
+        throw TrailsDemoError(message: "Wallet transaction hash was not available yet. Try sending again in a few seconds.")
     }
 
     private func sendYieldTransaction(_ transaction: ParsedYieldTransaction) async throws -> SendTransactionResponse {
@@ -1110,4 +1149,11 @@ private func reasonableAPYRate(_ rewardRate: YieldRewardRate) -> Double? {
 
 private func usdcFeeRaw(_ option: FeeOptionWithBalance) -> String {
     feeTokenLabel(option).uppercased() == "USDC" ? option.feeOption.value : "0"
+}
+
+private func nonEmptyString(_ value: String?) -> String? {
+    guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+        return nil
+    }
+    return trimmed
 }
