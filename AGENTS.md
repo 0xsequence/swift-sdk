@@ -1,4 +1,59 @@
-# Repository Guidelines
+# AGENTS.md
+
+Single source of truth for agents working in this repo. `CLAUDE.md` imports this file via
+`@AGENTS.md`, so Claude Code, Codex, and any other agent that reads `AGENTS.md` share the same
+instructions.
+
+---
+
+## Behavioral Guidelines
+
+Behavioral guidelines to reduce common LLM coding mistakes. (Adapted from Andrej Karpathy's
+[CLAUDE.md](https://github.com/multica-ai/andrej-karpathy-skills/blob/main/CLAUDE.md).)
+
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+
+### 1. Think Before Coding
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them — don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+### 2. Simplicity First
+**Minimum code that solves the problem. Nothing speculative.**
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+### 3. Surgical Changes
+**Touch only what you must. Clean up only your own mess.**
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- Remove imports/variables YOUR changes made unused; leave pre-existing dead code unless asked.
+
+The test: every changed line should trace directly to the request.
+
+### 4. Goal-Driven Execution
+**Define success criteria. Loop until verified.**
+- "Add validation" → "Write tests for invalid inputs, then make them pass."
+- "Fix the bug" → "Write a test that reproduces it, then make it pass."
+
+For multi-step tasks, state a brief plan with a verify step for each item.
+
+---
+
+## Third-Party Library Docs
+
+For **any third-party library**, use the **context7** MCP to fetch up-to-date documentation rather
+than relying on training data, which lags real library APIs. If the context7 MCP server is not
+available, set it up: https://context7.com/install
+
+---
 
 ## Project Overview
 
@@ -44,6 +99,11 @@ xcodebuild -project Examples/sdk-demo/oms-sdk-demo.xcodeproj -scheme oms-sdk-dem
 Run `swift test` for SDK changes. For demo app changes, also build the Xcode
 project with the `oms-sdk-demo` scheme when feasible.
 
+## Testing
+
+See **[TESTING.md](./TESTING.md)** for testing conventions, unit vs. integration boundaries, and
+execution commands.
+
 ## Coding Conventions
 
 - Prefer the existing public API style: `async throws` SDK methods, explicit
@@ -62,27 +122,14 @@ project with the `oms-sdk-demo` scheme when feasible.
   `formatUnits` for base-unit conversions.
 - When editing paths with spaces, keep command examples quoted and prefer
   `rg --files`, `rg`, `swift build`, and `swift test` from the repository root.
+- Commit messages and PR titles follow Conventional Commits.
 
-## Tests
+## CI/CD
 
-Tests use the Swift Testing framework:
-
-```swift
-import Testing
-@testable import OMS_SDK
-
-@Test func TestExample() throws {
-    #expect(actual == expected)
-}
-```
-
-Name new tests in the existing `Test...` style and keep fixtures deterministic.
-Prefer mocked transport, Keychain, and indexer tests over live services so the
-suite stays reliable.
-
-For auth, signing, pagination, and transaction behavior, add focused tests under
-`Tests/Swift SDKTests/`. Split tests into separate files for each category, such
-as authentication and indexer tests.
+CI runs on every PR and push to `master` via `.github/workflows/ci.yml`:
+`swift build` and `swift test` are required to pass. Claude GitHub Actions are
+defined in `.github/workflows/claude.yml` (mention handler) and
+`.github/workflows/claude-code-review.yml` (auto-review on PRs).
 
 ## Documentation
 
@@ -101,3 +148,21 @@ happens.
 The demo app may contain local Xcode or macOS metadata changes. Do not revert
 unrelated user changes, generated assets, or `.DS_Store` churn unless explicitly
 asked.
+
+## Common Pitfalls
+
+- Paths and target names contain spaces — always quote them in shell commands.
+- `waas.gen.swift` is generated; do not edit by hand unless explicitly asked.
+- Never persist private key material in session storage — the P-256 credential is intentionally non-extractable.
+- Do not use floating-point for token amounts; use `parseUnits`/`formatUnits`.
+
+## Maintenance Matrix
+
+| When this changes… | Also update… |
+|---|---|
+| Public API methods or models | `API.md`, `README.md` (if user-facing), tests |
+| Test commands | `TESTING.md`, `ci.yml`, `AGENTS.md` Common Commands |
+| Repository structure | `AGENTS.md` Repository Layout |
+| Swift version or platform targets | `Package.swift`, `ci.yml`, `README.md` |
+| New third-party dependency added | `Package.swift`, `AGENTS.md` (note the lib), context7 setup |
+| Demo app flows change | `README.md`, `Examples/` |
