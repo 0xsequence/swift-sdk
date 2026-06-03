@@ -38,7 +38,7 @@ jobs:
             REVIEW: <review text>
 
       - name: Post review to Slack
-        if: always() && env.SLACK_BOT_TOKEN != '' && env.SLACK_CHANNEL_ID != ''
+        if: always() && github.event.action == 'opened' && env.SLACK_BOT_TOKEN != '' && env.SLACK_CHANNEL_ID != ''
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ secrets.SLACK_REVIEW_CHANNEL_ID }}
