@@ -224,9 +224,13 @@ public class WalletClient: @unchecked Sendable {
     public func completeEmailAuth(
         code: String,
         walletSelection: WalletSelectionBehavior = .automatic,
-        walletType: WalletType = WalletType.ethereum
+        walletType: WalletType = WalletType.ethereum,
+        sessionLifetimeSeconds: UInt32 = 604_800
     ) async throws -> CompleteAuthResult {
-        let response = try await confirmEmailSignIn(code: code)
+        let response = try await confirmEmailSignIn(
+            code: code,
+            sessionLifetimeSeconds: sessionLifetimeSeconds
+        )
         return try await completeWalletAuth(
             response,
             walletType: walletType,
@@ -245,7 +249,8 @@ public class WalletClient: @unchecked Sendable {
         issuer: String,
         audience: String,
         walletType: WalletType = WalletType.ethereum,
-        walletSelection: WalletSelectionBehavior = .automatic
+        walletSelection: WalletSelectionBehavior = .automatic,
+        sessionLifetimeSeconds: UInt32 = 604_800
     ) async throws -> CompleteAuthResult {
         try clearSession(clearOidcRedirectAuth: true)
 
@@ -267,7 +272,10 @@ public class WalletClient: @unchecked Sendable {
             verifier = response.verifier
             challenge = response.challenge
 
-            let auth = try await confirmOidcIdTokenSignIn(idToken: idToken)
+            let auth = try await confirmOidcIdTokenSignIn(
+                idToken: idToken,
+                sessionLifetimeSeconds: sessionLifetimeSeconds
+            )
             return try await completeWalletAuth(
                 auth,
                 walletType: walletType,
@@ -288,14 +296,16 @@ public class WalletClient: @unchecked Sendable {
         issuer: String,
         audience: String,
         walletType: WalletType = WalletType.ethereum,
-        walletSelection: WalletSelectionBehavior = .automatic
+        walletSelection: WalletSelectionBehavior = .automatic,
+        sessionLifetimeSeconds: UInt32 = 604_800
     ) async throws -> CompleteAuthResult {
         try await signInWithOidcIdToken(
             idToken: idToken,
             issuer: issuer,
             audience: audience,
             walletType: walletType,
-            walletSelection: walletSelection
+            walletSelection: walletSelection,
+            sessionLifetimeSeconds: sessionLifetimeSeconds
         )
     }
 
@@ -403,7 +413,8 @@ public class WalletClient: @unchecked Sendable {
     /// `.walletSelection` when `walletSelection` is `.manual`.
     public func handleOidcRedirectCallback(
         _ callbackUrl: String?,
-        walletSelection: WalletSelectionBehavior = .automatic
+        walletSelection: WalletSelectionBehavior = .automatic,
+        sessionLifetimeSeconds: UInt32 = 604_800
     ) async throws -> OidcRedirectAuthResult {
         guard let callbackUrl = callbackUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
               !callbackUrl.isEmpty else {
@@ -462,7 +473,7 @@ public class WalletClient: @unchecked Sendable {
                     authMode: .authCodePkce,
                     verifier: pending.verifier,
                     answer: code,
-                    lifetime: Self.defaultSessionLifetimeSeconds
+                    lifetime: sessionLifetimeSeconds
                 )
             )
             let result = try await completeWalletAuth(
@@ -486,7 +497,10 @@ public class WalletClient: @unchecked Sendable {
         }
     }
 
-    private func confirmEmailSignIn(code: String) async throws -> CompleteAuthResponse {
+    private func confirmEmailSignIn(
+        code: String,
+        sessionLifetimeSeconds: UInt32
+    ) async throws -> CompleteAuthResponse {
         let answer = RequestUtils.hashEmailAuthAnswer(challenge: challenge, code: code)
 
         let params = CompleteAuthRequest(
@@ -494,19 +508,22 @@ public class WalletClient: @unchecked Sendable {
             authMode: AuthMode.otp,
             verifier: verifier,
             answer: answer,
-            lifetime: Self.defaultSessionLifetimeSeconds
+            lifetime: sessionLifetimeSeconds
         )
 
         return try await signedClient.completeAuth(params)
     }
 
-    private func confirmOidcIdTokenSignIn(idToken: String) async throws -> CompleteAuthResponse {
+    private func confirmOidcIdTokenSignIn(
+        idToken: String,
+        sessionLifetimeSeconds: UInt32
+    ) async throws -> CompleteAuthResponse {
         let params = CompleteAuthRequest(
             identityType: IdentityType.oidc,
             authMode: AuthMode.idToken,
             verifier: verifier,
             answer: idToken,
-            lifetime: Self.defaultSessionLifetimeSeconds
+            lifetime: sessionLifetimeSeconds
         )
 
         return try await signedClient.completeAuth(params)

@@ -98,7 +98,7 @@ let katana = oms.findNetworkByName(name: "katana")
 OMS supports email-based OTP, OIDC ID-token auth, and OIDC redirect auth. The email two-step flow is:
 
 1. **`startEmailAuth(email:)`** sends a one-time code to the user's inbox.
-2. **`completeEmailAuth(code:walletSelection:walletType:)`** verifies the code. In the default `.automatic` mode it selects the first matching wallet or creates one. The wallet address, wallet ID, and signer metadata are saved to the device keychain.
+2. **`completeEmailAuth(code:walletSelection:walletType:sessionLifetimeSeconds:)`** verifies the code. In the default `.automatic` mode it selects the first matching wallet or creates one. The wallet address, wallet ID, and signer metadata are saved to the device keychain.
 
 ```swift
 try await oms.wallet.startEmailAuth(email: "user@example.com")
@@ -120,6 +120,9 @@ oms.wallet.onSessionExpired = { event in
     print("Reauth email:", event.session.sessionEmail ?? "unknown")
 }
 ```
+
+Auth completion methods accept `sessionLifetimeSeconds` when you need a shorter
+or longer requested session; the default is one week.
 
 To opt out of automatic activation and drive wallet selection yourself:
 

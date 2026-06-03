@@ -143,14 +143,16 @@ Sends a one-time passcode to the provided email address.
 func completeEmailAuth(
     code: String,
     walletSelection: WalletSelectionBehavior = .automatic,
-    walletType: WalletType = .ethereum
+    walletType: WalletType = .ethereum,
+    sessionLifetimeSeconds: UInt32 = 604_800
 ) async throws -> CompleteAuthResult
 ```
 
 Verifies the OTP code. With `.automatic`, selects the first existing wallet
 matching `walletType`, or creates and selects one when none exists. With
 `.manual`, returns a pending wallet selection without selecting or creating a
-wallet.
+wallet. `sessionLifetimeSeconds` controls the requested credential lifetime and
+defaults to one week.
 
 ### signInWithOidcToken
 
@@ -160,7 +162,8 @@ func signInWithOidcToken(
     issuer: String,
     audience: String,
     walletType: WalletType = .ethereum,
-    walletSelection: WalletSelectionBehavior = .automatic
+    walletSelection: WalletSelectionBehavior = .automatic,
+    sessionLifetimeSeconds: UInt32 = 604_800
 ) async throws -> CompleteAuthResult
 ```
 
@@ -171,7 +174,8 @@ token. `signInWithOidcIdToken` is also available with the same parameters.
 
 With `.automatic`, selects the first existing wallet matching `walletType`, or
 creates and selects one when none exists. With `.manual`, returns a pending
-wallet selection without selecting or creating a wallet.
+wallet selection without selecting or creating a wallet. `sessionLifetimeSeconds`
+controls the requested credential lifetime and defaults to one week.
 
 ### WalletSelectionBehavior
 
@@ -278,9 +282,13 @@ struct StartOidcRedirectAuthResult {
 ```swift
 func handleOidcRedirectCallback(
     _ callbackUrl: String?,
-    walletSelection: WalletSelectionBehavior = .automatic
+    walletSelection: WalletSelectionBehavior = .automatic,
+    sessionLifetimeSeconds: UInt32 = 604_800
 ) async throws -> OidcRedirectAuthResult
 ```
+
+`sessionLifetimeSeconds` is used when completing the OIDC redirect callback and
+defaults to one week.
 
 ```swift
 enum OidcRedirectAuthResult {

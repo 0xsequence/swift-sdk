@@ -84,6 +84,30 @@ import Testing
     #expect(storedCredentials?.sessionEmail == "user@example.com")
 }
 
+@Test func TestWalletCompleteEmailAuthUsesCustomSessionLifetime() async throws {
+    let fixture = makeMockWalletClient()
+    let wallet = testWallet(id: "wallet-custom-lifetime", address: "0x1111111111111111111111111111111111111111")
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: [wallet]),
+        for: WaasWalletAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: wallet),
+        for: WaasWalletAPI.UseWallet.urlPath
+    )
+
+    _ = try await fixture.client.completeEmailAuth(
+        code: "123456",
+        sessionLifetimeSeconds: 30
+    )
+    let completeAuthRequest = try fixture.transport.decodedRequest(
+        CompleteAuthRequest.self,
+        for: WaasWalletAPI.CompleteAuth.urlPath
+    )
+
+    #expect(completeAuthRequest.lifetime == 30)
+}
+
 @Test func TestWalletOperationExpiresSessionRetainsMetadataAndNotifiesDelegate() async throws {
     let expiresAt = "2026-01-01T00:00:00Z"
     var now = Date(timeIntervalSince1970: 1_767_225_599)
