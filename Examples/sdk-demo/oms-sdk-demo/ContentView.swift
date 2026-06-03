@@ -35,13 +35,25 @@ struct SafariAuthSession: Identifiable {
     }
 }
 
+struct SessionExpiredPrompt: Identifiable {
+    let id = UUID()
+    let event: SessionExpiredEvent
+
+    var email: String? {
+        event.session.sessionEmail
+    }
+}
+
 private enum DemoAuthError: Error, LocalizedError {
     case invalidAuthorizationURL
+    case invalidSessionLifetime
 
     var errorDescription: String? {
         switch self {
         case .invalidAuthorizationURL:
             return "The authorization URL could not be opened."
+        case .invalidSessionLifetime:
+            return "Enter a session length of at least 1 second."
         }
     }
 }
@@ -193,17 +205,34 @@ final class AppViewModel: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var error: GenericAppError?
     @Published var safariAuthSession: SafariAuthSession?
+    @Published var sessionExpiredPrompt: SessionExpiredPrompt?
     @Published fileprivate var feeOptionSelectionRequest: FeeOptionSelectionRequest?
     @Published var useManualWalletSelection: Bool = false
+    @Published var loginEmail: String = ""
+    @Published var sessionLifetimeText: String = "60"
     @Published var oms: OMSClient = OMSClient(
         publishableKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE",
         projectId: "proj_014kg56dc0a75"
     )
 
-    init() {}
+    init() {
+        oms.wallet.onSessionExpired = { [weak self] event in
+            Task { @MainActor [weak self] in
+                self?.handleSessionExpired(event)
+            }
+        }
+    }
 
     private var walletSelectionBehavior: WalletSelectionBehavior {
         useManualWalletSelection ? .manual : .automatic
+    }
+
+    var sessionLifetimeSeconds: UInt32? {
+        let trimmed = sessionLifetimeText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let seconds = UInt32(trimmed), seconds > 0 else {
+            return nil
+        }
+        return seconds
     }
 
     func checkSession() async {
@@ -215,6 +244,7 @@ final class AppViewModel: ObservableObject {
         do {
             try oms.wallet.signOut()
             safariAuthSession = nil
+            sessionExpiredPrompt = nil
             screen = .login
         } catch {
             present(error)
@@ -223,7 +253,16 @@ final class AppViewModel: ObservableObject {
 
     // MARK: Login
 
-    func submitLogin(input: String) async {
+    func submitLogin() async {
+        let input = loginEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !input.isEmpty else {
+            return
+        }
+        guard sessionLifetimeSeconds != nil else {
+            present(DemoAuthError.invalidSessionLifetime)
+            return
+        }
+
         isLoading = true
         defer { isLoading = false }
 
@@ -236,6 +275,11 @@ final class AppViewModel: ObservableObject {
     }
 
     func startGoogleRedirectAuth() async {
+        guard sessionLifetimeSeconds != nil else {
+            present(DemoAuthError.invalidSessionLifetime)
+            return
+        }
+
         isLoading = true
         defer { isLoading = false }
 
@@ -262,7 +306,8 @@ final class AppViewModel: ObservableObject {
         do {
             let result = try await oms.wallet.handleOidcRedirectCallback(
                 url.absoluteString,
-                walletSelection: walletSelectionBehavior
+                walletSelection: walletSelectionBehavior,
+                sessionLifetimeSeconds: try validatedSessionLifetimeSeconds()
             )
 
             switch result {
@@ -287,13 +332,19 @@ final class AppViewModel: ObservableObject {
     // MARK: Confirm Code
 
     func submitConfirmCode(code: String) async {
+        guard let lifetimeSeconds = sessionLifetimeSeconds else {
+            present(DemoAuthError.invalidSessionLifetime)
+            return
+        }
+
         isLoading = true
         defer { isLoading = false }
 
         do {
             let result = try await oms.wallet.completeEmailAuth(
                 code: code,
-                walletSelection: walletSelectionBehavior
+                walletSelection: walletSelectionBehavior,
+                sessionLifetimeSeconds: lifetimeSeconds
             )
             switch result {
             case .walletSelected:
@@ -343,6 +394,51 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func retryExpiredSession(_ prompt: SessionExpiredPrompt) async {
+        sessionExpiredPrompt = nil
+
+        if let email = prompt.email {
+            loginEmail = email
+        }
+
+        switch prompt.event.session.loginType {
+        case .googleAuth:
+            await startGoogleRedirectAuth()
+        case .email:
+            guard let email = prompt.email else {
+                screen = .login
+                return
+            }
+            loginEmail = email
+            await submitLogin()
+        case .oidc, nil:
+            screen = .login
+        }
+    }
+
+    func dismissExpiredSessionPrompt() {
+        sessionExpiredPrompt = nil
+        screen = .login
+    }
+
+    private func handleSessionExpired(_ event: SessionExpiredEvent) {
+        safariAuthSession = nil
+        feeOptionSelectionRequest?.cancel()
+        feeOptionSelectionRequest = nil
+        if let email = event.session.sessionEmail {
+            loginEmail = email
+        }
+        screen = .login
+        sessionExpiredPrompt = SessionExpiredPrompt(event: event)
+    }
+
+    private func validatedSessionLifetimeSeconds() throws -> UInt32 {
+        guard let seconds = sessionLifetimeSeconds else {
+            throw DemoAuthError.invalidSessionLifetime
+        }
+        return seconds
+    }
+
     func present(_ error: Error) {
         if let appError = GenericAppError(error) {
             self.error = appError
@@ -387,6 +483,13 @@ struct ContentView: View {
         }
         .environmentObject(vm)
         .genericErrorWindow(error: $vm.error)
+        .sessionExpiredAlert(prompt: $vm.sessionExpiredPrompt) { prompt in
+            Task {
+                await vm.retryExpiredSession(prompt)
+            }
+        } dismiss: {
+            vm.dismissExpiredSessionPrompt()
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(appBackgroundColor)
         .task {
@@ -410,7 +513,6 @@ struct ContentView: View {
 
 struct LoginWindow: View {
     @EnvironmentObject private var vm: AppViewModel
-    @State private var inputText: String = ""
     @FocusState private var emailFocused: Bool
 
     var body: some View {
@@ -422,7 +524,7 @@ struct LoginWindow: View {
                 .padding(.top, 64)
 
                 FieldGroup(title: "Email address", titleStyle: .secondary) {
-                    TextField("you@example.com", text: $inputText)
+                    TextField("you@example.com", text: $vm.loginEmail)
                         .textFieldStyle(.plain)
                         .padding(14)
                         .background(fieldBackground)
@@ -435,19 +537,37 @@ struct LoginWindow: View {
                 }
                 .padding(.top, 32)
 
+                FieldGroup(title: "Session length", titleStyle: .secondary) {
+                    HStack(spacing: 10) {
+                        TextField("60", text: $vm.sessionLifetimeText)
+                            .textFieldStyle(.plain)
+                            .monospacedDigit()
+                            .padding(14)
+                            .background(fieldBackground)
+                            #if os(iOS)
+                            .keyboardType(.numberPad)
+                            #endif
+
+                        Text("seconds")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.top, 16)
+
                 ManualWalletSelectionToggle()
                     .padding(.top, 16)
 
                 Spacer()
 
                 Button {
-                    Task { await vm.submitLogin(input: inputText) }
+                    Task { await vm.submitLogin() }
                 } label: {
                     label(for: "Continue", loading: vm.isLoading)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(inputText.isEmpty || vm.isLoading)
+                .disabled(vm.loginEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || vm.sessionLifetimeSeconds == nil || vm.isLoading)
 
                 Button {
                     Task { await vm.startGoogleRedirectAuth() }
@@ -1949,6 +2069,32 @@ private func label(for title: String, systemImage: String? = nil, loading: Bool)
         }
     }
     .frame(maxWidth: .infinity)
+}
+
+private extension View {
+    func sessionExpiredAlert(
+        prompt: Binding<SessionExpiredPrompt?>,
+        retry: @escaping (SessionExpiredPrompt) -> Void,
+        dismiss: @escaping () -> Void
+    ) -> some View {
+        alert(item: prompt) { prompt in
+            Alert(
+                title: Text("Session expired"),
+                message: Text(sessionExpiredMessage(prompt)),
+                primaryButton: .default(Text("Accept")) {
+                    retry(prompt)
+                },
+                secondaryButton: .cancel(Text("Not now"), action: dismiss)
+            )
+        }
+    }
+}
+
+private func sessionExpiredMessage(_ prompt: SessionExpiredPrompt) -> String {
+    if let email = prompt.email {
+        return "Your wallet session expired. Do you want to sign in with \(email) again?"
+    }
+    return "Your wallet session expired. Do you want to sign in again?"
 }
 
 // MARK: - Previews

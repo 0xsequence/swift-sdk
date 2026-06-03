@@ -9,7 +9,7 @@ public enum TransactionError: Error {
 }
 
 @available(macOS 12.0, iOS 15.0, *)
-public class WalletClient {
+public class WalletClient: @unchecked Sendable {
     private struct SessionMetadata {
         let expiresAt: String?
         let loginType: SessionLoginType?
@@ -23,11 +23,25 @@ public class WalletClient {
         let metadata: SessionMetadata
     }
 
+    private typealias SessionExpiredNotification = (
+        handler: ((SessionExpiredEvent) -> Void)?,
+        event: SessionExpiredEvent
+    )
+
     private static let defaultSessionLifetimeSeconds: UInt32 = 604_800
     private static let defaultTransactionPollingIntervals: [UInt64] =
         Array(repeating: 750_000_000, count: 5) + Array(repeating: 2_000_000_000, count: 28)
 
-    private var signedClient: WaasWalletClient
+    private let sessionLock = NSRecursiveLock()
+    private var _signedClient: WaasWalletClient
+    private var signedClient: WaasWalletClient {
+        get {
+            withSessionLock { _signedClient }
+        }
+        set {
+            withSessionLock { _signedClient = newValue }
+        }
+    }
     private var publicClient: WaasWalletPublicClient
     private let indexerClient: any WalletIndexerClient
     private let transactionPollingIntervals: [UInt64]
@@ -39,25 +53,124 @@ public class WalletClient {
     private let oidcRedirectAuthStore: any OidcRedirectAuthStore
     private let oidcNonceGenerator: () throws -> String
     private let signedClientFactory: (any CredentialSigner) -> WaasWalletClient
-    private var sessionExpiresAt: String?
-    private var sessionLoginType: SessionLoginType?
-    private var sessionEmail: String?
-    private var activePendingWalletSelection: PendingWalletSelectionSession?
+    private let currentDate: () -> Date
+    private var _sessionExpiresAt: String?
+    private var sessionExpiresAt: String? {
+        get {
+            withSessionLock { _sessionExpiresAt }
+        }
+        set {
+            withSessionLock { _sessionExpiresAt = newValue }
+        }
+    }
+    private var _sessionLoginType: SessionLoginType?
+    private var sessionLoginType: SessionLoginType? {
+        get {
+            withSessionLock { _sessionLoginType }
+        }
+        set {
+            withSessionLock { _sessionLoginType = newValue }
+        }
+    }
+    private var _sessionEmail: String?
+    private var sessionEmail: String? {
+        get {
+            withSessionLock { _sessionEmail }
+        }
+        set {
+            withSessionLock { _sessionEmail = newValue }
+        }
+    }
+    private var _activePendingWalletSelection: PendingWalletSelectionSession?
+    private var activePendingWalletSelection: PendingWalletSelectionSession? {
+        get {
+            withSessionLock { _activePendingWalletSelection }
+        }
+        set {
+            withSessionLock { _activePendingWalletSelection = newValue }
+        }
+    }
+    private var _sessionExpiryTask: Task<Void, Never>?
+    private var sessionExpiryTask: Task<Void, Never>? {
+        get {
+            withSessionLock { _sessionExpiryTask }
+        }
+        set {
+            withSessionLock { _sessionExpiryTask = newValue }
+        }
+    }
+    private var _latestSessionExpiredEvent: SessionExpiredEvent?
+    private var latestSessionExpiredEvent: SessionExpiredEvent? {
+        get {
+            withSessionLock { _latestSessionExpiredEvent }
+        }
+        set {
+            withSessionLock { _latestSessionExpiredEvent = newValue }
+        }
+    }
+    private var _walletAddress: String
+    private var _walletId: String
+    private var _onSessionExpired: ((SessionExpiredEvent) -> Void)?
+    private var _verifier = ""
+    private var _challenge = ""
 
-    public var walletAddress: String
-    public var walletId: String
+    public var walletAddress: String {
+        get {
+            withSessionLock { _walletAddress }
+        }
+        set {
+            withSessionLock { _walletAddress = newValue }
+        }
+    }
+    public var walletId: String {
+        get {
+            withSessionLock { _walletId }
+        }
+        set {
+            withSessionLock { _walletId = newValue }
+        }
+    }
+    public var onSessionExpired: ((SessionExpiredEvent) -> Void)? {
+        get {
+            withSessionLock { _onSessionExpired }
+        }
+        set {
+            let event = withSessionLock { () -> SessionExpiredEvent? in
+                _onSessionExpired = newValue
+                return _latestSessionExpiredEvent
+            }
+            if let event {
+                newValue?(event)
+            }
+        }
+    }
 
-    var verifier = "";
-    var challenge = "";
+    var verifier: String {
+        get {
+            withSessionLock { _verifier }
+        }
+        set {
+            withSessionLock { _verifier = newValue }
+        }
+    }
+    var challenge: String {
+        get {
+            withSessionLock { _challenge }
+        }
+        set {
+            withSessionLock { _challenge = newValue }
+        }
+    }
 
     public init(publishableKey: String, projectId: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
         self.projectId = projectId
         self.publishableKey = publishableKey
         self.environment = environment
         let credentialSession = WalletCredentialSession(environment: environment, projectId: projectId)
-        let restoredWallet = credentialSession.restore()
+        let storedWallet = credentialSession.storedMetadata()
         self.oidcRedirectAuthStore = KeychainOidcRedirectAuthStore(projectId: projectId, environment: environment)
         self.oidcNonceGenerator = OidcRedirectAuth.generateNonce
+        self.currentDate = Date.init
         let makeSignedClient: (any CredentialSigner) -> WaasWalletClient = { signer in
             Self.makeSignedClient(
                 publishableKey: publishableKey,
@@ -69,14 +182,14 @@ public class WalletClient {
         self.signedClientFactory = makeSignedClient
         self.transactionPollingIntervals = Self.defaultTransactionPollingIntervals
 
-        self.walletId = restoredWallet?.walletId ?? ""
-        self.walletAddress = restoredWallet?.walletAddress ?? ""
-        self.sessionExpiresAt = restoredWallet?.expiresAt
-        self.sessionLoginType = restoredWallet?.loginType
-        self.sessionEmail = restoredWallet?.sessionEmail
+        self._walletId = ""
+        self._walletAddress = ""
+        self._sessionExpiresAt = nil
+        self._sessionLoginType = nil
+        self._sessionEmail = nil
         self.credentialSession = credentialSession
 
-        self.signedClient = makeSignedClient(credentialSession.signer)
+        self._signedClient = makeSignedClient(credentialSession.signer)
         self.publicClient = Self.makePublicClient(
             publishableKey: publishableKey,
             environment: environment
@@ -85,6 +198,7 @@ public class WalletClient {
             publishableKey: publishableKey,
             environment: environment
         )
+        restoreStoredWalletSession(storedWallet)
     }
 
     init(
@@ -98,30 +212,41 @@ public class WalletClient {
         oidcRedirectAuthStore: (any OidcRedirectAuthStore)? = nil,
         oidcNonceGenerator: @escaping () throws -> String = OidcRedirectAuth.generateNonce,
         signedClientFactory: ((any CredentialSigner) -> WaasWalletClient)? = nil,
-        transactionPollingIntervals: [UInt64]? = nil
+        transactionPollingIntervals: [UInt64]? = nil,
+        currentDate: @escaping () -> Date = Date.init
     ) {
         self.projectId = projectId
         self.publishableKey = publishableKey
         self.environment = environment
-        let restoredWallet = credentialSession.restore()
+        let storedWallet = credentialSession.storedMetadata()
         self.oidcRedirectAuthStore = oidcRedirectAuthStore ?? KeychainOidcRedirectAuthStore(projectId: projectId, environment: environment)
         self.oidcNonceGenerator = oidcNonceGenerator
+        self.currentDate = currentDate
         let makeSignedClient = signedClientFactory ?? { _ in signedClient }
         self.signedClientFactory = makeSignedClient
         self.transactionPollingIntervals = transactionPollingIntervals ?? Self.defaultTransactionPollingIntervals
 
-        self.walletId = restoredWallet?.walletId ?? ""
-        self.walletAddress = restoredWallet?.walletAddress ?? ""
-        self.sessionExpiresAt = restoredWallet?.expiresAt
-        self.sessionLoginType = restoredWallet?.loginType
-        self.sessionEmail = restoredWallet?.sessionEmail
+        self._walletId = ""
+        self._walletAddress = ""
+        self._sessionExpiresAt = nil
+        self._sessionLoginType = nil
+        self._sessionEmail = nil
         self.credentialSession = credentialSession
-        self.signedClient = signedClient
+        self._signedClient = signedClient
         self.publicClient = publicClient
         self.indexerClient = indexerClient ?? IndexerClient(
             publishableKey: publishableKey,
             environment: environment
         )
+        restoreStoredWalletSession(storedWallet)
+    }
+
+    private func withSessionLock<T>(_ body: () throws -> T) rethrows -> T {
+        sessionLock.lock()
+        defer {
+            sessionLock.unlock()
+        }
+        return try body()
     }
 
     /// Whether there is a persisted OIDC redirect flow that can still be completed by
@@ -132,16 +257,36 @@ public class WalletClient {
 
     /// Snapshot of the current durable wallet-session state.
     public var session: SessionState {
-        guard !walletAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return SessionState(walletAddress: nil)
+        withSessionLock {
+            currentSessionLocked()
+        }
+    }
+
+    private func restoreStoredWalletSession(_ storedWallet: WalletCredentialSession.WalletMetadata?) {
+        guard let storedWallet else {
+            return
         }
 
-        return SessionState(
-            walletAddress: walletAddress,
-            expiresAtString: sessionExpiresAt,
-            loginType: sessionLoginType,
-            sessionEmail: sessionEmail
+        let storedSession = SessionState(
+            walletAddress: storedWallet.walletAddress,
+            expiresAtString: storedWallet.expiresAt,
+            loginType: storedWallet.loginType,
+            sessionEmail: storedWallet.sessionEmail
         )
+        guard !isSessionExpired(storedSession) else {
+            expireStoredSession(storedSession)
+            return
+        }
+        guard let restoredWallet = credentialSession.restore() else {
+            return
+        }
+
+        walletId = restoredWallet.walletId
+        walletAddress = restoredWallet.walletAddress
+        sessionExpiresAt = restoredWallet.expiresAt
+        sessionLoginType = restoredWallet.loginType
+        sessionEmail = restoredWallet.sessionEmail
+        scheduleSessionExpiry(session)
     }
 
     /// Initiates email-based OTP authentication by sending a one-time code to the given address.
@@ -181,9 +326,13 @@ public class WalletClient {
     public func completeEmailAuth(
         code: String,
         walletSelection: WalletSelectionBehavior = .automatic,
-        walletType: WalletType = WalletType.ethereum
+        walletType: WalletType = WalletType.ethereum,
+        sessionLifetimeSeconds: UInt32 = 604_800
     ) async throws -> CompleteAuthResult {
-        let response = try await confirmEmailSignIn(code: code)
+        let response = try await confirmEmailSignIn(
+            code: code,
+            sessionLifetimeSeconds: sessionLifetimeSeconds
+        )
         return try await completeWalletAuth(
             response,
             walletType: walletType,
@@ -202,7 +351,8 @@ public class WalletClient {
         issuer: String,
         audience: String,
         walletType: WalletType = WalletType.ethereum,
-        walletSelection: WalletSelectionBehavior = .automatic
+        walletSelection: WalletSelectionBehavior = .automatic,
+        sessionLifetimeSeconds: UInt32 = 604_800
     ) async throws -> CompleteAuthResult {
         try clearSession(clearOidcRedirectAuth: true)
 
@@ -224,7 +374,10 @@ public class WalletClient {
             verifier = response.verifier
             challenge = response.challenge
 
-            let auth = try await confirmOidcIdTokenSignIn(idToken: idToken)
+            let auth = try await confirmOidcIdTokenSignIn(
+                idToken: idToken,
+                sessionLifetimeSeconds: sessionLifetimeSeconds
+            )
             return try await completeWalletAuth(
                 auth,
                 walletType: walletType,
@@ -245,14 +398,16 @@ public class WalletClient {
         issuer: String,
         audience: String,
         walletType: WalletType = WalletType.ethereum,
-        walletSelection: WalletSelectionBehavior = .automatic
+        walletSelection: WalletSelectionBehavior = .automatic,
+        sessionLifetimeSeconds: UInt32 = 604_800
     ) async throws -> CompleteAuthResult {
         try await signInWithOidcIdToken(
             idToken: idToken,
             issuer: issuer,
             audience: audience,
             walletType: walletType,
-            walletSelection: walletSelection
+            walletSelection: walletSelection,
+            sessionLifetimeSeconds: sessionLifetimeSeconds
         )
     }
 
@@ -265,6 +420,7 @@ public class WalletClient {
         provider: OidcProviderConfig,
         redirectUri: String,
         walletType: WalletType = WalletType.ethereum,
+        loginHint: String? = nil,
         authorizeParams: [String: String] = [:]
     ) async throws -> StartOidcRedirectAuthResult {
         try await startOidcRedirectAuth(
@@ -272,6 +428,7 @@ public class WalletClient {
             redirectUri: redirectUri,
             walletType: walletType,
             relayRedirectUri: provider.relayRedirectUri,
+            loginHint: loginHint,
             authorizeParams: authorizeParams
         )
     }
@@ -284,8 +441,10 @@ public class WalletClient {
         redirectUri: String,
         walletType: WalletType = WalletType.ethereum,
         relayRedirectUri: String?,
+        loginHint: String? = nil,
         authorizeParams: [String: String] = [:]
     ) async throws -> StartOidcRedirectAuthResult {
+        let previousSessionEmail = reauthenticationSessionEmail()
         try clearSession(clearOidcRedirectAuth: true)
 
         do {
@@ -330,7 +489,10 @@ public class WalletClient {
                 redirectUri: oauthRedirectUri,
                 state: state,
                 challenge: response.challenge,
-                loginHint: response.loginHint,
+                loginHint: loginHintForProvider(
+                    provider,
+                    loginHint: loginHint ?? previousSessionEmail
+                ),
                 authorizeParams: provider.authorizeParams.merging(authorizeParams) { _, new in new }
             )
 
@@ -353,7 +515,8 @@ public class WalletClient {
     /// `.walletSelection` when `walletSelection` is `.manual`.
     public func handleOidcRedirectCallback(
         _ callbackUrl: String?,
-        walletSelection: WalletSelectionBehavior = .automatic
+        walletSelection: WalletSelectionBehavior = .automatic,
+        sessionLifetimeSeconds: UInt32 = 604_800
     ) async throws -> OidcRedirectAuthResult {
         guard let callbackUrl = callbackUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
               !callbackUrl.isEmpty else {
@@ -412,7 +575,7 @@ public class WalletClient {
                     authMode: .authCodePkce,
                     verifier: pending.verifier,
                     answer: code,
-                    lifetime: Self.defaultSessionLifetimeSeconds
+                    lifetime: sessionLifetimeSeconds
                 )
             )
             let result = try await completeWalletAuth(
@@ -436,7 +599,10 @@ public class WalletClient {
         }
     }
 
-    private func confirmEmailSignIn(code: String) async throws -> CompleteAuthResponse {
+    private func confirmEmailSignIn(
+        code: String,
+        sessionLifetimeSeconds: UInt32
+    ) async throws -> CompleteAuthResponse {
         let answer = RequestUtils.hashEmailAuthAnswer(challenge: challenge, code: code)
 
         let params = CompleteAuthRequest(
@@ -444,19 +610,22 @@ public class WalletClient {
             authMode: AuthMode.otp,
             verifier: verifier,
             answer: answer,
-            lifetime: Self.defaultSessionLifetimeSeconds
+            lifetime: sessionLifetimeSeconds
         )
 
         return try await signedClient.completeAuth(params)
     }
 
-    private func confirmOidcIdTokenSignIn(idToken: String) async throws -> CompleteAuthResponse {
+    private func confirmOidcIdTokenSignIn(
+        idToken: String,
+        sessionLifetimeSeconds: UInt32
+    ) async throws -> CompleteAuthResponse {
         let params = CompleteAuthRequest(
             identityType: IdentityType.oidc,
             authMode: AuthMode.idToken,
             verifier: verifier,
             answer: idToken,
-            lifetime: Self.defaultSessionLifetimeSeconds
+            lifetime: sessionLifetimeSeconds
         )
 
         return try await signedClient.completeAuth(params)
@@ -570,6 +739,16 @@ public class WalletClient {
     ) throws {
         guard activePendingWalletSelection?.id == selectionSession.id else {
             throw WalletAuthError.staleWalletSelection
+        }
+        let selectionSessionState = SessionState(
+            walletAddress: nil,
+            expiresAtString: selectionSession.metadata.expiresAt,
+            loginType: selectionSession.metadata.loginType,
+            sessionEmail: selectionSession.metadata.sessionEmail
+        )
+        guard !isSessionExpired(selectionSessionState) else {
+            expireSession(selectionSessionState)
+            throw WalletAuthError.noAuthenticatedWalletSession
         }
         try requireActiveCredential()
         let signerCredentialId = try credentialSession.signer.credentialId()
@@ -710,24 +889,200 @@ public class WalletClient {
         return cursor
     }
 
-    private func currentSessionMetadata() -> SessionMetadata {
-        SessionMetadata(
-            expiresAt: sessionExpiresAt,
-            loginType: sessionLoginType,
-            sessionEmail: sessionEmail
+    private func isSessionExpired(_ session: SessionState) -> Bool {
+        guard let expiresAt = session.expiresAt else {
+            return false
+        }
+        return currentDate() >= expiresAt
+    }
+
+    private func expireStoredSession(_ session: SessionState) {
+        deliverSessionExpiredNotification(
+            withSessionLock {
+                try? credentialSession.clearSignerKeepingCredentials()
+                _signedClient = signedClientFactory(credentialSession.signer)
+                return makeSessionExpiredNotificationLocked(session)
+            }
         )
     }
 
+    private func expireSession(_ session: SessionState) {
+        deliverSessionExpiredNotification(
+            withSessionLock {
+                clearActiveSessionForExpiryLocked()
+                return makeSessionExpiredNotificationLocked(session)
+            }
+        )
+    }
+
+    private func currentSessionLocked() -> SessionState {
+        guard !_walletAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return SessionState(walletAddress: nil)
+        }
+
+        return SessionState(
+            walletAddress: _walletAddress,
+            expiresAtString: _sessionExpiresAt,
+            loginType: _sessionLoginType,
+            sessionEmail: _sessionEmail
+        )
+    }
+
+    private func expireCurrentSessionIfNeeded() -> SessionExpiredNotification? {
+        withSessionLock {
+            let currentSession = currentSessionLocked()
+            guard isSessionExpired(currentSession) else {
+                return nil
+            }
+            clearActiveSessionForExpiryLocked()
+            return makeSessionExpiredNotificationLocked(currentSession)
+        }
+    }
+
+    private func clearActiveSessionForExpiryLocked() {
+        _sessionExpiryTask?.cancel()
+        _sessionExpiryTask = nil
+        _activePendingWalletSelection = nil
+        try? credentialSession.clearSignerKeepingCredentials()
+        _walletAddress = ""
+        _walletId = ""
+        _verifier = ""
+        _challenge = ""
+        _sessionExpiresAt = nil
+        _sessionLoginType = nil
+        _sessionEmail = nil
+        _signedClient = signedClientFactory(credentialSession.signer)
+    }
+
+    private func makeSessionExpiredNotificationLocked(_ session: SessionState) -> SessionExpiredNotification? {
+        guard let expiredAt = session.expiresAt else {
+            return nil
+        }
+        let event = SessionExpiredEvent(session: session, expiredAt: expiredAt)
+        _latestSessionExpiredEvent = event
+        return (_onSessionExpired, event)
+    }
+
+    private func deliverSessionExpiredNotification(_ notification: SessionExpiredNotification?) {
+        guard let notification else {
+            return
+        }
+        notification.handler?(notification.event)
+    }
+
+    private func scheduleSessionExpiry(_ session: SessionState) {
+        guard let expiresAt = session.expiresAt else {
+            withSessionLock {
+                guard isCurrentSessionSnapshotLocked(session) else {
+                    return
+                }
+                _sessionExpiryTask?.cancel()
+                _sessionExpiryTask = nil
+            }
+            return
+        }
+        let delay = max(0, expiresAt.timeIntervalSince(currentDate()))
+        guard delay > 0 else {
+            expireSessionFromTimer(session)
+            return
+        }
+        let nanoseconds = UInt64(min(delay * 1_000_000_000, Double(UInt64.max)))
+        let task = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: nanoseconds)
+            guard !Task.isCancelled else {
+                return
+            }
+            self?.expireSessionFromTimer(session)
+        }
+        let shouldCancelTask = withSessionLock { () -> Bool in
+            guard isCurrentSessionSnapshotLocked(session) else {
+                return true
+            }
+            _sessionExpiryTask?.cancel()
+            _sessionExpiryTask = task
+            return false
+        }
+        if shouldCancelTask {
+            task.cancel()
+        }
+    }
+
+    private func expireSessionFromTimer(_ session: SessionState) {
+        let transition = withSessionLock { () -> (
+            notification: SessionExpiredNotification?,
+            reschedule: SessionState?
+        ) in
+            guard isCurrentSessionSnapshotLocked(session) else {
+                return (nil, nil)
+            }
+            guard isSessionExpired(session) else {
+                return (nil, session)
+            }
+            clearActiveSessionForExpiryLocked()
+            return (makeSessionExpiredNotificationLocked(session), nil)
+        }
+        if let reschedule = transition.reschedule {
+            scheduleSessionExpiry(reschedule)
+        }
+        deliverSessionExpiredNotification(transition.notification)
+    }
+
+    private func isCurrentSessionSnapshotLocked(_ session: SessionState) -> Bool {
+        guard let sessionWalletAddress = session.walletAddress else {
+            return false
+        }
+        return _walletAddress == sessionWalletAddress
+            && SessionState.parseDate(_sessionExpiresAt) == session.expiresAt
+            && _sessionLoginType == session.loginType
+            && _sessionEmail == session.sessionEmail
+    }
+
+    private func reauthenticationSessionEmail() -> String? {
+        withSessionLock {
+            currentSessionLocked().sessionEmail ?? _latestSessionExpiredEvent?.session.sessionEmail
+        }
+    }
+
+    private func loginHintForProvider(
+        _ provider: OidcProviderConfig,
+        loginHint: String?
+    ) -> String? {
+        provider.issuer == "https://accounts.google.com" ? loginHint : nil
+    }
+
+    private func currentSessionMetadata() -> SessionMetadata {
+        withSessionLock {
+            SessionMetadata(
+                expiresAt: _sessionExpiresAt,
+                loginType: _sessionLoginType,
+                sessionEmail: _sessionEmail
+            )
+        }
+    }
+
     private func requireWalletSelectionOrActiveSession() throws {
-        let hasWallet = !walletId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let hasVerifiedAuth = !(sessionExpiresAt ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        guard hasWallet || hasVerifiedAuth else {
+        if let notification = expireCurrentSessionIfNeeded() {
+            deliverSessionExpiredNotification(notification)
+            throw WalletAuthError.noAuthenticatedWalletSession
+        }
+        let hasActiveSession = withSessionLock { () -> Bool in
+            let hasWallet = !_walletId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let hasVerifiedAuth = !(_sessionExpiresAt ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return hasWallet || hasVerifiedAuth
+        }
+        guard hasActiveSession else {
             throw WalletAuthError.noAuthenticatedWalletSession
         }
     }
 
     private func requireActiveWalletId() throws -> String {
-        let walletId = walletId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let notification = expireCurrentSessionIfNeeded() {
+            deliverSessionExpiredNotification(notification)
+            throw WalletAuthError.noAuthenticatedWalletSession
+        }
+        let walletId = withSessionLock {
+            _walletId.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         guard !walletId.isEmpty else {
             throw WalletAuthError.noAuthenticatedWalletSession
         }
@@ -776,11 +1131,13 @@ public class WalletClient {
         walletId: String,
         sessionMetadata: SessionMetadata
     ) throws {
-        self.walletAddress = walletAddress
-        self.walletId = walletId
-        self.sessionExpiresAt = sessionMetadata.expiresAt
-        self.sessionLoginType = sessionMetadata.loginType
-        self.sessionEmail = sessionMetadata.sessionEmail
+        withSessionLock {
+            _walletAddress = walletAddress
+            _walletId = walletId
+            _sessionExpiresAt = sessionMetadata.expiresAt
+            _sessionLoginType = sessionMetadata.loginType
+            _sessionEmail = sessionMetadata.sessionEmail
+        }
 
         try credentialSession.persist(
             walletId: walletId,
@@ -789,6 +1146,7 @@ public class WalletClient {
             loginType: sessionMetadata.loginType,
             sessionEmail: sessionMetadata.sessionEmail
         )
+        scheduleSessionExpiry(session)
     }
 
     /// Clears the wallet session from the device keychain.
@@ -801,19 +1159,24 @@ public class WalletClient {
     }
 
     private func clearSession(clearOidcRedirectAuth: Bool) throws {
-        activePendingWalletSelection = nil
-        try credentialSession.clear()
+        try withSessionLock {
+            _latestSessionExpiredEvent = nil
+            _sessionExpiryTask?.cancel()
+            _sessionExpiryTask = nil
+            _activePendingWalletSelection = nil
+            try credentialSession.clear()
+            _walletAddress = ""
+            _walletId = ""
+            _verifier = ""
+            _challenge = ""
+            _sessionExpiresAt = nil
+            _sessionLoginType = nil
+            _sessionEmail = nil
+            _signedClient = signedClientFactory(credentialSession.signer)
+        }
         if clearOidcRedirectAuth {
             try oidcRedirectAuthStore.clear()
         }
-        walletAddress = ""
-        walletId = ""
-        verifier = ""
-        challenge = ""
-        sessionExpiresAt = nil
-        sessionLoginType = nil
-        sessionEmail = nil
-        signedClient = signedClientFactory(credentialSession.signer)
     }
 
     /// Returns a list of credentials that currently have access to this wallet.

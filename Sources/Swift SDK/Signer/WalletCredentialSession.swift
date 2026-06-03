@@ -1,3 +1,5 @@
+import Foundation
+
 @available(macOS 12.0, iOS 15.0, *)
 final class WalletCredentialSession {
     struct WalletMetadata {
@@ -33,8 +35,27 @@ final class WalletCredentialSession {
         self.currentSigner = factory()
     }
 
+    func storedMetadata() -> WalletMetadata? {
+        guard let credentials = loadCredentials() else {
+            return nil
+        }
+
+        return WalletMetadata(
+            walletId: credentials.walletId,
+            walletAddress: credentials.walletAddress,
+            expiresAt: credentials.expiresAt,
+            loginType: credentials.loginType,
+            sessionEmail: credentials.sessionEmail
+        )
+    }
+
     func restore() -> WalletMetadata? {
         guard let credentials = loadCredentials() else {
+            return nil
+        }
+
+        guard !Self.sessionIsExpired(expiresAt: credentials.expiresAt) else {
+            clearStoredSession()
             return nil
         }
 
@@ -88,6 +109,11 @@ final class WalletCredentialSession {
         try keychain.set(credentials.jsonString(), forKey: credentialsStorageKey)
     }
 
+    func clearSignerKeepingCredentials() throws {
+        try currentSigner.clear()
+        currentSigner = signerFactory()
+    }
+
     func clear() throws {
         try currentSigner.clear()
         try keychain.delete(forKey: credentialsStorageKey)
@@ -114,6 +140,34 @@ final class WalletCredentialSession {
         }
 
         return try signer.credentialId().lowercased() == credentials.signerCredentialId.lowercased()
+    }
+
+    private func clearStoredSession() {
+        _ = try? makeCredentialSigner().clear()
+        _ = try? keychain.delete(forKey: credentialsStorageKey)
+        currentSigner = signerFactory()
+    }
+
+    private static func sessionIsExpired(expiresAt value: String?) -> Bool {
+        guard let expiresAt = parseExpiresAt(value) else {
+            return true
+        }
+
+        return expiresAt <= Date()
+    }
+
+    private static func parseExpiresAt(_ value: String?) -> Date? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+
+        let formatter = ISO8601DateFormatter()
+        if let date = formatter.date(from: value) {
+            return date
+        }
+
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: value)
     }
 
     private static func makeDefaultCredentialSigner(

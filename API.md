@@ -10,6 +10,7 @@
   - [Network](#network)
   - [OMSClientIdentity](#omsclientidentity)
   - [SessionState](#sessionstate)
+  - [SessionExpiredEvent](#sessionexpiredevent)
   - [SessionLoginType](#sessionlogintype)
   - [OMSClientEnvironment](#omsclientenvironment)
   - [FeeOptionSelector](#feeoptionselector)
@@ -112,6 +113,14 @@ var session: SessionState
 
 Snapshot of the currently completed wallet session for this wallet client.
 
+### onSessionExpired
+
+```swift
+var onSessionExpired: ((SessionExpiredEvent) -> Void)?
+```
+
+Called when the active wallet session expires. The SDK clears active in-memory wallet state and the signer credential, but keeps expired session metadata in storage until `signOut()` or a new auth flow clears or replaces it. The event carries the expired session snapshot so apps can reuse `sessionEmail` for email OTP reauth or as a Google OIDC login hint.
+
 ### canResumeOidcRedirectAuth
 
 ```swift
@@ -134,14 +143,16 @@ Sends a one-time passcode to the provided email address.
 func completeEmailAuth(
     code: String,
     walletSelection: WalletSelectionBehavior = .automatic,
-    walletType: WalletType = .ethereum
+    walletType: WalletType = .ethereum,
+    sessionLifetimeSeconds: UInt32 = 604_800
 ) async throws -> CompleteAuthResult
 ```
 
 Verifies the OTP code. With `.automatic`, selects the first existing wallet
 matching `walletType`, or creates and selects one when none exists. With
 `.manual`, returns a pending wallet selection without selecting or creating a
-wallet.
+wallet. `sessionLifetimeSeconds` controls the requested credential lifetime and
+defaults to one week.
 
 ### signInWithOidcToken
 
@@ -151,7 +162,8 @@ func signInWithOidcToken(
     issuer: String,
     audience: String,
     walletType: WalletType = .ethereum,
-    walletSelection: WalletSelectionBehavior = .automatic
+    walletSelection: WalletSelectionBehavior = .automatic,
+    sessionLifetimeSeconds: UInt32 = 604_800
 ) async throws -> CompleteAuthResult
 ```
 
@@ -162,7 +174,8 @@ token. `signInWithOidcIdToken` is also available with the same parameters.
 
 With `.automatic`, selects the first existing wallet matching `walletType`, or
 creates and selects one when none exists. With `.manual`, returns a pending
-wallet selection without selecting or creating a wallet.
+wallet selection without selecting or creating a wallet. `sessionLifetimeSeconds`
+controls the requested credential lifetime and defaults to one week.
 
 ### WalletSelectionBehavior
 
@@ -240,6 +253,7 @@ func startOidcRedirectAuth(
     provider: OidcProviderConfig,
     redirectUri: String,
     walletType: WalletType = .ethereum,
+    loginHint: String? = nil,
     authorizeParams: [String: String] = [:]
 ) async throws -> StartOidcRedirectAuthResult
 ```
@@ -250,9 +264,12 @@ func startOidcRedirectAuth(
     redirectUri: String,
     walletType: WalletType = .ethereum,
     relayRedirectUri: String?,
+    loginHint: String? = nil,
     authorizeParams: [String: String] = [:]
 ) async throws -> StartOidcRedirectAuthResult
 ```
+
+For Google OIDC providers, `loginHint` is sent as the OAuth `login_hint` parameter. If omitted, the SDK uses the previous session email when available. Non-Google providers do not receive `login_hint`.
 
 ```swift
 struct StartOidcRedirectAuthResult {
@@ -265,9 +282,13 @@ struct StartOidcRedirectAuthResult {
 ```swift
 func handleOidcRedirectCallback(
     _ callbackUrl: String?,
-    walletSelection: WalletSelectionBehavior = .automatic
+    walletSelection: WalletSelectionBehavior = .automatic,
+    sessionLifetimeSeconds: UInt32 = 604_800
 ) async throws -> OidcRedirectAuthResult
 ```
+
+`sessionLifetimeSeconds` is used when completing the OIDC redirect callback and
+defaults to one week.
 
 ```swift
 enum OidcRedirectAuthResult {
@@ -315,7 +336,7 @@ func listWallets() async throws -> [Wallet]
 
 Lists all wallets available to the authenticated credential.
 
-Wallet API requests are signed with a Keychain-backed P-256 credential using the `webcrypto-secp256r1` key type. Persisted sessions store wallet ID, wallet address, and signer metadata; private credential keys are not written into SDK session storage.
+Wallet API requests are signed with a Keychain-backed P-256 credential using the `webcrypto-secp256r1` key type. Persisted sessions store wallet ID, wallet address, expiry, and signer metadata; private credential keys are not written into SDK session storage. Restore checks the cached expiry first. Expired sessions are not activated, and the signer credential is cleared; expired metadata may remain in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it. Invalid persisted session metadata is cleared.
 
 ### signOut
 
@@ -651,6 +672,17 @@ struct SessionState: Equatable, Sendable {
 ```
 
 Current durable wallet-session snapshot. It intentionally excludes pending auth state and signer bookkeeping.
+
+### SessionExpiredEvent
+
+```swift
+struct SessionExpiredEvent: Equatable, Sendable {
+    let session: SessionState
+    let expiredAt: Date
+}
+```
+
+Event delivered to `wallet.onSessionExpired`. `session` is the expired session snapshot, including `sessionEmail` when available, and `expiredAt` is the parsed session expiry time.
 
 ### SessionLoginType
 

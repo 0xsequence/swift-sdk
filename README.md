@@ -98,7 +98,7 @@ let katana = oms.findNetworkByName(name: "katana")
 OMS supports email-based OTP, OIDC ID-token auth, and OIDC redirect auth. The email two-step flow is:
 
 1. **`startEmailAuth(email:)`** sends a one-time code to the user's inbox.
-2. **`completeEmailAuth(code:walletSelection:walletType:)`** verifies the code. In the default `.automatic` mode it selects the first matching wallet or creates one. The wallet address, wallet ID, and signer metadata are saved to the device keychain.
+2. **`completeEmailAuth(code:walletSelection:walletType:sessionLifetimeSeconds:)`** verifies the code. In the default `.automatic` mode it selects the first matching wallet or creates one. The wallet address, wallet ID, and signer metadata are saved to the device keychain.
 
 ```swift
 try await oms.wallet.startEmailAuth(email: "user@example.com")
@@ -114,7 +114,15 @@ print(session.walletAddress ?? "signed out")
 if let expiresAt = session.expiresAt { print(expiresAt) }
 if let loginType = session.loginType { print(loginType) }
 print(session.sessionEmail ?? "unknown")
+
+oms.wallet.onSessionExpired = { event in
+    print("Session expired:", event.expiredAt)
+    print("Reauth email:", event.session.sessionEmail ?? "unknown")
+}
 ```
+
+Auth completion methods accept `sessionLifetimeSeconds` when you need a shorter
+or longer requested session; the default is one week.
 
 To opt out of automatic activation and drive wallet selection yourself:
 
@@ -215,9 +223,9 @@ case .failed(let error):
 }
 ```
 
-Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. Only completed wallet session metadata is restored automatically, including wallet address, expiry, login type, and session email when available. The private credential key remains owned by the Keychain and is not written into SDK session storage.
+Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. Only completed wallet session metadata is restored automatically, including wallet address, expiry, login type, and session email when available. The SDK checks the cached session expiry before restoring a session. Expired sessions are not activated, and the signer credential is cleared; expired metadata may remain in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it. Invalid session metadata is cleared. The private credential key remains owned by the Keychain and is not written into SDK session storage.
 
-On subsequent launches, the completed session is restored from the keychain automatically. To end the session:
+On subsequent launches, an unexpired completed session is restored from the keychain automatically. To end the session:
 
 ```swift
 try oms.wallet.signOut()

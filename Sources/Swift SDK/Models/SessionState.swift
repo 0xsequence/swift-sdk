@@ -39,7 +39,7 @@ public struct SessionState: Equatable, Sendable {
         )
     }
 
-    private static func parseDate(_ value: String?) -> Date? {
+    static func parseDate(_ value: String?) -> Date? {
         guard let value else {
             return nil
         }
@@ -51,5 +51,15 @@ public struct SessionState: Equatable, Sendable {
 
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.date(from: value)
+    }
+}
+
+public struct SessionExpiredEvent: Equatable, Sendable {
+    public let session: SessionState
+    public let expiredAt: Date
+
+    public init(session: SessionState, expiredAt: Date) {
+        self.session = session
+        self.expiredAt = expiredAt
     }
 }
