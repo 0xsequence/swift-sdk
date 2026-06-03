@@ -35,6 +35,20 @@ final class WalletCredentialSession {
         self.currentSigner = factory()
     }
 
+    func storedMetadata() -> WalletMetadata? {
+        guard let credentials = loadCredentials() else {
+            return nil
+        }
+
+        return WalletMetadata(
+            walletId: credentials.walletId,
+            walletAddress: credentials.walletAddress,
+            expiresAt: credentials.expiresAt,
+            loginType: credentials.loginType,
+            sessionEmail: credentials.sessionEmail
+        )
+    }
+
     func restore() -> WalletMetadata? {
         guard let credentials = loadCredentials() else {
             return nil
@@ -93,6 +107,11 @@ final class WalletCredentialSession {
         )
 
         try keychain.set(credentials.jsonString(), forKey: credentialsStorageKey)
+    }
+
+    func clearSignerKeepingCredentials() throws {
+        try currentSigner.clear()
+        currentSigner = signerFactory()
     }
 
     func clear() throws {

@@ -114,6 +114,11 @@ print(session.walletAddress ?? "signed out")
 if let expiresAt = session.expiresAt { print(expiresAt) }
 if let loginType = session.loginType { print(loginType) }
 print(session.sessionEmail ?? "unknown")
+
+oms.wallet.onSessionExpired = { event in
+    print("Session expired:", event.expiredAt)
+    print("Reauth email:", event.session.sessionEmail ?? "unknown")
+}
 ```
 
 To opt out of automatic activation and drive wallet selection yourself:

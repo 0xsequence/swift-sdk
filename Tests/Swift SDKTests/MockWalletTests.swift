@@ -84,90 +84,110 @@ import Testing
     #expect(storedCredentials?.sessionEmail == "user@example.com")
 }
 
-@Test func TestWalletRestoresUnexpiredPersistedSession() throws {
-    let environment = OMSClientEnvironment(walletApiUrl: "https://wallet.example.test")
-    let projectId = "proj_restore_unexpired"
-    let keychain = InMemoryKeychain()
-    let signer = MockCredentialSigner()
-    let expiresAt = "2999-01-01T00:00:00Z"
-    try persistRestorableCredentials(
-        keychain: keychain,
-        environment: environment,
-        projectId: projectId,
-        walletId: "wallet-restore",
-        walletAddress: "0xrestore",
-        expiresAt: expiresAt
+@Test func TestWalletOperationExpiresSessionRetainsMetadataAndNotifiesDelegate() async throws {
+    let expiresAt = "2026-01-01T00:00:00Z"
+    var now = Date(timeIntervalSince1970: 1_767_225_599)
+    let fixture = makeMockWalletClient(currentDate: { now })
+    let wallet = testWallet(id: "wallet-expiring", address: "0x1111111111111111111111111111111111111111")
+    let credential = CredentialInfo(
+        credentialId: "0xcredential",
+        expiresAt: expiresAt,
+        isCaller: true
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: [wallet], credential: credential),
+        for: WaasWalletAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: wallet),
+        for: WaasWalletAPI.UseWallet.urlPath
     )
 
-    let fixture = makeMockWalletClient(
-        environment: environment,
-        projectId: projectId,
-        keychain: keychain,
-        signer: signer
-    )
-
-    #expect(fixture.client.walletId == "wallet-restore")
-    #expect(fixture.client.walletAddress == "0xrestore")
-    #expect(fixture.client.session.walletAddress == "0xrestore")
-    #expect(fixture.client.session.expiresAt ?? .distantPast > Date())
-    #expect(try fixture.storedCredentials()?.expiresAt == expiresAt)
-    #expect(signer.hasStoredCredential == true)
-}
-
-@Test func TestWalletRestoreClearsExpiredPersistedSession() throws {
-    let environment = OMSClientEnvironment(walletApiUrl: "https://wallet.example.test")
-    let projectId = "proj_restore_expired"
-    let keychain = InMemoryKeychain()
-    let signer = MockCredentialSigner()
-    try persistRestorableCredentials(
-        keychain: keychain,
-        environment: environment,
-        projectId: projectId,
-        walletId: "wallet-expired",
-        walletAddress: "0xexpired",
-        expiresAt: "2000-01-01T00:00:00Z"
-    )
-
-    let fixture = makeMockWalletClient(
-        environment: environment,
-        projectId: projectId,
-        keychain: keychain,
-        signer: signer
-    )
-
-    #expect(fixture.client.walletId == "")
-    #expect(fixture.client.walletAddress == "")
-    #expect(fixture.client.session == SessionState(walletAddress: nil))
-    #expect(try fixture.storedCredentials() == nil)
-    #expect(signer.hasStoredCredential == false)
-}
-
-@Test func TestWalletRestoreClearsMissingOrMalformedSessionExpiry() throws {
-    for expiresAt in [nil, "", "not-a-date"] as [String?] {
-        let environment = OMSClientEnvironment(walletApiUrl: "https://wallet.example.test")
-        let projectId = "proj_restore_invalid_\(UUID().uuidString)"
-        let keychain = InMemoryKeychain()
-        let signer = MockCredentialSigner()
-        try persistRestorableCredentials(
-            keychain: keychain,
-            environment: environment,
-            projectId: projectId,
-            walletId: "wallet-invalid",
-            walletAddress: "0xinvalid",
-            expiresAt: expiresAt
-        )
-
-        let fixture = makeMockWalletClient(
-            environment: environment,
-            projectId: projectId,
-            keychain: keychain,
-            signer: signer
-        )
-
-        #expect(fixture.client.session == SessionState(walletAddress: nil))
-        #expect(try fixture.storedCredentials() == nil)
-        #expect(signer.hasStoredCredential == false)
+    _ = try await fixture.client.completeEmailAuth(code: "123456")
+    var expiredEvent: SessionExpiredEvent?
+    fixture.client.onSessionExpired = { event in
+        expiredEvent = event
     }
+
+    now = Date(timeIntervalSince1970: 1_767_225_601)
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.signMessage(network: .polygon, message: "hello")
+    }
+
+    let storedCredentials = try fixture.storedCredentials()
+    #expect(expiredEvent?.session.walletAddress == wallet.address)
+    #expect(expiredEvent?.session.expiresAt == Date(timeIntervalSince1970: 1_767_225_600))
+    #expect(expiredEvent?.session.loginType == .email)
+    #expect(expiredEvent?.session.sessionEmail == "user@example.com")
+    #expect(expiredEvent?.expiredAt == Date(timeIntervalSince1970: 1_767_225_600))
+    #expect(fixture.client.session == SessionState(walletAddress: nil))
+    #expect(storedCredentials?.walletId == wallet.id)
+    #expect(storedCredentials?.walletAddress == wallet.address)
+    #expect(storedCredentials?.expiresAt == expiresAt)
+    #expect(storedCredentials?.sessionEmail == "user@example.com")
+    #expect(fixture.signer.clearCallCount == 1)
+    #expect(fixture.transport.requestCount(for: WaasWalletAPI.SignMessage.urlPath) == 0)
+}
+
+@Test func TestWalletRestoredExpiredSessionIsInactiveAndReplaysDelegate() throws {
+    let storedCredentials = StorableCredentials(
+        walletId: "wallet-expired",
+        walletAddress: "0x1111111111111111111111111111111111111111",
+        signerCredentialId: "0xmock-credential",
+        alg: .ecdsaP256Sha256,
+        expiresAt: "2026-01-01T00:00:00Z",
+        loginType: .email,
+        sessionEmail: "user@example.com"
+    )
+    let fixture = makeMockWalletClient(
+        currentDate: { Date(timeIntervalSince1970: 1_767_225_601) },
+        storedCredentials: storedCredentials
+    )
+    var expiredEvent: SessionExpiredEvent?
+
+    fixture.client.onSessionExpired = { event in
+        expiredEvent = event
+    }
+
+    #expect(fixture.client.session == SessionState(walletAddress: nil))
+    #expect(expiredEvent?.session.walletAddress == storedCredentials.walletAddress)
+    #expect(expiredEvent?.session.sessionEmail == "user@example.com")
+    #expect(expiredEvent?.expiredAt == Date(timeIntervalSince1970: 1_767_225_600))
+    #expect(try fixture.storedCredentials()?.walletId == storedCredentials.walletId)
+    #expect(fixture.signer.clearCallCount == 1)
+}
+
+@Test func TestWalletSessionExpiryTimerNotifiesDelegate() async throws {
+    let fixture = makeMockWalletClient(
+        currentDate: { Date(timeIntervalSince1970: 1_767_225_601) }
+    )
+    let wallet = testWallet(id: "wallet-expired-timer", address: "0x2222222222222222222222222222222222222222")
+    let credential = CredentialInfo(
+        credentialId: "0xcredential",
+        expiresAt: "2026-01-01T00:00:00Z",
+        isCaller: true
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: [wallet], credential: credential),
+        for: WaasWalletAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: wallet),
+        for: WaasWalletAPI.UseWallet.urlPath
+    )
+
+    _ = try await fixture.client.completeEmailAuth(code: "123456")
+    await Task.yield()
+    await Task.yield()
+    var expiredEvent: SessionExpiredEvent?
+    fixture.client.onSessionExpired = { event in
+        expiredEvent = event
+    }
+
+    #expect(expiredEvent?.session.walletAddress == wallet.address)
+    #expect(expiredEvent?.session.sessionEmail == "user@example.com")
+    #expect(fixture.client.session == SessionState(walletAddress: nil))
+    #expect(try fixture.storedCredentials()?.walletId == wallet.id)
 }
 
 @Test func TestWalletCompleteEmailAuthFetchesPaginatedWallets() async throws {
@@ -688,7 +708,7 @@ import Testing
     #expect(query["state"] == result.state)
     #expect(query["code_challenge"] == "pkce-challenge")
     #expect(query["code_challenge_method"] == "S256")
-    #expect(query["login_hint"] == "user@example.com")
+    #expect(query["login_hint"] == nil)
     #expect(query["prompt"] == "select_account")
     #expect(query["audience"] == "wallet")
     #expect(decodedState["nonce"] as? String == "nonce-123")
@@ -704,6 +724,39 @@ import Testing
     #expect(fixture.oidcRedirectAuthStore.pending?.signerKeyType == .ecdsaP256Sha256)
     #expect(fixture.client.canResumeOidcRedirectAuth)
     #expect(fixture.client.verifier == "oidc-verifier-123")
+}
+
+@Test func TestWalletStartOidcRedirectAuthUsesStoredEmailAsGoogleLoginHint() async throws {
+    let storedCredentials = StorableCredentials(
+        walletId: "wallet-google",
+        walletAddress: "0x1111111111111111111111111111111111111111",
+        signerCredentialId: "0xmock-credential",
+        alg: .ecdsaP256Sha256,
+        expiresAt: "2099-01-01T00:00:00Z",
+        loginType: .googleAuth,
+        sessionEmail: "last@example.com"
+    )
+    let fixture = makeMockWalletClient(
+        oidcNonceGenerator: { "nonce-123" },
+        currentDate: { Date(timeIntervalSince1970: 1_767_225_599) },
+        storedCredentials: storedCredentials
+    )
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasWalletAPI.CommitVerifier.urlPath
+    )
+
+    let result = try await fixture.client.startOidcRedirectAuth(
+        provider: OidcProviders.google(relayRedirectUri: nil),
+        redirectUri: "omssdkdemo://auth/callback"
+    )
+    let query = queryParams(result.authorizationUrl)
+
+    #expect(query["login_hint"] == "last@example.com")
+    #expect(try fixture.storedCredentials() == nil)
 }
 
 @Test func TestWalletHandleOidcRedirectCallbackCompletesAuthActivatesWalletAndClearsPendingAuth() async throws {
@@ -1635,7 +1688,7 @@ import Testing
 
 private let testCredential = CredentialInfo(
     credentialId: "0xcredential",
-    expiresAt: "2026-01-01T00:00:00Z",
+    expiresAt: "2099-01-01T00:00:00Z",
     isCaller: true
 )
 
@@ -1681,10 +1734,19 @@ private func makeMockWalletClient(
     signer: MockCredentialSigner = MockCredentialSigner(),
     oidcRedirectAuthStore: InMemoryOidcRedirectAuthStore = InMemoryOidcRedirectAuthStore(),
     oidcNonceGenerator: @escaping () throws -> String = OidcRedirectAuth.generateNonce,
-    transactionPollingIntervals: [UInt64]? = nil
+    transactionPollingIntervals: [UInt64]? = nil,
+    currentDate: @escaping () -> Date = Date.init,
+    storedCredentials: StorableCredentials? = nil
 ) -> MockWalletClientFixture {
     let transport = MockWaasTransport()
     let indexerClient = MockWalletIndexerClient()
+    let oidcRedirectAuthStore = InMemoryOidcRedirectAuthStore()
+    if let storedCredentials {
+        _ = try? keychain.set(
+            storedCredentials.jsonString(),
+            forKey: Constants.credentialsStorageKey(environment: environment, scope: projectId)
+        )
+    }
     let credentialSession = WalletCredentialSession(
         environment: environment,
         projectId: projectId,
@@ -1709,7 +1771,8 @@ private func makeMockWalletClient(
         indexerClient: indexerClient,
         oidcRedirectAuthStore: oidcRedirectAuthStore,
         oidcNonceGenerator: oidcNonceGenerator,
-        transactionPollingIntervals: transactionPollingIntervals
+        transactionPollingIntervals: transactionPollingIntervals,
+        currentDate: currentDate
     )
     client.verifier = "verifier"
     client.challenge = "challenge"
