@@ -42,34 +42,51 @@ jobs:
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ secrets.SLACK_REVIEW_CHANNEL_ID }}
+          SLACK_USER_TARIKAN: ${{ secrets.SLACK_USER_TARIKAN }}
+          SLACK_USER_AGRUNING: ${{ secrets.SLACK_USER_AGRUNING }}
           REVIEW_OUTPUT: ${{ steps.claude-review.outputs.response || steps.claude-review.outputs.output || steps.claude-review.outputs.result || '_(No review output)_' }}
           PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          REPO_NAME: ${{ github.event.repository.name }}
         run: |
+          TITLE="${REPO_NAME} Pull Request #${PR_NUMBER} Ready for Review"
+          CC="CC: <@${SLACK_USER_TARIKAN}> <@${SLACK_USER_AGRUNING}>"
+
           PAYLOAD=$(jq -n \
             --arg channel "$SLACK_CHANNEL_ID" \
+            --arg title "$TITLE" \
             --arg pr_url "$PR_URL" \
+            --arg pr_number "$PR_NUMBER" \
             --arg pr_title "$PR_TITLE" \
             --arg pr_author "$PR_AUTHOR" \
+            --arg repo "$REPO_NAME" \
             --arg review "$REVIEW_OUTPUT" \
+            --arg cc "$CC" \
             '{
               channel: $channel,
               blocks: [
                 {
                   type: "header",
-                  text: { type: "plain_text", text: "🔍 Claude PR Review" }
+                  text: { type: "plain_text", text: $title }
                 },
                 {
                   type: "section",
-                  text: {
-                    type: "mrkdwn",
-                    text: ("*<" + $pr_url + "|" + $pr_title + ">*\nby " + $pr_author)
-                  }
+                  fields: [
+                    { type: "mrkdwn", text: ("*Repository:*\n" + $repo) },
+                    { type: "mrkdwn", text: ("*PR:*\n<" + $pr_url + "|#" + $pr_number + " " + $pr_title + ">") },
+                    { type: "mrkdwn", text: ("*Author:*\n" + $pr_author) }
+                  ]
                 },
                 {
                   type: "section",
                   text: { type: "mrkdwn", text: $review }
+                },
+                { type: "divider" },
+                {
+                  type: "section",
+                  text: { type: "mrkdwn", text: $cc }
                 }
               ]
             }')
