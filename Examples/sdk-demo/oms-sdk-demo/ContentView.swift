@@ -394,10 +394,7 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    func retryExpiredSession() async {
-        guard let prompt = sessionExpiredPrompt else {
-            return
-        }
+    func retryExpiredSession(_ prompt: SessionExpiredPrompt) async {
         sessionExpiredPrompt = nil
 
         if let email = prompt.email {
@@ -486,9 +483,9 @@ struct ContentView: View {
         }
         .environmentObject(vm)
         .genericErrorWindow(error: $vm.error)
-        .sessionExpiredAlert(prompt: $vm.sessionExpiredPrompt) {
+        .sessionExpiredAlert(prompt: $vm.sessionExpiredPrompt) { prompt in
             Task {
-                await vm.retryExpiredSession()
+                await vm.retryExpiredSession(prompt)
             }
         } dismiss: {
             vm.dismissExpiredSessionPrompt()
@@ -2077,14 +2074,16 @@ private func label(for title: String, systemImage: String? = nil, loading: Bool)
 private extension View {
     func sessionExpiredAlert(
         prompt: Binding<SessionExpiredPrompt?>,
-        retry: @escaping () -> Void,
+        retry: @escaping (SessionExpiredPrompt) -> Void,
         dismiss: @escaping () -> Void
     ) -> some View {
         alert(item: prompt) { prompt in
             Alert(
                 title: Text("Session expired"),
                 message: Text(sessionExpiredMessage(prompt)),
-                primaryButton: .default(Text("Retry login"), action: retry),
+                primaryButton: .default(Text("Accept")) {
+                    retry(prompt)
+                },
                 secondaryButton: .cancel(Text("Not now"), action: dismiss)
             )
         }
@@ -2093,9 +2092,9 @@ private extension View {
 
 private func sessionExpiredMessage(_ prompt: SessionExpiredPrompt) -> String {
     if let email = prompt.email {
-        return "Your wallet session for \(email) expired. Sign in again to continue."
+        return "Your wallet session expired. Do you want to sign in with \(email) again?"
     }
-    return "Your wallet session expired. Sign in again to continue."
+    return "Your wallet session expired. Do you want to sign in again?"
 }
 
 // MARK: - Previews

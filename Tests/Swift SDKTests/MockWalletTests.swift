@@ -181,6 +181,33 @@ import Testing
     #expect(fixture.signer.clearCallCount == 1)
 }
 
+@Test func TestWalletRestoredActiveSessionSchedulesExpiryTimer() async throws {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let expiresAt = Date().addingTimeInterval(0.05)
+    let storedCredentials = StorableCredentials(
+        walletId: "wallet-restored-expiring",
+        walletAddress: "0x1111111111111111111111111111111111111111",
+        signerCredentialId: "0xmock-credential",
+        alg: .ecdsaP256Sha256,
+        expiresAt: formatter.string(from: expiresAt),
+        loginType: .email,
+        sessionEmail: "user@example.com"
+    )
+    let fixture = makeMockWalletClient(storedCredentials: storedCredentials)
+    var expiredEvent: SessionExpiredEvent?
+
+    fixture.client.onSessionExpired = { event in
+        expiredEvent = event
+    }
+    try await Task.sleep(nanoseconds: 200_000_000)
+
+    #expect(expiredEvent?.session.walletAddress == storedCredentials.walletAddress)
+    #expect(expiredEvent?.session.sessionEmail == "user@example.com")
+    #expect(fixture.client.session == SessionState(walletAddress: nil))
+    #expect(try fixture.storedCredentials()?.walletId == storedCredentials.walletId)
+}
+
 @Test func TestWalletSessionExpiryTimerNotifiesDelegate() async throws {
     let fixture = makeMockWalletClient(
         currentDate: { Date(timeIntervalSince1970: 1_767_225_601) }
