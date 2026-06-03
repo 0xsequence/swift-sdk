@@ -38,39 +38,43 @@ jobs:
             REVIEW: <review text>
 
       - name: Post review to Slack
-        if: always()
+        if: always() && env.SLACK_BOT_TOKEN != '' && env.SLACK_CHANNEL_ID != ''
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ secrets.SLACK_REVIEW_CHANNEL_ID }}
+          REVIEW_OUTPUT: ${{ steps.claude-review.outputs.response }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
-          PR_URL="${{ github.event.pull_request.html_url }}"
-          PR_TITLE="${{ github.event.pull_request.title }}"
-          PR_AUTHOR="${{ github.event.pull_request.user.login }}"
-          REVIEW_OUTPUT="${{ steps.claude-review.outputs.response }}"
+          PAYLOAD=$(jq -n \
+            --arg channel "$SLACK_CHANNEL_ID" \
+            --arg pr_url "$PR_URL" \
+            --arg pr_title "$PR_TITLE" \
+            --arg pr_author "$PR_AUTHOR" \
+            --arg review "$REVIEW_OUTPUT" \
+            '{
+              channel: $channel,
+              blocks: [
+                {
+                  type: "header",
+                  text: { type: "plain_text", text: "🔍 Claude PR Review" }
+                },
+                {
+                  type: "section",
+                  text: {
+                    type: "mrkdwn",
+                    text: ("*<" + $pr_url + "|" + $pr_title + ">*\nby " + $pr_author)
+                  }
+                },
+                {
+                  type: "section",
+                  text: { type: "mrkdwn", text: $review }
+                }
+              ]
+            }')
 
           curl -s -X POST https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{
-              \"channel\": \"$SLACK_CHANNEL_ID\",
-              \"blocks\": [
-                {
-                  \"type\": \"header\",
-                  \"text\": { \"type\": \"plain_text\", \"text\": \"🔍 Claude PR Review\" }
-                },
-                {
-                  \"type\": \"section\",
-                  \"text\": {
-                    \"type\": \"mrkdwn\",
-                    \"text\": \"*<$PR_URL|$PR_TITLE>*\nby $PR_AUTHOR\"
-                  }
-                },
-                {
-                  \"type\": \"section\",
-                  \"text\": {
-                    \"type\": \"mrkdwn\",
-                    \"text\": $(echo "$REVIEW_OUTPUT" | python3 -c \"import json,sys; print(json.dumps(sys.stdin.read()))\")
-                  }
-                }
-              ]
-            }"
+            -d "$PAYLOAD"
