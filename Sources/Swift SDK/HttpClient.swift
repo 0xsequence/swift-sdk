@@ -52,29 +52,17 @@ final class HttpClient : Sendable {
         }
         request.httpBody = bodyData
 
-        // Log outgoing request
-        print("[OMS SDK] → POST \(url.absoluteString)")
-        print("[OMS SDK] → Payload: \(body)")
-
         let data: Data
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: request)
         } catch {
-            print("[OMS SDK] ✗ Transport error for \(url.absoluteString): \(error)")
             throw HttpError.transport(error)
         }
 
         guard let httpResponse = response as? HTTPURLResponse else {
-            print("[OMS SDK] ✗ Invalid (non-HTTP) response from \(url.absoluteString)")
             throw HttpError.invalidResponse
         }
-
-        let bodyString = String(data: data, encoding: .utf8) ?? ""
-
-        // Log incoming response
-        print("[OMS SDK] ← Status: \(httpResponse.statusCode) from \(url.absoluteString)")
-        print("[OMS SDK] ← Body: \(bodyString)")
 
         var responseHeaders: [String: String] = [:]
         for (key, value) in httpResponse.allHeaderFields {
