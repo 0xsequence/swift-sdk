@@ -12,6 +12,16 @@ public struct TokenBalancesPage: Codable, Sendable {
     }
 }
 
+public struct TokenBalancesPageRequest: Codable, Sendable {
+    public let page: Int?
+    public let pageSize: Int?
+
+    public init(page: Int? = nil, pageSize: Int? = nil) {
+        self.page = page
+        self.pageSize = pageSize
+    }
+}
+
 public struct TokenBalance: Codable, Sendable {
     public let contractType: String?
     public let contractAddress: String?
@@ -86,9 +96,10 @@ private struct NativeTokenBalanceResponse: Decodable {
 protocol WalletIndexerClient {
     func getTokenBalances(
         network: Network,
-        contractAddress: String,
+        contractAddress: String?,
         walletAddress: String,
-        includeMetadata: Bool
+        includeMetadata: Bool,
+        page: TokenBalancesPageRequest
     ) async throws -> TokenBalancesResult
 
     func getNativeTokenBalance(
@@ -119,12 +130,17 @@ public final class IndexerClient: WalletIndexerClient {
 
     public func getTokenBalances(
         network: Network,
-        contractAddress: String,
+        contractAddress: String? = nil,
         walletAddress: String,
-        includeMetadata: Bool
+        includeMetadata: Bool,
+        page: TokenBalancesPageRequest = TokenBalancesPageRequest()
     ) async throws -> TokenBalancesResult {
         let request = TokenBalancesRequest(
-            page: RequestPage(page: 0, pageSize: 40, more: false),
+            page: RequestPage(
+                page: page.page ?? 0,
+                pageSize: page.pageSize ?? 40,
+                more: false
+            ),
             contractAddress: contractAddress,
             accountAddress: walletAddress,
             includeMetadata: includeMetadata
@@ -200,7 +216,7 @@ public final class IndexerClient: WalletIndexerClient {
 
 private struct TokenBalancesRequest: Encodable {
     let page: RequestPage
-    let contractAddress: String
+    let contractAddress: String?
     let accountAddress: String
     let includeMetadata: Bool
 }

@@ -21,6 +21,7 @@
   - [SendTransactionRequest](#sendtransactionrequest)
   - [TokenBalancesResult](#tokenbalancesresult)
   - [TokenBalancesPage](#tokenbalancespage)
+  - [TokenBalancesPageRequest](#tokenbalancespagerequest)
   - [TokenBalance](#tokenbalance)
   - [CredentialInfo](#credentialinfo)
   - [ListAccessPages](#listaccesspages)
@@ -513,20 +514,21 @@ Accessed via `oms.indexer`. Queries token balances through the OMS Indexer API.
 ```swift
 func getTokenBalances(
     network: Network,
-    contractAddress: String,
+    contractAddress: String? = nil,
     walletAddress: String,
-    includeMetadata: Bool
+    includeMetadata: Bool,
+    page: TokenBalancesPageRequest = TokenBalancesPageRequest()
 ) async throws -> TokenBalancesResult
 ```
 
-Fetches token balances for a wallet on a supported network and contract.
+Fetches token balances for a wallet on a supported network. Omit `contractAddress` to list balances across contracts. Use `page` to request later pages or a custom page size.
 
 ```swift
 let result = try await oms.indexer.getTokenBalances(
     network: .polygon,
-    contractAddress: "0xTokenContract",
     walletAddress: oms.wallet.walletAddress,
-    includeMetadata: true
+    includeMetadata: true,
+    page: TokenBalancesPageRequest(page: 1, pageSize: 100)
 )
 ```
 
@@ -884,6 +886,19 @@ struct TokenBalancesPage: Codable, Sendable {
     init(page: Int, pageSize: Int, more: Bool)
 }
 ```
+
+### TokenBalancesPageRequest
+
+```swift
+struct TokenBalancesPageRequest: Codable, Sendable {
+    let page: Int?
+    let pageSize: Int?
+
+    init(page: Int? = nil, pageSize: Int? = nil)
+}
+```
+
+`page` defaults to `0` and `pageSize` defaults to `40` when omitted.
 
 ### TokenBalance
 

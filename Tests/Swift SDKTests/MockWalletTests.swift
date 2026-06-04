@@ -1929,14 +1929,14 @@ private final class MockWalletIndexerClient: WalletIndexerClient, @unchecked Sen
     private var nativeBalance: TokenBalance?
     private var tokenBalancesByContract: [String: [TokenBalance]] = [:]
     private var nativeBalanceRequests: [(network: Network, walletAddress: String)] = []
-    private var tokenBalanceRequests: [(network: Network, contractAddress: String, walletAddress: String)] = []
+    private var tokenBalanceRequests: [(network: Network, contractAddress: String?, walletAddress: String, page: TokenBalancesPageRequest)] = []
 
     var nativeBalanceRequestCount: Int {
         withLock { nativeBalanceRequests.count }
     }
 
     var tokenBalanceContractAddresses: [String] {
-        withLock { tokenBalanceRequests.map(\.contractAddress) }
+        withLock { tokenBalanceRequests.compactMap(\.contractAddress) }
     }
 
     func setNativeBalance(_ balance: TokenBalance?) {
@@ -1963,21 +1963,23 @@ private final class MockWalletIndexerClient: WalletIndexerClient, @unchecked Sen
 
     func getTokenBalances(
         network: Network,
-        contractAddress: String,
+        contractAddress: String?,
         walletAddress: String,
-        includeMetadata: Bool
+        includeMetadata: Bool,
+        page: TokenBalancesPageRequest
     ) async throws -> TokenBalancesResult {
         withLock {
-            let normalizedContractAddress = contractAddress.lowercased()
+            let normalizedContractAddress = contractAddress?.lowercased()
             tokenBalanceRequests.append((
                 network: network,
                 contractAddress: normalizedContractAddress,
-                walletAddress: walletAddress
+                walletAddress: walletAddress,
+                page: page
             ))
             return TokenBalancesResult(
                 status: 200,
                 page: nil,
-                balances: tokenBalancesByContract[normalizedContractAddress] ?? []
+                balances: normalizedContractAddress.flatMap { tokenBalancesByContract[$0] } ?? []
             )
         }
     }

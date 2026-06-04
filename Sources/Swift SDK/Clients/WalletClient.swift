@@ -1593,7 +1593,8 @@ public class WalletClient: @unchecked Sendable {
                 network: network,
                 contractAddress: contractAddress,
                 walletAddress: walletAddress,
-                includeMetadata: false
+                includeMetadata: false,
+                page: TokenBalancesPageRequest()
             )
             return result.balances.first {
                 normalizedAddress($0.contractAddress) == contractAddress

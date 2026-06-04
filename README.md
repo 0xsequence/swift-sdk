@@ -433,9 +433,9 @@ do {
 ```swift
 let result = try await oms.indexer.getTokenBalances(
     network: .polygon,
-    contractAddress: "0xTokenContract",
     walletAddress: oms.wallet.walletAddress,
-    includeMetadata: true
+    includeMetadata: true,
+    page: TokenBalancesPageRequest(page: 0, pageSize: 100)
 )
 
 for balance in result.balances {
