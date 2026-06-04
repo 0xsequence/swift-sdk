@@ -743,7 +743,7 @@ struct FeeOptionSelector {
     init(_ select: @escaping Select)
     func callAsFunction(_ options: [FeeOptionWithBalance]) async throws -> FeeOptionSelection?
     func callAsFunction(_ options: [FeeOption]) async throws -> FeeOptionSelection?
-    static let first: FeeOptionSelector
+    static let firstAvailable: FeeOptionSelector
     static func custom(_ pick: @escaping Select) -> FeeOptionSelector
 }
 ```
@@ -754,7 +754,7 @@ fee option when the transaction is sponsored.
 
 | Selector | Description |
 |---|---|
-| `.first` | Picks the first fee option returned by the server. |
+| `.firstAvailable` | Uses indexer balances to skip underfunded fee options and picks the first option the wallet can pay. |
 | `.custom { options in ... }` | Calls your closure with the full `[FeeOptionWithBalance]` list and expects a `FeeOptionSelection?`. |
 
 ```swift

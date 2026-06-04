@@ -1210,7 +1210,7 @@ import Testing
             network: .polygonAmoy,
             to: "0xabc",
             value: "0",
-            selectFeeOption: .first
+            selectFeeOption: .firstAvailable
         )
     }
     await expectNoAuthenticatedWalletSession {
@@ -1219,7 +1219,7 @@ import Testing
             contract: "0xcontract",
             method: "mint(address)",
             args: nil,
-            selectFeeOption: .first
+            selectFeeOption: .firstAvailable
         )
     }
     #expect(walletIdOnlyFixture.transport.requestCount(for: WaasWalletAPI.PrepareEthereumTransaction.urlPath) == 0)
@@ -1376,6 +1376,140 @@ import Testing
     #expect(executeRequest.feeOption?.token == "POL")
     #expect(fixture.indexerClient.nativeBalanceRequestCount == 0)
     #expect(fixture.indexerClient.tokenBalanceContractAddresses.isEmpty)
+}
+
+@Test func TestWalletSendTransactionFirstAvailableSelectsFirstFundedFeeOption() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+    fixture.indexerClient.setNativeBalance(
+        TokenBalance(
+            contractType: "NATIVE",
+            contractAddress: nil,
+            accountAddress: "0xwallet",
+            tokenId: nil,
+            balance: "99",
+            blockHash: nil,
+            blockNumber: nil,
+            chainId: 80002
+        )
+    )
+    fixture.indexerClient.setTokenBalances(
+        [
+            TokenBalance(
+                contractType: "ERC20",
+                contractAddress: "0xUSDC",
+                accountAddress: "0xwallet",
+                tokenId: nil,
+                balance: "20",
+                blockHash: nil,
+                blockNumber: nil,
+                chainId: 80002
+            )
+        ],
+        for: "0xusdc"
+    )
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-1",
+            status: .quoted,
+            feeOptions: testFeeOptions(),
+            sponsored: false,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasWalletAPI.PrepareEthereumTransaction.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .executed),
+        for: WaasWalletAPI.Execute.urlPath
+    )
+    try fixture.transport.enqueue(
+        TransactionStatusResponse(status: .executed, txnHash: "0xdeadbeef"),
+        for: WaasWalletAPI.TransactionStatus.urlPath
+    )
+
+    let txResult = try await fixture.client.sendTransaction(
+        network: .polygonAmoy,
+        to: "0xabc",
+        value: "0",
+        selectFeeOption: .firstAvailable
+    )
+    let executeRequest = try fixture.transport.decodedRequest(
+        ExecuteRequest.self,
+        for: WaasWalletAPI.Execute.urlPath
+    )
+
+    #expect(txResult.txnId == "txn-1")
+    #expect(txResult.status == .executed)
+    #expect(executeRequest.feeOption?.token == "usdc")
+    #expect(fixture.indexerClient.nativeBalanceRequestCount == 1)
+    #expect(fixture.indexerClient.tokenBalanceContractAddresses == ["0xusdc"])
+}
+
+@Test func TestWalletSendTransactionFirstAvailableRequiresFundedFeeOption() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+    fixture.indexerClient.setNativeBalance(
+        TokenBalance(
+            contractType: "NATIVE",
+            contractAddress: nil,
+            accountAddress: "0xwallet",
+            tokenId: nil,
+            balance: "99",
+            blockHash: nil,
+            blockNumber: nil,
+            chainId: 80002
+        )
+    )
+    fixture.indexerClient.setTokenBalances(
+        [
+            TokenBalance(
+                contractType: "ERC20",
+                contractAddress: "0xUSDC",
+                accountAddress: "0xwallet",
+                tokenId: nil,
+                balance: "19",
+                blockHash: nil,
+                blockNumber: nil,
+                chainId: 80002
+            )
+        ],
+        for: "0xusdc"
+    )
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-1",
+            status: .quoted,
+            feeOptions: testFeeOptions(),
+            sponsored: false,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasWalletAPI.PrepareEthereumTransaction.urlPath
+    )
+
+    do {
+        _ = try await fixture.client.sendTransaction(
+            network: .polygonAmoy,
+            to: "0xabc",
+            value: "0",
+            selectFeeOption: .firstAvailable
+        )
+    } catch let error as TransactionError {
+        switch error {
+        case .noFeeOptionSelected:
+            break
+        default:
+            #expect(Bool(false), "Expected TransactionError.noFeeOptionSelected")
+        }
+        #expect(fixture.indexerClient.nativeBalanceRequestCount == 1)
+        #expect(fixture.indexerClient.tokenBalanceContractAddresses == ["0xusdc"])
+        #expect(fixture.transport.requestCount(for: WaasWalletAPI.Execute.urlPath) == 0)
+        return
+    }
+    #expect(Bool(false), "Expected TransactionError.noFeeOptionSelected")
 }
 
 @Test func TestWalletSendTransactionCustomSelectorReceivesFeeOptionBalances() async throws {
