@@ -215,7 +215,7 @@ that user choice. Automatic "first wallet" selection belongs to
 `WalletSelectionBehavior.automatic`, not manual mode. A pending selection is
 single-use and is invalidated by successful wallet selection, sign-out, or a
 new auth completion; using an invalidated selection throws
-`WalletAuthError.staleWalletSelection`.
+`OmsSdkError` with `code == .walletSelectionStale`.
 
 ### CompleteAuthResult
 
@@ -813,7 +813,7 @@ SDK failures to `OmsSdkError`. Use `code` for stable app handling, `operation`
 for logging and analytics, `status` for HTTP-backed failures, `txnId` for
 transaction status lookup failures, and `retryable` for retry UI. The
 `underlyingError` preserves lower-level details such as `WebRPCError`,
-`WalletAuthError`, `TransactionError`, or decoding/transport errors.
+`TransactionError`, or decoding/transport errors.
 
 `CancellationError` is not wrapped.
 

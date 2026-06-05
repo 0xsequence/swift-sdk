@@ -747,7 +747,7 @@ public class WalletClient: @unchecked Sendable {
         _ selectionSession: PendingWalletSelectionSession
     ) throws {
         guard activePendingWalletSelection?.id == selectionSession.id else {
-            throw WalletAuthError.staleWalletSelection
+            throw OmsSdkError.walletSelectionStale()
         }
         let selectionSessionState = SessionState(
             walletAddress: nil,
@@ -757,13 +757,13 @@ public class WalletClient: @unchecked Sendable {
         )
         guard !isSessionExpired(selectionSessionState) else {
             expireSession(selectionSessionState)
-            throw WalletAuthError.noAuthenticatedWalletSession
+            throw OmsSdkError.sessionMissing()
         }
         try requireActiveCredential()
         let signerCredentialId = try credentialSession.signer.credentialId()
         guard signerCredentialId.lowercased() == selectionSession.signerCredentialId.lowercased(),
               credentialSession.signer.alg == selectionSession.signerKeyType else {
-            throw WalletAuthError.staleWalletSelection
+            throw OmsSdkError.walletSelectionStale()
         }
     }
 
@@ -1078,7 +1078,7 @@ public class WalletClient: @unchecked Sendable {
     private func requireWalletSelectionOrActiveSession() throws {
         if let notification = expireCurrentSessionIfNeeded() {
             deliverSessionExpiredNotification(notification)
-            throw WalletAuthError.noAuthenticatedWalletSession
+            throw OmsSdkError.sessionMissing()
         }
         let hasActiveSession = withSessionLock { () -> Bool in
             let hasWallet = !_walletId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1086,20 +1086,20 @@ public class WalletClient: @unchecked Sendable {
             return hasWallet || hasVerifiedAuth
         }
         guard hasActiveSession else {
-            throw WalletAuthError.noAuthenticatedWalletSession
+            throw OmsSdkError.sessionMissing()
         }
     }
 
     private func requireActiveWalletId() throws -> String {
         if let notification = expireCurrentSessionIfNeeded() {
             deliverSessionExpiredNotification(notification)
-            throw WalletAuthError.noAuthenticatedWalletSession
+            throw OmsSdkError.sessionMissing()
         }
         let walletId = withSessionLock {
             _walletId.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         guard !walletId.isEmpty else {
-            throw WalletAuthError.noAuthenticatedWalletSession
+            throw OmsSdkError.sessionMissing()
         }
         return walletId
     }
@@ -1107,7 +1107,7 @@ public class WalletClient: @unchecked Sendable {
     private func requireActiveWalletAddress() throws -> String {
         let walletAddress = walletAddress.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !walletAddress.isEmpty else {
-            throw WalletAuthError.noAuthenticatedWalletSession
+            throw OmsSdkError.sessionMissing()
         }
         return walletAddress
     }
@@ -1121,7 +1121,7 @@ public class WalletClient: @unchecked Sendable {
 
     private func requireActiveCredential() throws {
         guard try credentialSession.signer.hasCredential() else {
-            throw WalletAuthError.noActiveCredential
+            throw OmsSdkError.sessionExpired()
         }
     }
 
@@ -1555,7 +1555,7 @@ public class WalletClient: @unchecked Sendable {
         }
 
         guard let walletAddress else {
-            throw WalletAuthError.noAuthenticatedWalletSession
+            throw OmsSdkError.sessionMissing()
         }
 
         let feeOptionSelection = try await feeOptionSelector(

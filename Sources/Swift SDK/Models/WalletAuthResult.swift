@@ -43,7 +43,7 @@ public final class PendingWalletSelection: @unchecked Sendable {
     @discardableResult
     public func selectWallet(walletId: String) async throws -> WalletActivationResult {
         guard wallets.contains(where: { $0.id == walletId }) else {
-            throw WalletAuthError.selectedWalletUnavailable
+            throw OmsSdkError.walletSelectionUnavailable()
         }
         return try await selectWalletAction(walletId)
     }
@@ -97,30 +97,6 @@ public enum CompleteAuthResult: Sendable {
             return wallet
         case .walletSelection:
             return nil
-        }
-    }
-}
-
-@available(macOS 12.0, iOS 15.0, *)
-public enum WalletAuthError: Error, Equatable, Sendable {
-    case selectedWalletUnavailable
-    case staleWalletSelection
-    case noAuthenticatedWalletSession
-    case noActiveCredential
-}
-
-@available(macOS 12.0, iOS 15.0, *)
-extension WalletAuthError: LocalizedError {
-    public var errorDescription: String? {
-        switch self {
-        case .selectedWalletUnavailable:
-            return "Selected wallet is not one of the available options."
-        case .staleWalletSelection:
-            return "Pending wallet selection is no longer active."
-        case .noAuthenticatedWalletSession:
-            return "No authenticated wallet session."
-        case .noActiveCredential:
-            return "No active credential."
         }
     }
 }

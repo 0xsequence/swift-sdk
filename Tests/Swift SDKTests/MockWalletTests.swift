@@ -299,8 +299,9 @@ import Testing
     do {
         _ = try await pendingSelection.selectWallet(walletId: "wallet-missing")
         #expect(Bool(false))
-    } catch let error as WalletAuthError {
-        #expect(error == .selectedWalletUnavailable)
+    } catch let error as OmsSdkError {
+        #expect(error.code == .walletSelectionUnavailable)
+        #expect(error.operation == nil)
     } catch {
         #expect(Bool(false))
     }
@@ -317,8 +318,9 @@ import Testing
     do {
         _ = try await pendingSelection.createAndSelectWallet(reference: "after-select")
         #expect(Bool(false))
-    } catch let error as WalletAuthError {
-        #expect(error == .staleWalletSelection)
+    } catch let error as OmsSdkError {
+        #expect(error.code == .walletSelectionStale)
+        #expect(error.operation == nil)
     } catch {
         #expect(Bool(false))
     }
@@ -404,8 +406,9 @@ import Testing
     do {
         _ = try await stalePendingSelection.createAndSelectWallet(reference: "stale")
         #expect(Bool(false), "Stale pending wallet selection should not create and select a wallet after a newer auth flow")
-    } catch let error as WalletAuthError {
-        #expect(error == .staleWalletSelection)
+    } catch let error as OmsSdkError {
+        #expect(error.code == .walletSelectionStale)
+        #expect(error.operation == nil)
         #expect(fixture.transport.requestCount(for: WaasWalletAPI.CreateWallet.urlPath) == 0)
         #expect(fixture.client.walletId == "")
         #expect(fixture.client.walletAddress == "")
@@ -1884,22 +1887,10 @@ private func expectNoAuthenticatedWalletSession<T>(
         #expect(Bool(false), "Expected no authenticated wallet session error")
     } catch let error as OmsSdkError {
         #expect(error.code == .sessionMissing)
-        #expect(underlyingWalletAuthError(error) == .noAuthenticatedWalletSession)
+        #expect(error.operation != nil)
     } catch {
-        #expect(Bool(false), "Expected WalletAuthError.noAuthenticatedWalletSession")
+        #expect(Bool(false), "Expected OmsSdkError.sessionMissing")
     }
-}
-
-private func underlyingWalletAuthError(_ error: OmsSdkError) -> WalletAuthError? {
-    if let walletAuthError = error.underlyingError as? WalletAuthError {
-        return walletAuthError
-    }
-
-    if let omsError = error.underlyingError as? OmsSdkError {
-        return underlyingWalletAuthError(omsError)
-    }
-
-    return nil
 }
 
 private func isTransactionError(_ error: (any Error)?, _ expected: TransactionError) -> Bool {

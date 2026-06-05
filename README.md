@@ -164,7 +164,8 @@ case .walletSelected:
 
 `PendingWalletSelection` values are single-use. They become invalid after a
 wallet is selected or created, after sign-out, or after another auth completion.
-Using an invalidated pending selection throws `WalletAuthError.staleWalletSelection`.
+Using an invalidated pending selection throws `OmsSdkError` with
+`code == .walletSelectionStale`.
 
 For OIDC ID-token flows such as Google Sign-In, pass the provider token plus
 the issuer and audience used to mint it:

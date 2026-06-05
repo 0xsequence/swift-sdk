@@ -71,6 +71,48 @@ public struct OmsSdkError: Error, LocalizedError, @unchecked Sendable {
     }
 }
 
+public extension OmsSdkError {
+    static func walletSelectionUnavailable(
+        operation: OmsSdkOperation? = nil
+    ) -> OmsSdkError {
+        OmsSdkError(
+            code: .walletSelectionUnavailable,
+            message: "Selected wallet is not one of the available options.",
+            operation: operation
+        )
+    }
+
+    static func walletSelectionStale(
+        operation: OmsSdkOperation? = nil
+    ) -> OmsSdkError {
+        OmsSdkError(
+            code: .walletSelectionStale,
+            message: "Pending wallet selection is no longer active.",
+            operation: operation
+        )
+    }
+
+    static func sessionMissing(
+        operation: OmsSdkOperation? = nil
+    ) -> OmsSdkError {
+        OmsSdkError(
+            code: .sessionMissing,
+            message: "No authenticated wallet session.",
+            operation: operation
+        )
+    }
+
+    static func sessionExpired(
+        operation: OmsSdkOperation? = nil
+    ) -> OmsSdkError {
+        OmsSdkError(
+            code: .sessionExpired,
+            message: "No active credential.",
+            operation: operation
+        )
+    }
+}
+
 @available(macOS 12.0, iOS 15.0, *)
 func runOmsOperation<T>(
     _ operation: OmsSdkOperation,
@@ -125,10 +167,6 @@ func toOmsSdkError(_ error: any Error, operation: OmsSdkOperation) -> OmsSdkErro
             retryable: true,
             underlyingError: transportError
         )
-    }
-
-    if let walletAuthError = error as? WalletAuthError {
-        return walletAuthError.toOmsSdkError(operation: operation)
     }
 
     if let transactionError = error as? TransactionError {
@@ -198,41 +236,6 @@ private extension WebRPCError {
             retryable: true,
             underlyingError: self
         )
-    }
-}
-
-private extension WalletAuthError {
-    func toOmsSdkError(operation: OmsSdkOperation) -> OmsSdkError {
-        switch self {
-        case .selectedWalletUnavailable:
-            return OmsSdkError(
-                code: .walletSelectionUnavailable,
-                message: localizedDescription,
-                operation: operation,
-                underlyingError: self
-            )
-        case .staleWalletSelection:
-            return OmsSdkError(
-                code: .walletSelectionStale,
-                message: localizedDescription,
-                operation: operation,
-                underlyingError: self
-            )
-        case .noAuthenticatedWalletSession:
-            return OmsSdkError(
-                code: .sessionMissing,
-                message: localizedDescription,
-                operation: operation,
-                underlyingError: self
-            )
-        case .noActiveCredential:
-            return OmsSdkError(
-                code: .sessionExpired,
-                message: localizedDescription,
-                operation: operation,
-                underlyingError: self
-            )
-        }
     }
 }
 
