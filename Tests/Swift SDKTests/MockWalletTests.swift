@@ -1389,6 +1389,19 @@ import Testing
     #expect(fixture.indexerClient.tokenBalanceContractAddresses.isEmpty)
 }
 
+@Test func TestWalletGetTransactionStatusKeepsCancellationError() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.transport.enqueueCancellation(for: WaasWalletAPI.TransactionStatus.urlPath)
+
+    do {
+        _ = try await fixture.client.getTransactionStatus(txnId: "txn-cancelled-1")
+        #expect(Bool(false), "Expected CancellationError")
+    } catch is CancellationError {
+    } catch {
+        #expect(Bool(false), "Expected CancellationError")
+    }
+}
+
 @Test func TestWalletSendTransactionFirstAvailableSelectsFirstFundedFeeOption() async throws {
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"

@@ -1466,6 +1466,8 @@ public class WalletClient: @unchecked Sendable {
                 return try await signedClient.transactionStatus(
                     TransactionStatusRequest(txnId: txnId)
                 )
+            } catch let error as CancellationError {
+                throw error
             } catch {
                 throw OmsSdkError(
                     code: .transactionStatusLookupFailed,
