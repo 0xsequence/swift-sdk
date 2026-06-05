@@ -22,6 +22,9 @@
   - [TokenBalancesResult](#tokenbalancesresult)
   - [TokenBalancesPage](#tokenbalancespage)
   - [TokenBalancesPageRequest](#tokenbalancespagerequest)
+  - [TokenContractInfo](#tokencontractinfo)
+  - [TokenMetadata](#tokenmetadata)
+  - [TokenMetadataAsset](#tokenmetadataasset)
   - [TokenBalance](#tokenbalance)
   - [CredentialInfo](#credentialinfo)
   - [ListAccessPages](#listaccesspages)
@@ -909,9 +912,16 @@ struct TokenBalance: Codable, Sendable {
     let accountAddress: String?
     let tokenId: String?
     let balance: String?
+    let balanceUSD: String?
+    let priceUSD: String?
+    let priceUpdatedAt: String?
     let blockHash: String?
     let blockNumber: Int64?
     let chainId: Int64?
+    let uniqueCollectibles: String?
+    let isSummary: Bool?
+    let contractInfo: TokenContractInfo?
+    let tokenMetadata: TokenMetadata?
 
     init(
         contractType: String?,
@@ -919,10 +929,84 @@ struct TokenBalance: Codable, Sendable {
         accountAddress: String?,
         tokenId: String?,
         balance: String?,
+        balanceUSD: String? = nil,
+        priceUSD: String? = nil,
+        priceUpdatedAt: String? = nil,
         blockHash: String?,
         blockNumber: Int64?,
-        chainId: Int64?
+        chainId: Int64?,
+        uniqueCollectibles: String? = nil,
+        isSummary: Bool? = nil,
+        contractInfo: TokenContractInfo? = nil,
+        tokenMetadata: TokenMetadata? = nil
     )
+}
+```
+
+### TokenContractInfo
+
+```swift
+struct TokenContractInfo: Codable, Sendable {
+    let chainId: Int64?
+    let address: String?
+    let source: String?
+    let name: String?
+    let type: String?
+    let symbol: String?
+    let decimals: Int?
+    let logoURI: String?
+    let deployed: Bool?
+    let bytecodeHash: String?
+    let extensions: [String: WebRPCJSONValue]?
+    let updatedAt: String?
+    let queuedAt: String?
+    let status: String?
+}
+```
+
+### TokenMetadata
+
+```swift
+struct TokenMetadata: Codable, Sendable {
+    let chainId: Int64?
+    let contractAddress: String?
+    let tokenId: String?
+    let source: String?
+    let name: String?
+    let description: String?
+    let image: String?
+    let video: String?
+    let audio: String?
+    let properties: [String: WebRPCJSONValue]?
+    let attributes: [[String: WebRPCJSONValue]]?
+    let imageData: String?
+    let externalUrl: String?
+    let backgroundColor: String?
+    let animationUrl: String?
+    let decimals: Int?
+    let updatedAt: String?
+    let assets: [TokenMetadataAsset]?
+    let status: String?
+    let queuedAt: String?
+    let lastFetched: String?
+}
+```
+
+### TokenMetadataAsset
+
+```swift
+struct TokenMetadataAsset: Codable, Sendable {
+    let id: Int64?
+    let collectionId: Int64?
+    let tokenId: String?
+    let url: String?
+    let metadataField: String?
+    let name: String?
+    let filesize: Int64?
+    let mimeType: String?
+    let width: Int?
+    let height: Int?
+    let updatedAt: String?
 }
 ```
 

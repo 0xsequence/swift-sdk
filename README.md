@@ -440,6 +440,7 @@ let result = try await oms.indexer.getTokenBalances(
 
 for balance in result.balances {
     print(balance.contractAddress ?? "", balance.balance ?? "")
+    print(balance.contractInfo?.symbol ?? "", balance.contractInfo?.decimals ?? 0)
 }
 ```
 

@@ -95,6 +95,112 @@ import Testing
     #expect(customPage["more"] as? Bool == false)
 }
 
+@Test func TestTokenBalanceDecodesIndexerMetadataFields() throws {
+    let fixture = Data(
+        #"""
+        {
+          "contractType": "ERC721",
+          "contractAddress": "0xcontract",
+          "accountAddress": "0xwallet",
+          "tokenID": "123",
+          "balance": "1",
+          "balanceUSD": "12.34",
+          "priceUSD": "12.34",
+          "priceUpdatedAt": "2026-01-01T00:00:00Z",
+          "blockHash": "0xhash",
+          "blockNumber": 12345,
+          "chainId": 137,
+          "uniqueCollectibles": "1",
+          "isSummary": false,
+          "contractInfo": {
+            "chainId": 137,
+            "address": "0xcontract",
+            "source": "metadata",
+            "name": "Example Token",
+            "type": "ERC721",
+            "symbol": "EXM",
+            "decimals": 0,
+            "logoURI": "https://example.com/logo.png",
+            "deployed": true,
+            "bytecodeHash": "0xbytecode",
+            "extensions": {"verified": true},
+            "updatedAt": "2026-01-02T00:00:00Z",
+            "queuedAt": null,
+            "status": "available"
+          },
+          "tokenMetadata": {
+            "chainId": 137,
+            "contractAddress": "0xcontract",
+            "tokenId": "123",
+            "source": "metadata",
+            "name": "Example NFT",
+            "description": "Example description",
+            "image": "ipfs://image",
+            "video": "ipfs://video",
+            "audio": "ipfs://audio",
+            "properties": {"rarity": "rare"},
+            "attributes": [{"trait_type": "Level", "value": 7}],
+            "image_data": "<svg></svg>",
+            "external_url": "https://example.com/token/123",
+            "background_color": "ffffff",
+            "animation_url": "ipfs://animation",
+            "decimals": 0,
+            "updatedAt": "2026-01-03T00:00:00Z",
+            "assets": [
+              {
+                "id": 1,
+                "collectionId": 2,
+                "tokenID": "asset-token",
+                "url": "https://example.com/asset.png",
+                "metadataField": "image",
+                "name": "Asset",
+                "filesize": 123456,
+                "mimeType": "image/png",
+                "width": 640,
+                "height": 480,
+                "updatedAt": "2026-01-04T00:00:00Z"
+              }
+            ],
+            "status": "available",
+            "queuedAt": null,
+            "lastFetched": "2026-01-05T00:00:00Z"
+          }
+        }
+        """#.utf8
+    )
+
+    let balance = try JSONDecoder().decode(TokenBalance.self, from: fixture)
+    let contractInfo = try #require(balance.contractInfo)
+    let tokenMetadata = try #require(balance.tokenMetadata)
+    let asset = try #require(tokenMetadata.assets?.first)
+
+    #expect(balance.tokenId == "123")
+    #expect(balance.balanceUSD == "12.34")
+    #expect(balance.priceUSD == "12.34")
+    #expect(balance.priceUpdatedAt == "2026-01-01T00:00:00Z")
+    #expect(balance.uniqueCollectibles == "1")
+    #expect(balance.isSummary == false)
+    #expect(contractInfo.symbol == "EXM")
+    #expect(contractInfo.decimals == 0)
+    #expect(contractInfo.logoURI == "https://example.com/logo.png")
+    #expect(tokenMetadata.tokenId == "123")
+    #expect(tokenMetadata.name == "Example NFT")
+    #expect(tokenMetadata.imageData == "<svg></svg>")
+    #expect(tokenMetadata.externalUrl == "https://example.com/token/123")
+    #expect(asset.tokenId == "asset-token")
+    #expect(asset.url == "https://example.com/asset.png")
+
+    if case .bool(true)? = contractInfo.extensions?["verified"] {
+    } else {
+        #expect(Bool(false), "Expected contractInfo.extensions.verified to decode")
+    }
+
+    if case .string("rare")? = tokenMetadata.properties?["rarity"] {
+    } else {
+        #expect(Bool(false), "Expected tokenMetadata.properties.rarity to decode")
+    }
+}
+
 @available(macOS 12.0, iOS 15.0, *)
 private func makeRecordingIndexerClient(recorder: IndexerRequestRecorder) -> IndexerClient {
     let configuration = URLSessionConfiguration.ephemeral
