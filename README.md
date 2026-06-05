@@ -170,7 +170,7 @@ For OIDC ID-token flows such as Google Sign-In, pass the provider token plus
 the issuer and audience used to mint it:
 
 ```swift
-let result = try await oms.wallet.signInWithOidcToken(
+let result = try await oms.wallet.signInWithOidcIdToken(
     idToken: googleIdToken,
     issuer: "https://accounts.google.com",
     audience: "YOUR_WEB_CLIENT_ID"
@@ -181,7 +181,7 @@ if case .walletSelected(_, let wallet, _, _) = result {
 }
 ```
 
-Use `walletSelection: .manual` with `signInWithOidcToken` when you want the
+Use `walletSelection: .manual` with `signInWithOidcIdToken` when you want the
 same app-driven wallet picker shown in the email example.
 
 For OIDC authorization-code PKCE redirect flows, start the redirect, open the
@@ -408,7 +408,7 @@ let txResult = try await oms.wallet.callContract(
 )
 ```
 
-### Handle Transaction Errors
+### Handle SDK Errors
 
 ```swift
 let value = try parseUnits(value: "1", decimals: 18)
@@ -423,8 +423,17 @@ do {
     } else {
         print("Sent:", txResult.txnHash ?? "no hash")
     }
-} catch TransactionError.transactionFailed(let status) {
-    print("Transaction failed with status:", status)
+} catch let error as OmsSdkError {
+    switch error.code {
+    case .sessionMissing, .sessionExpired:
+        print("Sign in again")
+    case .httpError where error.retryable:
+        print("Retry:", error.localizedDescription)
+    case .transactionStatusLookupFailed:
+        print("Transaction status lookup failed:", error.txnId ?? "unknown")
+    default:
+        print("OMS SDK error:", error.localizedDescription)
+    }
 }
 ```
 

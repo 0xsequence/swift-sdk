@@ -14,6 +14,9 @@
   - [SessionLoginType](#sessionlogintype)
   - [OMSClientEnvironment](#omsclientenvironment)
   - [FeeOptionSelector](#feeoptionselector)
+  - [OmsSdkError](#omssdkerror)
+  - [OmsSdkErrorCode](#omssdkerrorcode)
+  - [OmsSdkOperation](#omssdkoperation)
   - [TransactionError](#transactionerror)
   - [SendTransactionResponse](#sendtransactionresponse)
   - [TransactionMode](#transactionmode)
@@ -158,10 +161,10 @@ matching `walletType`, or creates and selects one when none exists. With
 wallet. `sessionLifetimeSeconds` controls the requested credential lifetime and
 defaults to one week.
 
-### signInWithOidcToken
+### signInWithOidcIdToken
 
 ```swift
-func signInWithOidcToken(
+func signInWithOidcIdToken(
     idToken: String,
     issuer: String,
     audience: String,
@@ -174,7 +177,7 @@ func signInWithOidcToken(
 Signs in with an OIDC ID token. The SDK commits an OIDC `id-token` verifier
 using `issuer`, `audience`, the token `exp` claim, and a SHA-256 base64url hash
 of the full token as the verifier handle, then completes auth with the original
-token. `signInWithOidcIdToken` is also available with the same parameters.
+token.
 
 With `.automatic`, selects the first existing wallet matching `walletType`, or
 creates and selects one when none exists. With `.manual`, returns a pending
@@ -792,6 +795,74 @@ integer balance. Use `selection` when returning a quoted option from a custom
 selector; it preserves the option's `tokenID` when present and falls back to the
 symbol for native fee options.
 
+### OmsSdkError
+
+```swift
+struct OmsSdkError: Error, LocalizedError, Sendable {
+    let code: OmsSdkErrorCode
+    let operation: OmsSdkOperation?
+    let status: Int?
+    let txnId: String?
+    let retryable: Bool
+    let underlyingError: (any Error)?
+}
+```
+
+Public wallet, indexer, and pending wallet selection APIs normalize recoverable
+SDK failures to `OmsSdkError`. Use `code` for stable app handling, `operation`
+for logging and analytics, `status` for HTTP-backed failures, `txnId` for
+transaction status lookup failures, and `retryable` for retry UI. The
+`underlyingError` preserves lower-level details such as `WebRPCError`,
+`WalletAuthError`, `TransactionError`, or decoding/transport errors.
+
+`CancellationError` is not wrapped.
+
+```swift
+do {
+    _ = try await oms.wallet.signMessage(network: .polygon, message: "hello")
+} catch let error as OmsSdkError {
+    switch error.code {
+    case .sessionMissing, .sessionExpired:
+        // Prompt the user to sign in again.
+        break
+    case .httpError where error.retryable:
+        // Show retry UI.
+        break
+    default:
+        // Show a generic SDK error.
+        break
+    }
+}
+```
+
+### OmsSdkErrorCode
+
+```swift
+enum OmsSdkErrorCode: String, Sendable {
+    case httpError = "OMS_HTTP_ERROR"
+    case invalidResponse = "OMS_INVALID_RESPONSE"
+    case requestFailed = "OMS_REQUEST_FAILED"
+    case authCommitmentConsumed = "OMS_AUTH_COMMITMENT_CONSUMED"
+    case sessionMissing = "OMS_SESSION_MISSING"
+    case sessionExpired = "OMS_SESSION_EXPIRED"
+    case walletSelectionStale = "OMS_WALLET_SELECTION_STALE"
+    case walletSelectionUnavailable = "OMS_WALLET_SELECTION_UNAVAILABLE"
+    case walletSelectionInFlight = "OMS_WALLET_SELECTION_IN_FLIGHT"
+    case transactionStatusLookupFailed = "OMS_TRANSACTION_STATUS_LOOKUP_FAILED"
+    case validationError = "OMS_VALIDATION_ERROR"
+}
+```
+
+### OmsSdkOperation
+
+```swift
+enum OmsSdkOperation: String, Sendable
+```
+
+Stable operation identifiers such as `wallet.sendTransaction`,
+`wallet.completeEmailAuth`, and `indexer.getTokenBalances`. Use
+`operation.rawValue` when logging SDK failures.
+
 ### TransactionError
 
 ```swift
@@ -804,11 +875,11 @@ enum TransactionError: Error {
 }
 ```
 
-Transaction-flow error cases. `noFeeOptionsAvailable` is used when an
-unsponsored transaction has no fee options, and `noFeeOptionSelected` is used
-when a custom selector does not return a selection for an unsponsored
-transaction. Terminal non-executed statuses throw `transactionFailed`. A normal
-pending polling timeout returns
+Transaction-flow detail cases preserved under `OmsSdkError.underlyingError`.
+`noFeeOptionsAvailable` is used when an unsponsored transaction has no fee
+options, and `noFeeOptionSelected` is used when a custom selector does not
+return a selection for an unsponsored transaction. Terminal non-executed
+statuses use `transactionFailed`. A normal pending polling timeout returns
 `SendTransactionResponse(status: .pending, txnHash: nil)` instead of throwing.
 `missingTransactionHash` and `pollingTimedOut` remain public compatibility cases.
 

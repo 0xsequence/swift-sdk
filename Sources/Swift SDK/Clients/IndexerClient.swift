@@ -484,71 +484,75 @@ public final class IndexerClient: WalletIndexerClient {
         includeMetadata: Bool,
         page: TokenBalancesPageRequest = TokenBalancesPageRequest()
     ) async throws -> TokenBalancesResult {
-        let request = TokenBalancesRequest(
-            page: RequestPage(
-                page: page.page ?? 0,
-                pageSize: page.pageSize ?? 40,
-                more: false
-            ),
-            contractAddress: contractAddress,
-            accountAddress: walletAddress,
-            includeMetadata: includeMetadata
-        )
+        try await runOmsOperation(.indexerGetTokenBalances) {
+            let request = TokenBalancesRequest(
+                page: RequestPage(
+                    page: page.page ?? 0,
+                    pageSize: page.pageSize ?? 40,
+                    more: false
+                ),
+                contractAddress: contractAddress,
+                accountAddress: walletAddress,
+                includeMetadata: includeMetadata
+            )
 
-        let bodyData = try encoder.encode(request)
-        let bodyString = String(data: bodyData, encoding: .utf8) ?? "{}"
+            let bodyData = try encoder.encode(request)
+            let bodyString = String(data: bodyData, encoding: .utf8) ?? "{}"
 
-        let baseUrl = indexerUrl(forNetwork: network)
+            let baseUrl = indexerUrl(forNetwork: network)
 
-        let response = try await client.postJson(
-            baseUrl: baseUrl,
-            path: "/GetTokenBalances",
-            body: bodyString,
-            headers: defaultHeaders()
-        )
+            let response = try await client.postJson(
+                baseUrl: baseUrl,
+                path: "/GetTokenBalances",
+                body: bodyString,
+                headers: defaultHeaders()
+            )
 
-        let payload = try decoder.decode(TokenBalancesPayload.self, from: response.body)
+            let payload = try decoder.decode(TokenBalancesPayload.self, from: response.body)
 
-        return TokenBalancesResult(
-            status: response.statusCode,
-            page: payload.page,
-            balances: payload.balances ?? []
-        )
+            return TokenBalancesResult(
+                status: response.statusCode,
+                page: payload.page,
+                balances: payload.balances ?? []
+            )
+        }
     }
 
     public func getNativeTokenBalance(
         network: Network,
         walletAddress: String
     ) async throws -> TokenBalance? {
-        let request = NativeTokenBalanceRequest(accountAddress: walletAddress)
+        try await runOmsOperation(.indexerGetNativeTokenBalance) {
+            let request = NativeTokenBalanceRequest(accountAddress: walletAddress)
 
-        let bodyData = try encoder.encode(request)
-        let bodyString = String(data: bodyData, encoding: .utf8) ?? "{}"
+            let bodyData = try encoder.encode(request)
+            let bodyString = String(data: bodyData, encoding: .utf8) ?? "{}"
 
-        let baseUrl = indexerUrl(forNetwork: network)
+            let baseUrl = indexerUrl(forNetwork: network)
 
-        let response = try await client.postJson(
-            baseUrl: baseUrl,
-            path: "/GetNativeTokenBalance",
-            body: bodyString,
-            headers: defaultHeaders()
-        )
+            let response = try await client.postJson(
+                baseUrl: baseUrl,
+                path: "/GetNativeTokenBalance",
+                body: bodyString,
+                headers: defaultHeaders()
+            )
 
-        let payload = try decoder.decode(NativeTokenBalancePayload.self, from: response.body)
-        guard let balance = payload.balance else {
-            return nil
+            let payload = try decoder.decode(NativeTokenBalancePayload.self, from: response.body)
+            guard let balance = payload.balance else {
+                return nil
+            }
+
+            return TokenBalance(
+                contractType: "NATIVE",
+                contractAddress: nil,
+                accountAddress: balance.accountAddress,
+                tokenId: nil,
+                balance: balance.balance ?? balance.balanceWei,
+                blockHash: nil,
+                blockNumber: nil,
+                chainId: balance.chainId ?? Int64(network.chainId)
+            )
         }
-
-        return TokenBalance(
-            contractType: "NATIVE",
-            contractAddress: nil,
-            accountAddress: balance.accountAddress,
-            tokenId: nil,
-            balance: balance.balance ?? balance.balanceWei,
-            blockHash: nil,
-            blockNumber: nil,
-            chainId: balance.chainId ?? Int64(network.chainId)
-        )
     }
 
     private func indexerUrl(forNetwork network: Network) -> String {

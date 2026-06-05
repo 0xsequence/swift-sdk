@@ -8,6 +8,23 @@ public enum TransactionError: Error {
     case pollingTimedOut
 }
 
+extension TransactionError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .noFeeOptionsAvailable:
+            return "No fee options are available for this transaction."
+        case .noFeeOptionSelected:
+            return "No fee option was selected for this transaction."
+        case .missingTransactionHash:
+            return "Transaction status response is missing a transaction hash."
+        case .transactionFailed(let status):
+            return "Transaction failed with status: \(status)."
+        case .pollingTimedOut:
+            return "Transaction polling timed out."
+        }
+    }
+}
+
 @available(macOS 12.0, iOS 15.0, *)
 public class WalletClient: @unchecked Sendable {
     private struct SessionMetadata {
@@ -297,23 +314,25 @@ public class WalletClient: @unchecked Sendable {
     ///
     /// - Parameter email: The email address to send the one-time passcode to.
     public func startEmailAuth(email: String) async throws {
-        try signOut()
+        try await runOmsOperation(.walletStartEmailAuth) {
+            try signOut()
 
-        do {
-            let params = CommitVerifierRequest(
-                identityType: IdentityType.email,
-                authMode: AuthMode.otp,
-                metadata: [String : String] (),
-                handle: email
-            )
+            do {
+                let params = CommitVerifierRequest(
+                    identityType: IdentityType.email,
+                    authMode: AuthMode.otp,
+                    metadata: [String : String] (),
+                    handle: email
+                )
 
-            let response = try await signedClient.commitVerifier(params)
+                let response = try await signedClient.commitVerifier(params)
 
-            verifier = response.verifier
-            challenge = response.challenge
-        } catch {
-            try? signOut()
-            throw error
+                verifier = response.verifier
+                challenge = response.challenge
+            } catch {
+                try? signOut()
+                throw error
+            }
         }
     }
 
@@ -329,15 +348,17 @@ public class WalletClient: @unchecked Sendable {
         walletType: WalletType = WalletType.ethereum,
         sessionLifetimeSeconds: UInt32 = 604_800
     ) async throws -> CompleteAuthResult {
-        let response = try await confirmEmailSignIn(
-            code: code,
-            sessionLifetimeSeconds: sessionLifetimeSeconds
-        )
-        return try await completeWalletAuth(
-            response,
-            walletType: walletType,
-            walletSelection: walletSelection
-        )
+        try await runOmsOperation(.walletCompleteEmailAuth) {
+            let response = try await confirmEmailSignIn(
+                code: code,
+                sessionLifetimeSeconds: sessionLifetimeSeconds
+            )
+            return try await completeWalletAuth(
+                response,
+                walletType: walletType,
+                walletSelection: walletSelection
+            )
+        }
     }
 
     /// Signs in with an OIDC ID token.
@@ -354,61 +375,43 @@ public class WalletClient: @unchecked Sendable {
         walletSelection: WalletSelectionBehavior = .automatic,
         sessionLifetimeSeconds: UInt32 = 604_800
     ) async throws -> CompleteAuthResult {
-        try clearSession(clearOidcRedirectAuth: true)
+        try await runOmsOperation(.walletSignInWithOidcIdToken) {
+            try clearSession(clearOidcRedirectAuth: true)
 
-        do {
-            let expiresAt = try OidcIdToken.expiresAtEpochSeconds(idToken)
-            let response = try await signedClient.commitVerifier(
-                CommitVerifierRequest(
-                    identityType: .oidc,
-                    authMode: .idToken,
-                    metadata: [
-                        "iss": issuer,
-                        "aud": audience,
-                        "exp": String(expiresAt)
-                    ],
-                    handle: OidcIdToken.handleHash(idToken)
+            do {
+                let expiresAt = try OidcIdToken.expiresAtEpochSeconds(idToken)
+                let response = try await signedClient.commitVerifier(
+                    CommitVerifierRequest(
+                        identityType: .oidc,
+                        authMode: .idToken,
+                        metadata: [
+                            "iss": issuer,
+                            "aud": audience,
+                            "exp": String(expiresAt)
+                        ],
+                        handle: OidcIdToken.handleHash(idToken)
+                    )
                 )
-            )
 
-            verifier = response.verifier
-            challenge = response.challenge
+                verifier = response.verifier
+                challenge = response.challenge
 
-            let auth = try await confirmOidcIdTokenSignIn(
-                idToken: idToken,
-                sessionLifetimeSeconds: sessionLifetimeSeconds
-            )
-            return try await completeWalletAuth(
-                auth,
-                walletType: walletType,
-                walletSelection: walletSelection
-            )
-        } catch let error as CancellationError {
-            throw error
-        } catch {
-            try? signOut()
-            throw error
+                let auth = try await confirmOidcIdTokenSignIn(
+                    idToken: idToken,
+                    sessionLifetimeSeconds: sessionLifetimeSeconds
+                )
+                return try await completeWalletAuth(
+                    auth,
+                    walletType: walletType,
+                    walletSelection: walletSelection
+                )
+            } catch let error as CancellationError {
+                throw error
+            } catch {
+                try? signOut()
+                throw error
+            }
         }
-    }
-
-    /// Signs in with an OIDC ID token.
-    @discardableResult
-    public func signInWithOidcToken(
-        idToken: String,
-        issuer: String,
-        audience: String,
-        walletType: WalletType = WalletType.ethereum,
-        walletSelection: WalletSelectionBehavior = .automatic,
-        sessionLifetimeSeconds: UInt32 = 604_800
-    ) async throws -> CompleteAuthResult {
-        try await signInWithOidcIdToken(
-            idToken: idToken,
-            issuer: issuer,
-            audience: audience,
-            walletType: walletType,
-            walletSelection: walletSelection,
-            sessionLifetimeSeconds: sessionLifetimeSeconds
-        )
     }
 
     /// Starts OIDC authorization-code PKCE redirect authentication.
@@ -423,14 +426,16 @@ public class WalletClient: @unchecked Sendable {
         loginHint: String? = nil,
         authorizeParams: [String: String] = [:]
     ) async throws -> StartOidcRedirectAuthResult {
-        try await startOidcRedirectAuth(
-            provider: provider,
-            redirectUri: redirectUri,
-            walletType: walletType,
-            relayRedirectUri: provider.relayRedirectUri,
-            loginHint: loginHint,
-            authorizeParams: authorizeParams
-        )
+        try await runOmsOperation(.walletStartOidcRedirectAuth) {
+            try await startOidcRedirectAuth(
+                provider: provider,
+                redirectUri: redirectUri,
+                walletType: walletType,
+                relayRedirectUri: provider.relayRedirectUri,
+                loginHint: loginHint,
+                authorizeParams: authorizeParams
+            )
+        }
     }
 
     /// Starts OIDC authorization-code PKCE redirect authentication with an explicit
@@ -444,66 +449,68 @@ public class WalletClient: @unchecked Sendable {
         loginHint: String? = nil,
         authorizeParams: [String: String] = [:]
     ) async throws -> StartOidcRedirectAuthResult {
-        let previousSessionEmail = reauthenticationSessionEmail()
-        try clearSession(clearOidcRedirectAuth: true)
+        try await runOmsOperation(.walletStartOidcRedirectAuth) {
+            let previousSessionEmail = reauthenticationSessionEmail()
+            try clearSession(clearOidcRedirectAuth: true)
 
-        do {
-            let signerCredentialId = try credentialSession.signer.credentialId()
-            let oauthRedirectUri = relayRedirectUri ?? redirectUri
-            let response = try await signedClient.commitVerifier(
-                CommitVerifierRequest(
-                    identityType: .oidc,
-                    authMode: .authCodePkce,
-                    metadata: [
-                        "iss": provider.issuer,
-                        "aud": provider.clientId,
-                        "redirect_uri": oauthRedirectUri
-                    ]
+            do {
+                let signerCredentialId = try credentialSession.signer.credentialId()
+                let oauthRedirectUri = relayRedirectUri ?? redirectUri
+                let response = try await signedClient.commitVerifier(
+                    CommitVerifierRequest(
+                        identityType: .oidc,
+                        authMode: .authCodePkce,
+                        metadata: [
+                            "iss": provider.issuer,
+                            "aud": provider.clientId,
+                            "redirect_uri": oauthRedirectUri
+                        ]
+                    )
                 )
-            )
-            let nonce = try oidcNonceGenerator()
-            let state = try OidcRedirectAuth.encodeState(
-                nonce: nonce,
-                scope: projectId,
-                redirectUri: oauthRedirectUri == redirectUri ? nil : redirectUri
-            )
-
-            verifier = response.verifier
-            challenge = response.challenge
-            try oidcRedirectAuthStore.save(
-                PendingOidcRedirectAuth(
-                    verifier: response.verifier,
-                    challenge: response.challenge,
+                let nonce = try oidcNonceGenerator()
+                let state = try OidcRedirectAuth.encodeState(
                     nonce: nonce,
-                    redirectUri: redirectUri,
-                    issuer: provider.issuer,
-                    authorizationScope: self.projectId,
-                    walletType: walletType,
-                    signerCredentialId: signerCredentialId,
-                    signerKeyType: credentialSession.signer.alg
+                    scope: projectId,
+                    redirectUri: oauthRedirectUri == redirectUri ? nil : redirectUri
                 )
-            )
 
-            let authorizationUrl = try OidcRedirectAuth.buildAuthorizationUrl(
-                provider: provider,
-                redirectUri: oauthRedirectUri,
-                state: state,
-                challenge: response.challenge,
-                loginHint: loginHintForProvider(
-                    provider,
-                    loginHint: loginHint ?? previousSessionEmail
-                ),
-                authorizeParams: provider.authorizeParams.merging(authorizeParams) { _, new in new }
-            )
+                verifier = response.verifier
+                challenge = response.challenge
+                try oidcRedirectAuthStore.save(
+                    PendingOidcRedirectAuth(
+                        verifier: response.verifier,
+                        challenge: response.challenge,
+                        nonce: nonce,
+                        redirectUri: redirectUri,
+                        issuer: provider.issuer,
+                        authorizationScope: self.projectId,
+                        walletType: walletType,
+                        signerCredentialId: signerCredentialId,
+                        signerKeyType: credentialSession.signer.alg
+                    )
+                )
 
-            return StartOidcRedirectAuthResult(
-                authorizationUrl: authorizationUrl,
-                state: state,
-                challenge: response.challenge
-            )
-        } catch {
-            try? clearSession(clearOidcRedirectAuth: true)
-            throw error
+                let authorizationUrl = try OidcRedirectAuth.buildAuthorizationUrl(
+                    provider: provider,
+                    redirectUri: oauthRedirectUri,
+                    state: state,
+                    challenge: response.challenge,
+                    loginHint: loginHintForProvider(
+                        provider,
+                        loginHint: loginHint ?? previousSessionEmail
+                    ),
+                    authorizeParams: provider.authorizeParams.merging(authorizeParams) { _, new in new }
+                )
+
+                return StartOidcRedirectAuthResult(
+                    authorizationUrl: authorizationUrl,
+                    state: state,
+                    challenge: response.challenge
+                )
+            } catch {
+                try? clearSession(clearOidcRedirectAuth: true)
+                throw error
+            }
         }
     }
 
@@ -518,84 +525,86 @@ public class WalletClient: @unchecked Sendable {
         walletSelection: WalletSelectionBehavior = .automatic,
         sessionLifetimeSeconds: UInt32 = 604_800
     ) async throws -> OidcRedirectAuthResult {
-        guard let callbackUrl = callbackUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !callbackUrl.isEmpty else {
-            return .notOidcRedirectCallback
-        }
+        try await runOmsOperation(.walletHandleOidcRedirectCallback) {
+            guard let callbackUrl = callbackUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !callbackUrl.isEmpty else {
+                return .notOidcRedirectCallback
+            }
 
-        let callback = OidcRedirectAuth.parseCallbackUrl(callbackUrl)
-        guard callback.hasOidcResponse else {
-            return .notOidcRedirectCallback
-        }
+            let callback = OidcRedirectAuth.parseCallbackUrl(callbackUrl)
+            guard callback.hasOidcResponse else {
+                return .notOidcRedirectCallback
+            }
 
-        let pending: PendingOidcRedirectAuth
-        do {
-            guard let loaded = try oidcRedirectAuthStore.load() else {
+            let pending: PendingOidcRedirectAuth
+            do {
+                guard let loaded = try oidcRedirectAuthStore.load() else {
+                    return .noPendingAuth
+                }
+                pending = loaded
+            } catch {
                 return .noPendingAuth
             }
-            pending = loaded
-        } catch {
-            return .noPendingAuth
-        }
 
-        guard OidcRedirectAuth.matchesRedirectUri(
-            callbackUrl: callbackUrl,
-            redirectUri: pending.redirectUri
-        ) else {
-            return .notOidcRedirectCallback
-        }
-
-        guard let state = callback.state,
-              (try? OidcRedirectAuth.validateState(state, pending: pending)) != nil else {
-            return .notOidcRedirectCallback
-        }
-
-        var clearPendingAuth = false
-        defer {
-            if clearPendingAuth {
-                try? oidcRedirectAuthStore.clear()
+            guard OidcRedirectAuth.matchesRedirectUri(
+                callbackUrl: callbackUrl,
+                redirectUri: pending.redirectUri
+            ) else {
+                return .notOidcRedirectCallback
             }
-        }
 
-        do {
-            clearPendingAuth = true
-            if let error = callback.error {
-                throw OidcRedirectAuthError.providerError(
-                    callback.errorDescription ?? "OIDC provider returned error: \(error)"
+            guard let state = callback.state,
+                  (try? OidcRedirectAuth.validateState(state, pending: pending)) != nil else {
+                return .notOidcRedirectCallback
+            }
+
+            var clearPendingAuth = false
+            defer {
+                if clearPendingAuth {
+                    try? oidcRedirectAuthStore.clear()
+                }
+            }
+
+            do {
+                clearPendingAuth = true
+                if let error = callback.error {
+                    throw OidcRedirectAuthError.providerError(
+                        callback.errorDescription ?? "OIDC provider returned error: \(error)"
+                    )
+                }
+                guard let code = callback.code else {
+                    throw OidcRedirectAuthError.missingCode
+                }
+
+                try restorePendingOidcRedirectAuth(pending)
+                let response = try await signedClient.completeAuth(
+                    CompleteAuthRequest(
+                        identityType: .oidc,
+                        authMode: .authCodePkce,
+                        verifier: pending.verifier,
+                        answer: code,
+                        lifetime: sessionLifetimeSeconds
+                    )
                 )
-            }
-            guard let code = callback.code else {
-                throw OidcRedirectAuthError.missingCode
-            }
-
-            try restorePendingOidcRedirectAuth(pending)
-            let response = try await signedClient.completeAuth(
-                CompleteAuthRequest(
-                    identityType: .oidc,
-                    authMode: .authCodePkce,
-                    verifier: pending.verifier,
-                    answer: code,
-                    lifetime: sessionLifetimeSeconds
+                let result = try await completeWalletAuth(
+                    response,
+                    walletType: pending.walletType,
+                    walletSelection: walletSelection
                 )
-            )
-            let result = try await completeWalletAuth(
-                response,
-                walletType: pending.walletType,
-                walletSelection: walletSelection
-            )
 
-            switch result {
-            case .walletSelected(_, let wallet, _, _):
-                return .completed(wallet: wallet)
-            case .walletSelection(let pendingSelection):
-                return .walletSelection(pendingSelection)
+                switch result {
+                case .walletSelected(_, let wallet, _, _):
+                    return .completed(wallet: wallet)
+                case .walletSelection(let pendingSelection):
+                    return .walletSelection(pendingSelection)
+                }
+            } catch let error as CancellationError {
+                clearPendingAuth = false
+                throw error
+            } catch {
+                try? clearSession(clearOidcRedirectAuth: false)
+                return .failed(toOmsSdkError(error, operation: .walletHandleOidcRedirectCallback))
             }
-        } catch let error as CancellationError {
-            clearPendingAuth = false
-            throw error
-        } catch {
-            try? clearSession(clearOidcRedirectAuth: false)
-            return .failed(error)
         }
     }
 
@@ -773,12 +782,14 @@ public class WalletClient: @unchecked Sendable {
     /// signer metadata to the keychain.
     @discardableResult
     public func useWallet(walletId: String) async throws -> WalletActivationResult {
-        try requireWalletSelectionOrActiveSession()
-        try requireActiveCredential()
-        return try await useWallet(
-            walletId: walletId,
-            sessionMetadata: currentSessionMetadata()
-        )
+        try await runOmsOperation(.walletUseWallet) {
+            try requireWalletSelectionOrActiveSession()
+            try requireActiveCredential()
+            return try await useWallet(
+                walletId: walletId,
+                sessionMetadata: currentSessionMetadata()
+            )
+        }
     }
 
     /// Creates a new wallet of the specified type for the authenticated user and persists
@@ -793,20 +804,24 @@ public class WalletClient: @unchecked Sendable {
         walletType: WalletType = WalletType.ethereum,
         reference: String? = nil
     ) async throws -> WalletActivationResult {
-        try requireWalletSelectionOrActiveSession()
-        try requireActiveCredential()
-        return try await createWallet(
-            walletType: walletType,
-            reference: reference,
-            sessionMetadata: currentSessionMetadata()
-        )
+        try await runOmsOperation(.walletCreateWallet) {
+            try requireWalletSelectionOrActiveSession()
+            try requireActiveCredential()
+            return try await createWallet(
+                walletType: walletType,
+                reference: reference,
+                sessionMetadata: currentSessionMetadata()
+            )
+        }
     }
 
     /// Lists all wallets available to the authenticated credential.
     public func listWallets() async throws -> [Wallet] {
-        try requireWalletSelectionOrActiveSession()
-        try requireActiveCredential()
-        return try await listWallets(startingAt: nil)
+        try await runOmsOperation(.walletListWallets) {
+            try requireWalletSelectionOrActiveSession()
+            try requireActiveCredential()
+            return try await listWallets(startingAt: nil)
+        }
     }
 
     private func createWallet(
@@ -1155,7 +1170,9 @@ public class WalletClient: @unchecked Sendable {
     /// and the user will need to sign in again via `startEmailAuth(email:)`. Navigate to your
     /// sign-in screen after calling this.
     public func signOut() throws {
-        try clearSession(clearOidcRedirectAuth: true)
+        try runOmsOperation(.walletSignOut) {
+            try clearSession(clearOidcRedirectAuth: true)
+        }
     }
 
     private func clearSession(clearOidcRedirectAuth: Bool) throws {
@@ -1187,11 +1204,13 @@ public class WalletClient: @unchecked Sendable {
     /// - Returns: An array of `CredentialInfo` values representing each credential
     ///   with access to this wallet.
     public func listAccess(pageSize: UInt32? = nil) async throws -> [CredentialInfo] {
-        var credentials: [CredentialInfo] = []
-        for try await response in listAccessPages(pageSize: pageSize) {
-            credentials += response.credentials
+        try await runOmsOperation(.walletListAccess) {
+            var credentials: [CredentialInfo] = []
+            for try await response in listAccessPages(pageSize: pageSize) {
+                credentials += response.credentials
+            }
+            return credentials
         }
-        return credentials
     }
 
     /// Returns credential-access pages for this wallet until WaaS stops returning a cursor.
@@ -1204,26 +1223,30 @@ public class WalletClient: @unchecked Sendable {
         pageSize: UInt32? = nil,
         cursor: String? = nil
     ) async throws -> ListAccessResponse {
-        let walletId = try requireActiveWalletId()
-        try requireActiveCredential()
-        return try await signedClient.listAccess(
-            ListAccessRequest(
-                walletId: walletId,
-                page: accessPage(pageSize: pageSize, cursor: cursor)
+        try await runOmsOperation(.walletListAccessPage) {
+            let walletId = try requireActiveWalletId()
+            try requireActiveCredential()
+            return try await signedClient.listAccess(
+                ListAccessRequest(
+                    walletId: walletId,
+                    page: accessPage(pageSize: pageSize, cursor: cursor)
+                )
             )
-        )
+        }
     }
     
     public func getIdToken(ttlSeconds: UInt32? = nil, customClaims: [String: WebRPCJSONValue]? = nil) async throws -> String {
-        let walletId = try requireActiveWalletId()
-        let params = GetIDTokenRequest(
-            walletId: walletId,
-            ttlSeconds: ttlSeconds,
-            customClaims: customClaims
-        )
-        
-        let response = try await signedClient.getIdToken(params)
-        return response.idToken
+        try await runOmsOperation(.walletGetIdToken) {
+            let walletId = try requireActiveWalletId()
+            let params = GetIDTokenRequest(
+                walletId: walletId,
+                ttlSeconds: ttlSeconds,
+                customClaims: customClaims
+            )
+
+            let response = try await signedClient.getIdToken(params)
+            return response.idToken
+        }
     }
 
     /// Revokes access for a specific credential, preventing it from interacting
@@ -1236,13 +1259,15 @@ public class WalletClient: @unchecked Sendable {
     ///
     /// - Parameter targetCredentialId: The unique identifier of the credential to revoke.
     public func revokeAccess(targetCredentialId: String) async throws {
-        let walletId = try requireActiveWalletId()
-        let params = RevokeAccessRequest(
-            targetCredentialId: targetCredentialId,
-            walletId: walletId
-        )
+        try await runOmsOperation(.walletRevokeAccess) {
+            let walletId = try requireActiveWalletId()
+            let params = RevokeAccessRequest(
+                targetCredentialId: targetCredentialId,
+                walletId: walletId
+            )
 
-        _ = try await signedClient.revokeAccess(params)
+            _ = try await signedClient.revokeAccess(params)
+        }
     }
 
     private func accessPage(pageSize: UInt32?, cursor: String?) -> Page? {
@@ -1260,27 +1285,31 @@ public class WalletClient: @unchecked Sendable {
     ///   - message: The plaintext message to sign.
     /// - Returns: A hex-encoded signature string.
     public func signMessage(network: Network, message: String) async throws -> String {
-        let walletId = try requireActiveWalletId()
-        let params = SignMessageRequest(
-            network: network.chainId,
-            walletId: walletId,
-            message: message
-        )
+        try await runOmsOperation(.walletSignMessage) {
+            let walletId = try requireActiveWalletId()
+            let params = SignMessageRequest(
+                network: network.chainId,
+                walletId: walletId,
+                message: message
+            )
 
-        let response = try await signedClient.signMessage(params)
-        return response.signature
+            let response = try await signedClient.signMessage(params)
+            return response.signature
+        }
     }
 
     public func signTypedData(network: Network, typedData: WebRPCJSONValue) async throws -> String {
-        let walletId = try requireActiveWalletId()
-        let params = SignTypedDataRequest(
-            network: network.chainId,
-            walletId: walletId,
-            typedData: typedData
-        )
+        try await runOmsOperation(.walletSignTypedData) {
+            let walletId = try requireActiveWalletId()
+            let params = SignTypedDataRequest(
+                network: network.chainId,
+                walletId: walletId,
+                typedData: typedData
+            )
 
-        let response = try await signedClient.signTypedData(params)
-        return response.signature
+            let response = try await signedClient.signTypedData(params)
+            return response.signature
+        }
     }
 
     public func isValidMessageSignature(
@@ -1289,18 +1318,20 @@ public class WalletClient: @unchecked Sendable {
         message: String,
         signature: String
     ) async throws -> Bool {
-        let walletId = try requireActiveWalletId()
-        let response = try await publicClient.isValidMessageSignature(
-            IsValidMessageSignatureRequest(
-                network: network.chainId,
-                walletAddress: walletAddress,
-                walletId: walletId,
-                message: message,
-                signature: signature
+        try await runOmsOperation(.walletIsValidMessageSignature) {
+            let walletId = try requireActiveWalletId()
+            let response = try await publicClient.isValidMessageSignature(
+                IsValidMessageSignatureRequest(
+                    network: network.chainId,
+                    walletAddress: walletAddress,
+                    walletId: walletId,
+                    message: message,
+                    signature: signature
+                )
             )
-        )
 
-        return response.isValid
+            return response.isValid
+        }
     }
 
     public func isValidTypedDataSignature(
@@ -1309,18 +1340,20 @@ public class WalletClient: @unchecked Sendable {
         typedData: WebRPCJSONValue,
         signature: String
     ) async throws -> Bool {
-        let walletId = try requireActiveWalletId()
-        let response = try await publicClient.isValidTypedDataSignature(
-            IsValidTypedDataSignatureRequest(
-                network: network.chainId,
-                walletAddress: walletAddress,
-                walletId: walletId,
-                typedData: typedData,
-                signature: signature
+        try await runOmsOperation(.walletIsValidTypedDataSignature) {
+            let walletId = try requireActiveWalletId()
+            let response = try await publicClient.isValidTypedDataSignature(
+                IsValidTypedDataSignatureRequest(
+                    network: network.chainId,
+                    walletAddress: walletAddress,
+                    walletId: walletId,
+                    typedData: typedData,
+                    signature: signature
+                )
             )
-        )
 
-        return response.isValid
+            return response.isValid
+        }
     }
 
     public func sendTransaction(
@@ -1330,20 +1363,22 @@ public class WalletClient: @unchecked Sendable {
         selectFeeOption: FeeOptionSelector? = nil,
         mode: TransactionMode = .relayer
     ) async throws -> SendTransactionResponse {
-        let walletId = try requireActiveWalletId()
-        let walletAddress = try activeWalletAddressIfNeeded(for: selectFeeOption)
-        return try await sendTransaction(
-            network: network,
-            request: SendTransactionRequest(
-                to: to,
-                value: value,
-                data: nil,
-                mode: mode
-            ),
-            selectFeeOption: selectFeeOption,
-            walletId: walletId,
-            walletAddress: walletAddress
-        )
+        try await runOmsOperation(.walletSendTransaction) {
+            let walletId = try requireActiveWalletId()
+            let walletAddress = try activeWalletAddressIfNeeded(for: selectFeeOption)
+            return try await sendTransaction(
+                network: network,
+                request: SendTransactionRequest(
+                    to: to,
+                    value: value,
+                    data: nil,
+                    mode: mode
+                ),
+                selectFeeOption: selectFeeOption,
+                walletId: walletId,
+                walletAddress: walletAddress
+            )
+        }
     }
 
     public func sendTransaction(
@@ -1351,15 +1386,17 @@ public class WalletClient: @unchecked Sendable {
         request: SendTransactionRequest,
         selectFeeOption: FeeOptionSelector? = nil
     ) async throws -> SendTransactionResponse {
-        let walletId = try requireActiveWalletId()
-        let walletAddress = try activeWalletAddressIfNeeded(for: selectFeeOption)
-        return try await sendTransaction(
-            network: network,
-            request: request,
-            selectFeeOption: selectFeeOption,
-            walletId: walletId,
-            walletAddress: walletAddress
-        )
+        try await runOmsOperation(.walletSendTransaction) {
+            let walletId = try requireActiveWalletId()
+            let walletAddress = try activeWalletAddressIfNeeded(for: selectFeeOption)
+            return try await sendTransaction(
+                network: network,
+                request: request,
+                selectFeeOption: selectFeeOption,
+                walletId: walletId,
+                walletAddress: walletAddress
+            )
+        }
     }
 
     private func sendTransaction(
@@ -1396,25 +1433,27 @@ public class WalletClient: @unchecked Sendable {
         selectFeeOption: FeeOptionSelector? = nil,
         mode: TransactionMode = .relayer
     ) async throws -> SendTransactionResponse {
-        let walletId = try requireActiveWalletId()
-        let walletAddress = try activeWalletAddressIfNeeded(for: selectFeeOption)
-        let prepareResponse = try await signedClient.prepareEthereumContractCall(
-            PrepareEthereumContractCallRequest(
-                network: network.chainId,
-                walletId: walletId,
-                contract: contract,
-                method: method,
-                args: args,
-                mode: mode
+        try await runOmsOperation(.walletCallContract) {
+            let walletId = try requireActiveWalletId()
+            let walletAddress = try activeWalletAddressIfNeeded(for: selectFeeOption)
+            let prepareResponse = try await signedClient.prepareEthereumContractCall(
+                PrepareEthereumContractCallRequest(
+                    network: network.chainId,
+                    walletId: walletId,
+                    contract: contract,
+                    method: method,
+                    args: args,
+                    mode: mode
+                )
             )
-        )
 
-        return try await self.execute(
-            network: network,
-            prepareResponse: prepareResponse,
-            feeOptionSelector: selectFeeOption,
-            walletAddress: walletAddress
-        );
+            return try await self.execute(
+                network: network,
+                prepareResponse: prepareResponse,
+                feeOptionSelector: selectFeeOption,
+                walletAddress: walletAddress
+            );
+        }
     }
 
     /// Returns the current execution status for a prepared or submitted transaction.
@@ -1422,9 +1461,22 @@ public class WalletClient: @unchecked Sendable {
     /// - Parameter txnId: The transaction ID returned by the wallet API prepare/execute flow.
     /// - Returns: The current transaction status and transaction hash when available.
     public func getTransactionStatus(txnId: String) async throws -> TransactionStatusResponse {
-        return try await signedClient.transactionStatus(
-            TransactionStatusRequest(txnId: txnId)
-        )
+        try await runOmsOperation(.walletGetTransactionStatus) {
+            do {
+                return try await signedClient.transactionStatus(
+                    TransactionStatusRequest(txnId: txnId)
+                )
+            } catch {
+                throw OmsSdkError(
+                    code: .transactionStatusLookupFailed,
+                    message: error.localizedDescription,
+                    operation: .walletGetTransactionStatus,
+                    txnId: txnId,
+                    retryable: true,
+                    underlyingError: error
+                )
+            }
+        }
     }
 
     private func execute(
