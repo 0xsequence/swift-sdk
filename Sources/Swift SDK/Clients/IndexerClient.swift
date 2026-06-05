@@ -507,6 +507,7 @@ public final class IndexerClient: WalletIndexerClient {
                 body: bodyString,
                 headers: defaultHeaders()
             )
+            try validateSuccessResponse(response, operation: .indexerGetTokenBalances)
 
             let payload = try decoder.decode(TokenBalancesPayload.self, from: response.body)
 
@@ -536,6 +537,7 @@ public final class IndexerClient: WalletIndexerClient {
                 body: bodyString,
                 headers: defaultHeaders()
             )
+            try validateSuccessResponse(response, operation: .indexerGetNativeTokenBalance)
 
             let payload = try decoder.decode(NativeTokenBalancePayload.self, from: response.body)
             guard let balance = payload.balance else {
@@ -564,6 +566,21 @@ public final class IndexerClient: WalletIndexerClient {
             "X-Access-Key": publishableKey,
             "Accept": "application/json"
         ]
+    }
+
+    private func validateSuccessResponse(
+        _ response: HttpResponse,
+        operation: OmsSdkOperation
+    ) throws {
+        guard (200...299).contains(response.statusCode) else {
+            throw OmsSdkError(
+                code: .httpError,
+                message: "Indexer request failed with HTTP status \(response.statusCode).",
+                operation: operation,
+                status: response.statusCode,
+                retryable: response.statusCode >= 500
+            )
+        }
     }
 }
 

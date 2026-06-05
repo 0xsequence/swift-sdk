@@ -201,6 +201,51 @@ import Testing
     }
 }
 
+@Test func TestIndexerNonSuccessResponsesThrowOmsHttpError() async throws {
+    let tokenBalancesRecorder = IndexerRequestRecorder(
+        statusCode: 500,
+        responseBody: Data(#"{"page":{"page":0,"pageSize":40,"more":false},"balances":[]}"#.utf8)
+    )
+    let tokenBalancesClient = makeRecordingIndexerClient(recorder: tokenBalancesRecorder)
+
+    do {
+        _ = try await tokenBalancesClient.getTokenBalances(
+            network: .polygon,
+            walletAddress: "0xwallet",
+            includeMetadata: true
+        )
+        #expect(Bool(false), "Expected indexer HTTP error")
+    } catch let error as OmsSdkError {
+        #expect(error.code == .httpError)
+        #expect(error.operation == .indexerGetTokenBalances)
+        #expect(error.status == 500)
+        #expect(error.retryable == true)
+    } catch {
+        #expect(Bool(false), "Expected OmsSdkError")
+    }
+
+    let nativeBalanceRecorder = IndexerRequestRecorder(
+        statusCode: 404,
+        responseBody: Data(#"{"balance":null}"#.utf8)
+    )
+    let nativeBalanceClient = makeRecordingIndexerClient(recorder: nativeBalanceRecorder)
+
+    do {
+        _ = try await nativeBalanceClient.getNativeTokenBalance(
+            network: .polygon,
+            walletAddress: "0xwallet"
+        )
+        #expect(Bool(false), "Expected indexer HTTP error")
+    } catch let error as OmsSdkError {
+        #expect(error.code == .httpError)
+        #expect(error.operation == .indexerGetNativeTokenBalance)
+        #expect(error.status == 404)
+        #expect(error.retryable == false)
+    } catch {
+        #expect(Bool(false), "Expected OmsSdkError")
+    }
+}
+
 @available(macOS 12.0, iOS 15.0, *)
 private func makeRecordingIndexerClient(recorder: IndexerRequestRecorder) -> IndexerClient {
     let configuration = URLSessionConfiguration.ephemeral
@@ -208,12 +253,12 @@ private func makeRecordingIndexerClient(recorder: IndexerRequestRecorder) -> Ind
     configuration.timeoutIntervalForRequest = 1
     configuration.timeoutIntervalForResource = 1
 
-    RecordingURLProtocol.recorder = recorder
+    let host = RecordingURLProtocol.register(recorder: recorder)
 
     let session = URLSession(configuration: configuration)
     let httpClient = HttpClient(session: session)
     let environment = OMSClientEnvironment(
-        indexerURLTemplate: "https://{value}-indexer.test/rpc/Indexer/"
+        indexerURLTemplate: "https://{value}-\(host)/rpc/Indexer/"
     )
 
     return IndexerClient(
@@ -225,7 +270,17 @@ private func makeRecordingIndexerClient(recorder: IndexerRequestRecorder) -> Ind
 
 private final class IndexerRequestRecorder: @unchecked Sendable {
     private let lock = NSLock()
+    let statusCode: Int
+    let responseBody: Data
     private var body: Data?
+
+    init(
+        statusCode: Int = 200,
+        responseBody: Data = Data(#"{"page":{"page":0,"pageSize":40,"more":false},"balances":[]}"#.utf8)
+    ) {
+        self.statusCode = statusCode
+        self.responseBody = responseBody
+    }
 
     func record(body: Data?) {
         lock.lock()
@@ -241,7 +296,16 @@ private final class IndexerRequestRecorder: @unchecked Sendable {
 }
 
 private final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
-    nonisolated(unsafe) static var recorder: IndexerRequestRecorder?
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var recordersByHost: [String: IndexerRequestRecorder] = [:]
+
+    static func register(recorder: IndexerRequestRecorder) -> String {
+        let host = "indexer-\(UUID().uuidString).test"
+        lock.lock()
+        defer { lock.unlock() }
+        recordersByHost[host] = recorder
+        return host
+    }
 
     override class func canInit(with request: URLRequest) -> Bool {
         true
@@ -252,15 +316,16 @@ private final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func startLoading() {
-        Self.recorder?.record(body: Self.bodyData(for: request))
+        let recorder = Self.recorder(for: request)
+        recorder?.record(body: Self.bodyData(for: request))
 
         let response = HTTPURLResponse(
             url: request.url!,
-            statusCode: 200,
+            statusCode: recorder?.statusCode ?? 200,
             httpVersion: nil,
             headerFields: ["Content-Type": "application/json"]
         )!
-        let body = Data(#"{"page":{"page":0,"pageSize":40,"more":false},"balances":[]}"#.utf8)
+        let body = recorder?.responseBody ?? Data()
 
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: body)
@@ -268,6 +333,18 @@ private final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func stopLoading() {}
+
+    private static func recorder(for request: URLRequest) -> IndexerRequestRecorder? {
+        guard let host = request.url?.host else {
+            return nil
+        }
+        lock.lock()
+        defer { lock.unlock() }
+        if let recorder = recordersByHost[host] {
+            return recorder
+        }
+        return recordersByHost.first { host.hasSuffix("-\($0.key)") }?.value
+    }
 
     private static func bodyData(for request: URLRequest) -> Data? {
         if let body = request.httpBody {
