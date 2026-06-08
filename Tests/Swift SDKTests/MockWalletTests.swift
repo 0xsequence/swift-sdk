@@ -299,8 +299,9 @@ import Testing
     do {
         _ = try await pendingSelection.selectWallet(walletId: "wallet-missing")
         #expect(Bool(false))
-    } catch let error as WalletAuthError {
-        #expect(error == .selectedWalletUnavailable)
+    } catch let error as OmsSdkError {
+        #expect(error.code == .walletSelectionUnavailable)
+        #expect(error.operation == nil)
     } catch {
         #expect(Bool(false))
     }
@@ -317,8 +318,9 @@ import Testing
     do {
         _ = try await pendingSelection.createAndSelectWallet(reference: "after-select")
         #expect(Bool(false))
-    } catch let error as WalletAuthError {
-        #expect(error == .staleWalletSelection)
+    } catch let error as OmsSdkError {
+        #expect(error.code == .walletSelectionStale)
+        #expect(error.operation == nil)
     } catch {
         #expect(Bool(false))
     }
@@ -404,8 +406,9 @@ import Testing
     do {
         _ = try await stalePendingSelection.createAndSelectWallet(reference: "stale")
         #expect(Bool(false), "Stale pending wallet selection should not create and select a wallet after a newer auth flow")
-    } catch let error as WalletAuthError {
-        #expect(error == .staleWalletSelection)
+    } catch let error as OmsSdkError {
+        #expect(error.code == .walletSelectionStale)
+        #expect(error.operation == nil)
         #expect(fixture.transport.requestCount(for: WaasWalletAPI.CreateWallet.urlPath) == 0)
         #expect(fixture.client.walletId == "")
         #expect(fixture.client.walletAddress == "")
@@ -497,8 +500,11 @@ import Testing
     do {
         _ = try await fixture.client.completeEmailAuth(code: "123456")
         #expect(Bool(false))
-    } catch let error as WebRPCError {
-        #expect(error.code == WebRPCErrorKind.internalError.code)
+    } catch let error as OmsSdkError {
+        #expect(error.code == .httpError)
+        #expect(error.operation == .walletCompleteEmailAuth)
+        #expect(error.status == 500)
+        #expect((error.underlyingError as? WebRPCError)?.code == WebRPCErrorKind.internalError.code)
     } catch {
         #expect(Bool(false))
     }
@@ -513,7 +519,7 @@ import Testing
     #expect(try fixture.storedCredentials() == nil)
 }
 
-@Test func TestWalletSignInWithOidcTokenCommitsCompletesAndResolvesWallet() async throws {
+@Test func TestWalletSignInWithOidcIdTokenCommitsCompletesAndResolvesWallet() async throws {
     let fixture = makeMockWalletClient()
     let idToken = try fakeOidcIdToken()
     let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
@@ -542,7 +548,7 @@ import Testing
         for: WaasWalletAPI.UseWallet.urlPath
     )
 
-    let result = try await fixture.client.signInWithOidcToken(
+    let result = try await fixture.client.signInWithOidcIdToken(
         idToken: idToken,
         issuer: "https://accounts.google.com",
         audience: "demo-web-client-id"
@@ -631,7 +637,7 @@ import Testing
     #expect(fixture.transport.requestCount(for: WaasWalletAPI.CreateWallet.urlPath) == 0)
 }
 
-@Test func TestWalletSignInWithOidcTokenClearsPendingRedirectAuth() async throws {
+@Test func TestWalletSignInWithOidcIdTokenClearsPendingRedirectAuth() async throws {
     let fixture = makeMockWalletClient()
     try fixture.oidcRedirectAuthStore.save(
         PendingOidcRedirectAuth(
@@ -667,7 +673,7 @@ import Testing
         for: WaasWalletAPI.UseWallet.urlPath
     )
 
-    _ = try await fixture.client.signInWithOidcToken(
+    _ = try await fixture.client.signInWithOidcIdToken(
         idToken: try fakeOidcIdToken(),
         issuer: "https://accounts.google.com",
         audience: "demo-web-client-id"
@@ -677,7 +683,7 @@ import Testing
     #expect(fixture.oidcRedirectAuthStore.pending == nil)
 }
 
-@Test func TestWalletSignInWithOidcTokenSignsOutWhenCompleteAuthFails() async throws {
+@Test func TestWalletSignInWithOidcIdTokenSignsOutWhenCompleteAuthFails() async throws {
     let fixture = makeMockWalletClient()
     try fixture.transport.enqueue(
         CommitVerifierResponse(
@@ -695,14 +701,17 @@ import Testing
     )
 
     do {
-        _ = try await fixture.client.signInWithOidcToken(
+        _ = try await fixture.client.signInWithOidcIdToken(
             idToken: try fakeOidcIdToken(),
             issuer: "https://accounts.google.com",
             audience: "demo-web-client-id"
         )
         #expect(Bool(false))
-    } catch let error as WebRPCError {
-        #expect(error.code == WebRPCErrorKind.identityProviderError.code)
+    } catch let error as OmsSdkError {
+        #expect(error.code == .httpError)
+        #expect(error.operation == .walletSignInWithOidcIdToken)
+        #expect(error.status == 500)
+        #expect((error.underlyingError as? WebRPCError)?.code == WebRPCErrorKind.identityProviderError.code)
     } catch {
         #expect(Bool(false))
     }
@@ -1114,11 +1123,13 @@ import Testing
         "omssdkdemo://auth/callback?error=access_denied&error_description=User%20cancelled&state=\(started.state)"
     )
 
-    guard case .failed(let error as OidcRedirectAuthError) = result else {
+    guard case .failed(let error as OmsSdkError) = result else {
         #expect(Bool(false))
         return
     }
-    #expect(error == .providerError("User cancelled"))
+    #expect(error.code == .validationError)
+    #expect(error.operation == .walletHandleOidcRedirectCallback)
+    #expect(error.underlyingError as? OidcRedirectAuthError == .providerError("User cancelled"))
     #expect(fixture.client.walletId == "")
     #expect(fixture.client.walletAddress == "")
     #expect(fixture.client.canResumeOidcRedirectAuth == false)
@@ -1210,7 +1221,7 @@ import Testing
             network: .polygonAmoy,
             to: "0xabc",
             value: "0",
-            selectFeeOption: .first
+            selectFeeOption: .firstAvailable
         )
     }
     await expectNoAuthenticatedWalletSession {
@@ -1219,7 +1230,7 @@ import Testing
             contract: "0xcontract",
             method: "mint(address)",
             args: nil,
-            selectFeeOption: .first
+            selectFeeOption: .firstAvailable
         )
     }
     #expect(walletIdOnlyFixture.transport.requestCount(for: WaasWalletAPI.PrepareEthereumTransaction.urlPath) == 0)
@@ -1378,6 +1389,150 @@ import Testing
     #expect(fixture.indexerClient.tokenBalanceContractAddresses.isEmpty)
 }
 
+@Test func TestWalletGetTransactionStatusKeepsCancellationError() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.transport.enqueueCancellation(for: WaasWalletAPI.TransactionStatus.urlPath)
+
+    do {
+        _ = try await fixture.client.getTransactionStatus(txnId: "txn-cancelled-1")
+        #expect(Bool(false), "Expected CancellationError")
+    } catch is CancellationError {
+    } catch {
+        #expect(Bool(false), "Expected CancellationError")
+    }
+}
+
+@Test func TestWalletSendTransactionFirstAvailableSelectsFirstFundedFeeOption() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+    fixture.indexerClient.setNativeBalance(
+        TokenBalance(
+            contractType: "NATIVE",
+            contractAddress: nil,
+            accountAddress: "0xwallet",
+            tokenId: nil,
+            balance: "99",
+            blockHash: nil,
+            blockNumber: nil,
+            chainId: 80002
+        )
+    )
+    fixture.indexerClient.setTokenBalances(
+        [
+            TokenBalance(
+                contractType: "ERC20",
+                contractAddress: "0xUSDC",
+                accountAddress: "0xwallet",
+                tokenId: nil,
+                balance: "20",
+                blockHash: nil,
+                blockNumber: nil,
+                chainId: 80002
+            )
+        ],
+        for: "0xusdc"
+    )
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-1",
+            status: .quoted,
+            feeOptions: testFeeOptions(),
+            sponsored: false,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasWalletAPI.PrepareEthereumTransaction.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .executed),
+        for: WaasWalletAPI.Execute.urlPath
+    )
+    try fixture.transport.enqueue(
+        TransactionStatusResponse(status: .executed, txnHash: "0xdeadbeef"),
+        for: WaasWalletAPI.TransactionStatus.urlPath
+    )
+
+    let txResult = try await fixture.client.sendTransaction(
+        network: .polygonAmoy,
+        to: "0xabc",
+        value: "0",
+        selectFeeOption: .firstAvailable
+    )
+    let executeRequest = try fixture.transport.decodedRequest(
+        ExecuteRequest.self,
+        for: WaasWalletAPI.Execute.urlPath
+    )
+
+    #expect(txResult.txnId == "txn-1")
+    #expect(txResult.status == .executed)
+    #expect(executeRequest.feeOption?.token == "usdc")
+    #expect(fixture.indexerClient.nativeBalanceRequestCount == 1)
+    #expect(fixture.indexerClient.tokenBalanceContractAddresses == ["0xusdc"])
+}
+
+@Test func TestWalletSendTransactionFirstAvailableRequiresFundedFeeOption() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+    fixture.indexerClient.setNativeBalance(
+        TokenBalance(
+            contractType: "NATIVE",
+            contractAddress: nil,
+            accountAddress: "0xwallet",
+            tokenId: nil,
+            balance: "99",
+            blockHash: nil,
+            blockNumber: nil,
+            chainId: 80002
+        )
+    )
+    fixture.indexerClient.setTokenBalances(
+        [
+            TokenBalance(
+                contractType: "ERC20",
+                contractAddress: "0xUSDC",
+                accountAddress: "0xwallet",
+                tokenId: nil,
+                balance: "19",
+                blockHash: nil,
+                blockNumber: nil,
+                chainId: 80002
+            )
+        ],
+        for: "0xusdc"
+    )
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-1",
+            status: .quoted,
+            feeOptions: testFeeOptions(),
+            sponsored: false,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasWalletAPI.PrepareEthereumTransaction.urlPath
+    )
+
+    do {
+        _ = try await fixture.client.sendTransaction(
+            network: .polygonAmoy,
+            to: "0xabc",
+            value: "0",
+            selectFeeOption: .firstAvailable
+        )
+    } catch let error as OmsSdkError {
+        #expect(error.code == .validationError)
+        #expect(error.operation == .walletSendTransaction)
+        #expect(isTransactionError(error.underlyingError, .noFeeOptionSelected))
+        #expect(fixture.indexerClient.nativeBalanceRequestCount == 1)
+        #expect(fixture.indexerClient.tokenBalanceContractAddresses == ["0xusdc"])
+        #expect(fixture.transport.requestCount(for: WaasWalletAPI.Execute.urlPath) == 0)
+        return
+    }
+    #expect(Bool(false), "Expected TransactionError.noFeeOptionSelected")
+}
+
 @Test func TestWalletSendTransactionCustomSelectorReceivesFeeOptionBalances() async throws {
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"
@@ -1488,13 +1643,10 @@ import Testing
             selectFeeOption: .custom { _ in nil }
         )
         #expect(Bool(false), "Expected no fee option selected error")
-    } catch let error as TransactionError {
-        switch error {
-        case .noFeeOptionSelected:
-            break
-        default:
-            #expect(Bool(false), "Expected TransactionError.noFeeOptionSelected")
-        }
+    } catch let error as OmsSdkError {
+        #expect(error.code == .validationError)
+        #expect(error.operation == .walletSendTransaction)
+        #expect(isTransactionError(error.underlyingError, .noFeeOptionSelected))
     } catch {
         #expect(Bool(false), "Expected TransactionError.noFeeOptionSelected")
     }
@@ -1723,13 +1875,10 @@ import Testing
             request: SendTransactionRequest(to: "0xabc", value: "0")
         )
         #expect(Bool(false), "Expected no fee options error")
-    } catch let error as TransactionError {
-        switch error {
-        case .noFeeOptionsAvailable:
-            break
-        default:
-            #expect(Bool(false), "Expected TransactionError.noFeeOptionsAvailable")
-        }
+    } catch let error as OmsSdkError {
+        #expect(error.code == .validationError)
+        #expect(error.operation == .walletSendTransaction)
+        #expect(isTransactionError(error.underlyingError, .noFeeOptionsAvailable))
     } catch {
         #expect(Bool(false), "Expected TransactionError.noFeeOptionsAvailable")
     }
@@ -1749,10 +1898,29 @@ private func expectNoAuthenticatedWalletSession<T>(
     do {
         _ = try await operation()
         #expect(Bool(false), "Expected no authenticated wallet session error")
-    } catch let error as WalletAuthError {
-        #expect(error == .noAuthenticatedWalletSession)
+    } catch let error as OmsSdkError {
+        #expect(error.code == .sessionMissing)
+        #expect(error.operation != nil)
     } catch {
-        #expect(Bool(false), "Expected WalletAuthError.noAuthenticatedWalletSession")
+        #expect(Bool(false), "Expected OmsSdkError.sessionMissing")
+    }
+}
+
+private func isTransactionError(_ error: (any Error)?, _ expected: TransactionError) -> Bool {
+    guard let transactionError = error as? TransactionError else {
+        return false
+    }
+
+    switch (transactionError, expected) {
+    case (.noFeeOptionsAvailable, .noFeeOptionsAvailable),
+         (.noFeeOptionSelected, .noFeeOptionSelected),
+         (.missingTransactionHash, .missingTransactionHash),
+         (.pollingTimedOut, .pollingTimedOut):
+        return true
+    case (.transactionFailed(let actual), .transactionFailed(let expected)):
+        return actual == expected
+    default:
+        return false
     }
 }
 
@@ -1929,14 +2097,14 @@ private final class MockWalletIndexerClient: WalletIndexerClient, @unchecked Sen
     private var nativeBalance: TokenBalance?
     private var tokenBalancesByContract: [String: [TokenBalance]] = [:]
     private var nativeBalanceRequests: [(network: Network, walletAddress: String)] = []
-    private var tokenBalanceRequests: [(network: Network, contractAddress: String, walletAddress: String)] = []
+    private var tokenBalanceRequests: [(network: Network, contractAddress: String?, walletAddress: String, page: TokenBalancesPageRequest)] = []
 
     var nativeBalanceRequestCount: Int {
         withLock { nativeBalanceRequests.count }
     }
 
     var tokenBalanceContractAddresses: [String] {
-        withLock { tokenBalanceRequests.map(\.contractAddress) }
+        withLock { tokenBalanceRequests.compactMap(\.contractAddress) }
     }
 
     func setNativeBalance(_ balance: TokenBalance?) {
@@ -1963,21 +2131,23 @@ private final class MockWalletIndexerClient: WalletIndexerClient, @unchecked Sen
 
     func getTokenBalances(
         network: Network,
-        contractAddress: String,
+        contractAddress: String?,
         walletAddress: String,
-        includeMetadata: Bool
+        includeMetadata: Bool,
+        page: TokenBalancesPageRequest
     ) async throws -> TokenBalancesResult {
         withLock {
-            let normalizedContractAddress = contractAddress.lowercased()
+            let normalizedContractAddress = contractAddress?.lowercased()
             tokenBalanceRequests.append((
                 network: network,
                 contractAddress: normalizedContractAddress,
-                walletAddress: walletAddress
+                walletAddress: walletAddress,
+                page: page
             ))
             return TokenBalancesResult(
                 status: 200,
                 page: nil,
-                balances: tokenBalancesByContract[normalizedContractAddress] ?? []
+                balances: normalizedContractAddress.flatMap { tokenBalancesByContract[$0] } ?? []
             )
         }
     }

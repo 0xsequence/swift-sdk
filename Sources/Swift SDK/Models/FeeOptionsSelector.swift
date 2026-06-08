@@ -63,8 +63,15 @@ public struct FeeOptionSelector: Sendable {
 
 @available(macOS 12.0, iOS 15.0, *)
 public extension FeeOptionSelector {
-    static let first = FeeOptionSelector { options in
-        options.first?.selection
+    static let firstAvailable = FeeOptionSelector { options in
+        options.filter { option in
+            guard let availableRaw = option.availableRaw else {
+                return false
+            }
+            return !isNumericValueLessThan(availableRaw, option.feeOption.value)
+        }
+        .first?
+        .selection
     }
 
     static func custom(_ pick: @escaping Select) -> FeeOptionSelector {

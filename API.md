@@ -14,6 +14,9 @@
   - [SessionLoginType](#sessionlogintype)
   - [OMSClientEnvironment](#omsclientenvironment)
   - [FeeOptionSelector](#feeoptionselector)
+  - [OmsSdkError](#omssdkerror)
+  - [OmsSdkErrorCode](#omssdkerrorcode)
+  - [OmsSdkOperation](#omssdkoperation)
   - [TransactionError](#transactionerror)
   - [SendTransactionResponse](#sendtransactionresponse)
   - [TransactionMode](#transactionmode)
@@ -21,6 +24,10 @@
   - [SendTransactionRequest](#sendtransactionrequest)
   - [TokenBalancesResult](#tokenbalancesresult)
   - [TokenBalancesPage](#tokenbalancespage)
+  - [TokenBalancesPageRequest](#tokenbalancespagerequest)
+  - [TokenContractInfo](#tokencontractinfo)
+  - [TokenMetadata](#tokenmetadata)
+  - [TokenMetadataAsset](#tokenmetadataasset)
   - [TokenBalance](#tokenbalance)
   - [CredentialInfo](#credentialinfo)
   - [ListAccessPages](#listaccesspages)
@@ -154,10 +161,10 @@ matching `walletType`, or creates and selects one when none exists. With
 wallet. `sessionLifetimeSeconds` controls the requested credential lifetime and
 defaults to one week.
 
-### signInWithOidcToken
+### signInWithOidcIdToken
 
 ```swift
-func signInWithOidcToken(
+func signInWithOidcIdToken(
     idToken: String,
     issuer: String,
     audience: String,
@@ -170,7 +177,7 @@ func signInWithOidcToken(
 Signs in with an OIDC ID token. The SDK commits an OIDC `id-token` verifier
 using `issuer`, `audience`, the token `exp` claim, and a SHA-256 base64url hash
 of the full token as the verifier handle, then completes auth with the original
-token. `signInWithOidcIdToken` is also available with the same parameters.
+token.
 
 With `.automatic`, selects the first existing wallet matching `walletType`, or
 creates and selects one when none exists. With `.manual`, returns a pending
@@ -208,7 +215,7 @@ that user choice. Automatic "first wallet" selection belongs to
 `WalletSelectionBehavior.automatic`, not manual mode. A pending selection is
 single-use and is invalidated by successful wallet selection, sign-out, or a
 new auth completion; using an invalidated selection throws
-`WalletAuthError.staleWalletSelection`.
+`OmsSdkError` with `code == .walletSelectionStale`.
 
 ### CompleteAuthResult
 
@@ -513,20 +520,21 @@ Accessed via `oms.indexer`. Queries token balances through the OMS Indexer API.
 ```swift
 func getTokenBalances(
     network: Network,
-    contractAddress: String,
+    contractAddress: String? = nil,
     walletAddress: String,
-    includeMetadata: Bool
+    includeMetadata: Bool,
+    page: TokenBalancesPageRequest = TokenBalancesPageRequest()
 ) async throws -> TokenBalancesResult
 ```
 
-Fetches token balances for a wallet on a supported network and contract.
+Fetches token balances for a wallet on a supported network. Omit `contractAddress` to list balances across contracts. Use `page` to request later pages or a custom page size.
 
 ```swift
 let result = try await oms.indexer.getTokenBalances(
     network: .polygon,
-    contractAddress: "0xTokenContract",
     walletAddress: oms.wallet.walletAddress,
-    includeMetadata: true
+    includeMetadata: true,
+    page: TokenBalancesPageRequest(page: 1, pageSize: 100)
 )
 ```
 
@@ -741,7 +749,7 @@ struct FeeOptionSelector {
     init(_ select: @escaping Select)
     func callAsFunction(_ options: [FeeOptionWithBalance]) async throws -> FeeOptionSelection?
     func callAsFunction(_ options: [FeeOption]) async throws -> FeeOptionSelection?
-    static let first: FeeOptionSelector
+    static let firstAvailable: FeeOptionSelector
     static func custom(_ pick: @escaping Select) -> FeeOptionSelector
 }
 ```
@@ -752,7 +760,7 @@ fee option when the transaction is sponsored.
 
 | Selector | Description |
 |---|---|
-| `.first` | Picks the first fee option returned by the server. |
+| `.firstAvailable` | Uses indexer balances to skip underfunded fee options and picks the first option the wallet can pay. |
 | `.custom { options in ... }` | Calls your closure with the full `[FeeOptionWithBalance]` list and expects a `FeeOptionSelection?`. |
 
 ```swift
@@ -787,6 +795,74 @@ integer balance. Use `selection` when returning a quoted option from a custom
 selector; it preserves the option's `tokenID` when present and falls back to the
 symbol for native fee options.
 
+### OmsSdkError
+
+```swift
+struct OmsSdkError: Error, LocalizedError, Sendable {
+    let code: OmsSdkErrorCode
+    let operation: OmsSdkOperation?
+    let status: Int?
+    let txnId: String?
+    let retryable: Bool
+    let underlyingError: (any Error)?
+}
+```
+
+Public wallet, indexer, and pending wallet selection APIs normalize recoverable
+SDK failures to `OmsSdkError`. Use `code` for stable app handling, `operation`
+for logging and analytics, `status` for HTTP-backed failures, `txnId` for
+transaction status lookup failures, and `retryable` for retry UI. The
+`underlyingError` preserves lower-level details such as `WebRPCError`,
+`TransactionError`, or decoding/transport errors.
+
+`CancellationError` is not wrapped.
+
+```swift
+do {
+    _ = try await oms.wallet.signMessage(network: .polygon, message: "hello")
+} catch let error as OmsSdkError {
+    switch error.code {
+    case .sessionMissing, .sessionExpired:
+        // Prompt the user to sign in again.
+        break
+    case .httpError where error.retryable:
+        // Show retry UI.
+        break
+    default:
+        // Show a generic SDK error.
+        break
+    }
+}
+```
+
+### OmsSdkErrorCode
+
+```swift
+enum OmsSdkErrorCode: String, Sendable {
+    case httpError = "OMS_HTTP_ERROR"
+    case invalidResponse = "OMS_INVALID_RESPONSE"
+    case requestFailed = "OMS_REQUEST_FAILED"
+    case authCommitmentConsumed = "OMS_AUTH_COMMITMENT_CONSUMED"
+    case sessionMissing = "OMS_SESSION_MISSING"
+    case sessionExpired = "OMS_SESSION_EXPIRED"
+    case walletSelectionStale = "OMS_WALLET_SELECTION_STALE"
+    case walletSelectionUnavailable = "OMS_WALLET_SELECTION_UNAVAILABLE"
+    case walletSelectionInFlight = "OMS_WALLET_SELECTION_IN_FLIGHT"
+    case transactionStatusLookupFailed = "OMS_TRANSACTION_STATUS_LOOKUP_FAILED"
+    case validationError = "OMS_VALIDATION_ERROR"
+}
+```
+
+### OmsSdkOperation
+
+```swift
+enum OmsSdkOperation: String, Sendable
+```
+
+Stable operation identifiers such as `wallet.sendTransaction`,
+`wallet.completeEmailAuth`, and `indexer.getTokenBalances`. Use
+`operation.rawValue` when logging SDK failures.
+
 ### TransactionError
 
 ```swift
@@ -799,11 +875,11 @@ enum TransactionError: Error {
 }
 ```
 
-Transaction-flow error cases. `noFeeOptionsAvailable` is used when an
-unsponsored transaction has no fee options, and `noFeeOptionSelected` is used
-when a custom selector does not return a selection for an unsponsored
-transaction. Terminal non-executed statuses throw `transactionFailed`. A normal
-pending polling timeout returns
+Transaction-flow detail cases preserved under `OmsSdkError.underlyingError`.
+`noFeeOptionsAvailable` is used when an unsponsored transaction has no fee
+options, and `noFeeOptionSelected` is used when a custom selector does not
+return a selection for an unsponsored transaction. Terminal non-executed
+statuses use `transactionFailed`. A normal pending polling timeout returns
 `SendTransactionResponse(status: .pending, txnHash: nil)` instead of throwing.
 `missingTransactionHash` and `pollingTimedOut` remain public compatibility cases.
 
@@ -885,6 +961,19 @@ struct TokenBalancesPage: Codable, Sendable {
 }
 ```
 
+### TokenBalancesPageRequest
+
+```swift
+struct TokenBalancesPageRequest: Codable, Sendable {
+    let page: Int?
+    let pageSize: Int?
+
+    init(page: Int? = nil, pageSize: Int? = nil)
+}
+```
+
+`page` defaults to `0` and `pageSize` defaults to `40` when omitted.
+
 ### TokenBalance
 
 ```swift
@@ -894,9 +983,16 @@ struct TokenBalance: Codable, Sendable {
     let accountAddress: String?
     let tokenId: String?
     let balance: String?
+    let balanceUSD: String?
+    let priceUSD: String?
+    let priceUpdatedAt: String?
     let blockHash: String?
     let blockNumber: Int64?
     let chainId: Int64?
+    let uniqueCollectibles: String?
+    let isSummary: Bool?
+    let contractInfo: TokenContractInfo?
+    let tokenMetadata: TokenMetadata?
 
     init(
         contractType: String?,
@@ -904,10 +1000,84 @@ struct TokenBalance: Codable, Sendable {
         accountAddress: String?,
         tokenId: String?,
         balance: String?,
+        balanceUSD: String? = nil,
+        priceUSD: String? = nil,
+        priceUpdatedAt: String? = nil,
         blockHash: String?,
         blockNumber: Int64?,
-        chainId: Int64?
+        chainId: Int64?,
+        uniqueCollectibles: String? = nil,
+        isSummary: Bool? = nil,
+        contractInfo: TokenContractInfo? = nil,
+        tokenMetadata: TokenMetadata? = nil
     )
+}
+```
+
+### TokenContractInfo
+
+```swift
+struct TokenContractInfo: Codable, Sendable {
+    let chainId: Int64?
+    let address: String?
+    let source: String?
+    let name: String?
+    let type: String?
+    let symbol: String?
+    let decimals: Int?
+    let logoURI: String?
+    let deployed: Bool?
+    let bytecodeHash: String?
+    let extensions: [String: WebRPCJSONValue]?
+    let updatedAt: String?
+    let queuedAt: String?
+    let status: String?
+}
+```
+
+### TokenMetadata
+
+```swift
+struct TokenMetadata: Codable, Sendable {
+    let chainId: Int64?
+    let contractAddress: String?
+    let tokenId: String?
+    let source: String?
+    let name: String?
+    let description: String?
+    let image: String?
+    let video: String?
+    let audio: String?
+    let properties: [String: WebRPCJSONValue]?
+    let attributes: [[String: WebRPCJSONValue]]?
+    let imageData: String?
+    let externalUrl: String?
+    let backgroundColor: String?
+    let animationUrl: String?
+    let decimals: Int?
+    let updatedAt: String?
+    let assets: [TokenMetadataAsset]?
+    let status: String?
+    let queuedAt: String?
+    let lastFetched: String?
+}
+```
+
+### TokenMetadataAsset
+
+```swift
+struct TokenMetadataAsset: Codable, Sendable {
+    let id: Int64?
+    let collectionId: Int64?
+    let tokenId: String?
+    let url: String?
+    let metadataField: String?
+    let name: String?
+    let filesize: Int64?
+    let mimeType: String?
+    let width: Int?
+    let height: Int?
+    let updatedAt: String?
 }
 ```
 
