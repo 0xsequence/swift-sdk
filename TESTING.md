@@ -42,6 +42,6 @@ place them in `Tests/Swift SDKIntegrationTests/` and document prerequisites here
 |---|---|
 | Run all tests | `swift test` |
 | Build without running tests | `swift build` |
-| Run a specific test file | `swift test --filter <TestSuiteName>` |
+| Run tests matching a filter | `swift test --filter <TestNamePattern>` |
 | Verbose output | `swift test --verbose` |
 | Build demo app | `xcodebuild -project Examples/sdk-demo/oms-sdk-demo.xcodeproj -scheme oms-sdk-demo build` |
