@@ -496,3 +496,7 @@ if let credential = credentials.first {
 ## API Reference
 
 See [API.md](./API.md) for the full method and type reference.
+
+## Publishing
+
+See [publishing.md](./publishing.md) for release PR, tag, Swift Package Manager, and CocoaPods publishing steps.
