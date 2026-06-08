@@ -808,12 +808,15 @@ struct OmsSdkError: Error, LocalizedError, Sendable {
 }
 ```
 
-Public wallet, indexer, and pending wallet selection APIs normalize recoverable
-SDK failures to `OmsSdkError`. Use `code` for stable app handling, `operation`
-for logging and analytics, `status` for HTTP-backed failures, `txnId` for
+Public `WalletClient` and `IndexerClient` methods normalize recoverable SDK
+failures to `OmsSdkError`. Use `code` for stable app handling, `operation` for
+logging and analytics, `status` for HTTP-backed failures, `txnId` for
 transaction status lookup failures, and `retryable` for retry UI. The
 `underlyingError` preserves lower-level details such as `WebRPCError`,
 `TransactionError`, or decoding/transport errors.
+
+`PendingWalletSelection` validation failures, such as stale selections or
+unavailable wallet IDs, also throw `OmsSdkError`.
 
 `CancellationError` is not wrapped.
 

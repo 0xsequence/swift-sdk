@@ -16,5 +16,5 @@ through the OMS wallet client.
 xcodebuild \
   -project Examples/trails-actions/trails-actions.xcodeproj \
   -scheme trails-actions \
-  -destination 'platform=iOS Simulator,name=iPhone 17'
+  -destination 'generic/platform=iOS Simulator'
 ```
