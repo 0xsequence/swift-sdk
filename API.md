@@ -102,7 +102,7 @@ Most apps create a wallet client through `OMSClient`. Use this initializer only 
 var walletAddress: String
 ```
 
-The on-chain address of the active wallet. Empty until a wallet is restored or activated by `completeEmailAuth`, `useWallet`, or `createWallet`.
+The read-only on-chain address of the active wallet. Empty until a wallet is restored or activated by `completeEmailAuth`, `useWallet`, or `createWallet`.
 
 ### walletId
 
@@ -110,7 +110,7 @@ The on-chain address of the active wallet. Empty until a wallet is restored or a
 var walletId: String
 ```
 
-The server-side wallet ID. Empty until a wallet is restored or activated by `completeEmailAuth`, `useWallet`, or `createWallet`.
+The read-only server-side wallet ID. Empty until a wallet is restored or activated by `completeEmailAuth`, `useWallet`, or `createWallet`.
 
 ### session
 

@@ -131,7 +131,7 @@ public class WalletClient: @unchecked Sendable {
     private var _verifier = ""
     private var _challenge = ""
 
-    public var walletAddress: String {
+    public internal(set) var walletAddress: String {
         get {
             withSessionLock { _walletAddress }
         }
@@ -139,7 +139,7 @@ public class WalletClient: @unchecked Sendable {
             withSessionLock { _walletAddress = newValue }
         }
     }
-    public var walletId: String {
+    public internal(set) var walletId: String {
         get {
             withSessionLock { _walletId }
         }

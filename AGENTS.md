@@ -93,7 +93,7 @@ and target names in shell commands, for example `"Sources/Swift SDK"` and
 swift build
 swift test
 xcodebuild -list -project Examples/sdk-demo/oms-sdk-demo.xcodeproj
-xcodebuild -project Examples/sdk-demo/oms-sdk-demo.xcodeproj -scheme oms-sdk-demo build
+xcodebuild -project Examples/sdk-demo/oms-sdk-demo.xcodeproj -scheme oms-sdk-demo build CODE_SIGNING_ALLOWED=NO
 ```
 
 Run `swift test` for SDK changes. For demo app changes, also build the Xcode
@@ -127,8 +127,8 @@ execution commands.
 ## CI/CD
 
 CI runs on every PR and push to `master` via `.github/workflows/ci.yml`:
-`swift build` and `swift test` are required to pass. Claude GitHub Actions are
-defined in `.github/workflows/claude.yml` (mention handler) and
+`swift build`, `swift test`, and the `oms-sdk-demo` Xcode build are required to
+pass. Claude GitHub Actions are defined in `.github/workflows/claude.yml` (mention handler) and
 `.github/workflows/claude-code-review.yml` (auto-review on PRs).
 
 ## Documentation

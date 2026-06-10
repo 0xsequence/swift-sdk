@@ -15,7 +15,7 @@
 
 - [ ] `swift build` passes
 - [ ] `swift test` passes
-- [ ] Demo app builds (`xcodebuild -project Examples/sdk-demo/oms-sdk-demo.xcodeproj -scheme oms-sdk-demo build`) — if applicable
+- [ ] Demo app builds (`xcodebuild -project Examples/sdk-demo/oms-sdk-demo.xcodeproj -scheme oms-sdk-demo build CODE_SIGNING_ALLOWED=NO`)
 
 ## Related
 
