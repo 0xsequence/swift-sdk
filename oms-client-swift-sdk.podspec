@@ -9,6 +9,7 @@ Pod::Spec.new do |s|
   DESC
 
   s.homepage = "https://github.com/0xsequence/swift-sdk"
+  s.readme = "https://raw.githubusercontent.com/0xsequence/swift-sdk/#{s.version}/README.md"
   s.authors = "0xSequence"
   s.license = {
     :type => "Proprietary",

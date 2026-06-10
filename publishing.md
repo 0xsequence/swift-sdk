@@ -16,6 +16,8 @@ git switch -c "release-$VERSION"
 2. Update release metadata and docs.
 
 - Set `s.version` in `oms-client-swift-sdk.podspec` to `$VERSION`.
+- Keep the podspec `s.readme` URL versioned with `s.version` so CocoaPods renders
+  the README for the published release.
 - Update the CocoaPods install snippet in `README.md` to the same version.
 - If `README.md` includes an exact-version Swift Package Manager snippet, update it to the same version.
 - If public APIs, behavior, setup, or examples changed, update `API.md` and the relevant README sections in the same PR.
