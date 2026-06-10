@@ -85,6 +85,8 @@ and target names in shell commands, for example `"Sources/Swift SDK"` and
   `#expect`.
 - `Examples/sdk-demo/oms-sdk-demo.xcodeproj` and
   `Examples/sdk-demo/oms-sdk-demo/` contain the SwiftUI demo app.
+- `Examples/trails-actions/trails-actions.xcodeproj` and
+  `Examples/trails-actions/trails-actions/` contain the Trails Actions demo app.
 - `README.md` is the user-facing guide; `API.md` is the detailed API reference.
 
 ## Common Commands
@@ -94,10 +96,12 @@ swift build
 swift test
 xcodebuild -list -project Examples/sdk-demo/oms-sdk-demo.xcodeproj
 xcodebuild -project Examples/sdk-demo/oms-sdk-demo.xcodeproj -scheme oms-sdk-demo build CODE_SIGNING_ALLOWED=NO
+xcodebuild -list -project Examples/trails-actions/trails-actions.xcodeproj
+xcodebuild -project Examples/trails-actions/trails-actions.xcodeproj -scheme trails-actions build CODE_SIGNING_ALLOWED=NO
 ```
 
-Run `swift test` for SDK changes. For demo app changes, also build the Xcode
-project with the `oms-sdk-demo` scheme when feasible.
+Run `swift test` for SDK changes. For demo app changes, also build the relevant
+Xcode project with signing disabled when feasible.
 
 ## Testing
 
@@ -127,8 +131,8 @@ execution commands.
 ## CI/CD
 
 CI runs on every PR and push to `master` via `.github/workflows/ci.yml`:
-`swift build`, `swift test`, and the `oms-sdk-demo` Xcode build are required to
-pass. Claude GitHub Actions are defined in `.github/workflows/claude.yml` (mention handler) and
+`swift build`, `swift test`, and the demo app Xcode builds are required to pass.
+Claude GitHub Actions are defined in `.github/workflows/claude.yml` (mention handler) and
 `.github/workflows/claude-code-review.yml` (auto-review on PRs).
 
 ## Documentation

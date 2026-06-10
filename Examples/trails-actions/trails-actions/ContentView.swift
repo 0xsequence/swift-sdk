@@ -5,6 +5,7 @@ import UIKit
 
 struct ContentView: View {
     @StateObject private var vm = TrailsDemoViewModel()
+    @State private var didEnterApp = false
 
     var body: some View {
         Group {
@@ -14,6 +15,10 @@ struct ContentView: View {
                 TrailsWalletWindow()
             } else if vm.authStep == .code {
                 TrailsConfirmCodeWindow()
+            } else if !didEnterApp {
+                TrailsWelcomeWindow {
+                    didEnterApp = true
+                }
             } else {
                 TrailsLoginWindow()
             }
@@ -41,6 +46,80 @@ struct ContentView: View {
 
 // MARK: - App Layout
 
+private struct TrailsWelcomeWindow: View {
+    let onGetStarted: () -> Void
+
+    var body: some View {
+        TrailsNavigationScreenContainer(maxWidth: 460) {
+            VStack(spacing: 0) {
+                Spacer(minLength: 40)
+
+                VStack(alignment: .center, spacing: 18) {
+                    Image("logo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 72, height: 72)
+                        .accessibilityLabel("Sequence logo")
+
+                    VStack(alignment: .center, spacing: 8) {
+                        DesignText("Trails actions", variant: .title)
+                            .multilineTextAlignment(.center)
+
+                        DesignText("Prepare swaps, deposit into earn markets, and send Polygon transactions from an OMS wallet.", variant: .body)
+                            .multilineTextAlignment(.center)
+                    }
+                }
+
+                Spacer(minLength: 32)
+
+                VStack(spacing: 12) {
+                    WelcomeCapabilityRow(title: "Wallet auth", subtitle: "Use email code or Google sign-in.")
+                    WelcomeCapabilityRow(title: "Trails actions", subtitle: "Prepare swap, deposit, and swap-and-earn flows.")
+                    WelcomeCapabilityRow(title: "Polygon execution", subtitle: "Review fees, send transactions, and track results.")
+                }
+
+                Spacer(minLength: 32)
+
+                Button {
+                    onGetStarted()
+                } label: {
+                    Text("Get started")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(DesignButtonStyle(variant: .primary, size: .large, fillsWidth: true))
+                .padding(.bottom, 24)
+            }
+            .padding(.top, 48)
+        }
+    }
+}
+
+private struct WelcomeCapabilityRow: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(OMSTokens.Color.success)
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 3) {
+                DesignText(title, variant: .caption)
+                DesignText(subtitle, variant: .caption)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(OMSTokens.Spacing.large)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(panelBackgroundColor)
+        .clipShape(RoundedRectangle(cornerRadius: OMSTokens.Radius.input, style: .continuous))
+        .overlay(inputBorder)
+    }
+}
+
 private struct TrailsLoginWindow: View {
     @EnvironmentObject private var vm: TrailsDemoViewModel
     @FocusState private var emailFocused: Bool
@@ -49,6 +128,7 @@ private struct TrailsLoginWindow: View {
         TrailsNavigationScreenContainer(maxWidth: 440) {
             VStack(spacing: 0) {
                 TrailsAuthWelcomeHeader(
+                    title: "Sign in to Trails actions",
                     subtitle: "Sign in to prepare and send Trails actions."
                 )
                 .padding(.top, 64)
@@ -91,7 +171,7 @@ private struct TrailsLoginWindow: View {
                 } label: {
                     label(for: "Continue", loading: vm.loadingAction == "Start email sign-in")
                 }
-                .buttonStyle(OMSButtonStyle(variant: .primary, size: .large, fillsWidth: true))
+                .buttonStyle(DesignButtonStyle(variant: .primary, size: .large, fillsWidth: true))
                 .disabled(vm.email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || vm.isBusy)
 
                 Button {
@@ -99,7 +179,7 @@ private struct TrailsLoginWindow: View {
                 } label: {
                     label(for: "Continue with Google", loading: vm.loadingAction == "Start Google sign-in")
                 }
-                .buttonStyle(OMSButtonStyle(variant: .secondary, size: .large, fillsWidth: true))
+                .buttonStyle(DesignButtonStyle(variant: .secondary, size: .large, fillsWidth: true))
                 .disabled(vm.isBusy)
                 .padding(.top, 12)
                 .padding(.bottom, 24)
@@ -116,13 +196,12 @@ private struct TrailsConfirmCodeWindow: View {
         TrailsNavigationScreenContainer(maxWidth: 440) {
             VStack(spacing: 0) {
                 TrailsAuthWelcomeHeader(
+                    title: "Verify email",
                     subtitle: "Verify your email to finish signing in."
                 )
                 .padding(.top, 64)
 
-                Text("Enter the 6-digit code sent to your email.")
-                    .font(trailsFont(size: 14))
-                    .foregroundStyle(OMSTokens.Color.mutedInk)
+                DesignText("Enter the 6-digit code sent to your email.", variant: .caption)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, 32)
 
@@ -143,7 +222,7 @@ private struct TrailsConfirmCodeWindow: View {
                 } label: {
                     label(for: "Verify", loading: vm.loadingAction == "Complete email sign-in")
                 }
-                .buttonStyle(OMSButtonStyle(variant: .primary, size: .large, fillsWidth: true))
+                .buttonStyle(DesignButtonStyle(variant: .primary, size: .large, fillsWidth: true))
                 .disabled(vm.code.count != 6 || vm.isBusy)
                 .padding(.bottom, 12)
 
@@ -153,7 +232,7 @@ private struct TrailsConfirmCodeWindow: View {
                 } label: {
                     label(for: "Back", loading: false)
                 }
-                .buttonStyle(OMSButtonStyle(variant: .secondary, size: .large, fillsWidth: true))
+                .buttonStyle(DesignButtonStyle(variant: .secondary, size: .large, fillsWidth: true))
                 .disabled(vm.isBusy)
                 .padding(.bottom, 24)
             }
@@ -169,6 +248,7 @@ private struct TrailsWalletSelectionWindow: View {
         TrailsNavigationScreenContainer(maxWidth: 520) {
             VStack(alignment: .leading, spacing: 0) {
                 TrailsAuthWelcomeHeader(
+                    title: "Select a wallet",
                     subtitle: "Select a wallet to finish signing in."
                 )
                 .padding(.top, 48)
@@ -193,7 +273,7 @@ private struct TrailsWalletSelectionWindow: View {
                 } label: {
                     label(for: "Cancel", loading: vm.loadingAction == "Cancel wallet selection")
                 }
-                .buttonStyle(OMSButtonStyle(variant: .secondary, size: .large, fillsWidth: true))
+                .buttonStyle(DesignButtonStyle(variant: .secondary, size: .large, fillsWidth: true))
                 .disabled(vm.isBusy)
                 .padding(.bottom, 24)
             }
@@ -278,38 +358,89 @@ private struct TrailsWalletWindow: View {
     @State private var didCopy = false
 
     var body: some View {
-        NavigationView {
-            ScrollView {
+        TabView {
+            navigationScreen(title: "Wallet") {
                 VStack(spacing: OMSTokens.Spacing.xlarge) {
                     walletAddressBar
                     assetSection
-                    trailsActionSection
+                }
+            }
+            .tabItem {
+                Label("Wallet", systemImage: "wallet.pass")
+            }
 
-                    EarnPositionsPanel()
-                        .environmentObject(vm)
+            navigationScreen(title: "Actions") {
+                trailsActionSection
+            }
+            .tabItem {
+                Label("Actions", systemImage: "arrow.left.arrow.right")
+            }
 
-                    LogPanel()
-                        .environmentObject(vm)
+            navigationScreen(title: "Earn") {
+                EarnPositionsPanel()
+                    .environmentObject(vm)
+            }
+            .tabItem {
+                Label("Earn", systemImage: "chart.line.uptrend.xyaxis")
+            }
+
+            navigationScreen(title: "Activity") {
+                ActivityPanel()
+                    .environmentObject(vm)
+            }
+            .tabItem {
+                Label("Activity", systemImage: "clock")
+            }
+        }
+        .tint(OMSTokens.Color.brand)
+    }
+
+    private func navigationScreen<Content: View>(
+        title: String,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: OMSTokens.Spacing.xlarge) {
+                    content()
                 }
                 .frame(maxWidth: 600)
                 .padding(.top, OMSTokens.Spacing.large)
                 .padding(.horizontal, 20)
-                .padding(.bottom, OMSTokens.Spacing.xlarge)
+                .padding(.bottom, 88)
                 .frame(maxWidth: .infinity)
             }
             .background(appBackgroundColor.ignoresSafeArea())
-            .navigationTitle("Trails actions")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.large)
-            .tint(OMSTokens.Color.ink)
+            .toolbar {
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    Button {
+                        vm.refreshSignedInData()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .disabled(vm.isBusy)
+                    .accessibilityLabel("Refresh balances and earn positions")
+
+                    Button {
+                        vm.signOut()
+                    } label: {
+                        Image(systemName: "rectangle.portrait.and.arrow.right")
+                    }
+                    .disabled(vm.isBusy)
+                    .accessibilityLabel("Sign out")
+                }
+            }
         }
         .navigationViewStyle(.stack)
     }
 
     private var walletAddressBar: some View {
-        OMSCard {
+        DesignCard {
             HStack(alignment: .center, spacing: OMSTokens.Spacing.medium) {
                 VStack(alignment: .leading, spacing: OMSTokens.Spacing.xsmall) {
-                    OMSLabel("Wallet", variant: .caption)
+                    DesignText("Wallet", variant: .caption)
 
                     Text(collapsedAddress(vm.walletAddress ?? ""))
                         .font(.system(size: 20, weight: .semibold, design: .monospaced))
@@ -321,7 +452,7 @@ private struct TrailsWalletWindow: View {
 
                 Spacer(minLength: OMSTokens.Spacing.medium)
 
-                OMSIconButton(
+                DesignIconButton(
                     systemImage: didCopy ? "checkmark" : "doc.on.doc",
                     accessibilityLabel: didCopy ? "Copied" : "Copy address"
                 ) {
@@ -336,20 +467,9 @@ private struct TrailsWalletWindow: View {
                 }
                 .disabled(vm.walletAddress == nil)
                 .help(didCopy ? "Copied" : "Copy address")
-
-                OMSIconButton(
-                    systemImage: "rectangle.portrait.and.arrow.right",
-                    accessibilityLabel: "Sign out"
-                ) {
-                    vm.signOut()
-                }
-                .disabled(vm.isBusy)
-                .help("Sign out")
             }
 
-            Text(sessionSubtitle)
-                .font(trailsFont(size: 14))
-                .foregroundStyle(OMSTokens.Color.mutedInk)
+            DesignText(sessionSubtitle, variant: .caption)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
@@ -358,24 +478,13 @@ private struct TrailsWalletWindow: View {
     }
 
     private var assetSection: some View {
-        OMSCard {
+        DesignCard {
             HStack(spacing: OMSTokens.Spacing.medium) {
-                Text("Assets")
-                    .font(trailsFont(size: 18, weight: .bold))
-                    .foregroundStyle(OMSTokens.Color.ink)
+                DesignText("Assets", variant: .body)
 
                 Spacer()
 
                 MetadataPill(polygonNetwork.displayName)
-
-                OMSIconButton(
-                    systemImage: "arrow.clockwise",
-                    accessibilityLabel: "Refresh balances and earn positions"
-                ) {
-                    vm.refreshSignedInData()
-                }
-                .disabled(vm.isBusy)
-                .help("Refresh balances and earn positions")
             }
 
             TrailsTokenCard(
@@ -398,9 +507,7 @@ private struct TrailsWalletWindow: View {
 
     private var trailsActionSection: some View {
         VStack(alignment: .leading, spacing: OMSTokens.Spacing.medium) {
-            Text("Trails")
-                .font(trailsFont(size: 18, weight: .bold))
-                .foregroundStyle(OMSTokens.Color.ink)
+            DesignText("Trails", variant: .body)
 
             Picker("Trails action", selection: $selectedAction) {
                 ForEach(TrailsActionMode.allCases, id: \.self) { action in
@@ -486,18 +593,16 @@ private struct TrailsTokenCard: View {
     let title: String
     let symbol: String
     let value: String
-    let badgeVariant: OMSBadgeVariant
+    let badgeVariant: DesignBadgeVariant
     let isLoading: Bool
 
     var body: some View {
         HStack(spacing: 14) {
-            OMSBadge(symbol, variant: badgeVariant)
+            DesignBadge(symbol, variant: badgeVariant)
                 .frame(minWidth: 58, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(trailsFont(size: 14, weight: .bold))
-                    .foregroundStyle(OMSTokens.Color.ink)
+                DesignText(title, variant: .caption)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
@@ -534,7 +639,7 @@ private struct TrailsManualWalletSelectionToggle: View {
     @EnvironmentObject private var vm: TrailsDemoViewModel
 
     var body: some View {
-        OMSToggle("Use manual wallet selection", isOn: $vm.useManualWalletSelection)
+        DesignToggle("Use manual wallet selection", isOn: $vm.useManualWalletSelection)
         .frame(maxWidth: .infinity, alignment: .leading)
         .disabled(vm.isBusy)
     }
@@ -562,15 +667,11 @@ private struct TrailsWalletSelectionRow: View {
                 )
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(trailsFont(size: 14, weight: .bold))
-                    .foregroundStyle(OMSTokens.Color.ink)
+                DesignText(title, variant: .caption)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
-                Text(subtitle)
-                    .font(trailsFont(size: 12))
-                    .foregroundStyle(OMSTokens.Color.mutedInk)
+                DesignText(subtitle, variant: .subtle)
                     .lineLimit(2)
                     .truncationMode(.middle)
             }
@@ -633,7 +734,7 @@ private struct TrailsFeeOptionSelectionWindow: View {
                 Button("Cancel", role: .cancel) {
                     vm.cancelFeeOptionSelection()
                 }
-                .buttonStyle(OMSButtonStyle(variant: .secondary, size: .large))
+                .buttonStyle(DesignButtonStyle(variant: .secondary, size: .large))
 
                 Spacer()
 
@@ -642,7 +743,7 @@ private struct TrailsFeeOptionSelectionWindow: View {
                         vm.chooseFeeOption(request.options[firstAvailableIndex])
                     }
                 }
-                .buttonStyle(OMSButtonStyle(variant: .secondary, size: .large))
+                .buttonStyle(DesignButtonStyle(variant: .secondary, size: .large))
                 .disabled(firstAvailableIndex == nil)
 
                 Button("Select fee") {
@@ -650,7 +751,7 @@ private struct TrailsFeeOptionSelectionWindow: View {
                         vm.chooseFeeOption(selectedOption)
                     }
                 }
-                .buttonStyle(OMSButtonStyle(variant: .primary, size: .large))
+                .buttonStyle(DesignButtonStyle(variant: .primary, size: .large))
                 .disabled(selectedOption == nil || selectedOption.map(hasEnoughBalance) == false)
             }
         }
@@ -679,31 +780,24 @@ private struct TrailsFeeOptionRow: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(feeTokenLabel(option))
-                        .font(trailsFont(size: 16, weight: .bold))
-                        .foregroundStyle(OMSTokens.Color.ink)
+                    DesignText(feeTokenLabel(option), variant: .body)
                         .lineLimit(1)
 
-                    Text(feeAmountLabel(option))
-                        .font(trailsFont(size: 14))
-                        .foregroundStyle(OMSTokens.Color.mutedInk)
+                    DesignText(feeAmountLabel(option), variant: .caption)
                         .lineLimit(1)
                 }
 
-                Text(hasEnoughBalance(option) ? "Enough balance" : "Insufficient balance")
-                    .font(trailsFont(size: 12, weight: .bold))
-                    .foregroundStyle(hasEnoughBalance(option) ? OMSTokens.Color.success : OMSTokens.Color.danger)
+                DesignBadge(
+                    hasEnoughBalance(option) ? "Enough balance" : "Insufficient balance",
+                    variant: hasEnoughBalance(option) ? .success : .danger
+                )
                     .lineLimit(1)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Available: \(option.available ?? "unknown")")
-                    Text("Raw balance: \(option.availableRaw ?? "unknown")")
-                    Text("Raw fee: \(option.feeOption.value)")
-                    if let decimals = option.decimals {
-                        Text("Decimals: \(decimals)")
-                    }
+                    Text("Available: \(option.available ?? "Unknown")")
+                    Text("Estimated fee: \(feeAmountLabel(option))")
                 }
-                .font(.caption.monospaced())
+                .font(trailsFont(size: 12))
                 .foregroundStyle(OMSTokens.Color.mutedInk)
                 .textSelection(.enabled)
             }
@@ -713,7 +807,7 @@ private struct TrailsFeeOptionRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: OMSTokens.Radius.input)
-                .fill(isSelected ? OMSTokens.Color.purple50 : panelBackgroundColor)
+                .fill(isSelected ? OMSTokens.Color.infoSurface : panelBackgroundColor)
         )
         .overlay(
             RoundedRectangle(cornerRadius: OMSTokens.Radius.input)
@@ -727,6 +821,7 @@ private struct TrailsFeeOptionRow: View {
 }
 
 private struct TrailsAuthWelcomeHeader: View {
+    var title: String = "Welcome"
     let subtitle: String
 
     var body: some View {
@@ -738,14 +833,10 @@ private struct TrailsAuthWelcomeHeader: View {
                 .accessibilityLabel("Sequence logo")
 
             VStack(alignment: .center, spacing: 6) {
-                Text("Welcome")
-                    .font(trailsFont(size: 32, weight: .bold))
-                    .foregroundStyle(OMSTokens.Color.ink)
+                DesignText(title, variant: .title)
                     .multilineTextAlignment(.center)
 
-                Text(subtitle)
-                    .font(trailsFont(size: 14))
-                    .foregroundStyle(OMSTokens.Color.mutedInk)
+                DesignText(subtitle, variant: .caption)
                     .multilineTextAlignment(.center)
             }
         }
@@ -808,9 +899,7 @@ private struct TrailsModalContainer<Content: View>: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     if let subtitle {
-                        Text(subtitle)
-                            .font(trailsFont(size: 14))
-                            .foregroundStyle(OMSTokens.Color.mutedInk)
+                        DesignText(subtitle, variant: .caption)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
@@ -856,9 +945,7 @@ private struct TrailsFieldGroup<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(trailsFont(size: 14, weight: .bold))
-                .foregroundStyle(titleStyle == .secondary ? OMSTokens.Color.mutedInk : OMSTokens.Color.ink)
+            DesignText(title, variant: titleStyle == .secondary ? .caption : .body)
 
             content
         }
@@ -976,7 +1063,7 @@ private func label(for title: String, loading: Bool) -> some View {
 }
 
 private func trailsFont(size: CGFloat, weight: Font.Weight = .medium) -> Font {
-    .custom("Fustat", size: size).weight(weight)
+    .custom(DesignTokens.Typography.family, size: size).weight(weight)
 }
 
 private var appBackgroundColor: Color {
@@ -1020,16 +1107,12 @@ private struct TrailsActionCard: View {
     let result: TransactionResultViewState?
 
     var body: some View {
-        OMSCard {
-            Text(title)
-                .font(trailsFont(size: 18, weight: .bold))
-                .foregroundStyle(OMSTokens.Color.ink)
+        DesignCard {
+            DesignText(title, variant: .body)
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(alignment: .leading, spacing: OMSTokens.Spacing.xsmall) {
-                Text(amountLabel)
-                    .font(trailsFont(size: 14, weight: .bold))
-                    .foregroundStyle(OMSTokens.Color.mutedInk)
+                DesignText(amountLabel, variant: .caption)
                 TextField(
                     amountLabel,
                     text: Binding(
@@ -1054,7 +1137,7 @@ private struct TrailsActionCard: View {
                     Text("Prepare")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(OMSButtonStyle(variant: .primary, size: .large, fillsWidth: true))
+                .buttonStyle(DesignButtonStyle(variant: .primary, size: .large, fillsWidth: true))
                 .disabled(vm.isBusy)
 
                 Button {
@@ -1063,13 +1146,12 @@ private struct TrailsActionCard: View {
                     Text("Send")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(OMSButtonStyle(variant: .secondary, size: .large, fillsWidth: true))
+                .buttonStyle(DesignButtonStyle(variant: .secondary, size: .large, fillsWidth: true))
                 .disabled(vm.isBusy || sendDisabled)
             }
 
-            let visibleStatus = prepareSendStatusText(status)
-            if !visibleStatus.isEmpty {
-                StatusText(visibleStatus)
+            if !status.isEmpty {
+                StatusText(status)
             }
             PreparedSummaryView(summary: summary)
             TransactionOutput(result: result)
@@ -1117,9 +1199,7 @@ private struct SummaryRows: View {
         VStack(spacing: 8) {
             ForEach(rows, id: \.0) { row in
                 HStack(alignment: .firstTextBaseline) {
-                    Text(row.0)
-                        .font(trailsFont(size: 12))
-                        .foregroundStyle(OMSTokens.Color.mutedInk)
+                    DesignText(row.0, variant: .subtle)
                     Spacer(minLength: 10)
                     Text(row.1)
                         .font(.system(size: 12, weight: .medium, design: .monospaced))
@@ -1142,9 +1222,7 @@ private struct TransactionOutput: View {
     var body: some View {
         if let result {
             VStack(alignment: .leading, spacing: 8) {
-                Text(result.explorerURL == nil ? "Transaction ID" : "Transaction hash")
-                    .font(trailsFont(size: 12, weight: .bold))
-                    .foregroundStyle(OMSTokens.Color.mutedInk)
+                DesignText(result.explorerURL == nil ? "Transaction ID" : "Transaction hash", variant: .subtle)
                 Text(result.value)
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundStyle(OMSTokens.Color.ink)
@@ -1170,11 +1248,9 @@ private struct EarnPositionsPanel: View {
     @EnvironmentObject private var vm: TrailsDemoViewModel
 
     var body: some View {
-        OMSCard {
+        DesignCard {
             HStack {
-                Text("Earn positions")
-                    .font(trailsFont(size: 18, weight: .bold))
-                    .foregroundStyle(OMSTokens.Color.ink)
+                DesignText("Earn positions", variant: .body)
                 Spacer()
                 MetadataPill("\(vm.earnPositions.count)")
             }
@@ -1205,13 +1281,9 @@ private struct EarnPositionRow: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(position.marketName)
-                        .font(trailsFont(size: 14, weight: .bold))
-                        .foregroundStyle(OMSTokens.Color.ink)
+                    DesignText(position.marketName, variant: .caption)
                         .lineLimit(2)
-                    Text(position.provider)
-                        .font(trailsFont(size: 12))
-                        .foregroundStyle(OMSTokens.Color.mutedInk)
+                    DesignText(position.provider, variant: .subtle)
                 }
 
                 Spacer(minLength: 8)
@@ -1221,9 +1293,7 @@ private struct EarnPositionRow: View {
                         .font(.system(size: 14, weight: .semibold, design: .monospaced))
                         .foregroundStyle(OMSTokens.Color.ink)
                         .lineLimit(1)
-                    Text(position.amountUSD ?? "USD unavailable")
-                        .font(trailsFont(size: 12))
-                        .foregroundStyle(OMSTokens.Color.mutedInk)
+                    DesignText(position.amountUSD ?? "USD unavailable", variant: .subtle)
                 }
             }
 
@@ -1232,9 +1302,7 @@ private struct EarnPositionRow: View {
                     Text(position.apy)
                         .font(.system(size: 14, weight: .semibold, design: .monospaced))
                         .foregroundStyle(OMSTokens.Color.ink)
-                    Text("APY")
-                        .font(trailsFont(size: 11))
-                        .foregroundStyle(OMSTokens.Color.mutedInk)
+                    DesignText("APY", variant: .subtle)
                 }
 
                 Spacer()
@@ -1244,7 +1312,7 @@ private struct EarnPositionRow: View {
                 } label: {
                     Text("Withdraw")
                 }
-                .buttonStyle(OMSButtonStyle(variant: .secondary, size: .medium))
+                .buttonStyle(DesignButtonStyle(variant: .secondary, size: .medium))
                 .disabled(vm.isBusy || !position.canWithdraw)
             }
 
@@ -1261,26 +1329,76 @@ private struct EarnPositionRow: View {
     }
 }
 
-private struct LogPanel: View {
+private struct ActivityPanel: View {
     @EnvironmentObject private var vm: TrailsDemoViewModel
 
     var body: some View {
-        OMSCard {
-            DisclosureGroup {
-                ScrollView(.vertical) {
-                    Text(vm.logLines.joined(separator: "\n"))
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundStyle(OMSTokens.Color.ink)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                        .padding(.top, OMSTokens.Spacing.small)
-                }
-                .frame(minHeight: 120, maxHeight: 220)
-            } label: {
-                Text("Log")
-                    .font(trailsFont(size: 18, weight: .bold))
-                    .foregroundStyle(OMSTokens.Color.ink)
+        DesignCard {
+            VStack(alignment: .leading, spacing: 4) {
+                DesignText("Recent activity", variant: .body)
+                DesignText("Prepared actions and submitted transactions appear here.", variant: .caption)
             }
+
+            if hasActivity {
+                VStack(spacing: 10) {
+                    ActivityResultRow(title: "Swap", status: vm.swapStatus, result: vm.lastSwapTransaction)
+                    ActivityResultRow(title: "Deposit", status: vm.depositStatus, result: vm.lastDepositTransaction)
+                    ActivityResultRow(title: "Earn", status: vm.earnStatus, result: vm.lastEarnTransaction)
+
+                    ForEach(vm.earnPositions) { position in
+                        if let status = vm.withdrawStatuses[position.id] ?? vm.lastWithdrawTransactions[position.id].map({ _ in "Transaction submitted." }) {
+                            ActivityResultRow(
+                                title: "Withdraw \(position.marketName)",
+                                status: status,
+                                result: vm.lastWithdrawTransactions[position.id]
+                            )
+                        }
+                    }
+                }
+            } else {
+                StatusText("No submitted transactions yet.")
+            }
+        }
+    }
+
+    private var hasActivity: Bool {
+        !vm.swapStatus.isEmpty ||
+            !vm.depositStatus.isEmpty ||
+            !vm.earnStatus.isEmpty ||
+            !vm.withdrawStatuses.isEmpty ||
+            vm.lastSwapTransaction != nil ||
+            vm.lastDepositTransaction != nil ||
+            vm.lastEarnTransaction != nil ||
+            !vm.lastWithdrawTransactions.isEmpty
+    }
+}
+
+private struct ActivityResultRow: View {
+    let title: String
+    let status: String
+    let result: TransactionResultViewState?
+
+    var body: some View {
+        if !status.isEmpty || result != nil {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline) {
+                    DesignText(title, variant: .caption)
+                    Spacer()
+                    if result != nil {
+                        DesignBadge("Sent", variant: .success)
+                    }
+                }
+
+                if !status.isEmpty {
+                    StatusText(status)
+                }
+
+                TransactionOutput(result: result)
+            }
+            .padding(OMSTokens.Spacing.large)
+            .background(inputBackground)
+            .clipShape(RoundedRectangle(cornerRadius: OMSTokens.Radius.input, style: .continuous))
+            .overlay(inputBorder)
         }
     }
 }
@@ -1293,25 +1411,8 @@ private struct StatusText: View {
     }
 
     var body: some View {
-        Text(text)
-            .font(trailsFont(size: 13))
-            .foregroundStyle(OMSTokens.Color.mutedInk)
-            .fixedSize(horizontal: false, vertical: true)
+        DesignText(text, variant: .caption)
     }
-}
-
-private func prepareSendStatusText(_ status: String) -> String {
-    let prefixes = [
-        "Swap and Deposit status: ",
-        "Deposit status: ",
-        "Swap status: "
-    ]
-
-    for prefix in prefixes where status.hasPrefix(prefix) {
-        return String(status.dropFirst(prefix.count))
-    }
-
-    return status
 }
 
 private struct MetadataPill: View {
@@ -1322,7 +1423,7 @@ private struct MetadataPill: View {
     }
 
     var body: some View {
-        OMSBadge(text, variant: .neutral)
+        DesignBadge(text, variant: .neutral)
     }
 }
 

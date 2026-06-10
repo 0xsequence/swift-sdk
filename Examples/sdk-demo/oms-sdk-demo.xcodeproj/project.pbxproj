@@ -8,9 +8,11 @@
 
 /* Begin PBXBuildFile section */
 		3D2708222F98AE7300CD78D9 /* OMS SDK in Frameworks */ = {isa = PBXBuildFile; productRef = 3D2708212F98AE7300CD78D9 /* OMS SDK */; };
+		3D8F2A012F9A000100000001 /* styling.gen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D8F2A002F9A000100000001 /* styling.gen.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		3D8F2A002F9A000100000001 /* styling.gen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = styling.gen.swift; sourceTree = "<group>"; };
 		3D65FC962F86D5AC009476BA /* oms-sdk-demo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "oms-sdk-demo.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -45,6 +47,7 @@
 			isa = PBXGroup;
 			children = (
 				3D65FC982F86D5AC009476BA /* oms-sdk-demo */,
+				3D8F2A002F9A000100000001 /* styling.gen.swift */,
 				3D2708202F98AE7300CD78D9 /* Frameworks */,
 				3D65FC972F86D5AC009476BA /* Products */,
 			);
@@ -136,6 +139,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3D8F2A012F9A000100000001 /* styling.gen.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

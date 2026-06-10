@@ -23,5 +23,8 @@ jobs:
       - name: Test
         run: swift test
 
-      - name: Build demo app
+      - name: Build SDK demo app
         run: xcodebuild -project Examples/sdk-demo/oms-sdk-demo.xcodeproj -scheme oms-sdk-demo build CODE_SIGNING_ALLOWED=NO
+
+      - name: Build Trails Actions demo app
+        run: xcodebuild -project Examples/trails-actions/trails-actions.xcodeproj -scheme trails-actions build CODE_SIGNING_ALLOWED=NO

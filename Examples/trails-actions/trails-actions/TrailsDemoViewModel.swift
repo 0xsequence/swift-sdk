@@ -366,7 +366,7 @@ final class TrailsDemoViewModel: ObservableObject {
                 authStep = .code
                 authStatus = "Code requested for \(normalizedEmail)"
             } onFailure: { [self] error in
-                authStatus = "Sign-in error: \(describe(error))"
+                authStatus = "Unable to start sign-in: \(describe(error))"
             }
         }
     }
@@ -386,9 +386,9 @@ final class TrailsDemoViewModel: ObservableObject {
                 )
                 code = ""
                 authStep = .email
-                await handleAuthCompletion(result, status: "Email login complete.")
+                await handleAuthCompletion(result, status: "Email sign-in complete.")
             } onFailure: { [self] error in
-                authStatus = "Verify error: \(describe(error))"
+                authStatus = "Unable to verify code: \(describe(error))"
             }
         }
     }
@@ -407,7 +407,7 @@ final class TrailsDemoViewModel: ObservableObject {
                 }
                 safariAuthSession = SafariAuthSession(url: authorizationURL)
             } onFailure: { [self] error in
-                redirectStatus = "Google sign-in error: \(describe(error))"
+                redirectStatus = "Unable to start Google sign-in: \(describe(error))"
             }
         }
     }
@@ -423,7 +423,7 @@ final class TrailsDemoViewModel: ObservableObject {
             case .completed:
                 safariAuthSession = nil
                 pendingWalletSelection = nil
-                redirectStatus = "Google login complete."
+                redirectStatus = "Google sign-in complete."
                 await refreshSession()
                 appendLog("Wallet ready: \(walletAddress ?? "")")
                 if let walletAddress {
@@ -442,7 +442,7 @@ final class TrailsDemoViewModel: ObservableObject {
                 throw error
             }
         } onFailure: { [self] error in
-            redirectStatus = "Google redirect error: \(describe(error))"
+            redirectStatus = "Unable to finish Google sign-in: \(describe(error))"
         }
     }
 
@@ -453,7 +453,7 @@ final class TrailsDemoViewModel: ObservableObject {
                 let result = try await pendingWalletSelection.selectWallet(walletId: wallet.id)
                 await handleWalletActivation(result, status: "Wallet selected.")
             } onFailure: { [self] error in
-                authStatus = "Wallet selection error: \(describe(error))"
+                authStatus = "Unable to select wallet: \(describe(error))"
             }
         }
     }
@@ -465,7 +465,7 @@ final class TrailsDemoViewModel: ObservableObject {
                 let result = try await pendingWalletSelection.createAndSelectWallet(reference: "trails-actions")
                 await handleWalletActivation(result, status: "Wallet created.")
             } onFailure: { [self] error in
-                authStatus = "Wallet creation error: \(describe(error))"
+                authStatus = "Unable to create wallet: \(describe(error))"
             }
         }
     }
@@ -547,9 +547,9 @@ final class TrailsDemoViewModel: ObservableObject {
                     polAmount: swapPOLAmount
                 )
                 preparedSwap = prepared
-                swapStatus = "Swap status: prepared Trails intent for about \(prepared.outputDisplay)."
+                swapStatus = "Prepared swap for about \(prepared.outputDisplay)."
             } onFailure: { [self] error in
-                swapStatus = "Swap status: \(describe(error))"
+                swapStatus = "Unable to prepare swap: \(describe(error))"
             }
         }
     }
@@ -562,9 +562,9 @@ final class TrailsDemoViewModel: ObservableObject {
                     usdcAmount: depositUSDCAmount
                 )
                 preparedDeposit = prepared
-                depositStatus = "Deposit status: prepared \(prepared.transactions.count) wallet transaction\(prepared.transactions.count == 1 ? "" : "s")."
+                depositStatus = "Prepared \(prepared.transactions.count) wallet transaction\(prepared.transactions.count == 1 ? "" : "s")."
             } onFailure: { [self] error in
-                depositStatus = "Deposit status: \(describe(error))"
+                depositStatus = "Unable to prepare deposit: \(describe(error))"
             }
         }
     }
@@ -584,9 +584,9 @@ final class TrailsDemoViewModel: ObservableObject {
                     market: market,
                     depositAmount: depositAmount
                 )
-                earnStatus = "Swap and Deposit status: prepared API-only two-step plan for about \(swap.outputDisplay)."
+                earnStatus = "Prepared swap and deposit plan for about \(swap.outputDisplay)."
             } onFailure: { [self] error in
-                earnStatus = "Swap and Deposit status: \(describe(error))"
+                earnStatus = "Unable to prepare earn action: \(describe(error))"
             }
         }
     }
@@ -607,26 +607,26 @@ final class TrailsDemoViewModel: ObservableObject {
                     clearFeeOptions()
                 }
 
-                swapStatus = "Swap status: sending..."
+                swapStatus = "Sending swap..."
                 let response = try await sendPreparedSwap(preparedSwap) { response in
                     lastSwapTransaction = TransactionResultViewState(response)
                 }
                 let result = TransactionResultViewState(response)
                 lastSwapTransaction = result
                 let selectedFee = preparedSwap.executionState.selectedFeeOption ?? selectedFeeOption
-                swapStatus = "Swap status: sent \(shortHash(result.value)). Refreshing balances..."
+                swapStatus = "Sent \(shortHash(result.value)). Refreshing balances..."
                 await waitForPostSendRefresh(
                     initialBalances: initialBalances,
                     initialEarnPositions: initialPositions,
                     expectation: preparedSwap.postSendExpectation,
                     selectedFeeOption: selectedFee,
                     setStatus: { swapStatus = $0 },
-                    pendingStatus: "Swap status: sent \(shortHash(result.value)). Waiting for expected USDC balance",
-                    successStatus: "Swap status: sent \(shortHash(result.value)). USDC balance updated.",
-                    staleStatus: "Swap status: sent \(shortHash(result.value)). USDC balance has not reached the expected swap output yet."
+                    pendingStatus: "Sent \(shortHash(result.value)). Waiting for expected USDC balance",
+                    successStatus: "Sent \(shortHash(result.value)). USDC balance updated.",
+                    staleStatus: "Sent \(shortHash(result.value)). USDC balance has not reached the expected swap output yet."
                 )
             } onFailure: { [self] error in
-                swapStatus = "Swap status: \(describe(error))"
+                swapStatus = "Unable to send swap: \(describe(error))"
             }
         }
     }
@@ -649,24 +649,24 @@ final class TrailsDemoViewModel: ObservableObject {
 
                 let lastResult = try await sendPreparedYieldTransactions(
                     preparedDeposit,
-                    statusPrefix: "Deposit status",
+                    statusPrefix: "Deposit",
                     label: transactionLabel,
                     setStatus: { depositStatus = $0 },
                     onResult: { lastDepositTransaction = $0 }
                 )
 
-                depositStatus = "Deposit status: sent \(shortHash(lastResult.value)). Refreshing balances and earn positions..."
+                depositStatus = "Sent \(shortHash(lastResult.value)). Refreshing balances and earn positions..."
                 await waitForPostSendRefresh(
                     initialBalances: initialBalances,
                     initialEarnPositions: initialPositions,
                     expectation: preparedDeposit.postSendExpectation,
                     setStatus: { depositStatus = $0 },
-                    pendingStatus: "Deposit status: sent \(shortHash(lastResult.value)). Waiting for earn position update",
-                    successStatus: "Deposit status: sent \(shortHash(lastResult.value)). Earn position updated.",
-                    staleStatus: "Deposit status: sent \(shortHash(lastResult.value)). Earn position has not updated yet."
+                    pendingStatus: "Sent \(shortHash(lastResult.value)). Waiting for earn position update",
+                    successStatus: "Sent \(shortHash(lastResult.value)). Earn position updated.",
+                    staleStatus: "Sent \(shortHash(lastResult.value)). Earn position has not updated yet."
                 )
             } onFailure: { [self] error in
-                depositStatus = "Deposit status: \(describe(error))"
+                depositStatus = "Unable to send deposit: \(describe(error))"
             }
         }
     }
@@ -687,7 +687,7 @@ final class TrailsDemoViewModel: ObservableObject {
                     clearFeeOptions()
                 }
 
-                earnStatus = "Swap and Deposit status: sending swap step..."
+                earnStatus = "Sending swap step..."
                 let swapResponse = try await sendPreparedSwap(preparedEarn.swap) { response in
                     lastEarnTransaction = TransactionResultViewState(response)
                 }
@@ -701,9 +701,9 @@ final class TrailsDemoViewModel: ObservableObject {
                     expectation: preparedEarn.swap.postSendExpectation,
                     selectedFeeOption: selectedFee,
                     setStatus: { earnStatus = $0 },
-                    pendingStatus: "Swap and Deposit status: sent \(shortHash(swapResult.value)). Waiting for USDC output",
-                    successStatus: "Swap and Deposit status: USDC output detected. Preparing deposit step...",
-                    staleStatus: "Swap and Deposit status: USDC output has not appeared yet."
+                    pendingStatus: "Sent \(shortHash(swapResult.value)). Waiting for USDC output",
+                    successStatus: "USDC output detected. Preparing deposit step...",
+                    staleStatus: "USDC output has not appeared yet."
                 )
                 guard didReceiveSwapOutput else {
                     appendLog("Skipping deposit because the swap output was not detected.")
@@ -725,7 +725,7 @@ final class TrailsDemoViewModel: ObservableObject {
 
                 let lastDepositResult = try await sendPreparedYieldTransactions(
                     deposit,
-                    statusPrefix: "Swap and Deposit status",
+                    statusPrefix: "Earn",
                     label: depositTransactionLabel,
                     setStatus: { earnStatus = $0 },
                     onResult: { lastEarnTransaction = $0 }
@@ -736,12 +736,12 @@ final class TrailsDemoViewModel: ObservableObject {
                     initialEarnPositions: initialPositions,
                     expectation: deposit.postSendExpectation,
                     setStatus: { earnStatus = $0 },
-                    pendingStatus: "Swap and Deposit status: sent \(shortHash(lastDepositResult.value)). Waiting for earn position update",
-                    successStatus: "Swap and Deposit status: sent \(shortHash(lastDepositResult.value)). Earn position updated.",
-                    staleStatus: "Swap and Deposit status: sent \(shortHash(lastDepositResult.value)). Earn position has not updated yet."
+                    pendingStatus: "Sent \(shortHash(lastDepositResult.value)). Waiting for earn position update",
+                    successStatus: "Sent \(shortHash(lastDepositResult.value)). Earn position updated.",
+                    staleStatus: "Sent \(shortHash(lastDepositResult.value)). Earn position has not updated yet."
                 )
             } onFailure: { [self] error in
-                earnStatus = "Swap and Deposit status: \(describe(error))"
+                earnStatus = "Unable to send earn action: \(describe(error))"
             }
         }
     }
@@ -757,8 +757,8 @@ final class TrailsDemoViewModel: ObservableObject {
                 let initialPositions = earnPositions
                 selectedFeeOption = nil
                 clearFeeOptions()
-                withdrawStatuses[position.id] = "Withdraw status: preparing \(position.marketName)..."
-                earnPositionsStatus = "Withdraw status: preparing \(position.marketName)..."
+                withdrawStatuses[position.id] = "Preparing \(position.marketName)..."
+                earnPositionsStatus = "Preparing \(position.marketName)..."
                 lastWithdrawTransactions[position.id] = nil
                 defer {
                     selectedFeeOption = nil
@@ -779,7 +779,7 @@ final class TrailsDemoViewModel: ObservableObject {
 
                 let lastResult = try await sendPreparedYieldTransactions(
                     prepared,
-                    statusPrefix: "Withdraw status",
+                    statusPrefix: "Withdraw",
                     label: transactionLabel,
                     setStatus: { status in
                         withdrawStatuses[position.id] = status
@@ -796,13 +796,13 @@ final class TrailsDemoViewModel: ObservableObject {
                         withdrawStatuses[position.id] = status
                         earnPositionsStatus = status
                     },
-                    pendingStatus: "Withdraw status: sent \(shortHash(lastResult.value)). Waiting for earn position update",
-                    successStatus: "Withdraw status: sent \(shortHash(lastResult.value)). Earn position updated.",
-                    staleStatus: "Withdraw status: sent \(shortHash(lastResult.value)). Earn position has not updated yet."
+                    pendingStatus: "Sent \(shortHash(lastResult.value)). Waiting for earn position update",
+                    successStatus: "Sent \(shortHash(lastResult.value)). Earn position updated.",
+                    staleStatus: "Sent \(shortHash(lastResult.value)). Earn position has not updated yet."
                 )
             } onFailure: { [self] error in
-                withdrawStatuses[position.id] = "Withdraw status: \(describe(error))"
-                earnPositionsStatus = "Withdraw status: \(describe(error))"
+                withdrawStatuses[position.id] = "Unable to withdraw: \(describe(error))"
+                earnPositionsStatus = "Unable to withdraw: \(describe(error))"
             }
         }
     }
@@ -955,7 +955,7 @@ final class TrailsDemoViewModel: ObservableObject {
             balances = next
             return next
         } catch {
-            let message = "Balance status: \(describe(error))"
+            let message = "Unable to load balances: \(describe(error))"
             balances = BalanceState(
                 pol: balances.pol,
                 usdc: balances.usdc,
@@ -1021,7 +1021,7 @@ final class TrailsDemoViewModel: ObservableObject {
             }
             return positions
         } catch {
-            let message = "Earn positions status: \(describe(error))"
+            let message = "Unable to load earn positions: \(describe(error))"
             earnPositionsStatus = message
             appendLog("! \(message)")
             return nil
@@ -1279,18 +1279,18 @@ final class TrailsDemoViewModel: ObservableObject {
                 let result = TransactionResultViewState(submittedResponse)
                 lastResult = result
                 onResult(result)
-                setStatus("\(statusPrefix): already sent \(transactionLabel) \(shortHash(result.value)).")
+                setStatus("Already sent \(transactionLabel) \(shortHash(result.value)).")
                 continue
             }
 
-            setStatus("\(statusPrefix): sending \(transactionLabel)...")
+            setStatus("Sending \(transactionLabel)...")
             let response = try await sendYieldTransaction(transaction)
             prepared.executionState.recordSubmittedResponse(response, at: index)
 
             let result = TransactionResultViewState(response)
             lastResult = result
             onResult(result)
-            setStatus("\(statusPrefix): sent \(transactionLabel) \(shortHash(result.value)).")
+            setStatus("Sent \(transactionLabel) \(shortHash(result.value)).")
         }
 
         guard let lastResult else {
