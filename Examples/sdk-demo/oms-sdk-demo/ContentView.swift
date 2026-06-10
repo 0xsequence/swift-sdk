@@ -97,36 +97,35 @@ fileprivate final class FeeOptionSelectionRequest: Identifiable {
 // MARK: - Styling
 
 private var appBackgroundColor: Color {
-    #if os(iOS)
-    Color(.systemGroupedBackground)
-    #elseif os(macOS)
-    Color(nsColor: .windowBackgroundColor)
-    #endif
+    DesignTokens.Color.page
 }
 
 private var panelBackgroundColor: Color {
-    #if os(iOS)
-    Color(.secondarySystemGroupedBackground)
-    #elseif os(macOS)
-    Color(nsColor: .textBackgroundColor)
-    #endif
+    DesignTokens.Color.surface
 }
 
 private var panelBorderColor: Color {
-    #if os(iOS)
-    Color(.separator).opacity(0.45)
-    #elseif os(macOS)
-    Color(nsColor: .separatorColor).opacity(0.8)
-    #endif
+    DesignTokens.Color.headerBorder
 }
 
 private var fieldBackground: some View {
-    RoundedRectangle(cornerRadius: 8)
+    RoundedRectangle(cornerRadius: DesignTokens.Radius.input)
         .fill(panelBackgroundColor)
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(panelBorderColor, lineWidth: 1)
+            RoundedRectangle(cornerRadius: DesignTokens.Radius.input)
+                .stroke(DesignTokens.Color.border, lineWidth: DesignTokens.Stroke.defaultWidth)
         )
+}
+
+private extension View {
+    func tokenTextInput() -> some View {
+        self
+            .textFieldStyle(.plain)
+            .foregroundStyle(DesignTokens.Color.primaryText)
+            .tint(DesignTokens.Color.info)
+            .padding(14)
+            .background(fieldBackground)
+    }
 }
 
 // MARK: - USDC
@@ -193,6 +192,7 @@ private func trimBalanceDisplay(_ value: String, maxFractionDigits: Int) -> Stri
 // MARK: - App State
 
 enum AppScreen {
+    case introduction
     case login
     case confirmCode
     case walletSelection(PendingWalletSelection)
@@ -201,7 +201,7 @@ enum AppScreen {
 
 @MainActor
 final class AppViewModel: ObservableObject {
-    @Published var screen: AppScreen = .login
+    @Published var screen: AppScreen = .introduction
     @Published var isLoading: Bool = false
     @Published var error: GenericAppError?
     @Published var safariAuthSession: SafariAuthSession?
@@ -237,7 +237,7 @@ final class AppViewModel: ObservableObject {
 
     func checkSession() async {
         let hasSession = !oms.wallet.walletAddress.isEmpty
-        screen = hasSession ? .wallet : .login
+        screen = hasSession ? .wallet : .introduction
     }
 
     func signOut() {
@@ -245,7 +245,7 @@ final class AppViewModel: ObservableObject {
             try oms.wallet.signOut()
             safariAuthSession = nil
             sessionExpiredPrompt = nil
-            screen = .login
+            screen = .introduction
         } catch {
             present(error)
         }
@@ -471,6 +471,8 @@ struct ContentView: View {
     var body: some View {
         Group {
             switch vm.screen {
+            case .introduction:
+                IntroductionWindow()
             case .login:
                 LoginWindow()
             case .confirmCode:
@@ -509,6 +511,76 @@ struct ContentView: View {
     }
 }
 
+// MARK: - Introduction Window
+
+struct IntroductionWindow: View {
+    @EnvironmentObject private var vm: AppViewModel
+
+    var body: some View {
+        NavigationScreenContainer(maxWidth: 440) {
+            VStack(spacing: 0) {
+                VStack(alignment: .center, spacing: 18) {
+                    Image("logo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 72, height: 72)
+                        .accessibilityLabel("Sequence logo")
+
+                    VStack(alignment: .center, spacing: 10) {
+                        DesignText("OMS SDK demo", variant: .title)
+                            .multilineTextAlignment(.center)
+
+                        DesignText("Try wallet authentication, balances, transactions, contract calls, and message signing from one demo wallet.", variant: .body)
+                            .multilineTextAlignment(.center)
+                    }
+                }
+                .padding(.top, 72)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    IntroductionFeatureRow(systemImage: "person.crop.circle.badge.checkmark", title: "Authenticate", subtitle: "Start email or Google wallet auth.")
+                    IntroductionFeatureRow(systemImage: "creditcard", title: "Review assets", subtitle: "Check native and USDC balances by network.")
+                    IntroductionFeatureRow(systemImage: "paperplane", title: "Execute actions", subtitle: "Send value, call contracts, and sign messages.")
+                }
+                .padding(.top, 40)
+
+                Spacer()
+
+                Button {
+                    vm.screen = .login
+                } label: {
+                    label(for: "Get started", loading: false)
+                }
+                .buttonStyle(DesignButtonStyle(variant: .primary))
+                .padding(.bottom, 24)
+            }
+        }
+    }
+}
+
+private struct IntroductionFeatureRow: View {
+    let systemImage: String
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: systemImage)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(DesignTokens.Color.info)
+                .frame(width: 32, height: 32)
+                .background(DesignTokens.Color.infoSoft)
+                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.button))
+
+            VStack(alignment: .leading, spacing: 3) {
+                DesignText(title, variant: .caption)
+                    .fontWeight(.bold)
+
+                DesignText(subtitle, variant: .caption)
+            }
+        }
+    }
+}
+
 // MARK: - Login Window
 
 struct LoginWindow: View {
@@ -519,15 +591,14 @@ struct LoginWindow: View {
         NavigationScreenContainer(maxWidth: 440) {
             VStack(spacing: 0) {
                 AuthWelcomeHeader(
+                    title: "Sign in to OMS SDK demo",
                     subtitle: "Sign in to continue to your wallet."
                 )
                 .padding(.top, 64)
 
                 FieldGroup(title: "Email address", titleStyle: .secondary) {
                     TextField("you@example.com", text: $vm.loginEmail)
-                        .textFieldStyle(.plain)
-                        .padding(14)
-                        .background(fieldBackground)
+                        .tokenTextInput()
                         .autocorrectionDisabled()
                         .focused($emailFocused)
                         #if os(iOS)
@@ -540,17 +611,13 @@ struct LoginWindow: View {
                 FieldGroup(title: "Session length", titleStyle: .secondary) {
                     HStack(spacing: 10) {
                         TextField("60", text: $vm.sessionLifetimeText)
-                            .textFieldStyle(.plain)
                             .monospacedDigit()
-                            .padding(14)
-                            .background(fieldBackground)
+                            .tokenTextInput()
                             #if os(iOS)
                             .keyboardType(.numberPad)
                             #endif
 
-                        Text("seconds")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                        DesignText("seconds", variant: .caption)
                     }
                 }
                 .padding(.top, 16)
@@ -565,8 +632,7 @@ struct LoginWindow: View {
                 } label: {
                     label(for: "Continue", loading: vm.isLoading)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .buttonStyle(DesignButtonStyle(variant: .primary))
                 .disabled(vm.loginEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || vm.sessionLifetimeSeconds == nil || vm.isLoading)
 
                 Button {
@@ -574,8 +640,7 @@ struct LoginWindow: View {
                 } label: {
                     label(for: "Continue with Google", systemImage: "globe", loading: vm.isLoading)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
+                .buttonStyle(DesignButtonStyle(variant: .secondary))
                 .disabled(vm.isLoading)
                 .padding(.top, 12)
                 .padding(.bottom, 24)
@@ -599,9 +664,7 @@ struct ConfirmCodeWindow: View {
                 )
                 .padding(.top, 64)
 
-                Text("Enter the 6-digit code sent to your email.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                DesignText("Enter the 6-digit code sent to your email.", variant: .caption)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, 32)
 
@@ -618,9 +681,18 @@ struct ConfirmCodeWindow: View {
                 } label: {
                     label(for: "Verify", loading: vm.isLoading)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .buttonStyle(DesignButtonStyle(variant: .primary))
                 .disabled(codeText.count != 6 || vm.isLoading)
+                .padding(.bottom, 12)
+
+                Button {
+                    vm.screen = .login
+                    codeText = ""
+                } label: {
+                    label(for: "Back", loading: false)
+                }
+                .buttonStyle(DesignButtonStyle(variant: .secondary))
+                .disabled(vm.isLoading)
                 .padding(.bottom, 24)
             }
         }
@@ -637,6 +709,7 @@ struct WalletSelectionWindow: View {
         NavigationScreenContainer(maxWidth: 520) {
             VStack(alignment: .leading, spacing: 0) {
                 AuthWelcomeHeader(
+                    title: "Select a wallet",
                     subtitle: "Select a wallet to finish signing in."
                 )
                 .padding(.top, 48)
@@ -647,6 +720,7 @@ struct WalletSelectionWindow: View {
 
                     if vm.isLoading {
                         ProgressView()
+                            .tint(DesignTokens.Color.info)
                             .frame(maxWidth: .infinity, alignment: .center)
                     }
                 }
@@ -659,8 +733,7 @@ struct WalletSelectionWindow: View {
                 } label: {
                     label(for: "Cancel", systemImage: "xmark", loading: false)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
+                .buttonStyle(DesignButtonStyle(variant: .secondary))
                 .disabled(vm.isLoading)
                 .padding(.bottom, 24)
             }
@@ -679,17 +752,18 @@ struct WalletSelectionWindow: View {
                     )
                 } else {
                     ForEach(pendingSelection.wallets, id: \.id) { wallet in
-                        Button {
-                            Task { await vm.selectWallet(wallet, from: pendingSelection) }
-                        } label: {
+                Button {
+                    Task { await vm.selectWallet(wallet, from: pendingSelection) }
+                } label: {
                             WalletSelectionRow(
                                 title: shortWalletAddress(wallet.address),
                                 subtitle: walletSelectionSubtitle(wallet),
                                 leadingText: "0x"
                             )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(vm.isLoading)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(DesignTokens.Color.primaryText)
+                .disabled(vm.isLoading)
                     }
                 }
             }
@@ -708,6 +782,7 @@ struct WalletSelectionWindow: View {
                 )
             }
             .buttonStyle(.plain)
+            .foregroundStyle(DesignTokens.Color.primaryText)
             .disabled(vm.isLoading)
         }
     }
@@ -743,11 +818,7 @@ private struct ManualWalletSelectionToggle: View {
     @EnvironmentObject private var vm: AppViewModel
 
     var body: some View {
-        Toggle(isOn: $vm.useManualWalletSelection) {
-            Text("Use manual wallet selection")
-                .font(.subheadline)
-                .fontWeight(.medium)
-        }
+        DesignToggle("Use manual wallet selection", isOn: $vm.useManualWalletSelection)
         .toggleStyle(.switch)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -763,27 +834,24 @@ private struct WalletSelectionRow: View {
         HStack(spacing: 12) {
             Text(leadingText)
                 .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(.primary)
+                .foregroundStyle(DesignTokens.Color.primaryText)
                 .frame(width: 38, height: 38)
                 .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(appBackgroundColor)
+                    RoundedRectangle(cornerRadius: DesignTokens.Radius.button)
+                        .fill(DesignTokens.Color.secondarySurface)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: DesignTokens.Radius.button)
                         .stroke(panelBorderColor, lineWidth: 1)
                 )
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
+                DesignText(title, variant: .caption)
+                    .fontWeight(.semibold)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                DesignText(subtitle, variant: .caption)
                     .lineLimit(2)
                     .truncationMode(.middle)
             }
@@ -793,21 +861,21 @@ private struct WalletSelectionRow: View {
             if isEnabled {
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DesignTokens.Color.secondaryText)
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: DesignTokens.Radius.input)
                 .fill(panelBackgroundColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: DesignTokens.Radius.input)
                 .stroke(panelBorderColor, lineWidth: 1)
         )
         .opacity(isEnabled ? 1 : 0.72)
-        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .contentShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.input))
     }
 }
 
@@ -815,9 +883,6 @@ private struct WalletSelectionRow: View {
 
 struct WalletWindow: View {
     @EnvironmentObject private var vm: AppViewModel
-    @State private var showSendWindow: Bool = false
-    @State private var showCallContractWindow: Bool = false
-    @State private var showSignMessageWindow: Bool = false
     @State private var didCopy: Bool = false
     @State private var nativeBalance: String = "—"
     @State private var nativeBalanceRaw: String = ""
@@ -872,46 +937,79 @@ struct WalletWindow: View {
     }
 
     var body: some View {
+        TabView {
+            walletTab
+                .tabItem {
+                    Label("Wallet", systemImage: "wallet.pass")
+                }
+
+            SendTransactionWindow(showsCloseButton: false)
+                .environmentObject(vm)
+                .tabItem {
+                    Label("Send", systemImage: "arrow.up.circle")
+                }
+
+            CallContractWindow(onCompleted: {
+                Task { await refreshBalance() }
+            }, showsCloseButton: false)
+            .environmentObject(vm)
+            .tabItem {
+                Label("Call", systemImage: "curlybraces")
+            }
+
+            SignMessageWindow(showsCloseButton: false)
+                .environmentObject(vm)
+                .tabItem {
+                    Label("Sign", systemImage: "signature")
+                }
+        }
+        .tint(DesignTokens.Color.info)
+        #if os(macOS)
+        .frame(minWidth: 640, minHeight: 560)
+        #endif
+    }
+
+    private var walletTab: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 24) {
+                    walletHeader
                     walletAddressBar
-                    walletActions
                     assetSection
                 }
                 .frame(maxWidth: 560)
-                .padding(.top, 8)
+                .padding(.top, 24)
                 .padding(.horizontal, 20)
-                .padding(.bottom, 24)
+                .padding(.bottom, 88)
                 .frame(maxWidth: .infinity)
             }
             .background(appBackgroundColor.ignoresSafeArea())
-            .navigationTitle("My Wallet")
-            .appNavigationTitleDisplayMode(.large)
             .task {
                 await refreshBalance()
             }
             .onChange(of: selectedNetwork) {
                 Task { await refreshBalance() }
             }
-            .sheet(isPresented: $showSendWindow) {
-                SendTransactionWindow()
-                    .environmentObject(vm)
-            }
-            .sheet(isPresented: $showCallContractWindow) {
-                CallContractWindow(onCompleted: {
-                    Task { await refreshBalance() }
-                })
-                .environmentObject(vm)
-            }
-            .sheet(isPresented: $showSignMessageWindow) {
-                SignMessageWindow()
-                    .environmentObject(vm)
-            }
         }
-        #if os(macOS)
-        .frame(minWidth: 640, minHeight: 560)
-        #endif
+    }
+
+    private var walletHeader: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text("Wallet")
+                .font(.custom(DesignTokens.Typography.family, size: 34).weight(.bold))
+                .foregroundStyle(DesignTokens.Color.primaryText)
+
+            Spacer()
+
+            DesignIconButton(
+                systemImage: "rectangle.portrait.and.arrow.right",
+                accessibilityLabel: "Sign out"
+            ) {
+                vm.signOut()
+            }
+            .help("Sign out")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var walletAddressBar: some View {
@@ -919,6 +1017,7 @@ struct WalletWindow: View {
             HStack(spacing: 6) {
                 Text(collapsedAddress(vm.oms.wallet.walletAddress))
                     .font(.system(size: 22, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(DesignTokens.Color.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
@@ -933,16 +1032,14 @@ struct WalletWindow: View {
                 } label: {
                     Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
                         .font(.system(size: 18))
-                        .foregroundStyle(didCopy ? Color.green : Color.accentColor)
+                        .foregroundStyle(didCopy ? DesignTokens.Color.success : DesignTokens.Color.info)
                 }
                 .buttonStyle(.plain)
                 .disabled(vm.oms.wallet.walletAddress.isEmpty)
-                .help(didCopy ? "Copied!" : "Copy address")
+                .help(didCopy ? "Copied" : "Copy address")
             }
 
-            Text(sessionEmail)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            DesignText(sessionEmail, variant: .caption)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
@@ -953,58 +1050,34 @@ struct WalletWindow: View {
         .padding(.bottom, 8)
     }
 
-    private var walletActions: some View {
-        HStack(spacing: 0) {
-            walletActionButton("Send", systemImage: "arrow.up.circle") {
-                showSendWindow = true
-            }
-            Divider().frame(height: 40)
-            walletActionButton("Contract", systemImage: "arrow.up.circle") {
-                showCallContractWindow = true
-            }
-            Divider().frame(height: 40)
-            walletActionButton("Sign", systemImage: "signature") {
-                showSignMessageWindow = true
-            }
-            Divider().frame(height: 40)
-            walletActionButton("Sign Out", systemImage: "rectangle.portrait.and.arrow.right") {
-                vm.signOut()
-            }
-        }
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(panelBackgroundColor)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(panelBorderColor, lineWidth: 1)
-        )
-    }
-
     private var assetSection: some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
                 Text("Assets")
                     .font(.headline)
+                    .foregroundStyle(DesignTokens.Color.primaryText)
 
                 Spacer()
 
-                Picker("", selection: $selectedNetwork) {
-                    ForEach(supportedNetworks, id: \.self) { network in
-                        Text(network.displayName).tag(network)
-                    }
+            Picker("", selection: $selectedNetwork) {
+                ForEach(supportedNetworks, id: \.self) { network in
+                    Text(network.displayName).tag(network)
                 }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .fixedSize(horizontal: true, vertical: false)
+            }
+            .pickerStyle(.menu)
+            .tint(DesignTokens.Color.primaryText)
+            .foregroundStyle(DesignTokens.Color.primaryText)
+            .labelsHidden()
+            .fixedSize(horizontal: true, vertical: false)
 
-                Button {
-                    Task { await refreshBalance() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.plain)
-                .disabled(isFetchingBalance)
+            Button {
+                Task { await refreshBalance() }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .foregroundStyle(DesignTokens.Color.info)
+            }
+            .buttonStyle(.plain)
+            .disabled(isFetchingBalance)
                 .help("Refresh balance")
             }
 
@@ -1014,25 +1087,27 @@ struct WalletWindow: View {
     }
 
     private var nativeTokenCard: some View {
-        HStack(spacing: 14) {
+        DesignCard {
+            HStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .fill(Color(red: 0.28, green: 0.54, blue: 0.34))
+                    .fill(DesignTokens.Color.success)
                     .frame(width: 44, height: 44)
 
                 Image(systemName: "hexagon.fill")
                     .font(.system(size: 21, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(DesignTokens.Color.primaryButtonText)
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(selectedNetwork.displayName) Native")
                     .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(DesignTokens.Color.primaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 Text(nativeTokenSymbol(for: selectedNetwork))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DesignTokens.Color.secondaryText)
             }
 
             Spacer()
@@ -1041,46 +1116,42 @@ struct WalletWindow: View {
                 if isFetchingBalance {
                     ProgressView()
                         .controlSize(.small)
+                        .tint(DesignTokens.Color.info)
                 } else {
                     Text(nativeBalance)
                         .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(DesignTokens.Color.primaryText)
                         .monospacedDigit()
                     Text(nativeTokenSymbol(for: selectedNetwork))
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DesignTokens.Color.secondaryText)
                         .monospacedDigit()
                 }
             }
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(panelBackgroundColor)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(panelBorderColor, lineWidth: 1)
-        )
+        }
     }
 
     private var usdcCard: some View {
-        HStack(spacing: 14) {
+        DesignCard {
+            HStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .fill(Color(red: 0.16, green: 0.45, blue: 0.90))
+                    .fill(DesignTokens.Color.info)
                     .frame(width: 44, height: 44)
 
                 Text("$")
                     .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(DesignTokens.Color.primaryButtonText)
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("USD Coin")
                     .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(DesignTokens.Color.primaryText)
                 Text("USDC")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DesignTokens.Color.secondaryText)
             }
 
             Spacer()
@@ -1089,26 +1160,20 @@ struct WalletWindow: View {
                 if isFetchingBalance {
                     ProgressView()
                         .controlSize(.small)
+                        .tint(DesignTokens.Color.info)
                 } else {
                     Text(usdcBalance)
                         .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(DesignTokens.Color.primaryText)
                         .monospacedDigit()
                     Text("$\(usdcBalance)")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DesignTokens.Color.secondaryText)
                         .monospacedDigit()
                 }
             }
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(panelBackgroundColor)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(panelBorderColor, lineWidth: 1)
-        )
+        }
     }
 
     private func collapsedAddress(_ address: String) -> String {
@@ -1121,26 +1186,6 @@ struct WalletWindow: View {
         vm.oms.wallet.session.sessionEmail ?? "Email unavailable"
     }
 
-    private func walletActionButton(
-        _ title: String,
-        systemImage: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            VStack(spacing: 6) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 20))
-                Text(title)
-                    .font(.caption.weight(.medium))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            .foregroundStyle(Color.accentColor)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-        }
-        .buttonStyle(.plain)
-    }
 }
 
 // MARK: - Sign Message Window
@@ -1148,6 +1193,7 @@ struct WalletWindow: View {
 struct SignMessageWindow: View {
     @EnvironmentObject private var vm: AppViewModel
     @Environment(\.dismiss) private var dismiss
+    var showsCloseButton: Bool = true
 
     @State private var messageText: String = ""
     @State private var network: Network = Network.polygonAmoy
@@ -1160,7 +1206,8 @@ struct SignMessageWindow: View {
             title: "Sign message",
             subtitle: "Create a wallet signature for the selected network.",
             minWidth: 440,
-            minHeight: 380
+            minHeight: 380,
+            showsCloseButton: showsCloseButton
         ) {
             FieldGroup(title: "Network") {
                 Picker("Network", selection: $network) {
@@ -1169,12 +1216,14 @@ struct SignMessageWindow: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .tint(DesignTokens.Color.primaryText)
+                .foregroundStyle(DesignTokens.Color.primaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             FieldGroup(title: "Message") {
                 TextField("Enter message", text: $messageText)
-                    .textFieldStyle(.roundedBorder)
+                    .tokenTextInput()
             }
 
             Button {
@@ -1195,8 +1244,7 @@ struct SignMessageWindow: View {
             } label: {
                 label(for: "Sign message", systemImage: "signature", loading: isSigning)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .buttonStyle(DesignButtonStyle(variant: .primary))
             .disabled(messageText.isEmpty || isSigning)
 
             if !signature.isEmpty {
@@ -1212,11 +1260,12 @@ struct SignMessageWindow: View {
 struct SendTransactionWindow: View {
     @EnvironmentObject private var vm: AppViewModel
     @Environment(\.dismiss) private var dismiss
+    var showsCloseButton: Bool = true
 
     @State private var toText: String = ""
     @State private var amountText: String = "1000"
     @State private var network: Network = Network.polygonAmoy
-    @State private var result: String = ""
+    @State private var result: SendTransactionResponse?
     @State private var isSending: Bool = false
     @State private var error: GenericAppError?
 
@@ -1225,7 +1274,8 @@ struct SendTransactionWindow: View {
             title: "Send transaction",
             subtitle: "Transfer native token value from this wallet.",
             minWidth: 460,
-            minHeight: 460
+            minHeight: 460,
+            showsCloseButton: showsCloseButton
         ) {
             FieldGroup(title: "Network") {
                 Picker("Network", selection: $network) {
@@ -1234,12 +1284,14 @@ struct SendTransactionWindow: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .tint(DesignTokens.Color.primaryText)
+                .foregroundStyle(DesignTokens.Color.primaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             FieldGroup(title: "To address") {
                 TextField("0x...", text: $toText)
-                    .textFieldStyle(.roundedBorder)
+                    .tokenTextInput()
                     .autocorrectionDisabled()
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
@@ -1248,7 +1300,7 @@ struct SendTransactionWindow: View {
 
             FieldGroup(title: "Amount") {
                 TextField("Enter amount", text: $amountText)
-                    .textFieldStyle(.roundedBorder)
+                    .tokenTextInput()
                     #if os(iOS)
                     .keyboardType(.decimalPad)
                     #endif
@@ -1268,7 +1320,7 @@ struct SendTransactionWindow: View {
                                 try await vm.selectFeeOption(options)
                             }
                         )
-                        result = formatTransactionResult(txResult)
+                        result = txResult
                     } catch {
                         self.error = GenericAppError(error)
                     }
@@ -1276,12 +1328,11 @@ struct SendTransactionWindow: View {
             } label: {
                 label(for: "Execute transaction", systemImage: "paperplane", loading: isSending)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .buttonStyle(DesignButtonStyle(variant: .primary))
             .disabled(amountText.isEmpty || toText.isEmpty || isSending)
 
-            if !result.isEmpty {
-                ResultPanel(title: "Transaction result", text: result)
+            if let result {
+                TransactionResultPanel(result: result)
             }
         }
         .genericErrorWindow(error: $error)
@@ -1341,6 +1392,7 @@ struct CallContractWindow: View {
     /// Invoked after a successful contract call so the parent view can refresh
     /// any derived state (e.g. balances).
     var onCompleted: (() -> Void)? = nil
+    var showsCloseButton: Bool = true
 
     @State private var contractText: String = "0x41e94eb019c0762f9bfcf9fb1e58725bfb0e7582"
     @State private var methodText: String = "transfer"
@@ -1349,7 +1401,7 @@ struct CallContractWindow: View {
         AbiArgInput(type: "address", value: "0xE5E8B483FfC05967FcFed58cc98D053265af6D99"),
         AbiArgInput(type: "uint256", value: "1000000"),
     ]
-    @State private var result: String = ""
+    @State private var result: SendTransactionResponse?
     @State private var isSending: Bool = false
     @State private var error: GenericAppError?
 
@@ -1358,7 +1410,8 @@ struct CallContractWindow: View {
             title: "Call contract",
             subtitle: "Build a contract method call with ABI arguments.",
             minWidth: 500,
-            minHeight: 560
+            minHeight: 560,
+            showsCloseButton: showsCloseButton
         ) {
             FieldGroup(title: "Network") {
                 Picker("Network", selection: $network) {
@@ -1367,12 +1420,14 @@ struct CallContractWindow: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .tint(DesignTokens.Color.primaryText)
+                .foregroundStyle(DesignTokens.Color.primaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             FieldGroup(title: "Contract") {
                 TextField("0x...", text: $contractText)
-                    .textFieldStyle(.roundedBorder)
+                    .tokenTextInput()
                     .autocorrectionDisabled()
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
@@ -1381,7 +1436,7 @@ struct CallContractWindow: View {
 
             FieldGroup(title: "Method") {
                 TextField("e.g. transfer", text: $methodText)
-                    .textFieldStyle(.roundedBorder)
+                    .tokenTextInput()
                     .autocorrectionDisabled()
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
@@ -1395,6 +1450,7 @@ struct CallContractWindow: View {
                         args.append(AbiArgInput())
                     } label: {
                         Image(systemName: "plus.circle.fill")
+                            .foregroundStyle(DesignTokens.Color.info)
                     }
                     .buttonStyle(.plain)
                     .help("Add argument")
@@ -1437,7 +1493,7 @@ struct CallContractWindow: View {
                                 try await vm.selectFeeOption(options)
                             }
                         )
-                        result = formatTransactionResult(txResult)
+                        result = txResult
                         onCompleted?()
                     } catch {
                         self.error = GenericAppError(error)
@@ -1446,12 +1502,11 @@ struct CallContractWindow: View {
             } label: {
                 label(for: "Execute transaction", systemImage: "paperplane", loading: isSending)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .buttonStyle(DesignButtonStyle(variant: .primary))
             .disabled(contractText.isEmpty || methodText.isEmpty || isSending)
 
-            if !result.isEmpty {
-                ResultPanel(title: "Transaction result", text: result)
+            if let result {
+                TransactionResultPanel(result: result)
             }
         }
         .genericErrorWindow(error: $error)
@@ -1463,7 +1518,7 @@ struct CallContractWindow: View {
 
     private func abiTypeField(arg: Binding<AbiArgInput>) -> some View {
         TextField("type (e.g. uint256)", text: arg.type)
-            .textFieldStyle(.roundedBorder)
+            .tokenTextInput()
             .autocorrectionDisabled()
             #if os(iOS)
             .textInputAutocapitalization(.never)
@@ -1472,7 +1527,7 @@ struct CallContractWindow: View {
 
     private func abiValueField(arg: Binding<AbiArgInput>) -> some View {
         TextField("value", text: arg.value)
-            .textFieldStyle(.roundedBorder)
+            .tokenTextInput()
             .autocorrectionDisabled()
             #if os(iOS)
             .textInputAutocapitalization(.never)
@@ -1484,7 +1539,7 @@ struct CallContractWindow: View {
             args.removeAll { $0.id == arg.id }
         } label: {
             Image(systemName: "minus.circle.fill")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DesignTokens.Color.secondaryText)
         }
         .buttonStyle(.plain)
         .disabled(args.count <= 1)
@@ -1538,6 +1593,7 @@ private struct FeeOptionSelectionWindow: View {
                 Button("Cancel", role: .cancel) {
                     cancel()
                 }
+                .buttonStyle(DesignButtonStyle(variant: .secondary))
 
                 Spacer()
 
@@ -1546,6 +1602,7 @@ private struct FeeOptionSelectionWindow: View {
                         select(request.options[firstAvailableIndex])
                     }
                 }
+                .buttonStyle(DesignButtonStyle(variant: .secondary))
                 .disabled(firstAvailableIndex == nil)
 
                 Button("Select fee") {
@@ -1553,8 +1610,8 @@ private struct FeeOptionSelectionWindow: View {
                         select(selectedOption)
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(selectedOption == nil)
+                .buttonStyle(DesignButtonStyle(variant: .primary))
+                .disabled(selectedOption == nil || selectedOption.map(hasEnoughBalance) == false)
             }
         }
         .onAppear {
@@ -1589,36 +1646,28 @@ private struct FeeOptionRow: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                 .font(.title3)
-                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .foregroundStyle(isSelected ? DesignTokens.Color.info : DesignTokens.Color.secondaryText)
                 .frame(width: 24, height: 24)
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(feeTokenLabel(option))
                         .font(.headline)
+                        .foregroundStyle(DesignTokens.Color.primaryText)
                         .lineLimit(1)
 
                     Text(feeAmountLabel(option))
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DesignTokens.Color.secondaryText)
                         .lineLimit(1)
                 }
 
-                Text(balanceStatusLabel(option))
-                    .font(.caption)
-                    .foregroundStyle(balanceStatusColor(option))
+                DesignBadge(balanceStatusLabel(option), variant: balanceStatusBadgeVariant(option))
                     .lineLimit(1)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Available: \(option.available ?? "unknown")")
-                    Text("Raw balance: \(option.availableRaw ?? "unknown")")
-                    Text("Raw fee: \(option.feeOption.value)")
-                    if let decimals = option.decimals {
-                        Text("Decimals: \(decimals)")
-                    }
-                }
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
+                Text("Available \(option.available ?? "unknown")")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(DesignTokens.Color.secondaryText)
                 .textSelection(.enabled)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1626,18 +1675,16 @@ private struct FeeOptionRow: View {
             Button("Select") {
                 onConfirm()
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(DesignButtonStyle(variant: .secondary))
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(panelBackgroundColor)
-        )
+        .background(isSelected ? DesignTokens.Color.infoSoft : panelBackgroundColor)
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? Color.accentColor : panelBorderColor, lineWidth: isSelected ? 2 : 1)
+            RoundedRectangle(cornerRadius: DesignTokens.Radius.card)
+                .stroke(isSelected ? DesignTokens.Color.focusRing : panelBorderColor, lineWidth: isSelected ? 2 : 1)
         )
+        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.card))
         .contentShape(Rectangle())
         .onTapGesture {
             onSelect()
@@ -1672,11 +1719,11 @@ private func balanceStatusLabel(_ option: FeeOptionWithBalance) -> String {
     return comparison == .orderedAscending ? "Insufficient balance" : "Enough balance"
 }
 
-private func balanceStatusColor(_ option: FeeOptionWithBalance) -> Color {
+private func balanceStatusBadgeVariant(_ option: FeeOptionWithBalance) -> DesignBadgeVariant {
     guard let comparison = compareBalanceToFee(option) else {
-        return .secondary
+        return .neutral
     }
-    return comparison == .orderedAscending ? .red : .green
+    return comparison == .orderedAscending ? .danger : .success
 }
 
 private func hasEnoughBalance(_ option: FeeOptionWithBalance) -> Bool {
@@ -1709,14 +1756,6 @@ private func normalizedUnsignedInteger(_ value: String?) -> String? {
 
     let stripped = trimmed.drop(while: { $0 == "0" })
     return stripped.isEmpty ? "0" : String(stripped)
-}
-
-private func formatTransactionResult(_ result: SendTransactionResponse) -> String {
-    """
-    txnId: \(result.txnId)
-    status: \(result.status.wireValue)
-    txnHash: \(result.txnHash ?? "nil")
-    """
 }
 
 // MARK: - Helpers
@@ -1755,6 +1794,7 @@ private extension View {
 }
 
 private struct AuthWelcomeHeader: View {
+    var title: String = "Welcome"
     let subtitle: String
 
     var body: some View {
@@ -1766,14 +1806,10 @@ private struct AuthWelcomeHeader: View {
                 .accessibilityLabel("Sequence logo")
 
             VStack(alignment: .center, spacing: 6) {
-                Text("Welcome")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
+                DesignText(title, variant: .title)
                     .multilineTextAlignment(.center)
 
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                DesignText(subtitle, variant: .caption)
                     .multilineTextAlignment(.center)
             }
         }
@@ -1798,10 +1834,11 @@ private struct NavigationScreenContainer<Content: View>: View {
             VStack(spacing: 0) {
                 content
             }
-            .frame(maxWidth: maxWidth, maxHeight: .infinity)
-            .padding(.horizontal, 24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(appBackgroundColor.ignoresSafeArea())
+                .frame(maxWidth: maxWidth, maxHeight: .infinity)
+                .padding(.horizontal, 24)
+                .foregroundStyle(DesignTokens.Color.primaryText)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(appBackgroundColor.ignoresSafeArea())
         }
         #if os(macOS)
         .frame(minWidth: maxWidth + 80, minHeight: 520)
@@ -1816,6 +1853,7 @@ private struct ModalContainer<Content: View>: View {
     let subtitle: String?
     let minWidth: CGFloat
     let minHeight: CGFloat
+    let showsCloseButton: Bool
     let content: Content
 
     init(
@@ -1823,12 +1861,14 @@ private struct ModalContainer<Content: View>: View {
         subtitle: String? = nil,
         minWidth: CGFloat,
         minHeight: CGFloat,
+        showsCloseButton: Bool = true,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
         self.subtitle = subtitle
         self.minWidth = minWidth
         self.minHeight = minHeight
+        self.showsCloseButton = showsCloseButton
         self.content = content()
     }
 
@@ -1836,10 +1876,25 @@ private struct ModalContainer<Content: View>: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    HStack(alignment: .center, spacing: 12) {
+                        DesignText(title, variant: .title)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Spacer()
+
+                        if showsCloseButton {
+                            DesignIconButton(
+                                systemImage: "xmark",
+                                accessibilityLabel: "Close"
+                            ) {
+                                dismiss()
+                            }
+                            .help("Close")
+                        }
+                    }
+
                     if let subtitle {
-                        Text(subtitle)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                        DesignText(subtitle, variant: .caption)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
@@ -1848,18 +1903,10 @@ private struct ModalContainer<Content: View>: View {
                 .frame(maxWidth: 560, alignment: .leading)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 24)
+                .foregroundStyle(DesignTokens.Color.primaryText)
                 .frame(maxWidth: .infinity)
             }
             .background(appBackgroundColor.ignoresSafeArea())
-            .navigationTitle(title)
-            .appNavigationTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") {
-                        dismiss()
-                    }
-                }
-            }
         }
         #if os(macOS)
         .frame(minWidth: minWidth, minHeight: minHeight)
@@ -1887,10 +1934,8 @@ private struct FieldGroup<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.subheadline)
+            DesignText(title, variant: titleStyle == .secondary ? .caption : .body)
                 .fontWeight(.semibold)
-                .foregroundStyle(titleStyle == .secondary ? Color.secondary : Color.primary)
 
             content
         }
@@ -1916,6 +1961,8 @@ private struct VerificationCodeInput: View {
             TextField("", text: codeBinding)
                 .autocorrectionDisabled()
                 .focused($isFocused)
+                .foregroundStyle(DesignTokens.Color.primaryText)
+                .tint(DesignTokens.Color.info)
                 .frame(width: 1, height: 1)
                 .opacity(0.01)
                 .accessibilityLabel("6-digit code")
@@ -1954,14 +2001,15 @@ private struct VerificationCodeInput: View {
 
         return Text(digit)
             .font(.title3.monospacedDigit().weight(.semibold))
+            .foregroundStyle(DesignTokens.Color.primaryText)
             .frame(width: size, height: size)
             .background(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: DesignTokens.Radius.input)
                     .fill(panelBackgroundColor)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(isActive ? Color.accentColor : panelBorderColor, lineWidth: isActive ? 2 : 1)
+                RoundedRectangle(cornerRadius: DesignTokens.Radius.input)
+                    .stroke(isActive ? DesignTokens.Color.focusRing : panelBorderColor, lineWidth: isActive ? 2 : 1)
             )
     }
 
@@ -1990,19 +2038,11 @@ private struct Panel<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        DesignCard {
+            VStack(alignment: .leading, spacing: 12) {
             content
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(panelBackgroundColor)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(panelBorderColor, lineWidth: 1)
-        )
+        }
     }
 }
 
@@ -2012,11 +2052,42 @@ private struct ResultPanel: View {
 
     var body: some View {
         Panel {
-            Text(title)
-                .font(.subheadline)
+            DesignText(title, variant: .body)
                 .fontWeight(.semibold)
 
             CopyableResult(text: text)
+        }
+    }
+}
+
+private struct TransactionResultPanel: View {
+    let result: SendTransactionResponse
+
+    var body: some View {
+        Panel {
+            DesignText("Transaction result", variant: .body)
+                .fontWeight(.semibold)
+
+            ResultRow(label: "Status", value: result.status.wireValue)
+            ResultRow(label: "Transaction ID", value: result.txnId)
+
+            if let txnHash = result.txnHash, !txnHash.isEmpty {
+                ResultRow(label: "Transaction hash", value: txnHash)
+            }
+        }
+    }
+}
+
+private struct ResultRow: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            DesignText(label, variant: .caption)
+                .fontWeight(.semibold)
+
+            CopyableResult(text: value)
         }
     }
 }
@@ -2031,7 +2102,7 @@ struct CopyableResult: View {
             Text(text)
                 .font(.footnote)
                 .monospaced()
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DesignTokens.Color.secondaryText)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
@@ -2046,9 +2117,10 @@ struct CopyableResult: View {
                 }
             } label: {
                 Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                    .foregroundStyle(didCopy ? DesignTokens.Color.success : DesignTokens.Color.info)
             }
-            .buttonStyle(.bordered)
-            .help(didCopy ? "Copied!" : "Copy")
+            .buttonStyle(DesignButtonStyle(variant: .secondary))
+            .help(didCopy ? "Copied" : "Copy")
         }
     }
 }
@@ -2060,6 +2132,7 @@ private func label(for title: String, systemImage: String? = nil, loading: Bool)
         if loading {
             ProgressView()
                 .progressViewStyle(.circular)
+                .tint(DesignTokens.Color.info)
         } else if let systemImage {
             Label(title, systemImage: systemImage)
                 .frame(maxWidth: .infinity)
@@ -2077,16 +2150,33 @@ private extension View {
         retry: @escaping (SessionExpiredPrompt) -> Void,
         dismiss: @escaping () -> Void
     ) -> some View {
-        alert(item: prompt) { prompt in
-            Alert(
-                title: Text("Session expired"),
-                message: Text(sessionExpiredMessage(prompt)),
-                primaryButton: .default(Text("Accept")) {
-                    retry(prompt)
-                },
-                secondaryButton: .cancel(Text("Not now"), action: dismiss)
-            )
+        overlay {
+            if let prompt = prompt.wrappedValue {
+                TokenDialog(
+                    title: "Session expired",
+                    message: sessionExpiredMessage(prompt),
+                    primaryTitle: "Sign in again",
+                    primaryAction: {
+                        retry(prompt)
+                    },
+                    secondaryTitle: "Not now",
+                    secondaryAction: dismiss
+                )
+            }
         }
+    }
+}
+
+private extension View {
+    func tokenPlainIconButtonFrame() -> some View {
+        self
+            .frame(width: 40, height: 40)
+            .background(DesignTokens.Color.surface)
+            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.button))
+            .overlay(
+                RoundedRectangle(cornerRadius: DesignTokens.Radius.button)
+                    .stroke(DesignTokens.Color.border, lineWidth: DesignTokens.Stroke.defaultWidth)
+            )
     }
 }
 
@@ -2101,6 +2191,11 @@ private func sessionExpiredMessage(_ prompt: SessionExpiredPrompt) -> String {
 
 #Preview("Login") {
     LoginWindow()
+        .environmentObject(AppViewModel())
+}
+
+#Preview("Introduction") {
+    IntroductionWindow()
         .environmentObject(AppViewModel())
 }
 

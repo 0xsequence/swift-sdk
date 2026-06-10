@@ -15,7 +15,8 @@
 
 - [ ] `swift build` passes
 - [ ] `swift test` passes
-- [ ] Demo app builds (`xcodebuild -project Examples/sdk-demo/oms-sdk-demo.xcodeproj -scheme oms-sdk-demo build`) — if applicable
+- [ ] SDK demo app builds (`xcodebuild -project Examples/sdk-demo/oms-sdk-demo.xcodeproj -scheme oms-sdk-demo build CODE_SIGNING_ALLOWED=NO`)
+- [ ] Trails Actions demo app builds (`xcodebuild -project Examples/trails-actions/trails-actions.xcodeproj -scheme trails-actions build CODE_SIGNING_ALLOWED=NO`)
 
 ## Related
 

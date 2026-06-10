@@ -110,12 +110,80 @@ private func serviceErrorMessage(_ error: WebRPCError, fallback: String) -> Stri
 
 extension View {
     func genericErrorWindow(error: Binding<GenericAppError?>) -> some View {
-        alert(item: error) { error in
-            Alert(
-                title: Text("Something went wrong"),
-                message: Text(error.message),
-                dismissButton: .default(Text("OK"))
+        modifier(GenericErrorDialog(error: error))
+    }
+}
+
+private struct GenericErrorDialog: ViewModifier {
+    @Binding var error: GenericAppError?
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                if let error {
+                    TokenDialog(
+                        title: "Something went wrong",
+                        message: error.message,
+                        primaryTitle: "OK",
+                        primaryAction: {
+                            self.error = nil
+                        }
+                    )
+                }
+            }
+    }
+}
+
+struct TokenDialog: View {
+    let title: String
+    let message: String
+    let primaryTitle: String
+    let primaryAction: () -> Void
+    var secondaryTitle: String? = nil
+    var secondaryAction: (() -> Void)? = nil
+
+    var body: some View {
+        ZStack {
+            DesignTokens.Color.primaryText
+                .opacity(0.18)
+                .ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(title)
+                        .font(DesignTokens.Typography.heading)
+                        .foregroundStyle(DesignTokens.Color.primaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text(message)
+                        .font(DesignTokens.Typography.caption)
+                        .foregroundStyle(DesignTokens.Color.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack(spacing: 12) {
+                    if let secondaryTitle, let secondaryAction {
+                        Button(secondaryTitle, action: secondaryAction)
+                            .buttonStyle(DesignButtonStyle(variant: .secondary))
+                    }
+
+                    Spacer(minLength: 0)
+
+                    Button(primaryTitle, action: primaryAction)
+                        .buttonStyle(DesignButtonStyle(variant: .primary))
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: 360, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: DesignTokens.Radius.card)
+                    .fill(DesignTokens.Color.surface)
             )
+            .overlay(
+                RoundedRectangle(cornerRadius: DesignTokens.Radius.card)
+                    .stroke(DesignTokens.Color.headerBorder, lineWidth: DesignTokens.Stroke.defaultWidth)
+            )
+            .padding(24)
         }
     }
 }

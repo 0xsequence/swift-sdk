@@ -44,4 +44,5 @@ place them in `Tests/Swift SDKIntegrationTests/` and document prerequisites here
 | Build without running tests | `swift build` |
 | Run tests matching a filter | `swift test --filter <TestNamePattern>` |
 | Verbose output | `swift test --verbose` |
-| Build demo app | `xcodebuild -project Examples/sdk-demo/oms-sdk-demo.xcodeproj -scheme oms-sdk-demo build` |
+| Build SDK demo app | `xcodebuild -project Examples/sdk-demo/oms-sdk-demo.xcodeproj -scheme oms-sdk-demo build CODE_SIGNING_ALLOWED=NO` |
+| Build Trails Actions demo app | `xcodebuild -project Examples/trails-actions/trails-actions.xcodeproj -scheme trails-actions build CODE_SIGNING_ALLOWED=NO` |
