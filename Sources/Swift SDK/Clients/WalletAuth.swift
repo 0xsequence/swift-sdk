@@ -304,7 +304,7 @@ extension WalletClient {
         }
     }
 
-    func restorePendingOidcRedirectAuth(_ pending: PendingOidcRedirectAuth) throws {
+    private func restorePendingOidcRedirectAuth(_ pending: PendingOidcRedirectAuth) throws {
         try requireActiveCredential()
         let signerCredentialId = try credentialSession.signer.credentialId()
         guard signerCredentialId.lowercased() == pending.signerCredentialId.lowercased(),
@@ -316,7 +316,7 @@ extension WalletClient {
         challenge = pending.challenge
     }
 
-    func loginHintForProvider(
+    private func loginHintForProvider(
         _ provider: OidcProviderConfig,
         loginHint: String?
     ) -> String? {

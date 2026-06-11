@@ -49,7 +49,7 @@ extension WalletClient {
         return currentDate() >= expiresAt
     }
 
-    func expireStoredSession(_ session: SessionState) {
+    private func expireStoredSession(_ session: SessionState) {
         deliverSessionExpiredNotification(
             withSessionLock {
                 try? credentialSession.clearSignerKeepingCredentials()
@@ -68,7 +68,7 @@ extension WalletClient {
         )
     }
 
-    func currentSessionLocked() -> SessionState {
+    private func currentSessionLocked() -> SessionState {
         guard !walletAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return SessionState(walletAddress: nil)
         }
@@ -92,7 +92,7 @@ extension WalletClient {
         }
     }
 
-    func clearActiveSessionForExpiryLocked() {
+    private func clearActiveSessionForExpiryLocked() {
         sessionExpiryTask?.cancel()
         sessionExpiryTask = nil
         activePendingWalletSelection = nil
@@ -107,7 +107,7 @@ extension WalletClient {
         signedClient = signedClientFactory(credentialSession.signer)
     }
 
-    func makeSessionExpiredNotificationLocked(_ session: SessionState) -> SessionExpiredNotification? {
+    private func makeSessionExpiredNotificationLocked(_ session: SessionState) -> SessionExpiredNotification? {
         guard let expiredAt = session.expiresAt else {
             return nil
         }
@@ -160,7 +160,7 @@ extension WalletClient {
         }
     }
 
-    func expireSessionFromTimer(_ session: SessionState) {
+    private func expireSessionFromTimer(_ session: SessionState) {
         let transition = withSessionLock { () -> (
             notification: SessionExpiredNotification?,
             reschedule: SessionState?
@@ -180,7 +180,7 @@ extension WalletClient {
         deliverSessionExpiredNotification(transition.notification)
     }
 
-    func isCurrentSessionSnapshotLocked(_ session: SessionState) -> Bool {
+    private func isCurrentSessionSnapshotLocked(_ session: SessionState) -> Bool {
         guard let sessionWalletAddress = session.walletAddress else {
             return false
         }
@@ -276,7 +276,7 @@ extension WalletClient {
             )
         }
     }
-    
+
     public func getIdToken(ttlSeconds: UInt32? = nil, customClaims: [String: WebRPCJSONValue]? = nil) async throws -> String {
         try await runOmsOperation(.walletGetIdToken) {
             let walletId = try requireActiveWalletId()
