@@ -236,7 +236,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func checkSession() async {
-        let hasSession = !oms.wallet.walletAddress.isEmpty
+        let hasSession = oms.wallet.walletAddress != nil
         screen = hasSession ? .wallet : .introduction
     }
 
@@ -573,7 +573,7 @@ private struct IntroductionFeatureRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 DesignText(title, variant: .caption)
-                    .fontWeight(.bold)
+                    .font(.custom(DesignTokens.Typography.family, size: 14).weight(.bold))
 
                 DesignText(subtitle, variant: .caption)
             }
@@ -847,7 +847,7 @@ private struct WalletSelectionRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 DesignText(title, variant: .caption)
-                    .fontWeight(.semibold)
+                    .font(.custom(DesignTokens.Typography.family, size: 14).weight(.semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
 
@@ -899,7 +899,7 @@ struct WalletWindow: View {
     }
 
     private func refreshBalance() async {
-        guard !vm.oms.wallet.walletAddress.isEmpty else { return }
+        guard let walletAddress = vm.oms.wallet.walletAddress else { return }
         isFetchingBalance = true
         clearBalance()
         defer { isFetchingBalance = false }
@@ -908,7 +908,7 @@ struct WalletWindow: View {
             let balances = try await vm.oms.indexer.getTokenBalances(
                 network: selectedNetwork,
                 contractAddress: usdcContractAddress,
-                walletAddress: vm.oms.wallet.walletAddress,
+                walletAddress: walletAddress,
                 includeMetadata: false
             )
             if let raw = balances.balances.first?.balance {
@@ -921,7 +921,7 @@ struct WalletWindow: View {
 
             let nativeTokenBalance = try await vm.oms.indexer.getNativeTokenBalance(
                 network: selectedNetwork,
-                walletAddress: vm.oms.wallet.walletAddress
+                walletAddress: walletAddress
             )
             if let raw = nativeTokenBalance?.balance {
                 nativeBalance = formatNativeTokenBalance(raw)
@@ -970,7 +970,7 @@ struct WalletWindow: View {
     }
 
     private var walletTab: some View {
-        NavigationStack {
+        NavigationView {
             ScrollView {
                 VStack(spacing: 24) {
                     walletHeader
@@ -987,7 +987,7 @@ struct WalletWindow: View {
             .task {
                 await refreshBalance()
             }
-            .onChange(of: selectedNetwork) {
+            .onChange(of: selectedNetwork) { _ in
                 Task { await refreshBalance() }
             }
         }
@@ -1015,7 +1015,7 @@ struct WalletWindow: View {
     private var walletAddressBar: some View {
         VStack(spacing: 8) {
             HStack(spacing: 6) {
-                Text(collapsedAddress(vm.oms.wallet.walletAddress))
+                Text(collapsedAddress(vm.oms.wallet.walletAddress ?? ""))
                     .font(.system(size: 22, weight: .semibold, design: .monospaced))
                     .foregroundStyle(DesignTokens.Color.primaryText)
                     .lineLimit(1)
@@ -1023,7 +1023,8 @@ struct WalletWindow: View {
                     .textSelection(.enabled)
 
                 Button {
-                    Clipboard.copy(vm.oms.wallet.walletAddress)
+                    guard let walletAddress = vm.oms.wallet.walletAddress else { return }
+                    Clipboard.copy(walletAddress)
                     didCopy = true
                     Task {
                         try? await Task.sleep(nanoseconds: 1_500_000_000)
@@ -1035,7 +1036,7 @@ struct WalletWindow: View {
                         .foregroundStyle(didCopy ? DesignTokens.Color.success : DesignTokens.Color.info)
                 }
                 .buttonStyle(.plain)
-                .disabled(vm.oms.wallet.walletAddress.isEmpty)
+                .disabled(vm.oms.wallet.walletAddress == nil)
                 .help(didCopy ? "Copied" : "Copy address")
             }
 
@@ -1341,8 +1342,8 @@ struct SendTransactionWindow: View {
                 .environmentObject(vm)
         }
         .onAppear {
-            if toText.isEmpty {
-                toText = vm.oms.wallet.walletAddress
+            if toText.isEmpty, let walletAddress = vm.oms.wallet.walletAddress {
+                toText = walletAddress
             }
         }
     }
@@ -1457,20 +1458,12 @@ struct CallContractWindow: View {
                 }
 
                 ForEach($args) { $arg in
-                    ViewThatFits(in: .horizontal) {
+                    VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 8) {
                             abiTypeField(arg: $arg)
-                            abiValueField(arg: $arg)
                             removeAbiArgButton(arg: arg)
                         }
-
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 8) {
-                                abiTypeField(arg: $arg)
-                                removeAbiArgButton(arg: arg)
-                            }
-                            abiValueField(arg: $arg)
-                        }
+                        abiValueField(arg: $arg)
                     }
                 }
             }
@@ -1830,7 +1823,7 @@ private struct NavigationScreenContainer<Content: View>: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             VStack(spacing: 0) {
                 content
             }
@@ -1873,7 +1866,7 @@ private struct ModalContainer<Content: View>: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     HStack(alignment: .center, spacing: 12) {
@@ -1935,7 +1928,9 @@ private struct FieldGroup<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             DesignText(title, variant: titleStyle == .secondary ? .caption : .body)
-                .fontWeight(.semibold)
+                .font(titleStyle == .secondary
+                    ? Font.custom(DesignTokens.Typography.family, size: 14).weight(.semibold)
+                    : Font.custom(DesignTokens.Typography.family, size: 16).weight(.semibold))
 
             content
         }
@@ -2053,7 +2048,7 @@ private struct ResultPanel: View {
     var body: some View {
         Panel {
             DesignText(title, variant: .body)
-                .fontWeight(.semibold)
+                .font(.custom(DesignTokens.Typography.family, size: 16).weight(.semibold))
 
             CopyableResult(text: text)
         }
@@ -2066,7 +2061,7 @@ private struct TransactionResultPanel: View {
     var body: some View {
         Panel {
             DesignText("Transaction result", variant: .body)
-                .fontWeight(.semibold)
+                .font(.custom(DesignTokens.Typography.family, size: 16).weight(.semibold))
 
             ResultRow(label: "Status", value: result.status.wireValue)
             ResultRow(label: "Transaction ID", value: result.txnId)
@@ -2085,7 +2080,7 @@ private struct ResultRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             DesignText(label, variant: .caption)
-                .fontWeight(.semibold)
+                .font(.custom(DesignTokens.Typography.family, size: 14).weight(.semibold))
 
             CopyableResult(text: value)
         }
@@ -2100,8 +2095,7 @@ struct CopyableResult: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(text)
-                .font(.footnote)
-                .monospaced()
+                .font(.system(.footnote, design: .monospaced))
                 .foregroundStyle(DesignTokens.Color.secondaryText)
                 .lineLimit(1)
                 .truncationMode(.middle)
