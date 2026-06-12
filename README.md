@@ -257,6 +257,37 @@ print("Transaction status:", txResult.status)
 print("Transaction hash:", txResult.txnHash ?? "pending")
 ```
 
+To return immediately after execute without status polling, pass
+`waitForStatus: false`. You can then call `getTransactionStatus` with the
+returned `txnId`.
+
+```swift
+let value = try parseUnits(value: "1", decimals: 18)
+let txResult = try await oms.wallet.sendTransaction(
+    network: .polygon,
+    to: "0xRecipient",
+    value: value,
+    waitForStatus: false
+)
+
+let status = try await oms.wallet.getTransactionStatus(txnId: txResult.txnId)
+```
+
+To tune polling, pass `statusPolling`:
+
+```swift
+let value = try parseUnits(value: "1", decimals: 18)
+let txResult = try await oms.wallet.sendTransaction(
+    network: .polygon,
+    to: "0xRecipient",
+    value: value,
+    statusPolling: TransactionStatusPollingOptions(
+        timeoutMs: 30_000,
+        intervalMs: 1_000
+    )
+)
+```
+
 Provide `selectFeeOption` on `sendTransaction` or `callContract` to choose
 from the returned fee options:
 
@@ -335,9 +366,11 @@ let signature = try await oms.wallet.signMessage(
 ### Verify a Message Signature
 
 ```swift
+guard let walletAddress = oms.wallet.walletAddress else { return }
+
 let isValid = try await oms.wallet.isValidMessageSignature(
     network: .polygon,
-    walletAddress: oms.wallet.walletAddress,
+    walletAddress: walletAddress,
     message: "Hello from OMS",
     signature: signature
 )
@@ -370,10 +403,11 @@ let signature = try await oms.wallet.signTypedData(
     network: .polygon,
     typedData: typedData
 )
+guard let walletAddress = oms.wallet.walletAddress else { return }
 
 let isValid = try await oms.wallet.isValidTypedDataSignature(
     network: .polygon,
-    walletAddress: oms.wallet.walletAddress,
+    walletAddress: walletAddress,
     typedData: typedData,
     signature: signature
 )
@@ -441,9 +475,11 @@ do {
 ### Query Token Balances
 
 ```swift
+guard let walletAddress = oms.wallet.walletAddress else { return }
+
 let result = try await oms.indexer.getTokenBalances(
     network: .polygon,
-    walletAddress: oms.wallet.walletAddress,
+    walletAddress: walletAddress,
     includeMetadata: true,
     page: TokenBalancesPageRequest(page: 0, pageSize: 100)
 )
@@ -457,9 +493,11 @@ for balance in result.balances {
 ### Query Native Token Balance
 
 ```swift
+guard let walletAddress = oms.wallet.walletAddress else { return }
+
 let balance = try await oms.indexer.getNativeTokenBalance(
     network: .polygon,
-    walletAddress: oms.wallet.walletAddress
+    walletAddress: walletAddress
 )
 
 print(balance?.balance ?? "0")

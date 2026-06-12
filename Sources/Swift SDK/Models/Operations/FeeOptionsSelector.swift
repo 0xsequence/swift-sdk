@@ -64,13 +64,12 @@ public struct FeeOptionSelector: Sendable {
 @available(macOS 12.0, iOS 15.0, *)
 public extension FeeOptionSelector {
     static let firstAvailable = FeeOptionSelector { options in
-        options.filter { option in
+        options.first { option in
             guard let availableRaw = option.availableRaw else {
                 return false
             }
-            return !isNumericValueLessThan(availableRaw, option.feeOption.value)
-        }
-        .first?
+            return hasEnoughBalance(availableRaw, feeValue: option.feeOption.value)
+        }?
         .selection
     }
 
@@ -78,17 +77,17 @@ public extension FeeOptionSelector {
         FeeOptionSelector(pick)
     }
 
-    private static func isNumericValueLessThan(_ lhs: String, _ rhs: String) -> Bool {
-        guard let normalizedLhs = normalizedUnsignedDecimal(lhs),
-              let normalizedRhs = normalizedUnsignedDecimal(rhs) else {
-            return lhs < rhs
+    private static func hasEnoughBalance(_ availableRaw: String, feeValue: String) -> Bool {
+        guard let available = normalizedUnsignedDecimal(availableRaw),
+              let fee = normalizedUnsignedDecimal(feeValue) else {
+            return false
         }
 
-        if normalizedLhs.count != normalizedRhs.count {
-            return normalizedLhs.count < normalizedRhs.count
+        if available.count != fee.count {
+            return available.count > fee.count
         }
 
-        return normalizedLhs < normalizedRhs
+        return available >= fee
     }
 
     private static func normalizedUnsignedDecimal(_ value: String) -> String? {

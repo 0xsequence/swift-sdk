@@ -99,10 +99,10 @@ Most apps create a wallet client through `OMSClient`. Use this initializer only 
 ### walletAddress
 
 ```swift
-var walletAddress: String
+var walletAddress: String?
 ```
 
-The read-only on-chain address of the active wallet. Empty until a wallet is restored or activated by `completeEmailAuth`, `useWallet`, or `createWallet`.
+The read-only on-chain address of the active wallet, or `nil` until a wallet is restored or activated by `completeEmailAuth`, `useWallet`, or `createWallet`.
 
 ### walletId
 
@@ -410,7 +410,9 @@ func sendTransaction(
     to: String,
     value: String,
     selectFeeOption: FeeOptionSelector? = nil,
-    mode: TransactionMode = .relayer
+    mode: TransactionMode = .relayer,
+    waitForStatus: Bool = true,
+    statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()
 ) async throws -> SendTransactionResponse
 ```
 
@@ -432,7 +434,9 @@ Full-parameter overload:
 func sendTransaction(
     network: Network,
     request: SendTransactionRequest,
-    selectFeeOption: FeeOptionSelector? = nil
+    selectFeeOption: FeeOptionSelector? = nil,
+    waitForStatus: Bool = true,
+    statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()
 ) async throws -> SendTransactionResponse
 ```
 
@@ -445,7 +449,9 @@ func callContract(
     method: String,
     args: [AbiArg]?,
     selectFeeOption: FeeOptionSelector? = nil,
-    mode: TransactionMode = .relayer
+    mode: TransactionMode = .relayer,
+    waitForStatus: Bool = true,
+    statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()
 ) async throws -> SendTransactionResponse
 ```
 
@@ -530,9 +536,11 @@ func getTokenBalances(
 Fetches token balances for a wallet on a supported network. Omit `contractAddress` to list balances across contracts. Use `page` to request later pages or a custom page size.
 
 ```swift
+guard let walletAddress = oms.wallet.walletAddress else { return }
+
 let result = try await oms.indexer.getTokenBalances(
     network: .polygon,
-    walletAddress: oms.wallet.walletAddress,
+    walletAddress: walletAddress,
     includeMetadata: true,
     page: TokenBalancesPageRequest(page: 1, pageSize: 100)
 )
@@ -550,9 +558,11 @@ func getNativeTokenBalance(
 Fetches the native token balance for a wallet on a supported network. Returns `nil` when the indexer response does not include a balance object.
 
 ```swift
+guard let walletAddress = oms.wallet.walletAddress else { return }
+
 let balance = try await oms.indexer.getNativeTokenBalance(
     network: .polygon,
-    walletAddress: oms.wallet.walletAddress
+    walletAddress: walletAddress
 )
 ```
 
@@ -760,7 +770,7 @@ fee option when the transaction is sponsored.
 
 | Selector | Description |
 |---|---|
-| `.firstAvailable` | Uses indexer balances to skip underfunded fee options and picks the first option the wallet can pay. |
+| `.firstAvailable` | Uses indexer balances to skip underfunded fee options and picks the first option the wallet can pay. Malformed balance or fee values are treated as not payable. |
 | `.custom { options in ... }` | Calls your closure with the full `[FeeOptionWithBalance]` list and expects a `FeeOptionSelection?`. |
 
 ```swift
@@ -902,6 +912,21 @@ The transaction flow returns as soon as status is `.executed` or a non-empty
 `txnHash` is available.
 `TransactionResult` remains available as a compatibility alias.
 
+### TransactionStatusPollingOptions
+
+```swift
+struct TransactionStatusPollingOptions {
+    let timeoutMs: UInt64?
+    let intervalMs: UInt64?
+    let fastIntervalMs: UInt64?
+    let fastPollCount: Int?
+}
+```
+
+Controls how `sendTransaction` and `callContract` poll WaaS transaction status
+after execute when `waitForStatus` is `true`. Defaults are a 60 second timeout,
+400 ms fast polling for the first status checks, then 2 second polling.
+
 ### TransactionMode
 
 ```swift
@@ -937,7 +962,7 @@ struct SendTransactionRequest {
 }
 ```
 
-Used with the full `sendTransaction(network:request:selectFeeOption:)` overload.
+Used with the full `sendTransaction(network:request:selectFeeOption:waitForStatus:statusPolling:)` overload.
 `mode` defaults to `.relayer`.
 
 ### TokenBalancesResult
