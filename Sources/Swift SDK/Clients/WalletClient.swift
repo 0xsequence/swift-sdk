@@ -46,8 +46,10 @@ public class WalletClient: @unchecked Sendable {
     )
 
     private static let defaultSessionLifetimeSeconds: UInt32 = 604_800
-    private static let defaultTransactionPollingIntervals: [UInt64] =
-        Array(repeating: 750_000_000, count: 5) + Array(repeating: 2_000_000_000, count: 28)
+    static let defaultTransactionStatusPollTimeoutMs: UInt64 = 60_000
+    static let defaultFastTransactionStatusPollIntervalMs: UInt64 = 400
+    static let defaultFastTransactionStatusPollCount = 5
+    static let defaultTransactionStatusPollIntervalMs: UInt64 = 2_000
 
     private let sessionLock = NSRecursiveLock()
     private var _signedClient: WaasWalletClient
@@ -61,7 +63,6 @@ public class WalletClient: @unchecked Sendable {
     }
     var publicClient: WaasWalletPublicClient
     let indexerClient: any WalletIndexerClient
-    let transactionPollingIntervals: [UInt64]
     
     let projectId: String
     let publishableKey: String
@@ -131,12 +132,15 @@ public class WalletClient: @unchecked Sendable {
     private var _verifier = ""
     private var _challenge = ""
 
-    public internal(set) var walletAddress: String {
+    public internal(set) var walletAddress: String? {
         get {
-            withSessionLock { _walletAddress }
+            withSessionLock {
+                let walletAddress = _walletAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+                return walletAddress.isEmpty ? nil : walletAddress
+            }
         }
         set {
-            withSessionLock { _walletAddress = newValue }
+            withSessionLock { _walletAddress = newValue ?? "" }
         }
     }
     public internal(set) var walletId: String {
@@ -197,7 +201,6 @@ public class WalletClient: @unchecked Sendable {
             )
         }
         self.signedClientFactory = makeSignedClient
-        self.transactionPollingIntervals = Self.defaultTransactionPollingIntervals
 
         self._walletId = ""
         self._walletAddress = ""
@@ -229,7 +232,6 @@ public class WalletClient: @unchecked Sendable {
         oidcRedirectAuthStore: (any OidcRedirectAuthStore)? = nil,
         oidcNonceGenerator: @escaping () throws -> String = OidcRedirectAuth.generateNonce,
         signedClientFactory: ((any CredentialSigner) -> WaasWalletClient)? = nil,
-        transactionPollingIntervals: [UInt64]? = nil,
         currentDate: @escaping () -> Date = Date.init
     ) {
         self.projectId = projectId
@@ -241,7 +243,6 @@ public class WalletClient: @unchecked Sendable {
         self.currentDate = currentDate
         let makeSignedClient = signedClientFactory ?? { _ in signedClient }
         self.signedClientFactory = makeSignedClient
-        self.transactionPollingIntervals = transactionPollingIntervals ?? Self.defaultTransactionPollingIntervals
 
         self._walletId = ""
         self._walletAddress = ""
@@ -296,14 +297,13 @@ public class WalletClient: @unchecked Sendable {
     }
 
     func requireActiveWalletAddress() throws -> String {
-        let walletAddress = walletAddress.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !walletAddress.isEmpty else {
+        guard let walletAddress else {
             throw OmsSdkError.sessionMissing()
         }
         return walletAddress
     }
 
-    func activeWalletAddressIfNeeded(for selectFeeOption: FeeOptionSelector?) throws -> String? {
+    func walletAddressIfNeeded(for selectFeeOption: FeeOptionSelector?) throws -> String? {
         guard selectFeeOption != nil else {
             return nil
         }

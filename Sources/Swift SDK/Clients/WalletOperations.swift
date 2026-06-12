@@ -85,11 +85,13 @@ extension WalletClient {
         to: String,
         value: String,
         selectFeeOption: FeeOptionSelector? = nil,
-        mode: TransactionMode = .relayer
+        mode: TransactionMode = .relayer,
+        waitForStatus: Bool = true,
+        statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()
     ) async throws -> SendTransactionResponse {
         try await runOmsOperation(.walletSendTransaction) {
             let walletId = try requireActiveWalletId()
-            let walletAddress = try activeWalletAddressIfNeeded(for: selectFeeOption)
+            let walletAddress = try walletAddressIfNeeded(for: selectFeeOption)
             return try await sendTransaction(
                 network: network,
                 request: SendTransactionRequest(
@@ -99,6 +101,8 @@ extension WalletClient {
                     mode: mode
                 ),
                 selectFeeOption: selectFeeOption,
+                waitForStatus: waitForStatus,
+                statusPolling: statusPolling,
                 walletId: walletId,
                 walletAddress: walletAddress
             )
@@ -108,15 +112,19 @@ extension WalletClient {
     public func sendTransaction(
         network: Network,
         request: SendTransactionRequest,
-        selectFeeOption: FeeOptionSelector? = nil
+        selectFeeOption: FeeOptionSelector? = nil,
+        waitForStatus: Bool = true,
+        statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()
     ) async throws -> SendTransactionResponse {
         try await runOmsOperation(.walletSendTransaction) {
             let walletId = try requireActiveWalletId()
-            let walletAddress = try activeWalletAddressIfNeeded(for: selectFeeOption)
+            let walletAddress = try walletAddressIfNeeded(for: selectFeeOption)
             return try await sendTransaction(
                 network: network,
                 request: request,
                 selectFeeOption: selectFeeOption,
+                waitForStatus: waitForStatus,
+                statusPolling: statusPolling,
                 walletId: walletId,
                 walletAddress: walletAddress
             )
@@ -127,6 +135,8 @@ extension WalletClient {
         network: Network,
         request: SendTransactionRequest,
         selectFeeOption: FeeOptionSelector?,
+        waitForStatus: Bool,
+        statusPolling: TransactionStatusPollingOptions,
         walletId: String,
         walletAddress: String?
     ) async throws -> SendTransactionResponse {
@@ -145,8 +155,10 @@ extension WalletClient {
             network: network,
             prepareResponse: prepareResponse,
             feeOptionSelector: selectFeeOption,
+            waitForStatus: waitForStatus,
+            statusPolling: statusPolling,
             walletAddress: walletAddress
-        );
+        )
     }
 
     public func callContract(
@@ -155,11 +167,13 @@ extension WalletClient {
         method: String,
         args: [AbiArg]?,
         selectFeeOption: FeeOptionSelector? = nil,
-        mode: TransactionMode = .relayer
+        mode: TransactionMode = .relayer,
+        waitForStatus: Bool = true,
+        statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()
     ) async throws -> SendTransactionResponse {
         try await runOmsOperation(.walletCallContract) {
             let walletId = try requireActiveWalletId()
-            let walletAddress = try activeWalletAddressIfNeeded(for: selectFeeOption)
+            let walletAddress = try walletAddressIfNeeded(for: selectFeeOption)
             let prepareResponse = try await signedClient.prepareEthereumContractCall(
                 PrepareEthereumContractCallRequest(
                     network: network.chainId,
@@ -175,8 +189,10 @@ extension WalletClient {
                 network: network,
                 prepareResponse: prepareResponse,
                 feeOptionSelector: selectFeeOption,
+                waitForStatus: waitForStatus,
+                statusPolling: statusPolling,
                 walletAddress: walletAddress
-            );
+            )
         }
     }
 
@@ -209,6 +225,8 @@ extension WalletClient {
         network: Network,
         prepareResponse: PrepareResponse,
         feeOptionSelector: FeeOptionSelector?,
+        waitForStatus: Bool,
+        statusPolling: TransactionStatusPollingOptions,
         walletAddress: String?
     ) async throws -> SendTransactionResponse {
         let feeOptionSelection = try await selectFeeOption(
@@ -224,32 +242,26 @@ extension WalletClient {
         )
 
         let executeResponse = try await signedClient.execute(executeRequest)
-        var response = SendTransactionResponse(
-            txnId: prepareResponse.txnId,
-            status: executeResponse.status
-        )
-        if response.status == .executed {
-            return try await getSubmittedTransactionResult(txnId: prepareResponse.txnId)
+        if !waitForStatus {
+            return SendTransactionResponse(
+                txnId: prepareResponse.txnId,
+                status: executeResponse.status
+            )
         }
 
-        for pollIntervalNanos in transactionPollingIntervals {
-            guard response.status == .pending else {
-                break
-            }
-            if pollIntervalNanos > 0 {
-                try await Task.sleep(nanoseconds: pollIntervalNanos)
-            }
+        let statusResponse = try await waitForTransactionStatus(
+            txnId: prepareResponse.txnId,
+            fallbackStatus: executeResponse.status,
+            options: statusPolling
+        )
+        let response = SendTransactionResponse(
+            txnId: prepareResponse.txnId,
+            status: statusResponse.status,
+            txnHash: statusResponse.txnHash
+        )
 
-            let statusResponse = try await getTransactionStatus(txnId: prepareResponse.txnId)
-            response = SendTransactionResponse(
-                txnId: prepareResponse.txnId,
-                status: statusResponse.status,
-                txnHash: statusResponse.txnHash
-            )
-
-            if isSubmittedTransactionResult(response) {
-                return response
-            }
+        if isSubmittedTransactionResult(response) {
+            return response
         }
 
         if response.status == .pending {
@@ -391,19 +403,55 @@ extension WalletClient {
         }
     }
 
-    private func getSubmittedTransactionResult(txnId: String) async throws -> SendTransactionResponse {
-        let statusResponse = try await getTransactionStatus(txnId: txnId)
-        let response = SendTransactionResponse(
-            txnId: txnId,
-            status: statusResponse.status,
-            txnHash: statusResponse.txnHash
-        )
+    private func waitForTransactionStatus(
+        txnId: String,
+        fallbackStatus: TransactionStatus,
+        options: TransactionStatusPollingOptions
+    ) async throws -> TransactionStatusResponse {
+        let timeoutMs = options.timeoutMs ?? Self.defaultTransactionStatusPollTimeoutMs
+        let deadlineMs = currentTimeMs() + Double(timeoutMs)
+        var lastStatus = TransactionStatusResponse(status: fallbackStatus)
+        var completedPolls = 0
 
-        guard isSubmittedTransactionResult(response) else {
-            throw TransactionError.transactionFailed(status: statusResponse.status)
+        while true {
+            lastStatus = try await getTransactionStatus(txnId: txnId)
+            completedPolls += 1
+
+            if lastStatus.status == .executed || hasTransactionHash(lastStatus.txnHash) {
+                return lastStatus
+            }
+
+            let pollDelayMs = transactionStatusPollDelayMs(
+                completedPolls: completedPolls,
+                options: options
+            )
+            if pollDelayMs == 0 {
+                return lastStatus
+            }
+
+            let remainingMs = deadlineMs - currentTimeMs()
+            if remainingMs <= 0 {
+                return lastStatus
+            }
+
+            let sleepMs = min(Double(pollDelayMs), remainingMs)
+            try await Task.sleep(nanoseconds: UInt64(sleepMs * 1_000_000))
         }
+    }
 
-        return response
+    private func transactionStatusPollDelayMs(
+        completedPolls: Int,
+        options: TransactionStatusPollingOptions
+    ) -> UInt64 {
+        let fastPollCount = options.fastPollCount ?? Self.defaultFastTransactionStatusPollCount
+        if completedPolls < fastPollCount {
+            return options.fastIntervalMs ?? Self.defaultFastTransactionStatusPollIntervalMs
+        }
+        return options.intervalMs ?? Self.defaultTransactionStatusPollIntervalMs
+    }
+
+    private func currentTimeMs() -> Double {
+        currentDate().timeIntervalSince1970 * 1_000
     }
 
     private func isSubmittedTransactionResult(_ response: SendTransactionResponse) -> Bool {

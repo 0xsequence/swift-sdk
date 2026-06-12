@@ -69,7 +69,7 @@ extension WalletClient {
     }
 
     private func currentSessionLocked() -> SessionState {
-        guard !walletAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let walletAddress else {
             return SessionState(walletAddress: nil)
         }
 
@@ -97,7 +97,7 @@ extension WalletClient {
         sessionExpiryTask = nil
         activePendingWalletSelection = nil
         try? credentialSession.clearSignerKeepingCredentials()
-        walletAddress = ""
+        walletAddress = nil
         walletId = ""
         verifier = ""
         challenge = ""
@@ -224,7 +224,7 @@ extension WalletClient {
             sessionExpiryTask = nil
             activePendingWalletSelection = nil
             try credentialSession.clear()
-            walletAddress = ""
+            walletAddress = nil
             walletId = ""
             verifier = ""
             challenge = ""
