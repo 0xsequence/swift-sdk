@@ -40,12 +40,7 @@ private struct GetTransactionHistoryResponse: Decodable {
 }
 
 @available(macOS 12.0, iOS 15.0, *)
-protocol WalletIndexerClient {
-    func getBalances(_ params: GetBalancesParams) async throws -> BalancesResult
-}
-
-@available(macOS 12.0, iOS 15.0, *)
-public final class IndexerClient: WalletIndexerClient {
+public final class IndexerClient {
     private let publishableKey: String
     private let environment: OMSClientEnvironment
     private let client: HttpClient

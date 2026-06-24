@@ -1385,8 +1385,8 @@ import Testing
     #expect(txResult.txnHash == "0xdeadbeef")
     #expect(prepareRequest.mode == .relayer)
     #expect(executeRequest.feeOption?.token == "POL")
-    #expect(fixture.indexerClient.nativeBalanceRequestCount == 0)
-    #expect(fixture.indexerClient.tokenBalanceContractAddresses.isEmpty)
+    #expect(fixture.indexerBackend.nativeBalanceRequestCount == 0)
+    #expect(fixture.indexerBackend.tokenBalanceContractAddresses.isEmpty)
 }
 
 @Test func TestWalletGetTransactionStatusKeepsCancellationError() async throws {
@@ -1406,7 +1406,7 @@ import Testing
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"
     fixture.client.walletAddress = "0xwallet"
-    fixture.indexerClient.setNativeBalance(
+    fixture.indexerBackend.setNativeBalance(
         TokenBalance(
             contractType: "NATIVE",
             contractAddress: nil,
@@ -1418,7 +1418,7 @@ import Testing
             chainId: 80002
         )
     )
-    fixture.indexerClient.setTokenBalances(
+    fixture.indexerBackend.setTokenBalances(
         [
             TokenBalance(
                 contractType: "ERC20",
@@ -1467,15 +1467,15 @@ import Testing
     #expect(txResult.txnId == "txn-1")
     #expect(txResult.status == .executed)
     #expect(executeRequest.feeOption?.token == "usdc")
-    #expect(fixture.indexerClient.nativeBalanceRequestCount == 1)
-    #expect(fixture.indexerClient.tokenBalanceContractAddresses == ["0xusdc"])
+    #expect(fixture.indexerBackend.nativeBalanceRequestCount == 1)
+    #expect(fixture.indexerBackend.tokenBalanceContractAddresses == ["0xusdc"])
 }
 
 @Test func TestWalletSendTransactionFirstAvailableRequiresFundedFeeOption() async throws {
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"
     fixture.client.walletAddress = "0xwallet"
-    fixture.indexerClient.setNativeBalance(
+    fixture.indexerBackend.setNativeBalance(
         TokenBalance(
             contractType: "NATIVE",
             contractAddress: nil,
@@ -1487,7 +1487,7 @@ import Testing
             chainId: 80002
         )
     )
-    fixture.indexerClient.setTokenBalances(
+    fixture.indexerBackend.setTokenBalances(
         [
             TokenBalance(
                 contractType: "ERC20",
@@ -1525,8 +1525,8 @@ import Testing
         #expect(error.code == .validationError)
         #expect(error.operation == .walletSendTransaction)
         #expect(isTransactionError(error.underlyingError, .noFeeOptionSelected))
-        #expect(fixture.indexerClient.nativeBalanceRequestCount == 1)
-        #expect(fixture.indexerClient.tokenBalanceContractAddresses == ["0xusdc"])
+        #expect(fixture.indexerBackend.nativeBalanceRequestCount == 1)
+        #expect(fixture.indexerBackend.tokenBalanceContractAddresses == ["0xusdc"])
         #expect(fixture.transport.requestCount(for: WaasAPI.Execute.urlPath) == 0)
         return
     }
@@ -1581,7 +1581,7 @@ import Testing
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"
     fixture.client.walletAddress = "0xwallet"
-    fixture.indexerClient.setNativeBalance(
+    fixture.indexerBackend.setNativeBalance(
         TokenBalance(
             contractType: "NATIVE",
             contractAddress: nil,
@@ -1593,7 +1593,7 @@ import Testing
             chainId: 80002
         )
     )
-    fixture.indexerClient.setTokenBalances(
+    fixture.indexerBackend.setTokenBalances(
         [
             TokenBalance(
                 contractType: "ERC20",
@@ -1660,8 +1660,8 @@ import Testing
     #expect(txResult.txnHash == "0xdeadbeef")
     #expect(prepareRequest.mode == .native)
     #expect(executeRequest.feeOption?.token == "usdc")
-    #expect(fixture.indexerClient.nativeBalanceRequestCount == 1)
-    #expect(fixture.indexerClient.tokenBalanceContractAddresses == ["0xusdc"])
+    #expect(fixture.indexerBackend.nativeBalanceRequestCount == 1)
+    #expect(fixture.indexerBackend.tokenBalanceContractAddresses == ["0xusdc"])
 }
 
 @Test func TestWalletSendTransactionUnsponsoredCustomSelectorRequiresSelection() async throws {
@@ -1739,8 +1739,8 @@ import Testing
     #expect(txResult.status == .executed)
     #expect(txResult.txnHash == nil)
     #expect(executeRequest.feeOption == nil)
-    #expect(fixture.indexerClient.nativeBalanceRequestCount == 0)
-    #expect(fixture.indexerClient.tokenBalanceContractAddresses.isEmpty)
+    #expect(fixture.indexerBackend.nativeBalanceRequestCount == 0)
+    #expect(fixture.indexerBackend.tokenBalanceContractAddresses.isEmpty)
 }
 
 @Test func TestWalletCallContractReturnsSendTransactionResponse() async throws {
@@ -2075,7 +2075,7 @@ private struct MockWalletClientFixture {
     let environment: OMSClientEnvironment
     let projectId: String
     let oidcRedirectAuthStore: InMemoryOidcRedirectAuthStore
-    let indexerClient: MockWalletIndexerClient
+    let indexerBackend: MockIndexerBackend
 
     func storedCredentials() throws -> StorableCredentials? {
         guard let json = try keychain.string(
@@ -2099,7 +2099,11 @@ private func makeMockWalletClient(
     storedCredentials: StorableCredentials? = nil
 ) -> MockWalletClientFixture {
     let transport = MockWaasTransport()
-    let indexerClient = MockWalletIndexerClient()
+    let indexerBackend = MockIndexerBackend()
+    let indexerClient = indexerBackend.makeClient(
+        publishableKey: "test-publishable-key",
+        environment: environment
+    )
     let oidcRedirectAuthStore = InMemoryOidcRedirectAuthStore()
     if let storedCredentials {
         _ = try? keychain.set(
@@ -2144,7 +2148,7 @@ private func makeMockWalletClient(
         environment: environment,
         projectId: projectId,
         oidcRedirectAuthStore: oidcRedirectAuthStore,
-        indexerClient: indexerClient
+        indexerBackend: indexerBackend
     )
 }
 
@@ -2209,11 +2213,27 @@ private func testFeeOptions() -> [FeeOption] {
     ]
 }
 
-private final class MockWalletIndexerClient: WalletIndexerClient, @unchecked Sendable {
+private final class MockIndexerBackend: @unchecked Sendable {
+    private struct RecordedBalanceRequest {
+        let contractAddresses: [String]
+        let chainIds: [Int64]
+    }
+
+    private struct GatewayBalancesGroup: Encodable {
+        let chainId: Int64
+        let results: [TokenBalance]
+    }
+
+    private struct GatewayBalancesResponse: Encodable {
+        let page: TokenBalancesPage?
+        let nativeBalances: [GatewayBalancesGroup]
+        let balances: [GatewayBalancesGroup]
+    }
+
     private let lock = NSLock()
     private var nativeBalance: TokenBalance?
     private var tokenBalancesByContract: [String: [TokenBalance]] = [:]
-    private var balanceRequests: [GetBalancesParams] = []
+    private var balanceRequests: [RecordedBalanceRequest] = []
 
     var nativeBalanceRequestCount: Int {
         withLock { balanceRequests.count }
@@ -2222,9 +2242,33 @@ private final class MockWalletIndexerClient: WalletIndexerClient, @unchecked Sen
     var tokenBalanceContractAddresses: [String] {
         withLock {
             balanceRequests.flatMap { request in
-                request.contractAddresses?.map { $0.lowercased() } ?? []
+                request.contractAddresses.map { $0.lowercased() }
             }
         }
+    }
+
+    func makeClient(
+        publishableKey: String,
+        environment: OMSClientEnvironment
+    ) -> IndexerClient {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockIndexerURLProtocol.self]
+        configuration.timeoutIntervalForRequest = 1
+        configuration.timeoutIntervalForResource = 1
+
+        let host = MockIndexerURLProtocol.register(backend: self)
+        let session = URLSession(configuration: configuration)
+        let httpClient = HttpClient(session: session)
+        let indexerEnvironment = OMSClientEnvironment(
+            walletApiUrl: environment.walletApiUrl,
+            indexerGatewayUrl: "https://\(host)/v1/IndexerGateway/"
+        )
+
+        return IndexerClient(
+            publishableKey: publishableKey,
+            environment: indexerEnvironment,
+            client: httpClient
+        )
     }
 
     func setNativeBalance(_ balance: TokenBalance?) {
@@ -2239,18 +2283,28 @@ private final class MockWalletIndexerClient: WalletIndexerClient, @unchecked Sen
         }
     }
 
-    func getBalances(_ params: GetBalancesParams) async throws -> BalancesResult {
+    func responseBody(for requestBody: Data?) -> Data {
         withLock {
-            balanceRequests.append(params)
-            let tokenBalances = (params.contractAddresses ?? []).flatMap { contractAddress in
+            let request = decodeBalanceRequest(requestBody)
+            balanceRequests.append(request)
+            let tokenBalances = request.contractAddresses.flatMap { contractAddress in
                 tokenBalancesByContract[contractAddress.lowercased()] ?? []
             }
-            return BalancesResult(
-                status: 200,
-                page: nil,
-                nativeBalances: nativeBalance.map { [$0] } ?? [],
-                balances: tokenBalances
+
+            let fallbackChainId = request.chainIds.first
+                ?? nativeBalance?.chainId
+                ?? tokenBalances.first?.chainId
+                ?? Int64(Network.polygonAmoy.id)
+            let response = GatewayBalancesResponse(
+                page: TokenBalancesPage(page: 0, pageSize: 40, more: false),
+                nativeBalances: nativeBalance.map {
+                    [GatewayBalancesGroup(chainId: $0.chainId ?? fallbackChainId, results: [$0])]
+                } ?? [],
+                balances: tokenBalances.isEmpty
+                    ? []
+                    : [GatewayBalancesGroup(chainId: tokenBalances.first?.chainId ?? fallbackChainId, results: tokenBalances)]
             )
+            return (try? JSONEncoder().encode(response)) ?? Data(#"{"nativeBalances":[],"balances":[]}"#.utf8)
         }
     }
 
@@ -2258,6 +2312,95 @@ private final class MockWalletIndexerClient: WalletIndexerClient, @unchecked Sen
         lock.lock()
         defer { lock.unlock() }
         return body()
+    }
+
+    private func decodeBalanceRequest(_ body: Data?) -> RecordedBalanceRequest {
+        guard
+            let body,
+            let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
+        else {
+            return RecordedBalanceRequest(contractAddresses: [], chainIds: [])
+        }
+
+        let filter = object["filter"] as? [String: Any]
+        return RecordedBalanceRequest(
+            contractAddresses: filter?["contractWhitelist"] as? [String] ?? [],
+            chainIds: (object["chainIds"] as? [Int] ?? []).map(Int64.init)
+        )
+    }
+}
+
+private final class MockIndexerURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var backendsByHost: [String: MockIndexerBackend] = [:]
+
+    static func register(backend: MockIndexerBackend) -> String {
+        let host = "wallet-indexer-\(UUID().uuidString).test"
+        lock.lock()
+        defer { lock.unlock() }
+        backendsByHost[host] = backend
+        return host
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        let body = Self.backend(for: request)?.responseBody(for: Self.bodyData(for: request))
+            ?? Data(#"{"nativeBalances":[],"balances":[]}"#.utf8)
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+
+    private static func backend(for request: URLRequest) -> MockIndexerBackend? {
+        guard let host = request.url?.host else {
+            return nil
+        }
+        lock.lock()
+        defer { lock.unlock() }
+        return backendsByHost[host]
+    }
+
+    private static func bodyData(for request: URLRequest) -> Data? {
+        if let body = request.httpBody {
+            return body
+        }
+
+        guard let stream = request.httpBodyStream else {
+            return nil
+        }
+
+        stream.open()
+        defer { stream.close() }
+
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 1024)
+
+        while true {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count > 0 {
+                data.append(buffer, count: count)
+            } else {
+                break
+            }
+        }
+
+        return data
     }
 }
 

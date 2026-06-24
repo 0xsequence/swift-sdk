@@ -23,7 +23,7 @@ public class WalletClient: @unchecked Sendable {
         }
     }
     var publicClient: WaasPublicClient
-    let indexerClient: any WalletIndexerClient
+    let indexerClient: IndexerClient
     
     let projectId: String
     let credentialSession: WalletCredentialSession
@@ -208,7 +208,7 @@ public class WalletClient: @unchecked Sendable {
         credentialSession: WalletCredentialSession,
         signedClient: WaasClient,
         publicClient: WaasPublicClient,
-        indexerClient: (any WalletIndexerClient)? = nil,
+        indexerClient: IndexerClient? = nil,
         oidcRedirectAuthStore: (any OidcRedirectAuthStore)? = nil,
         oidcNonceGenerator: @escaping () throws -> String = OidcRedirectAuth.generateNonce,
         signedClientFactory: ((any CredentialSigner) -> WaasClient)? = nil,
