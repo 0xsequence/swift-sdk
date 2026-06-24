@@ -186,8 +186,7 @@ public final class IndexerClient: WalletIndexerClient {
         [
             "Api-Key": publishableKey,
             "Accept": "application/json",
-            "Webrpc": indexerGatewayWebRPCHeaderValue,
-            "Origin": "http://localhost:5173"
+            "Webrpc": indexerGatewayWebRPCHeaderValue
         ]
     }
 

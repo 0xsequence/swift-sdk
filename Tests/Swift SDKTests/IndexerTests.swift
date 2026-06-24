@@ -178,7 +178,7 @@ import Testing
     #expect(request.value(forHTTPHeaderField: "Api-Key") == "test-key")
     #expect(request.value(forHTTPHeaderField: "Accept") == "application/json")
     #expect(request.value(forHTTPHeaderField: "Webrpc")?.contains("sequence-indexer@v0.4.0") == true)
-    #expect(request.value(forHTTPHeaderField: "Origin") == "http://localhost:5173")
+    #expect(request.value(forHTTPHeaderField: "Origin") == nil)
     #expect(payload["chainIds"] as? [Int] == [137, 8453])
     #expect(payload["networkType"] == nil)
     #expect(payload["omitMetadata"] as? Bool == true)
