@@ -45,31 +45,12 @@ struct SignedWaasTransport: WebRPCTransport {
             requestHeaders[name] = value
         }
 
-        let capture = Self.captureCurlIfNeeded(
-            baseURL: baseURL,
-            path: path,
-            body: payload,
-            headers: requestHeaders,
-            statusCode: nil,
-            responseBody: nil
-        )
         let response = try await self.client.postJson(
             baseUrl: baseURL,
             path: path,
             body: payload,
             headers: requestHeaders
         )
-        if let capture {
-            Self.updateCurlCapture(
-                capture,
-                baseURL: baseURL,
-                path: path,
-                body: payload,
-                headers: requestHeaders,
-                statusCode: response.statusCode,
-                responseBody: response.body
-            )
-        }
 
         return WebRPCHTTPResponse(
             statusCode: response.statusCode,
@@ -99,143 +80,5 @@ struct SignedWaasTransport: WebRPCTransport {
             return path
         }
         return "/\(path)"
-    }
-
-    private static func captureCurlIfNeeded(
-        baseURL: String,
-        path: String,
-        body: String,
-        headers: [String: String],
-        statusCode: Int?,
-        responseBody: Data?
-    ) -> URL? {
-        guard shouldCaptureCurl(path: path),
-              let directory = curlCaptureDirectory() else {
-            return nil
-        }
-        let captureURL = directory.appendingPathComponent(curlCaptureFilename(path: path))
-        writeCurlCapture(
-            captureURL,
-            baseURL: baseURL,
-            path: path,
-            body: body,
-            headers: headers,
-            statusCode: statusCode,
-            responseBody: responseBody
-        )
-        updateLatestCurl(captureURL, in: directory, statusCode: statusCode)
-        return captureURL
-    }
-
-    private static func updateCurlCapture(
-        _ captureURL: URL,
-        baseURL: String,
-        path: String,
-        body: String,
-        headers: [String: String],
-        statusCode: Int,
-        responseBody: Data
-    ) {
-        writeCurlCapture(
-            captureURL,
-            baseURL: baseURL,
-            path: path,
-            body: body,
-            headers: headers,
-            statusCode: statusCode,
-            responseBody: responseBody
-        )
-        guard let directory = curlCaptureDirectory() else { return }
-        updateLatestCurl(captureURL, in: directory, statusCode: statusCode)
-    }
-
-    private static func writeCurlCapture(
-        _ captureURL: URL,
-        baseURL: String,
-        path: String,
-        body: String,
-        headers: [String: String],
-        statusCode: Int?,
-        responseBody: Data?
-    ) {
-        let responseURL = captureURL.deletingPathExtension().appendingPathExtension("response.txt")
-        if let responseBody {
-            try? responseBody.write(to: responseURL)
-        }
-
-        var lines: [String] = [
-            "#!/usr/bin/env bash",
-            "set -euo pipefail",
-            "# Captured: \(ISO8601DateFormatter().string(from: Date()))",
-            "# WebRPC path: \(path)"
-        ]
-        if let statusCode {
-            lines.append("# Response status: \(statusCode)")
-            lines.append("# Response body: \(responseURL.path)")
-        } else {
-            lines.append("# Response status: pending")
-        }
-        lines.append("")
-        lines.append("curl -i -sS -X POST \(shellSingleQuote(joinURL(baseURL: baseURL, path: path))) \\")
-        lines.append("  -H \(shellSingleQuote("Content-Type: application/json")) \\")
-        for (name, value) in headers.sorted(by: { $0.key < $1.key }) {
-            lines.append("  -H \(shellSingleQuote("\(name): \(value)")) \\")
-        }
-        lines.append("  --data-binary @- <<'JSON'")
-        lines.append(body)
-        lines.append("JSON")
-        lines.append("")
-        try? Data(lines.joined(separator: "\n").utf8).write(to: captureURL)
-    }
-
-    private static func updateLatestCurl(_ captureURL: URL, in directory: URL, statusCode: Int?) {
-        copyCapture(captureURL, to: directory.appendingPathComponent("waas-latest-curl.sh"))
-        guard let statusCode, statusCode >= 400 else { return }
-        copyCapture(captureURL, to: directory.appendingPathComponent("waas-latest-failed-curl.sh"))
-        let responseURL = captureURL.deletingPathExtension().appendingPathExtension("response.txt")
-        guard FileManager.default.fileExists(atPath: responseURL.path) else { return }
-        copyCapture(responseURL, to: directory.appendingPathComponent("waas-latest-failed-response.txt"))
-    }
-
-    private static func copyCapture(_ source: URL, to destination: URL) {
-        try? FileManager.default.removeItem(at: destination)
-        try? FileManager.default.copyItem(at: source, to: destination)
-    }
-
-    private static func shouldCaptureCurl(path: String) -> Bool {
-        path.hasSuffix("/PrepareEthereumTransaction") || path.hasSuffix("/Execute")
-    }
-
-    private static func curlCaptureDirectory() -> URL? {
-        let fileManager = FileManager.default
-        let baseURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
-            ?? fileManager.temporaryDirectory
-        let directory = baseURL.appendingPathComponent("waas-curl-captures", isDirectory: true)
-        do {
-            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-            return directory
-        } catch {
-            return nil
-        }
-    }
-
-    private static func curlCaptureFilename(path: String) -> String {
-        let timestamp = ISO8601DateFormatter()
-            .string(from: Date())
-            .replacingOccurrences(of: ":", with: "-")
-        let route = path
-            .split(separator: "/")
-            .joined(separator: "-")
-        return "waas-\(timestamp)-\(route).sh"
-    }
-
-    private static func joinURL(baseURL: String, path: String) -> String {
-        baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            + "/"
-            + path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-    }
-
-    private static func shellSingleQuote(_ value: String) -> String {
-        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 }
