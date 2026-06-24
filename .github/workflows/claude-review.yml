@@ -10,7 +10,12 @@ on:
 
 jobs:
   initial-review:
-    if: ${{ github.event_name == 'pull_request' && !github.event.pull_request.draft }}
+    if: >-
+      ${{
+        github.event_name == 'pull_request' &&
+        !github.event.pull_request.draft &&
+        github.event.pull_request.user.login != 'dependabot[bot]'
+      }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
