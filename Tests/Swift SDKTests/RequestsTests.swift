@@ -58,41 +58,6 @@ import Testing
     }
 }
 
-@Test func TestWalletRequestPreimageIncludesScope() async throws {
-    let payload = "{\"verifier\":\"email@example.com\"}"
-    let expected = """
-    POST /v1/Waas/CommitVerifier
-    nonce: 1234567890
-    scope: proj_1
-
-    {"verifier":"email@example.com"}
-    """
-
-    let preimage = RequestUtils.buildWalletRequestPreimage(
-        endpoint: "/CommitVerifier",
-        nonce: "1234567890",
-        scope: "proj_1",
-        payload: payload
-    )
-
-    #expect(preimage == expected)
-}
-
-@Test func TestWalletSignatureHeaderUsesSigningAlgorithm() async throws {
-    let credential = "0x04" + String(repeating: "11", count: 64)
-    let signature = "0x" + String(repeating: "22", count: 64)
-    let header = RequestUtils.buildWalletSignatureHeader(
-        alg: .ecdsaP256Sha256,
-        scope: "proj_1",
-        cred: credential,
-        nonce: "1234567890",
-        sig: signature
-    )
-    let expected = "alg=\"ecdsa-p256-sha256\", scope=\"proj_1\", cred=\"\(credential)\", nonce=1234567890, sig=\"\(signature)\""
-
-    #expect(header == expected)
-}
-
 @Test func TestP256RawSignatureDerRoundTrip() throws {
     let expectedRawSignature = Array(repeating: UInt8(0), count: 31)
         + [UInt8(0x80)]

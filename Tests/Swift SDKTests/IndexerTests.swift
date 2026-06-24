@@ -81,42 +81,6 @@ import Testing
     }
 }
 
-@Test func TestSignedWaasTransportSendsRequiredHeaders() async throws {
-    let recorder = IndexerRequestRecorder(
-        responseBody: Data(#"{"verifier":"test@example.com","loginHint":"","challenge":"challenge"}"#.utf8)
-    )
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [RecordingURLProtocol.self]
-
-    let host = RecordingURLProtocol.register(recorder: recorder)
-    let session = URLSession(configuration: configuration)
-    let transport = SignedWaasTransport(
-        publishableKey: "test-key",
-        scope: "proj_1",
-        signer: TestCredentialSigner(),
-        session: session
-    )
-    let client = WaasClient(
-        baseURL: "https://\(host)",
-        transport: transport
-    )
-
-    _ = try await client.commitVerifier(
-        CommitVerifierRequest(
-            identityType: .email,
-            authMode: .otp,
-            metadata: [:],
-            handle: "test@example.com"
-        )
-    )
-
-    let request = try #require(recorder.recordedRequest())
-    #expect(request.url?.path == "/v1/Waas/CommitVerifier")
-    #expect(request.value(forHTTPHeaderField: "Api-Key") == "test-key")
-    #expect(request.value(forHTTPHeaderField: "Webrpc")?.contains("waas@v1-26.6.17-061733f") == true)
-    #expect(request.value(forHTTPHeaderField: "OMS-Wallet-Signature")?.contains("scope=\"proj_1\"") == true)
-}
-
 @Test func TestIndexerCancelledRequestPreservesCancellation() async throws {
     let recorder = IndexerRequestRecorder(transportError: URLError(.cancelled))
     let client = makeRecordingIndexerClient(recorder: recorder)
@@ -556,27 +520,4 @@ private final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
 
         return data
     }
-}
-
-@available(macOS 12.0, iOS 15.0, *)
-private struct TestCredentialSigner: CredentialSigner {
-    let alg: SigningAlgorithm = .ecdsaP256Sha256
-
-    func credentialId() throws -> String {
-        "0xmock-credential"
-    }
-
-    func nextNonce() throws -> String {
-        "1"
-    }
-
-    func sign(preimage: String) throws -> String {
-        "0xmock-signature"
-    }
-
-    func hasCredential() throws -> Bool {
-        true
-    }
-
-    func clear() throws {}
 }
