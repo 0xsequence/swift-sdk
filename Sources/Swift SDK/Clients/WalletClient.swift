@@ -14,8 +14,8 @@ public class WalletClient: @unchecked Sendable {
     static let defaultTransactionStatusPollIntervalMs: UInt64 = 2_000
 
     private let sessionLock = NSRecursiveLock()
-    private var _signedClient: WaasWalletClient
-    var signedClient: WaasWalletClient {
+    private var _signedClient: WaasClient
+    var signedClient: WaasClient {
         get {
             withSessionLock { _signedClient }
         }
@@ -23,7 +23,7 @@ public class WalletClient: @unchecked Sendable {
             withSessionLock { _signedClient = newValue }
         }
     }
-    var publicClient: WaasWalletPublicClient
+    var publicClient: WaasPublicClient
     let indexerClient: any WalletIndexerClient
     
     let projectId: String
@@ -32,7 +32,7 @@ public class WalletClient: @unchecked Sendable {
     let credentialSession: WalletCredentialSession
     let oidcRedirectAuthStore: any OidcRedirectAuthStore
     let oidcNonceGenerator: () throws -> String
-    let signedClientFactory: (any CredentialSigner) -> WaasWalletClient
+    let signedClientFactory: (any CredentialSigner) -> WaasClient
     let currentDate: () -> Date
     private var _sessionExpiresAt: String?
     var sessionExpiresAt: String? {
@@ -145,7 +145,31 @@ public class WalletClient: @unchecked Sendable {
         }
     }
 
-    public init(publishableKey: String, projectId: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
+    public convenience init(
+        publishableKey: String,
+        walletOrigin: String? = nil
+    ) throws {
+        let parsedKey = try parsePublishableKey(publishableKey)
+        self.init(
+            publishableKey: publishableKey,
+            projectId: parsedKey.projectId,
+            environment: parsedKey.environment(walletOrigin: walletOrigin)
+        )
+    }
+
+    public convenience init(
+        publishableKey: String,
+        environment: OMSClientEnvironment
+    ) throws {
+        let parsedKey = try parsePublishableKey(publishableKey)
+        self.init(
+            publishableKey: publishableKey,
+            projectId: parsedKey.projectId,
+            environment: environment
+        )
+    }
+
+    init(publishableKey: String, projectId: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
         self.projectId = projectId
         self.publishableKey = publishableKey
         self.environment = environment
@@ -154,7 +178,7 @@ public class WalletClient: @unchecked Sendable {
         self.oidcRedirectAuthStore = KeychainOidcRedirectAuthStore(projectId: projectId, environment: environment)
         self.oidcNonceGenerator = OidcRedirectAuth.generateNonce
         self.currentDate = Date.init
-        let makeSignedClient: (any CredentialSigner) -> WaasWalletClient = { signer in
+        let makeSignedClient: (any CredentialSigner) -> WaasClient = { signer in
             Self.makeSignedClient(
                 publishableKey: publishableKey,
                 projectId: projectId,
@@ -188,12 +212,12 @@ public class WalletClient: @unchecked Sendable {
         projectId: String,
         environment: OMSClientEnvironment = OMSClientEnvironment(),
         credentialSession: WalletCredentialSession,
-        signedClient: WaasWalletClient,
-        publicClient: WaasWalletPublicClient,
+        signedClient: WaasClient,
+        publicClient: WaasPublicClient,
         indexerClient: (any WalletIndexerClient)? = nil,
         oidcRedirectAuthStore: (any OidcRedirectAuthStore)? = nil,
         oidcNonceGenerator: @escaping () throws -> String = OidcRedirectAuth.generateNonce,
-        signedClientFactory: ((any CredentialSigner) -> WaasWalletClient)? = nil,
+        signedClientFactory: ((any CredentialSigner) -> WaasClient)? = nil,
         currentDate: @escaping () -> Date = Date.init
     ) {
         self.projectId = projectId
@@ -310,13 +334,14 @@ public class WalletClient: @unchecked Sendable {
         projectId: String,
         environment: OMSClientEnvironment,
         signer: any CredentialSigner
-    ) -> WaasWalletClient {
-        return WaasWalletClient(
+    ) -> WaasClient {
+        return WaasClient(
             baseURL: environment.walletApiUrl,
             transport: SignedWaasTransport(
                 publishableKey: publishableKey,
                 scope: projectId,
-                signer: signer
+                signer: signer,
+                origin: environment.walletOrigin
             ),
             headers: { [:] }
         )
@@ -325,13 +350,17 @@ public class WalletClient: @unchecked Sendable {
     private static func makePublicClient(
         publishableKey: String,
         environment: OMSClientEnvironment
-    ) -> WaasWalletPublicClient {
-        return WaasWalletPublicClient(
+    ) -> WaasPublicClient {
+        return WaasPublicClient(
             baseURL: environment.walletApiUrl,
             headers: {
-                [
-                    "X-Access-Key": publishableKey
+                var headers = [
+                    "Api-Key": publishableKey
                 ]
+                if let origin = environment.walletOrigin {
+                    headers["Origin"] = origin
+                }
+                return headers
             }
         )
     }

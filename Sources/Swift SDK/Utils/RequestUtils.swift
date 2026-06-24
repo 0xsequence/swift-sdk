@@ -9,7 +9,7 @@ public class RequestUtils {
         scope: String,
         payload: String
     ) -> String {
-        return "POST /rpc/Wallet\(endpoint)\nnonce: \(nonce)\nscope: \(scope)\n\n\(payload)"
+        return "POST /v1/Waas\(endpoint)\nnonce: \(nonce)\nscope: \(scope)\n\n\(payload)"
     }
     
     public static func buildWalletSignatureHeader(

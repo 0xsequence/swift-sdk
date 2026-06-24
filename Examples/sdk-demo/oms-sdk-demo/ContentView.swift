@@ -209,10 +209,10 @@ final class AppViewModel: ObservableObject {
     @Published fileprivate var feeOptionSelectionRequest: FeeOptionSelectionRequest?
     @Published var useManualWalletSelection: Bool = false
     @Published var loginEmail: String = ""
-    @Published var sessionLifetimeText: String = "60"
-    @Published var oms: OMSClient = OMSClient(
-        publishableKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE",
-        projectId: "proj_014kg56dc0a75"
+    @Published var sessionLifetimeText: String = "604800"
+    @Published var oms: OMSClient = try! OMSClient(
+        publishableKey: "pk_dev_sdbx_01kqa06hyyetj_01kv5ceg4xefattzmm9fyx04ev",
+        walletOrigin: "https://0xsequence.github.io"
     )
 
     init() {
@@ -610,7 +610,7 @@ struct LoginWindow: View {
 
                 FieldGroup(title: "Session length", titleStyle: .secondary) {
                     HStack(spacing: 10) {
-                        TextField("60", text: $vm.sessionLifetimeText)
+                        TextField("604800", text: $vm.sessionLifetimeText)
                             .monospacedDigit()
                             .tokenTextInput()
                             #if os(iOS)
@@ -905,11 +905,13 @@ struct WalletWindow: View {
         defer { isFetchingBalance = false }
 
         do {
-            let balances = try await vm.oms.indexer.getTokenBalances(
-                network: selectedNetwork,
-                contractAddress: usdcContractAddress,
-                walletAddress: walletAddress,
-                includeMetadata: false
+            let balances = try await vm.oms.indexer.getBalances(
+                GetBalancesParams(
+                    walletAddress: walletAddress,
+                    networks: [selectedNetwork],
+                    contractAddresses: [usdcContractAddress],
+                    includeMetadata: false
+                )
             )
             if let raw = balances.balances.first?.balance {
                 usdcBalance = formatUSDCBalance(raw)
@@ -919,10 +921,9 @@ struct WalletWindow: View {
                 usdcBalanceRaw = "0"
             }
 
-            let nativeTokenBalance = try await vm.oms.indexer.getNativeTokenBalance(
-                network: selectedNetwork,
-                walletAddress: walletAddress
-            )
+            let nativeTokenBalance = balances.nativeBalances.first {
+                $0.chainId == Int64(selectedNetwork.id)
+            }
             if let raw = nativeTokenBalance?.balance {
                 nativeBalance = formatNativeTokenBalance(raw)
                 nativeBalanceRaw = raw

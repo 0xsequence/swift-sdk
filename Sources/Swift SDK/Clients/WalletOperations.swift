@@ -264,7 +264,7 @@ extension WalletClient {
             return response
         }
 
-        if response.status == .pending {
+        if response.status == .pending || response.status == .failed {
             return response
         }
 
@@ -316,17 +316,6 @@ extension WalletClient {
         walletAddress: String,
         feeOptions: [FeeOption]
     ) async -> [FeeOptionWithBalance] {
-        let nativeBalance: TokenBalance?
-        if feeOptions.contains(where: { $0.token.isNativeToken }) {
-            nativeBalance = await loadNativeTokenBalance(
-                network: network,
-                walletAddress: walletAddress
-            )
-        } else {
-            nativeBalance = nil
-        }
-
-        var balancesByContract: [String: TokenBalance?] = [:]
         let contractAddresses = feeOptions
             .compactMap { normalizedAddress($0.token.contractAddress) }
             .reduce(into: [String]()) { addresses, address in
@@ -335,12 +324,35 @@ extension WalletClient {
                 }
             }
 
-        for contractAddress in contractAddresses {
-            balancesByContract[contractAddress] = await loadTokenBalanceOrZero(
-                network: network,
-                contractAddress: contractAddress,
-                walletAddress: walletAddress
+        let balances = try? await indexerClient.getBalances(
+            GetBalancesParams(
+                walletAddress: walletAddress,
+                networks: [network],
+                contractAddresses: contractAddresses,
+                includeMetadata: false
             )
+        )
+
+        let nativeBalance = feeOptions.contains(where: { $0.token.isNativeToken })
+            ? balances?.nativeBalances.first { $0.chainId == Int64(network.id) }
+            : nil
+
+        var balancesByContract: [String: TokenBalance?] = [:]
+        for contractAddress in contractAddresses {
+            balancesByContract[contractAddress] = balances.map { balances in
+                balances.balances.first {
+                    normalizedAddress($0.contractAddress) == contractAddress
+                } ?? TokenBalance(
+                    contractType: "ERC20",
+                    contractAddress: contractAddress,
+                    accountAddress: walletAddress,
+                    tokenId: nil,
+                    balance: "0",
+                    blockHash: nil,
+                    blockNumber: nil,
+                    chainId: Int64(network.id)
+                )
+            }
         }
 
         return feeOptions.map { feeOption in
@@ -363,46 +375,6 @@ extension WalletClient {
         }
     }
 
-    private func loadNativeTokenBalance(
-        network: Network,
-        walletAddress: String
-    ) async -> TokenBalance? {
-        try? await indexerClient.getNativeTokenBalance(
-            network: network,
-            walletAddress: walletAddress
-        )
-    }
-
-    private func loadTokenBalanceOrZero(
-        network: Network,
-        contractAddress: String,
-        walletAddress: String
-    ) async -> TokenBalance? {
-        do {
-            let result = try await indexerClient.getTokenBalances(
-                network: network,
-                contractAddress: contractAddress,
-                walletAddress: walletAddress,
-                includeMetadata: false,
-                page: TokenBalancesPageRequest()
-            )
-            return result.balances.first {
-                normalizedAddress($0.contractAddress) == contractAddress
-            } ?? TokenBalance(
-                contractType: "ERC20",
-                contractAddress: contractAddress,
-                accountAddress: walletAddress,
-                tokenId: nil,
-                balance: "0",
-                blockHash: nil,
-                blockNumber: nil,
-                chainId: Int64(network.chainId)
-            )
-        } catch {
-            return nil
-        }
-    }
-
     private func waitForTransactionStatus(
         txnId: String,
         fallbackStatus: TransactionStatus,
@@ -417,7 +389,9 @@ extension WalletClient {
             lastStatus = try await getTransactionStatus(txnId: txnId)
             completedPolls += 1
 
-            if lastStatus.status == .executed || hasTransactionHash(lastStatus.txnHash) {
+            if lastStatus.status == .executed
+                || lastStatus.status == .failed
+                || hasTransactionHash(lastStatus.txnHash) {
                 return lastStatus
             }
 

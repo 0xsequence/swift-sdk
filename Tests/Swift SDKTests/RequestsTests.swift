@@ -61,7 +61,7 @@ import Testing
 @Test func TestWalletRequestPreimageIncludesScope() async throws {
     let payload = "{\"verifier\":\"email@example.com\"}"
     let expected = """
-    POST /rpc/Wallet/CommitVerifier
+    POST /v1/Waas/CommitVerifier
     nonce: 1234567890
     scope: proj_1
 

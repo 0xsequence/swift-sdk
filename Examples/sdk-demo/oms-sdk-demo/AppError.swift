@@ -13,7 +13,7 @@ struct GenericAppError: Identifiable {
     }
 
     init?(_ error: Error) {
-        if error is CancellationError {
+        if isCancellation(error) {
             return nil
         }
         self.message = errorMessage(for: error)
@@ -21,8 +21,12 @@ struct GenericAppError: Identifiable {
 }
 
 private func errorMessage(for error: Error) -> String {
-    if error is CancellationError {
+    if isCancellation(error) {
         return "The operation was cancelled."
+    }
+
+    if let error = error as? OmsSdkError {
+        return errorMessage(for: error)
     }
 
     if let error = error as? WebRPCError {
@@ -63,36 +67,77 @@ private func errorMessage(for error: Error) -> String {
         : description
 }
 
+private func isCancellation(_ error: Error) -> Bool {
+    if error is CancellationError {
+        return true
+    }
+    if let urlError = error as? URLError {
+        return urlError.code == .cancelled
+    }
+    let nsError = error as NSError
+    return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+}
+
+private func errorMessage(for error: OmsSdkError) -> String {
+    var sections = [String]()
+    sections.append(cleanPrimaryMessage(error.localizedDescription) ?? fallbackMessage(for: error))
+
+    var details = [String]()
+    if let operation = error.operation {
+        details.append("Operation: \(operation.rawValue)")
+    }
+    details.append("SDK code: \(error.code.rawValue)")
+    if let status = error.status {
+        details.append("HTTP status: \(status)")
+    }
+    details.append("Retryable: \(error.retryable ? "yes" : "no")")
+
+    if let webRPCError = webRPCError(from: error.underlyingError) {
+        details.append(contentsOf: webRPCDetails(webRPCError))
+    } else if let underlyingError = error.underlyingError {
+        details.append("Underlying error: \(String(describing: underlyingError))")
+    }
+
+    if !details.isEmpty {
+        sections.append(details.joined(separator: "\n"))
+    }
+
+    return sections.joined(separator: "\n\n")
+}
+
 private func errorMessage(for error: WebRPCError) -> String {
+    let details = webRPCDetails(error).joined(separator: "\n")
+    let diagnosticSuffix = details.isEmpty ? "" : "\n\n\(details)"
+
     switch error.kind {
     case .answerIncorrect:
-        return "The verification code is incorrect. Please try again."
+        return "The verification code is incorrect. Please try again.\(diagnosticSuffix)"
     case .challengeExpired:
-        return "The verification code expired. Request a new code and try again."
+        return "The verification code expired. Request a new code and try again.\(diagnosticSuffix)"
     case .commitmentConsumed:
-        return "This verification code has already been used. Request a new code and try again."
+        return "This verification code has already been used. Request a new code and try again.\(diagnosticSuffix)"
     case .tooManyAttempts:
-        return "Too many attempts. Please wait a moment before trying again."
+        return "Too many attempts. Please wait a moment before trying again.\(diagnosticSuffix)"
     case .unauthorized:
-        return "You are not authorized for this action. Please sign in again."
+        return "You are not authorized for this action. Please sign in again.\(diagnosticSuffix)"
     case .unsupportedNetwork:
-        return "The selected network is not supported."
+        return "The selected network is not supported.\(diagnosticSuffix)"
     case .transactionFailed:
-        return serviceErrorMessage(error, fallback: "The transaction failed.")
+        return serviceErrorMessage(error, fallback: "The transaction failed.") + diagnosticSuffix
     case .walletProviderError:
-        return serviceErrorMessage(error, fallback: "The wallet provider could not complete the request.")
+        return serviceErrorMessage(error, fallback: "The wallet provider could not complete the request.") + diagnosticSuffix
     case .walletNotFound:
-        return "Wallet not found. Please sign in again."
+        return "Wallet not found. Please sign in again.\(diagnosticSuffix)"
     case .invalidRequest, .webrpcBadRequest:
-        return serviceErrorMessage(error, fallback: "The request was invalid.")
+        return serviceErrorMessage(error, fallback: "The request was invalid.") + diagnosticSuffix
     case .webrpcBadResponse:
-        return "The OMS service returned an unexpected response. Please try again."
+        return "The OMS service returned an unexpected response. Please try again.\(diagnosticSuffix)"
     case .webrpcRequestFailed:
-        return "The OMS request failed. Please check your connection and try again."
+        return "The OMS request failed. Please check your connection and try again.\(diagnosticSuffix)"
     case .internalError, .databaseError, .dataIntegrityError, .encryptionError, .webrpcInternalError, .webrpcServerPanic:
-        return "The OMS service encountered an error. Please try again."
+        return "The OMS service encountered an error. Please try again.\(diagnosticSuffix)"
     default:
-        return serviceErrorMessage(error, fallback: "An unexpected OMS error occurred.")
+        return serviceErrorMessage(error, fallback: "An unexpected OMS error occurred.") + diagnosticSuffix
     }
 }
 
@@ -106,6 +151,65 @@ private func serviceErrorMessage(_ error: WebRPCError, fallback: String) -> Stri
     }
 
     return "\(fallback) \(detail)"
+}
+
+private func cleanPrimaryMessage(_ message: String) -> String? {
+    let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+        return nil
+    }
+    if trimmed == "endpoint error" || trimmed == "bad response" {
+        return nil
+    }
+    return trimmed
+}
+
+private func fallbackMessage(for error: OmsSdkError) -> String {
+    switch error.code {
+    case .httpError:
+        return "The OMS service returned an HTTP error."
+    case .invalidResponse:
+        return "The OMS service returned an unexpected response."
+    case .requestFailed:
+        return "The OMS request failed."
+    case .validationError:
+        return "The request was invalid."
+    case .sessionMissing, .sessionExpired:
+        return error.localizedDescription
+    default:
+        return "An OMS SDK operation failed."
+    }
+}
+
+private func webRPCError(from error: (any Error)?) -> WebRPCError? {
+    if let error = error as? WebRPCError {
+        return error
+    }
+    if let error = error as? OmsSdkError {
+        return webRPCError(from: error.underlyingError)
+    }
+    return nil
+}
+
+private func webRPCDetails(_ error: WebRPCError) -> [String] {
+    var details = [
+        "WebRPC error: \(error.error)",
+        "WebRPC code: \(error.code)",
+        "WebRPC kind: \(String(describing: error.kind))",
+        "WebRPC status: \(error.status)"
+    ]
+
+    let message = error.message.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !message.isEmpty {
+        details.append("WebRPC message: \(message)")
+    }
+
+    let cause = error.cause.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !cause.isEmpty {
+        details.append("WebRPC cause: \(cause)")
+    }
+
+    return details
 }
 
 extension View {
@@ -155,10 +259,15 @@ struct TokenDialog: View {
                         .foregroundStyle(DesignTokens.Color.primaryText)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    Text(message)
-                        .font(DesignTokens.Typography.caption)
-                        .foregroundStyle(DesignTokens.Color.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
+                    ScrollView {
+                        Text(message)
+                            .font(DesignTokens.Typography.caption)
+                            .foregroundStyle(DesignTokens.Color.secondaryText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                    }
+                    .frame(maxHeight: 260, alignment: .leading)
                 }
 
                 HStack(spacing: 12) {

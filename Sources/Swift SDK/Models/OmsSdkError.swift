@@ -35,8 +35,8 @@ public enum OmsSdkOperation: String, Sendable {
     case walletSendTransaction = "wallet.sendTransaction"
     case walletCallContract = "wallet.callContract"
     case walletGetTransactionStatus = "wallet.getTransactionStatus"
-    case indexerGetTokenBalances = "indexer.getTokenBalances"
-    case indexerGetNativeTokenBalance = "indexer.getNativeTokenBalance"
+    case indexerGetBalances = "indexer.getBalances"
+    case indexerGetTransactionHistory = "indexer.getTransactionHistory"
 }
 
 public struct OmsSdkError: Error, LocalizedError, @unchecked Sendable {

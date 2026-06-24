@@ -3,10 +3,38 @@ public class OMSClient {
     public let wallet: WalletClient
     public let indexer: IndexerClient
 
-    public init(publishableKey: String, projectId: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
+    public convenience init(
+        publishableKey: String,
+        walletOrigin: String? = nil
+    ) throws {
+        let parsedKey = try parsePublishableKey(publishableKey)
+        self.init(
+            publishableKey: publishableKey,
+            parsedKey: parsedKey,
+            environment: parsedKey.environment(walletOrigin: walletOrigin)
+        )
+    }
+
+    public convenience init(
+        publishableKey: String,
+        environment: OMSClientEnvironment
+    ) throws {
+        let parsedKey = try parsePublishableKey(publishableKey)
+        self.init(
+            publishableKey: publishableKey,
+            parsedKey: parsedKey,
+            environment: environment
+        )
+    }
+
+    init(
+        publishableKey: String,
+        parsedKey: ParsedPublishableKey,
+        environment: OMSClientEnvironment
+    ) {
         self.wallet = WalletClient(
             publishableKey: publishableKey,
-            projectId: projectId,
+            projectId: parsedKey.projectId,
             environment: environment
         )
 
