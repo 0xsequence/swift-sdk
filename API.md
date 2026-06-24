@@ -67,19 +67,8 @@ init(
 
 | Parameter | Type | Description |
 |---|---|---|
-| `publishableKey` | `String` | OMS publishable key. The SDK derives the project scope and service URLs from this value. |
-| `environment` | `OMSClientEnvironment` | Explicit API endpoint override. The project scope is still derived from `publishableKey`. |
-
-Publishable keys must use one of these prefixes and contain two suffix segments: a project segment and key segment. The project scope is `prj_<project segment>`.
-
-| Prefix | API base |
-|---|---|
-| `pk_dev_sdbx_` | `https://sandbox-api.dev.polygon-dev.technology` |
-| `pk_dev_live_` | `https://api.dev.polygon-dev.technology` |
-| `pk_stg_sdbx_` | `https://sandbox-api.stg.polygon-dev.technology` |
-| `pk_stg_live_` | `https://api.stg.polygon-dev.technology` |
-| `pk_sdbx_` | `https://sandbox-api.polygon.technology` |
-| `pk_live_` | `https://api.polygon.technology` |
+| `publishableKey` | `String` | OMS publishable key. |
+| `environment` | `OMSClientEnvironment` | Explicit API endpoint override. |
 
 ### Properties
 
@@ -98,13 +87,14 @@ func findNetworkByName(name: String) -> Network?
 
 Returns the supported `Network` for a numeric chain ID or network name, or `nil`
 when the chain is not supported. Names are trimmed and lowercased before lookup;
-`polygonamoy` is accepted as a legacy alias for `.polygonAmoy`.
+`polygonamoy` is also accepted for `.polygonAmoy`.
 
 ---
 
 ## WalletClient
 
-Accessed via `oms.wallet`. Manages wallet authentication, non-extractable Keychain request signing, keychain session persistence, signing, signature verification, and transaction submission.
+Accessed via `oms.wallet`. Manages wallet authentication, session persistence,
+signing, signature verification, and transaction submission.
 
 ### init
 
@@ -119,7 +109,8 @@ init(
 ) throws
 ```
 
-Most apps create a wallet client through `OMSClient`. Use these initializers only when constructing `WalletClient` directly. The project scope is derived from `publishableKey`.
+Most apps create a wallet client through `OMSClient`. Use these initializers only
+when constructing `WalletClient` directly.
 
 ### walletAddress
 
@@ -151,7 +142,9 @@ Snapshot of the currently completed wallet session for this wallet client.
 var onSessionExpired: ((SessionExpiredEvent) -> Void)?
 ```
 
-Called when the active wallet session expires. The SDK clears active in-memory wallet state and the signer credential, but keeps expired session metadata in storage until `signOut()` or a new auth flow clears or replaces it. The event carries the expired session snapshot so apps can reuse `sessionEmail` for email OTP reauth or as a Google OIDC login hint.
+Called when the active wallet session expires. The event carries the expired
+session snapshot so apps can reuse `sessionEmail` for email OTP reauth or as a
+Google OIDC login hint.
 
 ### canResumeOidcRedirectAuth
 
@@ -159,7 +152,7 @@ Called when the active wallet session expires. The SDK clears active in-memory w
 var canResumeOidcRedirectAuth: Bool
 ```
 
-Whether there is a persisted OIDC redirect flow waiting for its callback URL.
+Whether there is an OIDC redirect flow waiting for its callback URL.
 
 ### startEmailAuth
 
@@ -199,10 +192,7 @@ func signInWithOidcIdToken(
 ) async throws -> CompleteAuthResult
 ```
 
-Signs in with an OIDC ID token. The SDK commits an OIDC `id-token` verifier
-using `issuer`, `audience`, the token `exp` claim, and a SHA-256 base64url hash
-of the full token as the verifier handle, then completes auth with the original
-token.
+Signs in with an OIDC ID token for the provided `issuer` and `audience`.
 
 With `.automatic`, selects the first existing wallet matching `walletType`, or
 creates and selects one when none exists. With `.manual`, returns a pending
@@ -332,14 +322,10 @@ enum OidcRedirectAuthResult {
 }
 ```
 
-OIDC redirect auth stores transient verifier/state data separately from completed
-wallet sessions so apps can resume after the browser redirect. The callback
-handler is safe to call for every incoming app link: unrelated links return
-`.notOidcRedirectCallback`, stale links return `.noPendingAuth`, and provider or
-completion failures return `.failed`. Invalid or unrelated callbacks do not clear
-pending redirect auth. Valid callbacks clear pending redirect auth after success
-or non-cancellation failure. Cancellation rethrows `CancellationError` without
-clearing pending redirect auth.
+The callback handler is safe to call for every incoming app link: unrelated
+links return `.notOidcRedirectCallback`, stale links return `.noPendingAuth`, and
+provider or completion failures return `.failed`. Cancellation rethrows
+`CancellationError`.
 
 ### useWallet
 
@@ -368,15 +354,13 @@ func listWallets() async throws -> [Wallet]
 
 Lists all wallets available to the authenticated credential.
 
-Wallet API requests are signed with a Keychain-backed P-256 credential using the `webcrypto-secp256r1` key type. Persisted sessions store wallet ID, wallet address, expiry, and signer metadata; private credential keys are not written into SDK session storage. Restore checks the cached expiry first. Expired sessions are not activated, and the signer credential is cleared; expired metadata may remain in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it. Invalid persisted session metadata is cleared.
-
 ### signOut
 
 ```swift
 func signOut() throws
 ```
 
-Clears the keychain session, local wallet identifiers, verifier state, and session signer.
+Signs out and clears the active wallet session.
 
 ### signMessage
 
@@ -497,7 +481,7 @@ func listAccess(pageSize: UInt32? = nil) async throws -> [CredentialInfo]
 ```
 
 Returns all credentials that currently have access to this wallet, following
-WaaS cursors until every page has been loaded.
+pagination until every page has been loaded.
 
 ### listAccessPages
 
@@ -505,8 +489,8 @@ WaaS cursors until every page has been loaded.
 func listAccessPages(pageSize: UInt32? = nil) -> ListAccessPages
 ```
 
-Returns credential-access pages for this wallet until WaaS stops returning a
-cursor.
+Returns credential-access pages for this wallet until no further cursor is
+returned.
 
 ### listAccessPage
 
@@ -666,7 +650,7 @@ enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
 }
 ```
 
-| Case | Chain ID | Display name | Indexer value | Native token |
+| Case | Chain ID | Display name | Name | Native token |
 |---|---|---|---|---|
 | `.mainnet` | `1` | Ethereum | `mainnet` | `ETH` |
 | `.sepolia` | `11155111` | Sepolia | `sepolia` | `ETH` |
@@ -711,7 +695,7 @@ struct SessionState: Equatable, Sendable {
 }
 ```
 
-Current durable wallet-session snapshot. It intentionally excludes pending auth state and signer bookkeeping.
+Current wallet-session snapshot. It intentionally excludes pending auth state.
 
 ### SessionExpiredEvent
 
@@ -741,16 +725,13 @@ Auth method that produced the completed wallet session.
 ```swift
 struct OMSClientEnvironment: Equatable, Sendable {
     static let defaultWalletApiUrl: String
-    static let defaultApiRpcUrl: String
     static let defaultIndexerGatewayUrl: String
 
     let walletApiUrl: String
-    let apiRpcUrl: String
     let indexerGatewayUrl: String
 
     init(
         walletApiUrl: String = OMSClientEnvironment.defaultWalletApiUrl,
-        apiRpcUrl: String = OMSClientEnvironment.defaultApiRpcUrl,
         indexerGatewayUrl: String = OMSClientEnvironment.defaultIndexerGatewayUrl
     )
 }
@@ -759,7 +740,6 @@ struct OMSClientEnvironment: Equatable, Sendable {
 | Field | Type | Description |
 |---|---|---|
 | `walletApiUrl` | `String` | Base URL of the OMS Wallet API. |
-| `apiRpcUrl` | `String` | Base URL of the OMS API RPC. |
 | `indexerGatewayUrl` | `String` | Base URL of the IndexerGateway API. |
 
 ### FeeOptionSelector
@@ -935,7 +915,7 @@ struct TransactionStatusPollingOptions {
 }
 ```
 
-Controls how `sendTransaction` and `callContract` poll WaaS transaction status
+Controls how `sendTransaction` and `callContract` poll transaction status
 after execute when `waitForStatus` is `true`. Defaults are a 60 second timeout,
 400 ms fast polling for the first status checks, then 2 second polling.
 

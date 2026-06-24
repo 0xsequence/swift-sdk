@@ -4,19 +4,16 @@ private let indexerGatewayWebRPCHeaderValue = "webrpc@v0.31.2;gen-swift@v0.1.2;s
 
 private struct GatewayNativeTokenBalances: Decodable {
     let chainId: Int64
-    let errorReason: String?
     let results: [NativeTokenBalanceResponse]?
 }
 
 private struct GatewayTokenBalances: Decodable {
     let chainId: Int64
-    let errorReason: String?
     let results: [TokenBalance]?
 }
 
 private struct GatewayTransactions: Decodable {
     let chainId: Int64
-    let errorReason: String?
     let results: [Transaction]?
 }
 
@@ -29,7 +26,6 @@ private struct NativeTokenBalanceResponse: Decodable {
     let balanceUSD: String?
     let priceUSD: String?
     let priceUpdatedAt: String?
-    let errorReason: String?
 }
 
 private struct GetTokenBalancesDetailsResponse: Decodable {

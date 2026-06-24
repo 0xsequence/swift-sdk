@@ -58,8 +58,6 @@ import Testing
 
         let oms = try OMSClient(publishableKey: publishableKey)
         #expect(oms.wallet.projectId == "prj_project")
-        #expect(oms.wallet.environment.walletApiUrl == apiUrl)
-        #expect(oms.wallet.environment.indexerGatewayUrl == "\(apiUrl)/v1/IndexerGateway/")
     }
 }
 

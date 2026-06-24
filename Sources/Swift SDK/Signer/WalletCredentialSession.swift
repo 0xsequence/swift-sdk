@@ -10,7 +10,6 @@ final class WalletCredentialSession {
         let sessionEmail: String?
     }
 
-    private let environment: OMSClientEnvironment
     private let keychain: any KeychainManaging
     private let credentialsStorageKey: String
     private let signerFactory: () -> any CredentialSigner
@@ -26,7 +25,6 @@ final class WalletCredentialSession {
         keychain: any KeychainManaging = KeychainManager(),
         signerFactory: ((String, OMSClientEnvironment, any KeychainManaging) -> any CredentialSigner)? = nil
     ) {
-        self.environment = environment
         self.keychain = keychain
         self.credentialsStorageKey = Constants.credentialsStorageKey(environment: environment, scope: projectId)
         let makeSigner = signerFactory ?? Self.makeDefaultCredentialSigner

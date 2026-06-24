@@ -327,7 +327,6 @@ transactions require the selector to return a fee selection.
 ```swift
 let env = OMSClientEnvironment(
     walletApiUrl: "https://staging-wallet.example.com",
-    apiRpcUrl: "https://staging-api.example.com/rpc/API",
     indexerGatewayUrl: "https://staging-api.example.com/v1/IndexerGateway/"
 )
 

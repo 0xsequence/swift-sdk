@@ -19,17 +19,6 @@ enum P256EcdsaSignatureEncoding {
         return r + s
     }
 
-    static func rawToDer(_ rawSignature: [UInt8]) throws -> Data {
-        guard rawSignature.count == rawSignatureSizeBytes else {
-            throw EncodingError.invalidSignature
-        }
-
-        let r = try Array(rawSignature[0..<p256FieldSizeBytes]).toDerInteger()
-        let s = try Array(rawSignature[p256FieldSizeBytes..<rawSignatureSizeBytes]).toDerInteger()
-        let body = r + s
-        return Data([sequenceTag] + encodeLength(body.count) + body)
-    }
-
     private struct DerReader {
         private let source: [UInt8]
         private(set) var position: Int = 0
@@ -114,59 +103,7 @@ enum P256EcdsaSignatureEncoding {
         }
     }
 
-    private static func encodeLength(_ length: Int) -> [UInt8] {
-        precondition(length >= 0)
-        if length < 0x80 {
-            return [UInt8(length)]
-        }
-
-        var bytes: [UInt8] = []
-        var remaining = length
-        while remaining > 0 {
-            bytes.append(UInt8(remaining & 0xff))
-            remaining >>= 8
-        }
-        return [0x80 | UInt8(bytes.count)] + Array(bytes.reversed())
-    }
-
     private static let p256FieldSizeBytes = 32
-    private static let rawSignatureSizeBytes = 64
     private static let sequenceTag: UInt8 = 0x30
     private static let integerTag: UInt8 = 0x02
-}
-
-private extension Array where Element == UInt8 {
-    func toDerInteger() throws -> [UInt8] {
-        let trimmed = dropLeadingZeroes()
-        let positive: [UInt8]
-        if trimmed[0] & 0x80 != 0 {
-            positive = [0] + trimmed
-        } else {
-            positive = trimmed
-        }
-        return [0x02] + P256EcdsaSignatureEncoding.encodeLengthForInteger(positive.count) + positive
-    }
-
-    func dropLeadingZeroes() -> [UInt8] {
-        guard let firstNonZero = firstIndex(where: { $0 != 0 }) else {
-            return [0]
-        }
-        return Array(self[firstNonZero...])
-    }
-}
-
-private extension P256EcdsaSignatureEncoding {
-    static func encodeLengthForInteger(_ length: Int) -> [UInt8] {
-        if length < 0x80 {
-            return [UInt8(length)]
-        }
-
-        var bytes: [UInt8] = []
-        var remaining = length
-        while remaining > 0 {
-            bytes.append(UInt8(remaining & 0xff))
-            remaining >>= 8
-        }
-        return [0x80 | UInt8(bytes.count)] + Array(bytes.reversed())
-    }
 }

@@ -7,7 +7,6 @@ public class WalletClient: @unchecked Sendable {
         event: SessionExpiredEvent
     )
 
-    private static let defaultSessionLifetimeSeconds: UInt32 = 604_800
     static let defaultTransactionStatusPollTimeoutMs: UInt64 = 60_000
     static let defaultFastTransactionStatusPollIntervalMs: UInt64 = 400
     static let defaultFastTransactionStatusPollCount = 5
@@ -27,8 +26,6 @@ public class WalletClient: @unchecked Sendable {
     let indexerClient: any WalletIndexerClient
     
     let projectId: String
-    let publishableKey: String
-    let environment: OMSClientEnvironment
     let credentialSession: WalletCredentialSession
     let oidcRedirectAuthStore: any OidcRedirectAuthStore
     let oidcNonceGenerator: () throws -> String
@@ -170,8 +167,6 @@ public class WalletClient: @unchecked Sendable {
 
     init(publishableKey: String, projectId: String, environment: OMSClientEnvironment = OMSClientEnvironment()) {
         self.projectId = projectId
-        self.publishableKey = publishableKey
-        self.environment = environment
         let credentialSession = WalletCredentialSession(environment: environment, projectId: projectId)
         let storedWallet = credentialSession.storedMetadata()
         self.oidcRedirectAuthStore = KeychainOidcRedirectAuthStore(projectId: projectId, environment: environment)
@@ -220,8 +215,6 @@ public class WalletClient: @unchecked Sendable {
         currentDate: @escaping () -> Date = Date.init
     ) {
         self.projectId = projectId
-        self.publishableKey = publishableKey
-        self.environment = environment
         let storedWallet = credentialSession.storedMetadata()
         self.oidcRedirectAuthStore = oidcRedirectAuthStore ?? KeychainOidcRedirectAuthStore(projectId: projectId, environment: environment)
         self.oidcNonceGenerator = oidcNonceGenerator

@@ -2094,7 +2094,6 @@ private func makeMockWalletClient(
     projectId: String = "proj_\(UUID().uuidString)",
     keychain: InMemoryKeychain = InMemoryKeychain(),
     signer: MockCredentialSigner = MockCredentialSigner(),
-    oidcRedirectAuthStore: InMemoryOidcRedirectAuthStore = InMemoryOidcRedirectAuthStore(),
     oidcNonceGenerator: @escaping () throws -> String = OidcRedirectAuth.generateNonce,
     currentDate: @escaping () -> Date = Date.init,
     storedCredentials: StorableCredentials? = nil
@@ -2146,29 +2145,6 @@ private func makeMockWalletClient(
         projectId: projectId,
         oidcRedirectAuthStore: oidcRedirectAuthStore,
         indexerClient: indexerClient
-    )
-}
-
-private func persistRestorableCredentials(
-    keychain: InMemoryKeychain,
-    environment: OMSClientEnvironment,
-    projectId: String,
-    walletId: String,
-    walletAddress: String,
-    expiresAt: String?
-) throws {
-    let credentials = StorableCredentials(
-        walletId: walletId,
-        walletAddress: walletAddress,
-        signerCredentialId: "0xmock-credential",
-        alg: .ecdsaP256Sha256,
-        expiresAt: expiresAt,
-        loginType: .email,
-        sessionEmail: "user@example.com"
-    )
-    try keychain.set(
-        credentials.jsonString(),
-        forKey: Constants.credentialsStorageKey(environment: environment, scope: projectId)
     )
 }
 
@@ -2428,7 +2404,6 @@ private final class MockCredentialSigner: CredentialSigner, @unchecked Sendable 
 private struct RecordedWebRPCRequest: Sendable {
     let path: String
     let body: Data
-    let headers: [String: String]
 }
 
 private enum MockWaasResponse: Sendable {
@@ -2471,12 +2446,6 @@ private final class MockWaasTransport: WebRPCTransport, @unchecked Sendable {
         responses[path, default: []].append(.httpError(statusCode: statusCode, body: body))
     }
 
-    func enqueueFailure(_ error: WebRPCTransportError, for path: String) {
-        lock.lock()
-        defer { lock.unlock() }
-        responses[path, default: []].append(.failure(error))
-    }
-
     func enqueueCancellation(for path: String) {
         lock.lock()
         defer { lock.unlock() }
@@ -2491,8 +2460,7 @@ private final class MockWaasTransport: WebRPCTransport, @unchecked Sendable {
     ) async throws -> WebRPCHTTPResponse {
         let response = try recordAndDequeue(
             path: path,
-            body: body,
-            headers: headers
+            body: body
         )
 
         switch response {
@@ -2509,16 +2477,14 @@ private final class MockWaasTransport: WebRPCTransport, @unchecked Sendable {
 
     private func recordAndDequeue(
         path: String,
-        body: Data,
-        headers: [String: String]
+        body: Data
     ) throws -> MockWaasResponse {
         lock.lock()
         defer { lock.unlock() }
         recordedRequests.append(
             RecordedWebRPCRequest(
                 path: path,
-                body: body,
-                headers: headers
+                body: body
             )
         )
         guard var queuedResponses = responses[path], !queuedResponses.isEmpty else {

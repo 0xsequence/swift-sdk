@@ -94,15 +94,17 @@ import Testing
 }
 
 @Test func TestP256RawSignatureDerRoundTrip() throws {
-    let rawSignature = Array(repeating: UInt8(0), count: 31)
+    let expectedRawSignature = Array(repeating: UInt8(0), count: 31)
         + [UInt8(0x80)]
         + Array(repeating: UInt8(0), count: 31)
         + [UInt8(0x01)]
+    let derSignature = Data(
+        [0x30, 0x07, 0x02, 0x02, 0x00, 0x80, 0x02, 0x01, 0x01]
+    )
 
-    let derSignature = try P256EcdsaSignatureEncoding.rawToDer(rawSignature)
     let decoded = try P256EcdsaSignatureEncoding.derToRaw(derSignature)
 
-    #expect(decoded == rawSignature)
+    #expect(decoded == expectedRawSignature)
 }
 
 @Test func TestParseUnits() throws {

@@ -8,10 +8,6 @@ struct GenericAppError: Identifiable {
     let id = UUID()
     let message: String
 
-    init(message: String) {
-        self.message = message
-    }
-
     init?(_ error: Error) {
         if isCancellation(error) {
             return nil
