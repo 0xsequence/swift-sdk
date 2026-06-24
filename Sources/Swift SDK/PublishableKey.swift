@@ -5,11 +5,10 @@ struct ParsedPublishableKey: Equatable, Sendable {
     let walletApiUrl: String
     let indexerGatewayUrl: String
 
-    func environment(walletOrigin: String? = nil) -> OMSClientEnvironment {
+    func environment() -> OMSClientEnvironment {
         OMSClientEnvironment(
             walletApiUrl: walletApiUrl,
-            indexerGatewayUrl: indexerGatewayUrl,
-            walletOrigin: walletOrigin
+            indexerGatewayUrl: indexerGatewayUrl
         )
     }
 }

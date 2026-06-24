@@ -56,8 +56,7 @@ let oms = try OMSClient(publishableKey: "pk_dev_sdbx_yourproject_yourkey")
 
 ```swift
 init(
-    publishableKey: String,
-    walletOrigin: String? = nil
+    publishableKey: String
 ) throws
 
 init(
@@ -69,7 +68,6 @@ init(
 | Parameter | Type | Description |
 |---|---|---|
 | `publishableKey` | `String` | OMS publishable key. The SDK derives the project scope and service URLs from this value. |
-| `walletOrigin` | `String?` | Optional `Origin` header for OMS Wallet API requests when the publishable key is origin-scoped. |
 | `environment` | `OMSClientEnvironment` | Explicit API endpoint override. The project scope is still derived from `publishableKey`. |
 
 Publishable keys must use one of these prefixes and contain two suffix segments: a project segment and key segment. The project scope is `prj_<project segment>`.
@@ -112,8 +110,7 @@ Accessed via `oms.wallet`. Manages wallet authentication, non-extractable Keycha
 
 ```swift
 init(
-    publishableKey: String,
-    walletOrigin: String? = nil
+    publishableKey: String
 ) throws
 
 init(
@@ -750,13 +747,11 @@ struct OMSClientEnvironment: Equatable, Sendable {
     let walletApiUrl: String
     let apiRpcUrl: String
     let indexerGatewayUrl: String
-    let walletOrigin: String?
 
     init(
         walletApiUrl: String = OMSClientEnvironment.defaultWalletApiUrl,
         apiRpcUrl: String = OMSClientEnvironment.defaultApiRpcUrl,
-        indexerGatewayUrl: String = OMSClientEnvironment.defaultIndexerGatewayUrl,
-        walletOrigin: String? = nil
+        indexerGatewayUrl: String = OMSClientEnvironment.defaultIndexerGatewayUrl
     )
 }
 ```
@@ -766,7 +761,6 @@ struct OMSClientEnvironment: Equatable, Sendable {
 | `walletApiUrl` | `String` | Base URL of the OMS Wallet API. |
 | `apiRpcUrl` | `String` | Base URL of the OMS API RPC. |
 | `indexerGatewayUrl` | `String` | Base URL of the IndexerGateway API. |
-| `walletOrigin` | `String?` | Optional `Origin` header for OMS Wallet API requests when the publishable key is origin-scoped. |
 
 ### FeeOptionSelector
 

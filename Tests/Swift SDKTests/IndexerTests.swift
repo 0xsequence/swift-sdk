@@ -48,7 +48,6 @@ import Testing
     #expect(OMSClientEnvironment.defaultWalletApiUrl == "https://sandbox-api.dev.polygon-dev.technology")
     #expect(OMSClientEnvironment.defaultIndexerGatewayUrl == "https://sandbox-api.dev.polygon-dev.technology/v1/IndexerGateway/")
     #expect(environment.indexerGatewayUrl == "https://gateway.example.test/v1/IndexerGateway/")
-    #expect(environment.walletOrigin == nil)
 }
 
 @Test func TestPublishableKeyRoutingDerivesProjectAndApiUrls() throws {
@@ -94,7 +93,7 @@ import Testing
     }
 }
 
-@Test func TestSignedWaasTransportIncludesConfiguredOrigin() async throws {
+@Test func TestSignedWaasTransportDoesNotSendOrigin() async throws {
     let recorder = IndexerRequestRecorder(
         responseBody: Data(#"{"verifier":"test@example.com","loginHint":"","challenge":"challenge"}"#.utf8)
     )
@@ -107,7 +106,6 @@ import Testing
         publishableKey: "test-key",
         scope: "proj_1",
         signer: TestCredentialSigner(),
-        origin: "https://0xsequence.github.io",
         session: session
     )
     let client = WaasClient(
@@ -127,7 +125,7 @@ import Testing
     let request = try #require(recorder.recordedRequest())
     #expect(request.url?.path == "/v1/Waas/CommitVerifier")
     #expect(request.value(forHTTPHeaderField: "Api-Key") == "test-key")
-    #expect(request.value(forHTTPHeaderField: "Origin") == "https://0xsequence.github.io")
+    #expect(request.value(forHTTPHeaderField: "Origin") == nil)
     #expect(request.value(forHTTPHeaderField: "Webrpc")?.contains("waas@v1-26.6.17-061733f") == true)
     #expect(request.value(forHTTPHeaderField: "OMS-Wallet-Signature")?.contains("scope=\"proj_1\"") == true)
 }

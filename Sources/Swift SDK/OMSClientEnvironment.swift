@@ -8,17 +8,14 @@ public struct OMSClientEnvironment : Equatable, Sendable {
     public let walletApiUrl: String
     public let apiRpcUrl: String
     public let indexerGatewayUrl: String
-    public let walletOrigin: String?
 
     public init(
         walletApiUrl: String = OMSClientEnvironment.defaultWalletApiUrl,
         apiRpcUrl: String = OMSClientEnvironment.defaultApiRpcUrl,
-        indexerGatewayUrl: String = OMSClientEnvironment.defaultIndexerGatewayUrl,
-        walletOrigin: String? = nil
+        indexerGatewayUrl: String = OMSClientEnvironment.defaultIndexerGatewayUrl
     ) {
         self.walletApiUrl = walletApiUrl
         self.apiRpcUrl = apiRpcUrl
         self.indexerGatewayUrl = indexerGatewayUrl
-        self.walletOrigin = walletOrigin
     }
 }

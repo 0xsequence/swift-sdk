@@ -4,14 +4,13 @@ public class OMSClient {
     public let indexer: IndexerClient
 
     public convenience init(
-        publishableKey: String,
-        walletOrigin: String? = nil
+        publishableKey: String
     ) throws {
         let parsedKey = try parsePublishableKey(publishableKey)
         self.init(
             publishableKey: publishableKey,
             parsedKey: parsedKey,
-            environment: parsedKey.environment(walletOrigin: walletOrigin)
+            environment: parsedKey.environment()
         )
     }
 

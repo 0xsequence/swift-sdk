@@ -8,18 +8,15 @@ struct SignedWaasTransport: WebRPCTransport {
     private let publishableKey: String
     private let scope: String
     private let signer: any CredentialSigner
-    private let origin: String?
 
     public init(publishableKey: String,
                 scope: String,
                 signer: any CredentialSigner,
-                origin: String? = nil,
                 session: URLSession = .shared
     ) {
         self.publishableKey = publishableKey
         self.scope = scope
         self.signer = signer
-        self.origin = origin
         self.session = session
         self.client = HttpClient(session: session)
     }
@@ -44,9 +41,6 @@ struct SignedWaasTransport: WebRPCTransport {
             "Api-Key": publishableKey,
             "OMS-Wallet-Signature": authHeader
         ]
-        if let origin {
-            requestHeaders["Origin"] = origin
-        }
         for (name, value) in headers {
             requestHeaders[name] = value
         }

@@ -328,22 +328,12 @@ transactions require the selector to return a fee selection.
 let env = OMSClientEnvironment(
     walletApiUrl: "https://staging-wallet.example.com",
     apiRpcUrl: "https://staging-api.example.com/rpc/API",
-    indexerGatewayUrl: "https://staging-api.example.com/v1/IndexerGateway/",
-    walletOrigin: "https://app.example.com"
+    indexerGatewayUrl: "https://staging-api.example.com/v1/IndexerGateway/"
 )
 
 let oms = try OMSClient(
     publishableKey: "pk_dev_sdbx_yourproject_yourkey",
     environment: env
-)
-```
-
-To use publishable-key-derived endpoints with an origin header:
-
-```swift
-let oms = try OMSClient(
-    publishableKey: "pk_dev_sdbx_yourproject_yourkey",
-    walletOrigin: "https://app.example.com"
 )
 ```
 

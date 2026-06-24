@@ -146,14 +146,13 @@ public class WalletClient: @unchecked Sendable {
     }
 
     public convenience init(
-        publishableKey: String,
-        walletOrigin: String? = nil
+        publishableKey: String
     ) throws {
         let parsedKey = try parsePublishableKey(publishableKey)
         self.init(
             publishableKey: publishableKey,
             projectId: parsedKey.projectId,
-            environment: parsedKey.environment(walletOrigin: walletOrigin)
+            environment: parsedKey.environment()
         )
     }
 
@@ -340,8 +339,7 @@ public class WalletClient: @unchecked Sendable {
             transport: SignedWaasTransport(
                 publishableKey: publishableKey,
                 scope: projectId,
-                signer: signer,
-                origin: environment.walletOrigin
+                signer: signer
             ),
             headers: { [:] }
         )
@@ -354,13 +352,9 @@ public class WalletClient: @unchecked Sendable {
         return WaasPublicClient(
             baseURL: environment.walletApiUrl,
             headers: {
-                var headers = [
+                [
                     "Api-Key": publishableKey
                 ]
-                if let origin = environment.walletOrigin {
-                    headers["Origin"] = origin
-                }
-                return headers
             }
         )
     }
