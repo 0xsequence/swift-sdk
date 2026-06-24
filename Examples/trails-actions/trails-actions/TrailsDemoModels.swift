@@ -4,7 +4,6 @@ import OMS_SDK
 let trailsAPIURL = "https://trails-api.sequence.app"
 let trailsRedirectURI = "omsclienttrailsdemo://auth/callback"
 let defaultPublishableKey = "pk_dev_sdbx_01kqa06hyyetj_01kv5ceg4xefattzmm9fyx04ev"
-let defaultWalletOrigin = "https://0xsequence.github.io"
 let trailsAccessKey = "AQAAAAAAAMDoWz-avqIIjXGH7JJlBSormpo"
 let trailsAccessKeyHeader = "X-Access-Key"
 

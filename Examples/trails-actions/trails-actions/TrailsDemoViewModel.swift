@@ -9,8 +9,7 @@ private final class TrailsOMSStorage: @unchecked Sendable {
 
     init(publishableKey: String) {
         self.oms = try! OMSClient(
-            publishableKey: publishableKey,
-            walletOrigin: defaultWalletOrigin
+            publishableKey: publishableKey
         )
     }
 }

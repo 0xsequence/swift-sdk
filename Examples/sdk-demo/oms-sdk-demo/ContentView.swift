@@ -211,8 +211,7 @@ final class AppViewModel: ObservableObject {
     @Published var loginEmail: String = ""
     @Published var sessionLifetimeText: String = "604800"
     @Published var oms: OMSClient = try! OMSClient(
-        publishableKey: "pk_dev_sdbx_01kqa06hyyetj_01kv5ceg4xefattzmm9fyx04ev",
-        walletOrigin: "https://0xsequence.github.io"
+        publishableKey: "pk_dev_sdbx_01kqa06hyyetj_01kv5ceg4xefattzmm9fyx04ev"
     )
 
     init() {
