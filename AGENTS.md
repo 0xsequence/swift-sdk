@@ -132,8 +132,9 @@ execution commands.
 
 CI runs on every PR and push to `master` via `.github/workflows/ci.yml`:
 `swift build`, `swift test`, and the demo app Xcode builds are required to pass.
-Claude GitHub Actions are defined in `.github/workflows/claude.yml` (mention handler) and
-`.github/workflows/claude-code-review.yml` (auto-review on PRs).
+Claude review automation is defined in `.github/workflows/claude-review.yml`; it runs once
+when a PR is opened or marked ready for review, and can be requested later with
+`@claude review` in a PR comment.
 
 ## Documentation
 
