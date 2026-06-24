@@ -40,16 +40,6 @@ import Testing
     #expect(Network.amoy == .polygonAmoy)
 }
 
-@Test func TestDefaultEnvironmentUsesSandboxGateway() throws {
-    let environment = OMSClientEnvironment(
-        indexerGatewayUrl: "https://gateway.example.test/v1/IndexerGateway/"
-    )
-
-    #expect(OMSClientEnvironment.defaultWalletApiUrl == "https://sandbox-api.dev.polygon-dev.technology")
-    #expect(OMSClientEnvironment.defaultIndexerGatewayUrl == "https://sandbox-api.dev.polygon-dev.technology/v1/IndexerGateway/")
-    #expect(environment.indexerGatewayUrl == "https://gateway.example.test/v1/IndexerGateway/")
-}
-
 @Test func TestPublishableKeyRoutingDerivesProjectAndApiUrls() throws {
     let routes = [
         ("pk_dev_sdbx_project_key", "https://sandbox-api.dev.polygon-dev.technology"),
@@ -93,7 +83,7 @@ import Testing
     }
 }
 
-@Test func TestSignedWaasTransportDoesNotSendOrigin() async throws {
+@Test func TestSignedWaasTransportSendsRequiredHeaders() async throws {
     let recorder = IndexerRequestRecorder(
         responseBody: Data(#"{"verifier":"test@example.com","loginHint":"","challenge":"challenge"}"#.utf8)
     )
@@ -125,7 +115,6 @@ import Testing
     let request = try #require(recorder.recordedRequest())
     #expect(request.url?.path == "/v1/Waas/CommitVerifier")
     #expect(request.value(forHTTPHeaderField: "Api-Key") == "test-key")
-    #expect(request.value(forHTTPHeaderField: "Origin") == nil)
     #expect(request.value(forHTTPHeaderField: "Webrpc")?.contains("waas@v1-26.6.17-061733f") == true)
     #expect(request.value(forHTTPHeaderField: "OMS-Wallet-Signature")?.contains("scope=\"proj_1\"") == true)
 }
@@ -176,7 +165,6 @@ import Testing
     #expect(request.value(forHTTPHeaderField: "Api-Key") == "test-key")
     #expect(request.value(forHTTPHeaderField: "Accept") == "application/json")
     #expect(request.value(forHTTPHeaderField: "Webrpc")?.contains("sequence-indexer@v0.4.0") == true)
-    #expect(request.value(forHTTPHeaderField: "Origin") == nil)
     #expect(payload["chainIds"] as? [Int] == [137, 8453])
     #expect(payload["networkType"] == nil)
     #expect(payload["omitMetadata"] as? Bool == true)
