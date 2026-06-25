@@ -7,10 +7,9 @@ import OMS_SDK
 private final class TrailsOMSStorage: @unchecked Sendable {
     let oms: OMSClient
 
-    init(publishableKey: String, projectId: String) {
-        self.oms = OMSClient(
-            publishableKey: publishableKey,
-            projectId: projectId
+    init(publishableKey: String) {
+        self.oms = try! OMSClient(
+            publishableKey: publishableKey
         )
     }
 }
@@ -21,8 +20,8 @@ actor TrailsOMSClient {
 
     nonisolated let initialSession: SessionState
 
-    init(publishableKey: String, projectId: String) {
-        let storage = TrailsOMSStorage(publishableKey: publishableKey, projectId: projectId)
+    init(publishableKey: String) {
+        let storage = TrailsOMSStorage(publishableKey: publishableKey)
         self.storage = storage
         self.initialSession = storage.oms.wallet.session
     }
@@ -83,30 +82,20 @@ actor TrailsOMSClient {
         }
     }
 
-    func getNativeTokenBalance(
-        network: Network,
-        walletAddress: String
-    ) async throws -> TokenBalance? {
-        try await performThrowing { client in
-            try await client.indexer.getNativeTokenBalance(
-                network: network,
-                walletAddress: walletAddress
-            )
-        }
-    }
-
-    func getTokenBalances(
+    func getBalances(
         network: Network,
         contractAddress: String,
         walletAddress: String,
         includeMetadata: Bool
-    ) async throws -> TokenBalancesResult {
+    ) async throws -> BalancesResult {
         try await performThrowing { client in
-            try await client.indexer.getTokenBalances(
-                network: network,
-                contractAddress: contractAddress,
-                walletAddress: walletAddress,
-                includeMetadata: includeMetadata
+            try await client.indexer.getBalances(
+                GetBalancesParams(
+                    walletAddress: walletAddress,
+                    networks: [network],
+                    contractAddresses: [contractAddress],
+                    includeMetadata: includeMetadata
+                )
             )
         }
     }
@@ -294,8 +283,7 @@ final class TrailsDemoViewModel: ObservableObject {
     @Published var safariAuthSession: SafariAuthSession?
 
     let oms = TrailsOMSClient(
-        publishableKey: defaultPublishableKey,
-        projectId: defaultProjectID
+        publishableKey: defaultPublishableKey
     )
 
     private let trailsClient = TrailsApiTrailsClient(
@@ -932,19 +920,18 @@ final class TrailsDemoViewModel: ObservableObject {
         )
 
         do {
-            let pol = try await oms.getNativeTokenBalance(
-                network: polygonNetwork,
-                walletAddress: walletAddress
-            )
-            let usdc = try await oms.getTokenBalances(
+            let balanceResult = try await oms.getBalances(
                 network: polygonNetwork,
                 contractAddress: polygonUSDC,
                 walletAddress: walletAddress,
                 includeMetadata: false
             )
 
+            let pol = balanceResult.nativeBalances.first {
+                $0.chainId == Int64(polygonNetwork.id)
+            }
             let polRaw = pol?.balance ?? "0"
-            let usdcRaw = usdc.balances.first?.balance ?? "0"
+            let usdcRaw = balanceResult.balances.first?.balance ?? "0"
             let next = BalanceState(
                 pol: formatTokenAmount(polRaw, decimals: 18, symbol: "POL"),
                 usdc: formatTokenAmount(usdcRaw, decimals: 6, symbol: "USDC"),

@@ -209,10 +209,9 @@ final class AppViewModel: ObservableObject {
     @Published fileprivate var feeOptionSelectionRequest: FeeOptionSelectionRequest?
     @Published var useManualWalletSelection: Bool = false
     @Published var loginEmail: String = ""
-    @Published var sessionLifetimeText: String = "60"
-    @Published var oms: OMSClient = OMSClient(
-        publishableKey: "AQAAAAAAAAK2JvvZhWqZ51riasWBftkrVXE",
-        projectId: "proj_014kg56dc0a75"
+    @Published var sessionLifetimeText: String = "604800"
+    @Published var oms: OMSClient = try! OMSClient(
+        publishableKey: "pk_dev_sdbx_01kqa06hyyetj_01kv5ceg4xefattzmm9fyx04ev"
     )
 
     init() {
@@ -610,7 +609,7 @@ struct LoginWindow: View {
 
                 FieldGroup(title: "Session length", titleStyle: .secondary) {
                     HStack(spacing: 10) {
-                        TextField("60", text: $vm.sessionLifetimeText)
+                        TextField("604800", text: $vm.sessionLifetimeText)
                             .monospacedDigit()
                             .tokenTextInput()
                             #if os(iOS)
@@ -905,11 +904,13 @@ struct WalletWindow: View {
         defer { isFetchingBalance = false }
 
         do {
-            let balances = try await vm.oms.indexer.getTokenBalances(
-                network: selectedNetwork,
-                contractAddress: usdcContractAddress,
-                walletAddress: walletAddress,
-                includeMetadata: false
+            let balances = try await vm.oms.indexer.getBalances(
+                GetBalancesParams(
+                    walletAddress: walletAddress,
+                    networks: [selectedNetwork],
+                    contractAddresses: [usdcContractAddress],
+                    includeMetadata: false
+                )
             )
             if let raw = balances.balances.first?.balance {
                 usdcBalance = formatUSDCBalance(raw)
@@ -919,10 +920,9 @@ struct WalletWindow: View {
                 usdcBalanceRaw = "0"
             }
 
-            let nativeTokenBalance = try await vm.oms.indexer.getNativeTokenBalance(
-                network: selectedNetwork,
-                walletAddress: walletAddress
-            )
+            let nativeTokenBalance = balances.nativeBalances.first {
+                $0.chainId == Int64(selectedNetwork.id)
+            }
             if let raw = nativeTokenBalance?.balance {
                 nativeBalance = formatNativeTokenBalance(raw)
                 nativeBalanceRaw = raw
@@ -1193,7 +1193,6 @@ struct WalletWindow: View {
 
 struct SignMessageWindow: View {
     @EnvironmentObject private var vm: AppViewModel
-    @Environment(\.dismiss) private var dismiss
     var showsCloseButton: Bool = true
 
     @State private var messageText: String = ""
@@ -1206,8 +1205,6 @@ struct SignMessageWindow: View {
         ModalContainer(
             title: "Sign message",
             subtitle: "Create a wallet signature for the selected network.",
-            minWidth: 440,
-            minHeight: 380,
             showsCloseButton: showsCloseButton
         ) {
             FieldGroup(title: "Network") {
@@ -1260,7 +1257,6 @@ struct SignMessageWindow: View {
 
 struct SendTransactionWindow: View {
     @EnvironmentObject private var vm: AppViewModel
-    @Environment(\.dismiss) private var dismiss
     var showsCloseButton: Bool = true
 
     @State private var toText: String = ""
@@ -1274,8 +1270,6 @@ struct SendTransactionWindow: View {
         ModalContainer(
             title: "Send transaction",
             subtitle: "Transfer native token value from this wallet.",
-            minWidth: 460,
-            minHeight: 460,
             showsCloseButton: showsCloseButton
         ) {
             FieldGroup(title: "Network") {
@@ -1388,7 +1382,6 @@ private func parseAbiValue(_ raw: String) -> WebRPCJSONValue {
 
 struct CallContractWindow: View {
     @EnvironmentObject private var vm: AppViewModel
-    @Environment(\.dismiss) private var dismiss
 
     /// Invoked after a successful contract call so the parent view can refresh
     /// any derived state (e.g. balances).
@@ -1410,8 +1403,6 @@ struct CallContractWindow: View {
         ModalContainer(
             title: "Call contract",
             subtitle: "Build a contract method call with ABI arguments.",
-            minWidth: 500,
-            minHeight: 560,
             showsCloseButton: showsCloseButton
         ) {
             FieldGroup(title: "Network") {
@@ -1563,9 +1554,7 @@ private struct FeeOptionSelectionWindow: View {
     var body: some View {
         ModalContainer(
             title: "Select fee",
-            subtitle: "Choose which token to use for this transaction fee.",
-            minWidth: 540,
-            minHeight: 520
+            subtitle: "Choose which token to use for this transaction fee."
         ) {
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(request.options.indices, id: \.self) { index in
@@ -1765,27 +1754,6 @@ private struct SafariView: UIViewControllerRepresentable {
 }
 #endif
 
-private enum AppNavigationTitleDisplayMode {
-    case large
-    case inline
-}
-
-private extension View {
-    @ViewBuilder
-    func appNavigationTitleDisplayMode(_ displayMode: AppNavigationTitleDisplayMode) -> some View {
-        #if os(iOS)
-        switch displayMode {
-        case .large:
-            navigationBarTitleDisplayMode(.large)
-        case .inline:
-            navigationBarTitleDisplayMode(.inline)
-        }
-        #else
-        self
-        #endif
-    }
-}
-
 private struct AuthWelcomeHeader: View {
     var title: String = "Welcome"
     let subtitle: String
@@ -1844,23 +1812,17 @@ private struct ModalContainer<Content: View>: View {
 
     let title: String
     let subtitle: String?
-    let minWidth: CGFloat
-    let minHeight: CGFloat
     let showsCloseButton: Bool
     let content: Content
 
     init(
         title: String,
         subtitle: String? = nil,
-        minWidth: CGFloat,
-        minHeight: CGFloat,
         showsCloseButton: Bool = true,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
         self.subtitle = subtitle
-        self.minWidth = minWidth
-        self.minHeight = minHeight
         self.showsCloseButton = showsCloseButton
         self.content = content()
     }
@@ -1901,11 +1863,7 @@ private struct ModalContainer<Content: View>: View {
             }
             .background(appBackgroundColor.ignoresSafeArea())
         }
-        #if os(macOS)
-        .frame(minWidth: minWidth, minHeight: minHeight)
-        #else
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        #endif
     }
 }
 
@@ -2158,19 +2116,6 @@ private extension View {
                 )
             }
         }
-    }
-}
-
-private extension View {
-    func tokenPlainIconButtonFrame() -> some View {
-        self
-            .frame(width: 40, height: 40)
-            .background(DesignTokens.Color.surface)
-            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.button))
-            .overlay(
-                RoundedRectangle(cornerRadius: DesignTokens.Radius.button)
-                    .stroke(DesignTokens.Color.border, lineWidth: DesignTokens.Stroke.defaultWidth)
-            )
     }
 }
 

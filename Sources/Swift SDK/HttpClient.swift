@@ -3,7 +3,6 @@ import Foundation
 struct HttpResponse {
     let statusCode: Int
     let body: Data
-    let headers: [String: String]
 }
 
 enum HttpError: Error {
@@ -56,6 +55,10 @@ final class HttpClient : Sendable {
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: request)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
         } catch {
             throw HttpError.transport(error)
         }
@@ -64,17 +67,9 @@ final class HttpClient : Sendable {
             throw HttpError.invalidResponse
         }
 
-        var responseHeaders: [String: String] = [:]
-        for (key, value) in httpResponse.allHeaderFields {
-            if let keyString = key as? String, let valueString = value as? String {
-                responseHeaders[keyString] = valueString
-            }
-        }
-
         return HttpResponse(
             statusCode: httpResponse.statusCode,
-            body: data,
-            headers: responseHeaders
+            body: data
         )
     }
 }

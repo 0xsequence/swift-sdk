@@ -27,9 +27,8 @@ pod 'oms-client-swift-sdk', '0.1.0-alpha.2'
 ```swift
 import OMS_SDK
 
-let oms = OMSClient(
-    publishableKey: "your-publishable-key",
-    projectId: "your-project-id"
+let oms = try OMSClient(
+    publishableKey: "pk_dev_sdbx_yourproject_yourkey"
 )
 
 try await oms.wallet.startEmailAuth(email: "user@example.com")
@@ -54,13 +53,24 @@ print("Transaction hash:", txResult.txnHash ?? "pending")
 
 `OMSClient` is the root object for the SDK. Create a single instance at app startup and keep it alive for the session. It constructs the SDK sub-clients and restores any saved keychain session automatically.
 
-Pass both your publishable key and project ID when creating the client. The SDK uses `projectId` as the signed Wallet API request scope and as part of the keychain namespace for persisted wallet sessions and OIDC redirect state.
+Pass your OMS publishable key when creating the client. The SDK derives the Wallet API URL, IndexerGateway URL, and project scope from the publishable key prefix and project segment. The derived project scope is used for signed Wallet API requests and keychain namespaces for persisted wallet sessions and OIDC redirect state.
 
 | Property | Type | Description |
 |---|---|---|
 | `wallet` | `WalletClient` | Authentication, session, signing, access management, and transaction helpers. |
 | `indexer` | `IndexerClient` | Token balance and on-chain query helpers. |
 | `supportedNetworks` | `[Network]` | Supported network list. |
+
+Supported publishable key prefixes route to these API bases:
+
+| Prefix | API base |
+|---|---|
+| `pk_dev_sdbx_` | `https://sandbox-api.dev.polygon-dev.technology` |
+| `pk_dev_live_` | `https://api.dev.polygon-dev.technology` |
+| `pk_stg_sdbx_` | `https://sandbox-api.stg.polygon-dev.technology` |
+| `pk_stg_live_` | `https://api.stg.polygon-dev.technology` |
+| `pk_sdbx_` | `https://sandbox-api.polygon.technology` |
+| `pk_live_` | `https://api.polygon.technology` |
 
 ## Supported Networks
 
@@ -317,23 +327,12 @@ transactions require the selector to return a fee selection.
 ```swift
 let env = OMSClientEnvironment(
     walletApiUrl: "https://staging-wallet.example.com",
-    apiRpcUrl: "https://staging-api.example.com/rpc/API",
-    indexerUrlTemplate: "https://staging-{value}-indexer.example.com/rpc/Indexer/"
+    indexerGatewayUrl: "https://staging-api.example.com/v1/IndexerGateway/"
 )
 
-let oms = OMSClient(
-    publishableKey: "your-key",
-    projectId: "proj_staging",
+let oms = try OMSClient(
+    publishableKey: "pk_dev_sdbx_yourproject_yourkey",
     environment: env
-)
-```
-
-To keep the default endpoints and use a different project:
-
-```swift
-let oms = OMSClient(
-    publishableKey: "your-key",
-    projectId: "proj_staging"
 )
 ```
 
@@ -477,11 +476,13 @@ do {
 ```swift
 guard let walletAddress = oms.wallet.walletAddress else { return }
 
-let result = try await oms.indexer.getTokenBalances(
-    network: .polygon,
-    walletAddress: walletAddress,
-    includeMetadata: true,
-    page: TokenBalancesPageRequest(page: 0, pageSize: 100)
+let result = try await oms.indexer.getBalances(
+    GetBalancesParams(
+        walletAddress: walletAddress,
+        networks: [.polygon],
+        includeMetadata: true,
+        page: TokenBalancesPageRequest(page: 0, pageSize: 100)
+    )
 )
 
 for balance in result.balances {
@@ -495,12 +496,34 @@ for balance in result.balances {
 ```swift
 guard let walletAddress = oms.wallet.walletAddress else { return }
 
-let balance = try await oms.indexer.getNativeTokenBalance(
-    network: .polygon,
-    walletAddress: walletAddress
+let result = try await oms.indexer.getBalances(
+    GetBalancesParams(
+        walletAddress: walletAddress,
+        networks: [.polygon],
+        includeMetadata: false
+    )
 )
 
+let balance = result.nativeBalances.first { $0.chainId == Int64(Network.polygon.id) }
 print(balance?.balance ?? "0")
+```
+
+### Query Transaction History
+
+```swift
+guard let walletAddress = oms.wallet.walletAddress else { return }
+
+let history = try await oms.indexer.getTransactionHistory(
+    GetTransactionHistoryParams(
+        walletAddress: walletAddress,
+        networks: [.polygon],
+        includeMetadata: true
+    )
+)
+
+for transaction in history.transactions {
+    print(transaction.txnHash, transaction.timestamp)
+}
 ```
 
 ### Get a Wallet ID Token

@@ -22,7 +22,16 @@
   - [TransactionMode](#transactionmode)
   - [UnitConversionError](#unitconversionerror)
   - [SendTransactionRequest](#sendtransactionrequest)
-  - [TokenBalancesResult](#tokenbalancesresult)
+  - [IndexerNetworkType](#indexernetworktype)
+  - [ContractVerificationStatus](#contractverificationstatus)
+  - [MetadataOptions](#metadataoptions)
+  - [GetBalancesParams](#getbalancesparams)
+  - [BalancesResult](#balancesresult)
+  - [GetTransactionHistoryParams](#gettransactionhistoryparams)
+  - [TransactionHistoryResult](#transactionhistoryresult)
+  - [Transaction](#transaction)
+  - [TransactionTransfer](#transactiontransfer)
+  - [SortBy](#sortby)
   - [TokenBalancesPage](#tokenbalancespage)
   - [TokenBalancesPageRequest](#tokenbalancespagerequest)
   - [TokenContractInfo](#tokencontractinfo)
@@ -40,24 +49,26 @@
 The top-level entry point for the SDK. Requires iOS 15+ or macOS 12+.
 
 ```swift
-let oms = OMSClient(publishableKey: "your-key", projectId: "your-project-id")
+let oms = try OMSClient(publishableKey: "pk_dev_sdbx_yourproject_yourkey")
 ```
 
 ### init
 
 ```swift
 init(
+    publishableKey: String
+) throws
+
+init(
     publishableKey: String,
-    projectId: String,
-    environment: OMSClientEnvironment = OMSClientEnvironment()
-)
+    environment: OMSClientEnvironment
+) throws
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | `publishableKey` | `String` | OMS publishable key. |
-| `projectId` | `String` | OMS project ID. Used as the signed Wallet API request scope and keychain namespace. |
-| `environment` | `OMSClientEnvironment` | API endpoint configuration. |
+| `environment` | `OMSClientEnvironment` | Explicit API endpoint override. |
 
 ### Properties
 
@@ -76,25 +87,30 @@ func findNetworkByName(name: String) -> Network?
 
 Returns the supported `Network` for a numeric chain ID or network name, or `nil`
 when the chain is not supported. Names are trimmed and lowercased before lookup;
-`polygonamoy` is accepted as a legacy alias for `.polygonAmoy`.
+`polygonamoy` is also accepted for `.polygonAmoy`.
 
 ---
 
 ## WalletClient
 
-Accessed via `oms.wallet`. Manages wallet authentication, non-extractable Keychain request signing, keychain session persistence, signing, signature verification, and transaction submission.
+Accessed via `oms.wallet`. Manages wallet authentication, session persistence,
+signing, signature verification, and transaction submission.
 
 ### init
 
 ```swift
 init(
+    publishableKey: String
+) throws
+
+init(
     publishableKey: String,
-    projectId: String,
-    environment: OMSClientEnvironment = OMSClientEnvironment()
-)
+    environment: OMSClientEnvironment
+) throws
 ```
 
-Most apps create a wallet client through `OMSClient`. Use this initializer only when constructing `WalletClient` directly.
+Most apps create a wallet client through `OMSClient`. Use these initializers only
+when constructing `WalletClient` directly.
 
 ### walletAddress
 
@@ -126,7 +142,9 @@ Snapshot of the currently completed wallet session for this wallet client.
 var onSessionExpired: ((SessionExpiredEvent) -> Void)?
 ```
 
-Called when the active wallet session expires. The SDK clears active in-memory wallet state and the signer credential, but keeps expired session metadata in storage until `signOut()` or a new auth flow clears or replaces it. The event carries the expired session snapshot so apps can reuse `sessionEmail` for email OTP reauth or as a Google OIDC login hint.
+Called when the active wallet session expires. The event carries the expired
+session snapshot so apps can reuse `sessionEmail` for email OTP reauth or as a
+Google OIDC login hint.
 
 ### canResumeOidcRedirectAuth
 
@@ -134,7 +152,7 @@ Called when the active wallet session expires. The SDK clears active in-memory w
 var canResumeOidcRedirectAuth: Bool
 ```
 
-Whether there is a persisted OIDC redirect flow waiting for its callback URL.
+Whether there is an OIDC redirect flow waiting for its callback URL.
 
 ### startEmailAuth
 
@@ -174,10 +192,7 @@ func signInWithOidcIdToken(
 ) async throws -> CompleteAuthResult
 ```
 
-Signs in with an OIDC ID token. The SDK commits an OIDC `id-token` verifier
-using `issuer`, `audience`, the token `exp` claim, and a SHA-256 base64url hash
-of the full token as the verifier handle, then completes auth with the original
-token.
+Signs in with an OIDC ID token for the provided `issuer` and `audience`.
 
 With `.automatic`, selects the first existing wallet matching `walletType`, or
 creates and selects one when none exists. With `.manual`, returns a pending
@@ -307,14 +322,10 @@ enum OidcRedirectAuthResult {
 }
 ```
 
-OIDC redirect auth stores transient verifier/state data separately from completed
-wallet sessions so apps can resume after the browser redirect. The callback
-handler is safe to call for every incoming app link: unrelated links return
-`.notOidcRedirectCallback`, stale links return `.noPendingAuth`, and provider or
-completion failures return `.failed`. Invalid or unrelated callbacks do not clear
-pending redirect auth. Valid callbacks clear pending redirect auth after success
-or non-cancellation failure. Cancellation rethrows `CancellationError` without
-clearing pending redirect auth.
+The callback handler is safe to call for every incoming app link: unrelated
+links return `.notOidcRedirectCallback`, stale links return `.noPendingAuth`, and
+provider or completion failures return `.failed`. Cancellation rethrows
+`CancellationError`.
 
 ### useWallet
 
@@ -343,15 +354,13 @@ func listWallets() async throws -> [Wallet]
 
 Lists all wallets available to the authenticated credential.
 
-Wallet API requests are signed with a Keychain-backed P-256 credential using the `webcrypto-secp256r1` key type. Persisted sessions store wallet ID, wallet address, expiry, and signer metadata; private credential keys are not written into SDK session storage. Restore checks the cached expiry first. Expired sessions are not activated, and the signer credential is cleared; expired metadata may remain in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it. Invalid persisted session metadata is cleared.
-
 ### signOut
 
 ```swift
 func signOut() throws
 ```
 
-Clears the keychain session, local wallet identifiers, verifier state, and session signer.
+Signs out and clears the active wallet session.
 
 ### signMessage
 
@@ -472,7 +481,7 @@ func listAccess(pageSize: UInt32? = nil) async throws -> [CredentialInfo]
 ```
 
 Returns all credentials that currently have access to this wallet, following
-WaaS cursors until every page has been loaded.
+pagination until every page has been loaded.
 
 ### listAccessPages
 
@@ -480,8 +489,8 @@ WaaS cursors until every page has been loaded.
 func listAccessPages(pageSize: UInt32? = nil) -> ListAccessPages
 ```
 
-Returns credential-access pages for this wallet until WaaS stops returning a
-cursor.
+Returns credential-access pages for this wallet until no further cursor is
+returned.
 
 ### listAccessPage
 
@@ -519,50 +528,47 @@ Revokes a credential's access to this wallet.
 
 ## IndexerClient
 
-Accessed via `oms.indexer`. Queries token balances through the OMS Indexer API.
+Accessed via `oms.indexer`. Queries token balances and transaction history through the OMS IndexerGateway API.
 
-### getTokenBalances
+### getBalances
 
 ```swift
-func getTokenBalances(
-    network: Network,
-    contractAddress: String? = nil,
-    walletAddress: String,
-    includeMetadata: Bool,
-    page: TokenBalancesPageRequest = TokenBalancesPageRequest()
-) async throws -> TokenBalancesResult
+func getBalances(_ params: GetBalancesParams) async throws -> BalancesResult
 ```
 
-Fetches token balances for a wallet on a supported network. Omit `contractAddress` to list balances across contracts. Use `page` to request later pages or a custom page size.
+Fetches token balances for a wallet across explicit `networks` or an `IndexerNetworkType`. Results include native balances separately from token contract balances.
 
 ```swift
 guard let walletAddress = oms.wallet.walletAddress else { return }
 
-let result = try await oms.indexer.getTokenBalances(
-    network: .polygon,
-    walletAddress: walletAddress,
-    includeMetadata: true,
-    page: TokenBalancesPageRequest(page: 1, pageSize: 100)
+let result = try await oms.indexer.getBalances(
+    GetBalancesParams(
+        walletAddress: walletAddress,
+        networks: [.polygon],
+        contractAddresses: ["0xcontract"],
+        includeMetadata: true,
+        page: TokenBalancesPageRequest(page: 1, pageSize: 100)
+    )
 )
 ```
 
-### getNativeTokenBalance
+### getTransactionHistory
 
 ```swift
-func getNativeTokenBalance(
-    network: Network,
-    walletAddress: String
-) async throws -> TokenBalance?
+func getTransactionHistory(_ params: GetTransactionHistoryParams) async throws -> TransactionHistoryResult
 ```
 
-Fetches the native token balance for a wallet on a supported network. Returns `nil` when the indexer response does not include a balance object.
+Fetches transaction history for a wallet across explicit `networks` or an `IndexerNetworkType`.
 
 ```swift
 guard let walletAddress = oms.wallet.walletAddress else { return }
 
-let balance = try await oms.indexer.getNativeTokenBalance(
-    network: .polygon,
-    walletAddress: walletAddress
+let history = try await oms.indexer.getTransactionHistory(
+    GetTransactionHistoryParams(
+        walletAddress: walletAddress,
+        networks: [.polygon],
+        includeMetadata: true
+    )
 )
 ```
 
@@ -644,7 +650,7 @@ enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
 }
 ```
 
-| Case | Chain ID | Display name | Indexer value | Native token |
+| Case | Chain ID | Display name | Name | Native token |
 |---|---|---|---|---|
 | `.mainnet` | `1` | Ethereum | `mainnet` | `ETH` |
 | `.sepolia` | `11155111` | Sepolia | `sepolia` | `ETH` |
@@ -689,7 +695,7 @@ struct SessionState: Equatable, Sendable {
 }
 ```
 
-Current durable wallet-session snapshot. It intentionally excludes pending auth state and signer bookkeeping.
+Current wallet-session snapshot. It intentionally excludes pending auth state.
 
 ### SessionExpiredEvent
 
@@ -719,37 +725,22 @@ Auth method that produced the completed wallet session.
 ```swift
 struct OMSClientEnvironment: Equatable, Sendable {
     static let defaultWalletApiUrl: String
-    static let defaultApiRpcUrl: String
-    static let defaultIndexerUrlTemplate: String
-    static let indexerURLTemplateDefault: String
+    static let defaultIndexerGatewayUrl: String
 
     let walletApiUrl: String
-    let apiRpcUrl: String
-    let indexerUrlTemplate: String
-
-    var indexerURLTemplate: String
+    let indexerGatewayUrl: String
 
     init(
         walletApiUrl: String = OMSClientEnvironment.defaultWalletApiUrl,
-        apiRpcUrl: String = OMSClientEnvironment.defaultApiRpcUrl,
-        indexerUrlTemplate: String = OMSClientEnvironment.defaultIndexerUrlTemplate
+        indexerGatewayUrl: String = OMSClientEnvironment.defaultIndexerGatewayUrl
     )
-
-    init(
-        walletApiUrl: String = OMSClientEnvironment.defaultWalletApiUrl,
-        apiRpcUrl: String = OMSClientEnvironment.defaultApiRpcUrl,
-        indexerURLTemplate: String
-    )
-
-    func indexerURL(for network: Network) -> URL?
 }
 ```
 
 | Field | Type | Description |
 |---|---|---|
 | `walletApiUrl` | `String` | Base URL of the OMS Wallet API. |
-| `apiRpcUrl` | `String` | Base URL of the OMS API RPC. |
-| `indexerUrlTemplate` | `String` | URL template for the Indexer. `{value}` is replaced with the network indexer name. |
+| `indexerGatewayUrl` | `String` | Base URL of the IndexerGateway API. |
 
 ### FeeOptionSelector
 
@@ -873,7 +864,8 @@ enum OmsSdkOperation: String, Sendable
 ```
 
 Stable operation identifiers such as `wallet.sendTransaction`,
-`wallet.completeEmailAuth`, and `indexer.getTokenBalances`. Use
+`wallet.completeEmailAuth`, `indexer.getBalances`, and
+`indexer.getTransactionHistory`. Use
 `operation.rawValue` when logging SDK failures.
 
 ### TransactionError
@@ -923,7 +915,7 @@ struct TransactionStatusPollingOptions {
 }
 ```
 
-Controls how `sendTransaction` and `callContract` poll WaaS transaction status
+Controls how `sendTransaction` and `callContract` poll transaction status
 after execute when `waitForStatus` is `true`. Defaults are a 60 second timeout,
 400 ms fast polling for the first status checks, then 2 second polling.
 
@@ -965,15 +957,145 @@ struct SendTransactionRequest {
 Used with the full `sendTransaction(network:request:selectFeeOption:waitForStatus:statusPolling:)` overload.
 `mode` defaults to `.relayer`.
 
-### TokenBalancesResult
+### IndexerNetworkType
 
 ```swift
-struct TokenBalancesResult: Sendable {
+enum IndexerNetworkType: String, Codable, Sendable {
+    case mainnets
+    case testnets
+    case all
+}
+```
+
+Gateway network scope used when `GetBalancesParams.networks` or `GetTransactionHistoryParams.networks` is omitted.
+
+### ContractVerificationStatus
+
+```swift
+enum ContractVerificationStatus: String, Codable, Sendable {
+    case verified
+    case unverified
+    case all
+}
+```
+
+Optional token-contract verification filter for balance queries.
+
+### MetadataOptions
+
+```swift
+struct MetadataOptions: Codable, Sendable {
+    let verifiedOnly: Bool?
+    let unverifiedOnly: Bool?
+    let includeContracts: [String]?
+}
+```
+
+Optional metadata filter for transaction-history queries.
+
+### GetBalancesParams
+
+```swift
+struct GetBalancesParams: Sendable {
+    let walletAddress: String
+    let networks: [Network]?
+    let networkType: IndexerNetworkType?
+    let contractAddresses: [String]?
+    let includeMetadata: Bool
+    let omitPrices: Bool?
+    let tokenIds: [String]?
+    let contractStatus: ContractVerificationStatus?
+    let page: TokenBalancesPageRequest?
+}
+```
+
+Use `networks` for an explicit chain list. If omitted, `networkType` defaults to `.mainnets`.
+
+### BalancesResult
+
+```swift
+struct BalancesResult: Sendable {
     let status: Int
     let page: TokenBalancesPage?
+    let nativeBalances: [TokenBalance]
     let balances: [TokenBalance]
+}
+```
 
-    init(status: Int, page: TokenBalancesPage?, balances: [TokenBalance])
+### GetTransactionHistoryParams
+
+```swift
+struct GetTransactionHistoryParams: Sendable {
+    let walletAddress: String
+    let networks: [Network]?
+    let networkType: IndexerNetworkType?
+    let contractAddresses: [String]?
+    let transactionHashes: [String]?
+    let metaTransactionIds: [String]?
+    let fromBlock: Int?
+    let toBlock: Int?
+    let tokenId: String?
+    let includeMetadata: Bool
+    let omitPrices: Bool?
+    let metadataOptions: MetadataOptions?
+    let page: TokenBalancesPageRequest?
+}
+```
+
+### TransactionHistoryResult
+
+```swift
+struct TransactionHistoryResult: Sendable {
+    let status: Int
+    let page: TokenBalancesPage?
+    let transactions: [Transaction]
+}
+```
+
+### Transaction
+
+```swift
+struct Transaction: Codable, Sendable {
+    let txnHash: String
+    let blockNumber: Int64
+    let blockHash: String
+    let chainId: Int64
+    let metaTxnId: String?
+    let transfers: [TransactionTransfer]?
+    let timestamp: String
+}
+```
+
+### TransactionTransfer
+
+```swift
+struct TransactionTransfer: Codable, Sendable {
+    let transferType: String?
+    let contractAddress: String?
+    let contractType: String?
+    let from: String?
+    let to: String?
+    let tokenIds: [String]?
+    let amounts: [String]?
+    let logIndex: Int?
+    let amountsUSD: [String]?
+    let pricesUSD: [String]?
+    let contractInfo: TokenContractInfo?
+    let tokenMetadata: [String: TokenMetadata]?
+}
+```
+
+### SortBy
+
+```swift
+enum SortOrder: String, Codable, Sendable {
+    case descending
+    case ascending
+}
+
+struct SortBy: Codable, Sendable {
+    let column: String
+    let order: SortOrder
 }
 ```
 
@@ -981,11 +1103,13 @@ struct TokenBalancesResult: Sendable {
 
 ```swift
 struct TokenBalancesPage: Codable, Sendable {
-    let page: Int
-    let pageSize: Int
-    let more: Bool
-
-    init(page: Int, pageSize: Int, more: Bool)
+    let page: Int?
+    let column: String?
+    let before: WebRPCJSONValue?
+    let after: WebRPCJSONValue?
+    let sort: [SortBy]?
+    let pageSize: Int?
+    let more: Bool?
 }
 ```
 
@@ -994,9 +1118,11 @@ struct TokenBalancesPage: Codable, Sendable {
 ```swift
 struct TokenBalancesPageRequest: Codable, Sendable {
     let page: Int?
+    let column: String?
+    let before: WebRPCJSONValue?
+    let after: WebRPCJSONValue?
+    let sort: [SortBy]?
     let pageSize: Int?
-
-    init(page: Int? = nil, pageSize: Int? = nil)
 }
 ```
 
@@ -1010,6 +1136,8 @@ struct TokenBalance: Codable, Sendable {
     let contractAddress: String?
     let accountAddress: String?
     let tokenId: String?
+    let name: String?
+    let symbol: String?
     let balance: String?
     let balanceUSD: String?
     let priceUSD: String?
@@ -1027,6 +1155,8 @@ struct TokenBalance: Codable, Sendable {
         contractAddress: String?,
         accountAddress: String?,
         tokenId: String?,
+        name: String? = nil,
+        symbol: String? = nil,
         balance: String?,
         balanceUSD: String? = nil,
         priceUSD: String? = nil,

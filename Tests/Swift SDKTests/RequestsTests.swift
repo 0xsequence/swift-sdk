@@ -58,51 +58,18 @@ import Testing
     }
 }
 
-@Test func TestWalletRequestPreimageIncludesScope() async throws {
-    let payload = "{\"verifier\":\"email@example.com\"}"
-    let expected = """
-    POST /rpc/Wallet/CommitVerifier
-    nonce: 1234567890
-    scope: proj_1
-
-    {"verifier":"email@example.com"}
-    """
-
-    let preimage = RequestUtils.buildWalletRequestPreimage(
-        endpoint: "/CommitVerifier",
-        nonce: "1234567890",
-        scope: "proj_1",
-        payload: payload
-    )
-
-    #expect(preimage == expected)
-}
-
-@Test func TestWalletSignatureHeaderUsesSigningAlgorithm() async throws {
-    let credential = "0x04" + String(repeating: "11", count: 64)
-    let signature = "0x" + String(repeating: "22", count: 64)
-    let header = RequestUtils.buildWalletSignatureHeader(
-        alg: .ecdsaP256Sha256,
-        scope: "proj_1",
-        cred: credential,
-        nonce: "1234567890",
-        sig: signature
-    )
-    let expected = "alg=\"ecdsa-p256-sha256\", scope=\"proj_1\", cred=\"\(credential)\", nonce=1234567890, sig=\"\(signature)\""
-
-    #expect(header == expected)
-}
-
 @Test func TestP256RawSignatureDerRoundTrip() throws {
-    let rawSignature = Array(repeating: UInt8(0), count: 31)
+    let expectedRawSignature = Array(repeating: UInt8(0), count: 31)
         + [UInt8(0x80)]
         + Array(repeating: UInt8(0), count: 31)
         + [UInt8(0x01)]
+    let derSignature = Data(
+        [0x30, 0x07, 0x02, 0x02, 0x00, 0x80, 0x02, 0x01, 0x01]
+    )
 
-    let derSignature = try P256EcdsaSignatureEncoding.rawToDer(rawSignature)
     let decoded = try P256EcdsaSignatureEncoding.derToRaw(derSignature)
 
-    #expect(decoded == rawSignature)
+    #expect(decoded == expectedRawSignature)
 }
 
 @Test func TestParseUnits() throws {

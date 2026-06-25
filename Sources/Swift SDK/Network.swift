@@ -157,10 +157,6 @@ public enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
         }
     }
 
-    internal var indexerName: String {
-        name
-    }
-
     public var description: String {
         displayName
     }

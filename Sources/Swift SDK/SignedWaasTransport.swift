@@ -4,7 +4,7 @@ import Foundation
 struct SignedWaasTransport: WebRPCTransport {
     public let session: URLSession
 
-    private let client: HttpClient = HttpClient()
+    private let client: HttpClient
     private let publishableKey: String
     private let scope: String
     private let signer: any CredentialSigner
@@ -18,6 +18,7 @@ struct SignedWaasTransport: WebRPCTransport {
         self.scope = scope
         self.signer = signer
         self.session = session
+        self.client = HttpClient(session: session)
     }
 
     public func post(
@@ -37,8 +38,8 @@ struct SignedWaasTransport: WebRPCTransport {
         )
 
         var requestHeaders = [
-            "X-Access-Key": publishableKey,
-            "Oms-Wallet-Signature": authHeader
+            "Api-Key": publishableKey,
+            "OMS-Wallet-Signature": authHeader
         ]
         for (name, value) in headers {
             requestHeaders[name] = value
@@ -72,8 +73,8 @@ struct SignedWaasTransport: WebRPCTransport {
     }
 
     private func resolveEndpoint(_ path: String) -> String {
-        if path.hasPrefix(WaasWalletAPI.basePath) {
-            return String(path.dropFirst(WaasWalletAPI.basePath.count))
+        if path.hasPrefix(WaasAPI.basePath) {
+            return String(path.dropFirst(WaasAPI.basePath.count))
         }
         if path.hasPrefix("/") {
             return path

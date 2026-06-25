@@ -1,0 +1,64 @@
+name: Claude Review
+
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+jobs:
+  initial-review:
+    if: >-
+      ${{
+        github.event_name == 'pull_request' &&
+        !github.event.pull_request.draft &&
+        github.event.pull_request.user.login != 'dependabot[bot]'
+      }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY_GITHUB_ACTIONS }}
+          github_token: ${{ github.token }}
+          model: "claude-opus-4-8"
+          direct_prompt: |
+            Review this pull request. Focus on:
+            - Correctness against the OMS SDK conventions in AGENTS.md
+            - Security: no private key material in session storage, P-256 credential must remain non-extractable
+            - No floating-point math for token amounts (use parseUnits/formatUnits)
+            - Platform availability annotations (@available) on new public surfaces
+            - Test coverage for new behavior
+            - Paths with spaces are properly quoted in any shell examples
+
+  requested-review:
+    if: >-
+      (github.event_name == 'pull_request_review_comment' || github.event.issue.pull_request != null) &&
+      contains(github.event.comment.body, '@claude review')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY_GITHUB_ACTIONS }}
+          github_token: ${{ github.token }}
+          model: "claude-opus-4-8"
+          trigger_phrase: "@claude review"

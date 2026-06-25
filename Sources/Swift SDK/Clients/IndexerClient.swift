@@ -1,39 +1,46 @@
 import Foundation
 
-private struct TokenBalancesPayload: Codable {
-    let page: TokenBalancesPage?
-    let balances: [TokenBalance]?
+private let indexerGatewayWebRPCHeaderValue = "webrpc@v0.31.2;gen-swift@v0.1.2;sequence-indexer@v0.4.0"
+
+private struct GatewayNativeTokenBalances: Decodable {
+    let chainId: Int64
+    let results: [NativeTokenBalanceResponse]?
 }
 
-private struct NativeTokenBalancePayload: Decodable {
-    let balance: NativeTokenBalanceResponse?
+private struct GatewayTokenBalances: Decodable {
+    let chainId: Int64
+    let results: [TokenBalance]?
+}
+
+private struct GatewayTransactions: Decodable {
+    let chainId: Int64
+    let results: [Transaction]?
 }
 
 private struct NativeTokenBalanceResponse: Decodable {
     let accountAddress: String?
-    let balance: String?
-    let balanceWei: String?
     let chainId: Int64?
+    let name: String?
+    let symbol: String?
+    let balance: String?
+    let balanceUSD: String?
+    let priceUSD: String?
+    let priceUpdatedAt: String?
+}
+
+private struct GetTokenBalancesDetailsResponse: Decodable {
+    let page: TokenBalancesPage?
+    let nativeBalances: [GatewayNativeTokenBalances]?
+    let balances: [GatewayTokenBalances]?
+}
+
+private struct GetTransactionHistoryResponse: Decodable {
+    let page: TokenBalancesPage?
+    let transactions: [GatewayTransactions]?
 }
 
 @available(macOS 12.0, iOS 15.0, *)
-protocol WalletIndexerClient {
-    func getTokenBalances(
-        network: Network,
-        contractAddress: String?,
-        walletAddress: String,
-        includeMetadata: Bool,
-        page: TokenBalancesPageRequest
-    ) async throws -> TokenBalancesResult
-
-    func getNativeTokenBalance(
-        network: Network,
-        walletAddress: String
-    ) async throws -> TokenBalance?
-}
-
-@available(macOS 12.0, iOS 15.0, *)
-public final class IndexerClient: WalletIndexerClient {
+public final class IndexerClient {
     private let publishableKey: String
     private let environment: OMSClientEnvironment
     private let client: HttpClient
@@ -52,94 +59,125 @@ public final class IndexerClient: WalletIndexerClient {
         self.decoder = JSONDecoder()
     }
 
-    public func getTokenBalances(
-        network: Network,
-        contractAddress: String? = nil,
-        walletAddress: String,
-        includeMetadata: Bool,
-        page: TokenBalancesPageRequest = TokenBalancesPageRequest()
-    ) async throws -> TokenBalancesResult {
-        try await runOmsOperation(.indexerGetTokenBalances) {
-            let request = TokenBalancesRequest(
-                page: RequestPage(
-                    page: page.page ?? 0,
-                    pageSize: page.pageSize ?? 40,
-                    more: false
+    public func getBalances(_ params: GetBalancesParams) async throws -> BalancesResult {
+        try await runOmsOperation(.indexerGetBalances) {
+            let chainScope = chainScope(networks: params.networks, networkType: params.networkType)
+            let request = GetTokenBalancesDetailsRequest(
+                chainIds: chainScope.chainIds,
+                networkType: chainScope.networkType,
+                filter: TokenBalancesFilter(
+                    accountAddresses: [params.walletAddress],
+                    contractStatus: params.contractStatus,
+                    contractWhitelist: nonEmpty(params.contractAddresses),
+                    omitNativeBalances: false,
+                    omitPrices: params.omitPrices,
+                    tokenIDs: nonEmpty(params.tokenIds)
                 ),
-                contractAddress: contractAddress,
-                accountAddress: walletAddress,
-                includeMetadata: includeMetadata
+                omitMetadata: !params.includeMetadata,
+                page: requestPage(params.page)
             )
 
-            let bodyData = try encoder.encode(request)
-            let bodyString = String(data: bodyData, encoding: .utf8) ?? "{}"
-
-            let baseUrl = indexerUrl(forNetwork: network)
-
-            let response = try await client.postJson(
-                baseUrl: baseUrl,
-                path: "/GetTokenBalances",
-                body: bodyString,
-                headers: defaultHeaders()
+            let response = try await postJson(
+                operation: .indexerGetBalances,
+                path: "/GetTokenBalancesDetails",
+                request: request,
+                responseType: GetTokenBalancesDetailsResponse.self
             )
-            try validateSuccessResponse(response, operation: .indexerGetTokenBalances)
 
-            let payload = try decoder.decode(TokenBalancesPayload.self, from: response.body)
-
-            return TokenBalancesResult(
+            return BalancesResult(
                 status: response.statusCode,
-                page: payload.page,
-                balances: payload.balances ?? []
+                page: response.payload.page,
+                nativeBalances: flatten(response.payload.nativeBalances).map(nativeTokenBalance),
+                balances: flatten(response.payload.balances)
             )
         }
     }
 
-    public func getNativeTokenBalance(
-        network: Network,
-        walletAddress: String
-    ) async throws -> TokenBalance? {
-        try await runOmsOperation(.indexerGetNativeTokenBalance) {
-            let request = NativeTokenBalanceRequest(accountAddress: walletAddress)
-
-            let bodyData = try encoder.encode(request)
-            let bodyString = String(data: bodyData, encoding: .utf8) ?? "{}"
-
-            let baseUrl = indexerUrl(forNetwork: network)
-
-            let response = try await client.postJson(
-                baseUrl: baseUrl,
-                path: "/GetNativeTokenBalance",
-                body: bodyString,
-                headers: defaultHeaders()
+    public func getTransactionHistory(_ params: GetTransactionHistoryParams) async throws -> TransactionHistoryResult {
+        try await runOmsOperation(.indexerGetTransactionHistory) {
+            let chainScope = chainScope(networks: params.networks, networkType: params.networkType)
+            let request = GetTransactionHistoryRequest(
+                chainIds: chainScope.chainIds,
+                networkType: chainScope.networkType,
+                filter: TransactionHistoryFilter(
+                    accountAddresses: [params.walletAddress],
+                    contractAddresses: nonEmpty(params.contractAddresses),
+                    transactionHashes: nonEmpty(params.transactionHashes),
+                    metaTransactionIDs: nonEmpty(params.metaTransactionIds),
+                    fromBlock: params.fromBlock,
+                    toBlock: params.toBlock,
+                    tokenID: params.tokenId,
+                    omitPrices: params.omitPrices
+                ),
+                includeMetadata: params.includeMetadata,
+                metadataOptions: params.metadataOptions,
+                page: requestPage(params.page)
             )
-            try validateSuccessResponse(response, operation: .indexerGetNativeTokenBalance)
 
-            let payload = try decoder.decode(NativeTokenBalancePayload.self, from: response.body)
-            guard let balance = payload.balance else {
-                return nil
-            }
+            let response = try await postJson(
+                operation: .indexerGetTransactionHistory,
+                path: "/GetTransactionHistory",
+                request: request,
+                responseType: GetTransactionHistoryResponse.self
+            )
 
-            return TokenBalance(
-                contractType: "NATIVE",
-                contractAddress: nil,
-                accountAddress: balance.accountAddress,
-                tokenId: nil,
-                balance: balance.balance ?? balance.balanceWei,
-                blockHash: nil,
-                blockNumber: nil,
-                chainId: balance.chainId ?? Int64(network.chainId)
+            return TransactionHistoryResult(
+                status: response.statusCode,
+                page: response.payload.page,
+                transactions: flatten(response.payload.transactions)
             )
         }
     }
 
-    private func indexerUrl(forNetwork network: Network) -> String {
-        return environment.indexerUrlString(for: network)
+    private func postJson<Request: Encodable, Response: Decodable>(
+        operation: OmsSdkOperation,
+        path: String,
+        request: Request,
+        responseType: Response.Type
+    ) async throws -> (statusCode: Int, payload: Response) {
+        let bodyData = try encoder.encode(request)
+        let bodyString = String(data: bodyData, encoding: .utf8) ?? "{}"
+
+        let response = try await client.postJson(
+            baseUrl: environment.indexerGatewayUrl,
+            path: path,
+            body: bodyString,
+            headers: defaultHeaders()
+        )
+        try validateSuccessResponse(response, operation: operation)
+
+        return (
+            statusCode: response.statusCode,
+            payload: try decoder.decode(responseType, from: response.body)
+        )
+    }
+
+    private func chainScope(
+        networks: [Network]?,
+        networkType: IndexerNetworkType?
+    ) -> (chainIds: [Int]?, networkType: IndexerNetworkType?) {
+        if let networks, !networks.isEmpty {
+            return (chainIds: networks.map(\.id), networkType: nil)
+        }
+        return (chainIds: nil, networkType: networkType ?? .mainnets)
+    }
+
+    private func requestPage(_ page: TokenBalancesPageRequest?) -> TokenBalancesPageRequest {
+        TokenBalancesPageRequest(
+            page: page?.page ?? 0,
+            column: page?.column,
+            before: page?.before,
+            after: page?.after,
+            sort: page?.sort,
+            pageSize: page?.pageSize ?? 40
+        )
     }
 
     private func defaultHeaders() -> [String: String] {
-        return [
-            "X-Access-Key": publishableKey,
-            "Accept": "application/json"
+        [
+            "Api-Key": publishableKey,
+            "Accept": "application/json",
+            "Webrpc": indexerGatewayWebRPCHeaderValue
         ]
     }
 
@@ -150,7 +188,8 @@ public final class IndexerClient: WalletIndexerClient {
         guard (200...299).contains(response.statusCode) else {
             throw OmsSdkError(
                 code: .httpError,
-                message: "Indexer request failed with HTTP status \(response.statusCode).",
+                message: errorMessage(from: response.body)
+                    ?? "Indexer request failed with HTTP status \(response.statusCode).",
                 operation: operation,
                 status: response.statusCode,
                 retryable: response.statusCode >= 500
@@ -159,19 +198,94 @@ public final class IndexerClient: WalletIndexerClient {
     }
 }
 
-private struct TokenBalancesRequest: Encodable {
-    let page: RequestPage
-    let contractAddress: String?
-    let accountAddress: String
+private struct TokenBalancesFilter: Encodable {
+    let accountAddresses: [String]
+    let contractStatus: ContractVerificationStatus?
+    let contractTypes: [String]? = nil
+    let contractWhitelist: [String]?
+    let contractBlacklist: [String]? = nil
+    let omitNativeBalances: Bool
+    let omitPrices: Bool?
+    let tokenIDs: [String]?
+}
+
+private struct GetTokenBalancesDetailsRequest: Encodable {
+    let chainIds: [Int]?
+    let networkType: IndexerNetworkType?
+    let filter: TokenBalancesFilter
+    let omitMetadata: Bool
+    let page: TokenBalancesPageRequest
+}
+
+private struct TransactionHistoryFilter: Encodable {
+    let accountAddresses: [String]
+    let contractAddresses: [String]?
+    let transactionHashes: [String]?
+    let metaTransactionIDs: [String]?
+    let fromBlock: Int?
+    let toBlock: Int?
+    let tokenID: String?
+    let omitPrices: Bool?
+}
+
+private struct GetTransactionHistoryRequest: Encodable {
+    let chainIds: [Int]?
+    let networkType: IndexerNetworkType?
+    let filter: TransactionHistoryFilter
     let includeMetadata: Bool
+    let metadataOptions: MetadataOptions?
+    let page: TokenBalancesPageRequest
 }
 
-private struct NativeTokenBalanceRequest: Encodable {
-    let accountAddress: String
+private func flatten(_ groups: [GatewayNativeTokenBalances]?) -> [NativeTokenBalanceResponse] {
+    groups?.flatMap { $0.results ?? [] } ?? []
 }
 
-private struct RequestPage: Encodable {
-    let page: Int
-    let pageSize: Int
-    let more: Bool
+private func flatten(_ groups: [GatewayTokenBalances]?) -> [TokenBalance] {
+    groups?.flatMap { $0.results ?? [] } ?? []
+}
+
+private func flatten(_ groups: [GatewayTransactions]?) -> [Transaction] {
+    groups?.flatMap { $0.results ?? [] } ?? []
+}
+
+private func nativeTokenBalance(_ raw: NativeTokenBalanceResponse) -> TokenBalance {
+    TokenBalance(
+        contractType: "NATIVE",
+        contractAddress: nil,
+        accountAddress: raw.accountAddress,
+        tokenId: nil,
+        name: raw.name,
+        symbol: raw.symbol,
+        balance: raw.balance,
+        balanceUSD: raw.balanceUSD,
+        priceUSD: raw.priceUSD,
+        priceUpdatedAt: raw.priceUpdatedAt,
+        blockHash: nil,
+        blockNumber: nil,
+        chainId: raw.chainId
+    )
+}
+
+private func nonEmpty<T>(_ values: [T]?) -> [T]? {
+    guard let values, !values.isEmpty else {
+        return nil
+    }
+    return values
+}
+
+private func errorMessage(from body: Data) -> String? {
+    guard
+        let payload = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
+    else {
+        return nil
+    }
+    return stringField(payload, "message")
+        ?? stringField(payload, "cause")
+        ?? stringField(payload, "msg")
+}
+
+private func stringField(_ payload: [String: Any], _ key: String) -> String? {
+    let value = payload[key]
+    return value as? String
 }

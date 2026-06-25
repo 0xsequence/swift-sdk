@@ -3,6 +3,8 @@ public struct TokenBalance: Codable, Sendable {
     public let contractAddress: String?
     public let accountAddress: String?
     public let tokenId: String?
+    public let name: String?
+    public let symbol: String?
     public let balance: String?
     public let balanceUSD: String?
     public let priceUSD: String?
@@ -20,6 +22,8 @@ public struct TokenBalance: Codable, Sendable {
         contractAddress: String?,
         accountAddress: String?,
         tokenId: String?,
+        name: String? = nil,
+        symbol: String? = nil,
         balance: String?,
         balanceUSD: String? = nil,
         priceUSD: String? = nil,
@@ -36,6 +40,8 @@ public struct TokenBalance: Codable, Sendable {
         self.contractAddress = contractAddress
         self.accountAddress = accountAddress
         self.tokenId = tokenId
+        self.name = name
+        self.symbol = symbol
         self.balance = balance
         self.balanceUSD = balanceUSD
         self.priceUSD = priceUSD
@@ -55,6 +61,8 @@ public struct TokenBalance: Codable, Sendable {
         case accountAddress
         case tokenId
         case tokenID
+        case name
+        case symbol
         case balance
         case balanceUSD
         case priceUSD
@@ -75,6 +83,8 @@ public struct TokenBalance: Codable, Sendable {
         self.accountAddress = try container.decodeIfPresent(String.self, forKey: .accountAddress)
         self.tokenId = try container.decodeIfPresent(String.self, forKey: .tokenId)
             ?? container.decodeIfPresent(String.self, forKey: .tokenID)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name)
+        self.symbol = try container.decodeIfPresent(String.self, forKey: .symbol)
         self.balance = try container.decodeIfPresent(String.self, forKey: .balance)
         self.balanceUSD = try container.decodeIfPresent(String.self, forKey: .balanceUSD)
         self.priceUSD = try container.decodeIfPresent(String.self, forKey: .priceUSD)
@@ -94,6 +104,8 @@ public struct TokenBalance: Codable, Sendable {
         try container.encodeIfPresent(contractAddress, forKey: .contractAddress)
         try container.encodeIfPresent(accountAddress, forKey: .accountAddress)
         try container.encodeIfPresent(tokenId, forKey: .tokenID)
+        try container.encodeIfPresent(name, forKey: .name)
+        try container.encodeIfPresent(symbol, forKey: .symbol)
         try container.encodeIfPresent(balance, forKey: .balance)
         try container.encodeIfPresent(balanceUSD, forKey: .balanceUSD)
         try container.encodeIfPresent(priceUSD, forKey: .priceUSD)

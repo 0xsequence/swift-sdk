@@ -3,7 +3,7 @@ import Testing
 @testable import OMS_SDK
 
 @Test func TestSupportedNetworks() throws {
-    let oms = OMSClient(publishableKey: "test", projectId: "test")
+    let oms = try OMSClient(publishableKey: "pk_dev_sdbx_project_key")
     
     #expect(Network.supportedNetworks == [
         .mainnet,
@@ -40,59 +40,185 @@ import Testing
     #expect(Network.amoy == .polygonAmoy)
 }
 
-@Test func TestIndexerURLUsesNetworkIndexerName() throws {
-    let environment = OMSClientEnvironment(
-        indexerURLTemplate: "https://{value}-indexer.sequence.app/rpc/Indexer/"
-    )
+@Test func TestPublishableKeyRoutingDerivesProjectAndApiUrls() throws {
+    let routes = [
+        ("pk_dev_sdbx_project_key", "https://sandbox-api.dev.polygon-dev.technology"),
+        ("pk_dev_live_project_key", "https://api.dev.polygon-dev.technology"),
+        ("pk_stg_sdbx_project_key", "https://sandbox-api.stg.polygon-dev.technology"),
+        ("pk_stg_live_project_key", "https://api.stg.polygon-dev.technology"),
+        ("pk_sdbx_project_key", "https://sandbox-api.polygon.technology"),
+        ("pk_live_project_key", "https://api.polygon.technology")
+    ]
 
-    #expect(environment.indexerURLTemplate == "https://{value}-indexer.sequence.app/rpc/Indexer/")
-    #expect(environment.indexerURL(for: .polygon)?.absoluteString == "https://polygon-indexer.sequence.app/rpc/Indexer/")
-    #expect(environment.indexerURL(for: .polygonAmoy)?.absoluteString == "https://amoy-indexer.sequence.app/rpc/Indexer/")
-    #expect(environment.indexerURL(for: .arbitrumSepolia)?.absoluteString == "https://arbitrum-sepolia-indexer.sequence.app/rpc/Indexer/")
+    for (publishableKey, apiUrl) in routes {
+        let parsedKey = try parsePublishableKey(publishableKey)
+        #expect(parsedKey.projectId == "prj_project")
+        #expect(parsedKey.walletApiUrl == apiUrl)
+        #expect(parsedKey.indexerGatewayUrl == "\(apiUrl)/v1/IndexerGateway/")
+
+        let oms = try OMSClient(publishableKey: publishableKey)
+        #expect(oms.wallet.projectId == "prj_project")
+    }
 }
 
-@Test func TestGetTokenBalancesEncodesOptionalContractAddressAndPage() async throws {
+@Test func TestPublishableKeyRoutingRejectsInvalidKeys() throws {
+    for publishableKey in [
+        "pk_test_sdbx_project_key",
+        "pk_dev_sdbx_project",
+        "pk_dev_sdbx__key",
+        "pk_dev_sdbx_project_"
+    ] {
+        do {
+            _ = try OMSClient(publishableKey: publishableKey)
+            #expect(Bool(false), "Expected invalid publishable key")
+        } catch let error as OmsSdkError {
+            #expect(error.code == .validationError)
+            #expect(error.operation == nil)
+            #expect(error.localizedDescription == "Invalid publishableKey.")
+        } catch {
+            #expect(Bool(false), "Expected OmsSdkError")
+        }
+    }
+}
+
+@Test func TestIndexerCancelledRequestPreservesCancellation() async throws {
+    let recorder = IndexerRequestRecorder(transportError: URLError(.cancelled))
+    let client = makeRecordingIndexerClient(recorder: recorder)
+
+    do {
+        _ = try await client.getBalances(
+            GetBalancesParams(
+                walletAddress: "0xwallet",
+                networks: [.polygon],
+                includeMetadata: false
+            )
+        )
+        #expect(Bool(false), "Expected cancellation")
+    } catch is CancellationError {
+    } catch {
+        #expect(Bool(false), "Expected CancellationError, got \(error)")
+    }
+}
+
+@Test func TestGetBalancesEncodesGatewayScopeFiltersAndHeaders() async throws {
     let recorder = IndexerRequestRecorder()
     let client = makeRecordingIndexerClient(recorder: recorder)
 
-    _ = try await client.getTokenBalances(
-        network: .polygon,
-        walletAddress: "0xwallet",
-        includeMetadata: true
+    _ = try await client.getBalances(
+        GetBalancesParams(
+            walletAddress: "0xwallet",
+            networks: [.polygon, .base],
+            contractAddresses: ["0xTokenContract"],
+            includeMetadata: false,
+            omitPrices: true,
+            tokenIds: ["123"],
+            contractStatus: .verified,
+            page: TokenBalancesPageRequest(page: 2, pageSize: 100)
+        )
+    )
+
+    let request = try #require(recorder.recordedRequest())
+    let body = try #require(recorder.recordedBody())
+    let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+    let filter = try #require(payload["filter"] as? [String: Any])
+    let page = try #require(payload["page"] as? [String: Any])
+
+    #expect(request.url?.path == "/v1/IndexerGateway/GetTokenBalancesDetails")
+    #expect(request.value(forHTTPHeaderField: "Api-Key") == "test-key")
+    #expect(request.value(forHTTPHeaderField: "Accept") == "application/json")
+    #expect(request.value(forHTTPHeaderField: "Webrpc")?.contains("sequence-indexer@v0.4.0") == true)
+    #expect(payload["chainIds"] as? [Int] == [137, 8453])
+    #expect(payload["networkType"] == nil)
+    #expect(payload["omitMetadata"] as? Bool == true)
+    #expect(filter["accountAddresses"] as? [String] == ["0xwallet"])
+    #expect(filter["contractWhitelist"] as? [String] == ["0xTokenContract"])
+    #expect(filter["contractStatus"] as? String == "VERIFIED")
+    #expect(filter["omitNativeBalances"] as? Bool == false)
+    #expect(filter["omitPrices"] as? Bool == true)
+    #expect(filter["tokenIDs"] as? [String] == ["123"])
+    #expect(page["page"] as? Int == 2)
+    #expect(page["pageSize"] as? Int == 100)
+}
+
+@Test func TestGetTransactionHistoryEncodesGatewayFiltersAndDecodesTransactions() async throws {
+    let recorder = IndexerRequestRecorder(
+        responseBody: Data(
+            #"""
+            {
+              "page": {"page": 0, "pageSize": 40, "more": false},
+              "transactions": [
+                {
+                  "chainId": 80002,
+                  "results": [
+                    {
+                      "txnHash": "0xtxn",
+                      "blockNumber": 123,
+                      "blockHash": "0xblock",
+                      "chainId": 80002,
+                      "metaTxnID": "meta-1",
+                      "timestamp": "2026-01-01T00:00:00Z",
+                      "transfers": [
+                        {
+                          "transferType": "SEND",
+                          "contractAddress": "0xcontract",
+                          "tokenIDs": ["7"],
+                          "amounts": ["1"],
+                          "tokenMetadata": {
+                            "7": {
+                              "chainId": 80002,
+                              "contractAddress": "0xcontract",
+                              "tokenID": "7",
+                              "name": "Token 7"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+            """#.utf8
+        )
+    )
+    let client = makeRecordingIndexerClient(recorder: recorder)
+
+    let result = try await client.getTransactionHistory(
+        GetTransactionHistoryParams(
+            walletAddress: "0xwallet",
+            networkType: .all,
+            contractAddresses: ["0xcontract"],
+            transactionHashes: ["0xtxn"],
+            metaTransactionIds: ["meta-1"],
+            fromBlock: 1,
+            toBlock: 200,
+            tokenId: "7",
+            includeMetadata: true,
+            omitPrices: true
+        )
     )
 
     let body = try #require(recorder.recordedBody())
     let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
-    let page = try #require(payload["page"] as? [String: Any])
+    let filter = try #require(payload["filter"] as? [String: Any])
+    let transaction = try #require(result.transactions.first)
+    let transfer = try #require(transaction.transfers?.first)
 
-    #expect(payload["contractAddress"] == nil)
-    #expect(payload["accountAddress"] as? String == "0xwallet")
+    #expect(recorder.recordedRequest()?.url?.path == "/v1/IndexerGateway/GetTransactionHistory")
+    #expect(payload["networkType"] as? String == "ALL")
+    #expect(payload["chainIds"] == nil)
     #expect(payload["includeMetadata"] as? Bool == true)
-    #expect(page["page"] as? Int == 0)
-    #expect(page["pageSize"] as? Int == 40)
-    #expect(page["more"] as? Bool == false)
-
-    let customPageRecorder = IndexerRequestRecorder()
-    let customPageClient = makeRecordingIndexerClient(recorder: customPageRecorder)
-
-    _ = try await customPageClient.getTokenBalances(
-        network: .polygon,
-        contractAddress: "0xTokenContract",
-        walletAddress: "0xwallet",
-        includeMetadata: false,
-        page: TokenBalancesPageRequest(page: 2, pageSize: 100)
-    )
-
-    let customPageBody = try #require(customPageRecorder.recordedBody())
-    let customPagePayload = try #require(JSONSerialization.jsonObject(with: customPageBody) as? [String: Any])
-    let customPage = try #require(customPagePayload["page"] as? [String: Any])
-
-    #expect(customPagePayload["contractAddress"] as? String == "0xTokenContract")
-    #expect(customPagePayload["accountAddress"] as? String == "0xwallet")
-    #expect(customPagePayload["includeMetadata"] as? Bool == false)
-    #expect(customPage["page"] as? Int == 2)
-    #expect(customPage["pageSize"] as? Int == 100)
-    #expect(customPage["more"] as? Bool == false)
+    #expect(filter["accountAddresses"] as? [String] == ["0xwallet"])
+    #expect(filter["contractAddresses"] as? [String] == ["0xcontract"])
+    #expect(filter["transactionHashes"] as? [String] == ["0xtxn"])
+    #expect(filter["metaTransactionIDs"] as? [String] == ["meta-1"])
+    #expect(filter["fromBlock"] as? Int == 1)
+    #expect(filter["toBlock"] as? Int == 200)
+    #expect(filter["tokenID"] as? String == "7")
+    #expect(filter["omitPrices"] as? Bool == true)
+    #expect(transaction.metaTxnId == "meta-1")
+    #expect(transfer.tokenIds == ["7"])
+    #expect(transfer.tokenMetadata?["7"]?.tokenId == "7")
 }
 
 @Test func TestTokenBalanceDecodesIndexerMetadataFields() throws {
@@ -204,43 +330,49 @@ import Testing
 @Test func TestIndexerNonSuccessResponsesThrowOmsHttpError() async throws {
     let tokenBalancesRecorder = IndexerRequestRecorder(
         statusCode: 500,
-        responseBody: Data(#"{"page":{"page":0,"pageSize":40,"more":false},"balances":[]}"#.utf8)
+        responseBody: Data(#"{"msg":"gateway unavailable"}"#.utf8)
     )
     let tokenBalancesClient = makeRecordingIndexerClient(recorder: tokenBalancesRecorder)
 
     do {
-        _ = try await tokenBalancesClient.getTokenBalances(
-            network: .polygon,
-            walletAddress: "0xwallet",
-            includeMetadata: true
+        _ = try await tokenBalancesClient.getBalances(
+            GetBalancesParams(
+                walletAddress: "0xwallet",
+                networks: [.polygon],
+                includeMetadata: true
+            )
         )
         #expect(Bool(false), "Expected indexer HTTP error")
     } catch let error as OmsSdkError {
         #expect(error.code == .httpError)
-        #expect(error.operation == .indexerGetTokenBalances)
+        #expect(error.operation == .indexerGetBalances)
         #expect(error.status == 500)
         #expect(error.retryable == true)
+        #expect(error.localizedDescription == "gateway unavailable")
     } catch {
         #expect(Bool(false), "Expected OmsSdkError")
     }
 
-    let nativeBalanceRecorder = IndexerRequestRecorder(
+    let historyRecorder = IndexerRequestRecorder(
         statusCode: 404,
-        responseBody: Data(#"{"balance":null}"#.utf8)
+        responseBody: Data(#"{"cause":"not found"}"#.utf8)
     )
-    let nativeBalanceClient = makeRecordingIndexerClient(recorder: nativeBalanceRecorder)
+    let historyClient = makeRecordingIndexerClient(recorder: historyRecorder)
 
     do {
-        _ = try await nativeBalanceClient.getNativeTokenBalance(
-            network: .polygon,
-            walletAddress: "0xwallet"
+        _ = try await historyClient.getTransactionHistory(
+            GetTransactionHistoryParams(
+                walletAddress: "0xwallet",
+                networks: [.polygon]
+            )
         )
         #expect(Bool(false), "Expected indexer HTTP error")
     } catch let error as OmsSdkError {
         #expect(error.code == .httpError)
-        #expect(error.operation == .indexerGetNativeTokenBalance)
+        #expect(error.operation == .indexerGetTransactionHistory)
         #expect(error.status == 404)
         #expect(error.retryable == false)
+        #expect(error.localizedDescription == "not found")
     } catch {
         #expect(Bool(false), "Expected OmsSdkError")
     }
@@ -258,7 +390,7 @@ private func makeRecordingIndexerClient(recorder: IndexerRequestRecorder) -> Ind
     let session = URLSession(configuration: configuration)
     let httpClient = HttpClient(session: session)
     let environment = OMSClientEnvironment(
-        indexerURLTemplate: "https://{value}-\(host)/rpc/Indexer/"
+        indexerGatewayUrl: "https://\(host)/v1/IndexerGateway/"
     )
 
     return IndexerClient(
@@ -272,19 +404,24 @@ private final class IndexerRequestRecorder: @unchecked Sendable {
     private let lock = NSLock()
     let statusCode: Int
     let responseBody: Data
+    let transportError: (any Error)?
     private var body: Data?
+    private var request: URLRequest?
 
     init(
         statusCode: Int = 200,
-        responseBody: Data = Data(#"{"page":{"page":0,"pageSize":40,"more":false},"balances":[]}"#.utf8)
+        responseBody: Data = Data(#"{"page":{"page":0,"pageSize":40,"more":false},"nativeBalances":[],"balances":[]}"#.utf8),
+        transportError: (any Error)? = nil
     ) {
         self.statusCode = statusCode
         self.responseBody = responseBody
+        self.transportError = transportError
     }
 
-    func record(body: Data?) {
+    func record(request: URLRequest, body: Data?) {
         lock.lock()
         defer { lock.unlock() }
+        self.request = request
         self.body = body
     }
 
@@ -292,6 +429,12 @@ private final class IndexerRequestRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return body
+    }
+
+    func recordedRequest() -> URLRequest? {
+        lock.lock()
+        defer { lock.unlock() }
+        return request
     }
 }
 
@@ -317,7 +460,12 @@ private final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         let recorder = Self.recorder(for: request)
-        recorder?.record(body: Self.bodyData(for: request))
+        recorder?.record(request: request, body: Self.bodyData(for: request))
+
+        if let error = recorder?.transportError {
+            client?.urlProtocol(self, didFailWithError: error)
+            return
+        }
 
         let response = HTTPURLResponse(
             url: request.url!,
