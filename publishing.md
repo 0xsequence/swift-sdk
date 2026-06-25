@@ -3,7 +3,7 @@
 1. Set `VERSION` and create a release branch from an up-to-date `master`.
 
 ```sh
-export VERSION="<next-version>"
+VERSION="<next-version>"
 git fetch origin --tags
 git switch master
 git pull --ff-only origin master
@@ -11,7 +11,12 @@ git tag --list "$VERSION"
 git switch -c "release-$VERSION"
 ```
 
-`git tag --list "$VERSION"` should print nothing. Use bare version tags such as `0.1.0-alpha.1`, not `v0.1.0-alpha.1`, because the podspec source tag is `s.version.to_s`.
+`VERSION` keeps the branch name, tag, podspec checks, and PR title aligned across
+the release commands. It does not need to be exported because the commands read
+it through shell expansion; set it again if you continue the release from a new
+shell. `git tag --list "$VERSION"` should print nothing. Use bare version tags
+such as `0.1.0-alpha.1`, not `v0.1.0-alpha.1`, because the podspec source tag is
+`s.version.to_s`.
 
 2. Update release metadata and docs.
 
