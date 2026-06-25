@@ -19,7 +19,7 @@ https://github.com/0xsequence/swift-sdk.git
 Add the pod to your `Podfile`:
 
 ```ruby
-pod 'oms-client-swift-sdk', '0.1.0-alpha.2'
+pod 'oms-client-swift-sdk', '0.1.0-alpha.3'
 ```
 
 ## Quick Start
