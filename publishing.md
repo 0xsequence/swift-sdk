@@ -57,6 +57,7 @@ gh pr create \
 5. After merge, prepare `master` and confirm the public source URL is reachable.
 
 ```sh
+VERSION="<released-version>"
 git switch master
 git pull --ff-only origin master
 grep "s.version = \"$VERSION\"" oms-client-swift-sdk.podspec
