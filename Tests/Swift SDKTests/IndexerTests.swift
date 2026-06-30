@@ -372,14 +372,14 @@ import Testing
         #expect(error.operation == .indexerGetTransactionHistory)
         #expect(error.status == 404)
         #expect(error.retryable == false)
-        #expect(error.localizedDescription == "not found")
+        #expect(error.localizedDescription == "indexer.getTransactionHistory failed with HTTP 404")
     } catch {
         #expect(Bool(false), "Expected OmsSdkError")
     }
 }
 
 @available(macOS 12.0, iOS 15.0, *)
-private func makeRecordingIndexerClient(recorder: IndexerRequestRecorder) -> IndexerClient {
+func makeRecordingIndexerClient(recorder: IndexerRequestRecorder) -> IndexerClient {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [RecordingURLProtocol.self]
     configuration.timeoutIntervalForRequest = 1
@@ -400,7 +400,7 @@ private func makeRecordingIndexerClient(recorder: IndexerRequestRecorder) -> Ind
     )
 }
 
-private final class IndexerRequestRecorder: @unchecked Sendable {
+final class IndexerRequestRecorder: @unchecked Sendable {
     private let lock = NSLock()
     let statusCode: Int
     let responseBody: Data
@@ -438,7 +438,7 @@ private final class IndexerRequestRecorder: @unchecked Sendable {
     }
 }
 
-private final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
+final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var recordersByHost: [String: IndexerRequestRecorder] = [:]
 

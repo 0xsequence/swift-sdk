@@ -349,17 +349,19 @@ public struct ListAccessPages: AsyncSequence {
         }
 
         public mutating func next() async throws -> ListAccessResponse? {
-            if hasStarted && cursor == nil {
-                return nil
-            }
+            try await runOmsOperation(.walletListAccessPages) {
+                if hasStarted && cursor == nil {
+                    return nil
+                }
 
-            let response = try await client.listAccessPage(
-                pageSize: pageSize,
-                cursor: cursor
-            )
-            hasStarted = true
-            cursor = nonEmptyCursor(response.page?.cursor)
-            return response
+                let response = try await client.listAccessPage(
+                    pageSize: pageSize,
+                    cursor: cursor
+                )
+                hasStarted = true
+                cursor = nonEmptyCursor(response.page?.cursor)
+                return response
+            }
         }
 
         private func nonEmptyCursor(_ cursor: String?) -> String? {

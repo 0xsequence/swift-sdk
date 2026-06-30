@@ -17,6 +17,8 @@
   - [OmsSdkError](#omssdkerror)
   - [OmsSdkErrorCode](#omssdkerrorcode)
   - [OmsSdkOperation](#omssdkoperation)
+  - [OmsUpstreamService](#omsupstreamservice)
+  - [OmsUpstreamError](#omsupstreamerror)
   - [TransactionError](#transactionerror)
   - [SendTransactionResponse](#sendtransactionresponse)
   - [TransactionMode](#transactionmode)
@@ -799,12 +801,13 @@ symbol for native fee options.
 ### OmsSdkError
 
 ```swift
-struct OmsSdkError: Error, LocalizedError, Sendable {
+struct OmsSdkError: Error, LocalizedError, @unchecked Sendable {
     let code: OmsSdkErrorCode
     let operation: OmsSdkOperation?
     let status: Int?
     let txnId: String?
-    let retryable: Bool
+    let retryable: Bool?
+    let upstreamError: OmsUpstreamError?
     let underlyingError: (any Error)?
 }
 ```
@@ -812,9 +815,23 @@ struct OmsSdkError: Error, LocalizedError, Sendable {
 Public `WalletClient` and `IndexerClient` methods normalize recoverable SDK
 failures to `OmsSdkError`. Use `code` for stable app handling, `operation` for
 logging and analytics, `status` for HTTP-backed failures, `txnId` for
-transaction status lookup failures, and `retryable` for retry UI. The
-`underlyingError` preserves lower-level details such as `WebRPCError`,
-`TransactionError`, or decoding/transport errors.
+transaction recovery, and `retryable == true` for retry UI. `retryable` is
+nullable because not every error family has meaningful retry semantics.
+
+`upstreamError` is normalized diagnostic detail from a remote OMS service
+response, malformed remote response, or transport failure. It is present for
+WaaS and Indexer failures that crossed a remote/transport boundary, and absent
+for local session, selection, validation, OIDC state, and fee-selection errors.
+Branch application behavior on SDK-level `code`; use `upstreamError` for logs
+and service-specific troubleshooting.
+
+`underlyingError` is Swift-local diagnostic context. It is present when the SDK
+wraps a lower-level Swift error such as `WebRPCError`, `WebRPCTransportError`,
+`TransactionError`, `HttpError`, `URLError`, or a decoding error. It can be
+absent for deliberate local SDK errors such as missing session and stale wallet
+selection, and for manually constructed `OmsSdkError` values unless the caller
+supplies it. Do not serialize or depend on `underlyingError` for cross-SDK
+behavior.
 
 `PendingWalletSelection` validation failures, such as stale selections or
 unavailable wallet IDs, also throw `OmsSdkError`.
@@ -829,8 +846,14 @@ do {
     case .sessionMissing, .sessionExpired:
         // Prompt the user to sign in again.
         break
-    case .httpError where error.retryable:
+    case .httpError where error.retryable == true:
         // Show retry UI.
+        break
+    case .transactionExecutionUnconfirmed:
+        // Preserve error.txnId and avoid blindly resending the write.
+        break
+    case .transactionStatusLookupFailed:
+        // Retry getTransactionStatus with error.txnId.
         break
     default:
         // Show a generic SDK error.
@@ -852,21 +875,85 @@ enum OmsSdkErrorCode: String, Sendable {
     case walletSelectionStale = "OMS_WALLET_SELECTION_STALE"
     case walletSelectionUnavailable = "OMS_WALLET_SELECTION_UNAVAILABLE"
     case walletSelectionInFlight = "OMS_WALLET_SELECTION_IN_FLIGHT"
+    case transactionExecutionUnconfirmed = "OMS_TRANSACTION_EXECUTION_UNCONFIRMED"
     case transactionStatusLookupFailed = "OMS_TRANSACTION_STATUS_LOOKUP_FAILED"
     case validationError = "OMS_VALIDATION_ERROR"
 }
 ```
 
+`OMS_AUTH_COMMITMENT_CONSUMED` means the OTP/OIDC auth commitment has already
+been used. Restart the auth flow before retrying.
+
+`OMS_TRANSACTION_EXECUTION_UNCONFIRMED` means transaction preparation succeeded
+and produced a `txnId`, but the execute request failed before the SDK could
+confirm whether the transaction was submitted. Do not blindly resend the same
+write solely because the upstream failure looked temporary.
+
+`OMS_TRANSACTION_STATUS_LOOKUP_FAILED` means the transaction was submitted, but
+post-submit status polling failed. The error includes `txnId` when available and
+is retryable by checking status again with `getTransactionStatus(txnId:)`.
+
 ### OmsSdkOperation
 
 ```swift
-enum OmsSdkOperation: String, Sendable
+enum OmsSdkOperation: String, Sendable {
+    case pendingWalletSelection = "wallet.pendingWalletSelection"
+    case pendingWalletSelectionSelectWallet = "wallet.pendingWalletSelection.selectWallet"
+    case pendingWalletSelectionCreateAndSelectWallet = "wallet.pendingWalletSelection.createAndSelectWallet"
+    case walletStartEmailAuth = "wallet.startEmailAuth"
+    case walletCompleteEmailAuth = "wallet.completeEmailAuth"
+    case walletSignInWithOidcIdToken = "wallet.signInWithOidcIdToken"
+    case walletStartOidcRedirectAuth = "wallet.startOidcRedirectAuth"
+    case walletHandleOidcRedirectCallback = "wallet.handleOidcRedirectCallback"
+    case walletUseWallet = "wallet.useWallet"
+    case walletCreateWallet = "wallet.createWallet"
+    case walletListWallets = "wallet.listWallets"
+    case walletSignOut = "wallet.signOut"
+    case walletListAccess = "wallet.listAccess"
+    case walletListAccessPage = "wallet.listAccessPage"
+    case walletListAccessPages = "wallet.listAccessPages"
+    case walletGetIdToken = "wallet.getIdToken"
+    case walletRevokeAccess = "wallet.revokeAccess"
+    case walletSignMessage = "wallet.signMessage"
+    case walletSignTypedData = "wallet.signTypedData"
+    case walletIsValidMessageSignature = "wallet.isValidMessageSignature"
+    case walletIsValidTypedDataSignature = "wallet.isValidTypedDataSignature"
+    case walletSendTransaction = "wallet.sendTransaction"
+    case walletCallContract = "wallet.callContract"
+    case walletExecute = "wallet.execute"
+    case walletGetTransactionStatus = "wallet.getTransactionStatus"
+    case walletTransactionStatus = "wallet.transactionStatus"
+    case indexerGetBalances = "indexer.getBalances"
+    case indexerGetTransactionHistory = "indexer.getTransactionHistory"
+}
 ```
 
-Stable operation identifiers such as `wallet.sendTransaction`,
-`wallet.completeEmailAuth`, `indexer.getBalances`, and
-`indexer.getTransactionHistory`. Use
-`operation.rawValue` when logging SDK failures.
+Use `operation.rawValue` when logging SDK failures.
+
+### OmsUpstreamService
+
+```swift
+enum OmsUpstreamService: String, Sendable {
+    case waas = "Waas"
+    case indexer = "Indexer"
+}
+```
+
+### OmsUpstreamError
+
+```swift
+struct OmsUpstreamError: Equatable, Sendable {
+    let service: OmsUpstreamService
+    let name: String?
+    let code: String?
+    let message: String?
+    let status: Int?
+}
+```
+
+`name` and `code` are service-specific. Indexer non-JSON HTTP failures use a
+sanitized fallback message instead of exposing raw HTML or text response bodies.
+WaaS non-JSON failures are normalized as `WebrpcBadResponse`.
 
 ### TransactionError
 
@@ -880,11 +967,12 @@ enum TransactionError: Error {
 }
 ```
 
-Transaction-flow detail cases preserved under `OmsSdkError.underlyingError`.
-`noFeeOptionsAvailable` is used when an unsponsored transaction has no fee
-options, and `noFeeOptionSelected` is used when a custom selector does not
-return a selection for an unsponsored transaction. Terminal non-executed
-statuses use `transactionFailed`. A normal pending polling timeout returns
+Transaction-flow detail cases may be preserved under
+`OmsSdkError.underlyingError`. `noFeeOptionsAvailable` is used when an
+unsponsored transaction has no fee options, and `noFeeOptionSelected` is used
+when a custom selector does not return a selection for an unsponsored
+transaction. Terminal non-executed statuses use `transactionFailed`. A normal
+pending polling timeout returns
 `SendTransactionResponse(status: .pending, txnHash: nil)` instead of throwing.
 `missingTransactionHash` and `pollingTimedOut` remain public compatibility cases.
 

@@ -202,22 +202,11 @@ extension WalletClient {
     /// - Returns: The current transaction status and transaction hash when available.
     public func getTransactionStatus(txnId: String) async throws -> TransactionStatusResponse {
         try await runOmsOperation(.walletGetTransactionStatus) {
-            do {
-                return try await signedClient.transactionStatus(
-                    TransactionStatusRequest(txnId: txnId)
-                )
-            } catch let error as CancellationError {
-                throw error
-            } catch {
-                throw OmsSdkError(
-                    code: .transactionStatusLookupFailed,
-                    message: error.localizedDescription,
-                    operation: .walletGetTransactionStatus,
-                    txnId: txnId,
-                    retryable: true,
-                    underlyingError: error
-                )
-            }
+            _ = try requireActiveWalletId()
+            try requireActiveCredential()
+            return try await signedClient.transactionStatus(
+                TransactionStatusRequest(txnId: txnId)
+            )
         }
     }
 
@@ -241,7 +230,24 @@ extension WalletClient {
             feeOption: feeOptionSelection
         )
 
-        let executeResponse = try await signedClient.execute(executeRequest)
+        let executeResponse: ExecuteResponse
+        do {
+            executeResponse = try await signedClient.execute(executeRequest)
+        } catch let error as CancellationError {
+            throw error
+        } catch {
+            let sdkError = toOmsSdkError(error, operation: .walletExecute)
+            throw OmsSdkError(
+                code: .transactionExecutionUnconfirmed,
+                message: "Transaction execution failed before status could be confirmed",
+                operation: .walletExecute,
+                status: sdkError.status,
+                txnId: prepareResponse.txnId,
+                retryable: false,
+                upstreamError: sdkError.upstreamError,
+                underlyingError: sdkError
+            )
+        }
         if !waitForStatus {
             return SendTransactionResponse(
                 txnId: prepareResponse.txnId,
@@ -386,7 +392,25 @@ extension WalletClient {
         var completedPolls = 0
 
         while true {
-            lastStatus = try await getTransactionStatus(txnId: txnId)
+            do {
+                lastStatus = try await signedClient.transactionStatus(
+                    TransactionStatusRequest(txnId: txnId)
+                )
+            } catch let error as CancellationError {
+                throw error
+            } catch {
+                let sdkError = toOmsSdkError(error, operation: .walletTransactionStatus)
+                throw OmsSdkError(
+                    code: .transactionStatusLookupFailed,
+                    message: "Transaction was submitted, but status polling failed",
+                    operation: .walletTransactionStatus,
+                    status: sdkError.status,
+                    txnId: txnId,
+                    retryable: true,
+                    upstreamError: sdkError.upstreamError,
+                    underlyingError: sdkError
+                )
+            }
             completedPolls += 1
 
             if lastStatus.status == .executed

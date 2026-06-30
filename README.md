@@ -19,7 +19,7 @@ https://github.com/0xsequence/swift-sdk.git
 Add the pod to your `Podfile`:
 
 ```ruby
-pod 'oms-client-swift-sdk', '0.1.0-alpha.3'
+pod 'oms-client-swift-sdk', '0.1.0-alpha.4'
 ```
 
 ## Quick Start
@@ -444,6 +444,19 @@ let txResult = try await oms.wallet.callContract(
 
 ### Handle SDK Errors
 
+Public methods throw `OmsSdkError` with stable fields such as `code`,
+`operation`, `status`, nullable `retryable`, and `txnId`. When a failure comes
+from a remote OMS service response or transport failure, `upstreamError`
+contains normalized WaaS or Indexer detail for logging. Application logic should
+usually branch on `code`.
+
+For transaction writes, `.transactionExecutionUnconfirmed` means the SDK has a
+`txnId` from preparation, but execute failed before the SDK could confirm
+whether the transaction was submitted; do not blindly resend the same write.
+`.transactionStatusLookupFailed` means the transaction was submitted, but status
+polling failed, so retry status lookup with the returned `txnId`. `retryable`
+describes the failed SDK operation, not the whole user intent.
+
 ```swift
 let value = try parseUnits(value: "1", decimals: 18)
 do {
@@ -461,15 +474,19 @@ do {
     switch error.code {
     case .sessionMissing, .sessionExpired:
         print("Sign in again")
-    case .httpError where error.retryable:
+    case .httpError where error.retryable == true:
         print("Retry:", error.localizedDescription)
+    case .transactionExecutionUnconfirmed:
+        print("Execution unconfirmed:", error.txnId ?? "unknown")
     case .transactionStatusLookupFailed:
         print("Transaction status lookup failed:", error.txnId ?? "unknown")
     default:
-        print("OMS SDK error:", error.localizedDescription)
+        print("OMS SDK error:", error.localizedDescription, error.upstreamError as Any)
     }
 }
 ```
+
+See [Public Error Contracts](docs/error-contracts.md) for the full SDK matrix.
 
 ### Query Token Balances
 

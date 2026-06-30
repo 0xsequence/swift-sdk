@@ -86,7 +86,11 @@ private func errorMessage(for error: OmsSdkError) -> String {
     if let status = error.status {
         details.append("HTTP status: \(status)")
     }
-    details.append("Retryable: \(error.retryable ? "yes" : "no")")
+    details.append("Retryable: \(retryableDescription(error.retryable))")
+
+    if let upstreamError = error.upstreamError {
+        details.append(contentsOf: upstreamDetails(upstreamError))
+    }
 
     if let webRPCError = webRPCError(from: error.underlyingError) {
         details.append(contentsOf: webRPCDetails(webRPCError))
@@ -99,6 +103,17 @@ private func errorMessage(for error: OmsSdkError) -> String {
     }
 
     return sections.joined(separator: "\n\n")
+}
+
+private func retryableDescription(_ retryable: Bool?) -> String {
+    switch retryable {
+    case .some(true):
+        return "yes"
+    case .some(false):
+        return "no"
+    case nil:
+        return "not specified"
+    }
 }
 
 private func errorMessage(for error: WebRPCError) -> String {
@@ -185,6 +200,25 @@ private func webRPCError(from error: (any Error)?) -> WebRPCError? {
         return webRPCError(from: error.underlyingError)
     }
     return nil
+}
+
+private func upstreamDetails(_ error: OmsUpstreamError) -> [String] {
+    var details = ["Upstream service: \(error.service.rawValue)"]
+
+    if let name = error.name, !name.isEmpty {
+        details.append("Upstream error: \(name)")
+    }
+    if let code = error.code, !code.isEmpty {
+        details.append("Upstream code: \(code)")
+    }
+    if let message = error.message, !message.isEmpty {
+        details.append("Upstream message: \(message)")
+    }
+    if let status = error.status {
+        details.append("Upstream status: \(status)")
+    }
+
+    return details
 }
 
 private func webRPCDetails(_ error: WebRPCError) -> [String] {

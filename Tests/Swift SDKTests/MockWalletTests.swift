@@ -134,7 +134,7 @@ import Testing
     }
 
     now = Date(timeIntervalSince1970: 1_767_225_601)
-    await expectNoAuthenticatedWalletSession {
+    await expectNoAuthenticatedWalletSession(expectedCode: .sessionExpired) {
         try await fixture.client.signMessage(network: .polygon, message: "hello")
     }
 
@@ -200,12 +200,25 @@ import Testing
     fixture.client.onSessionExpired = { event in
         expiredEvent = event
     }
-    try await Task.sleep(nanoseconds: 200_000_000)
+    let event = try await waitForSessionExpiredEvent { expiredEvent }
 
-    #expect(expiredEvent?.session.walletAddress == storedCredentials.walletAddress)
-    #expect(expiredEvent?.session.sessionEmail == "user@example.com")
+    #expect(event?.session.walletAddress == storedCredentials.walletAddress)
+    #expect(event?.session.sessionEmail == "user@example.com")
     #expect(fixture.client.session == SessionState(walletAddress: nil))
     #expect(try fixture.storedCredentials()?.walletId == storedCredentials.walletId)
+}
+
+private func waitForSessionExpiredEvent(
+    _ event: () -> SessionExpiredEvent?,
+    attempts: Int = 40
+) async throws -> SessionExpiredEvent? {
+    for _ in 0..<attempts {
+        if let event = event() {
+            return event
+        }
+        try await Task.sleep(nanoseconds: 50_000_000)
+    }
+    return event()
 }
 
 @Test func TestWalletSessionExpiryTimerNotifiesDelegate() async throws {
@@ -301,7 +314,7 @@ import Testing
         #expect(Bool(false))
     } catch let error as OmsSdkError {
         #expect(error.code == .walletSelectionUnavailable)
-        #expect(error.operation == nil)
+        #expect(error.operation == .pendingWalletSelectionSelectWallet)
     } catch {
         #expect(Bool(false))
     }
@@ -320,7 +333,7 @@ import Testing
         #expect(Bool(false))
     } catch let error as OmsSdkError {
         #expect(error.code == .walletSelectionStale)
-        #expect(error.operation == nil)
+        #expect(error.operation == .pendingWalletSelectionCreateAndSelectWallet)
     } catch {
         #expect(Bool(false))
     }
@@ -408,7 +421,7 @@ import Testing
         #expect(Bool(false), "Stale pending wallet selection should not create and select a wallet after a newer auth flow")
     } catch let error as OmsSdkError {
         #expect(error.code == .walletSelectionStale)
-        #expect(error.operation == nil)
+        #expect(error.operation == .pendingWalletSelectionCreateAndSelectWallet)
         #expect(fixture.transport.requestCount(for: WaasAPI.CreateWallet.urlPath) == 0)
         #expect(fixture.client.walletId == "")
         #expect(fixture.client.walletAddress == nil)
@@ -501,10 +514,9 @@ import Testing
         _ = try await fixture.client.completeEmailAuth(code: "123456")
         #expect(Bool(false))
     } catch let error as OmsSdkError {
-        #expect(error.code == .httpError)
+        #expect(error.code == .requestFailed)
         #expect(error.operation == .walletCompleteEmailAuth)
         #expect(error.status == 500)
-        #expect((error.underlyingError as? WebRPCError)?.code == WebRPCErrorKind.internalError.code)
     } catch {
         #expect(Bool(false))
     }
@@ -708,10 +720,9 @@ import Testing
         )
         #expect(Bool(false))
     } catch let error as OmsSdkError {
-        #expect(error.code == .httpError)
+        #expect(error.code == .requestFailed)
         #expect(error.operation == .walletSignInWithOidcIdToken)
         #expect(error.status == 500)
-        #expect((error.underlyingError as? WebRPCError)?.code == WebRPCErrorKind.identityProviderError.code)
     } catch {
         #expect(Bool(false))
     }
@@ -1391,6 +1402,8 @@ import Testing
 
 @Test func TestWalletGetTransactionStatusKeepsCancellationError() async throws {
     let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0x1111111111111111111111111111111111111111"
     fixture.transport.enqueueCancellation(for: WaasAPI.TransactionStatusMethod.urlPath)
 
     do {
@@ -2029,20 +2042,21 @@ import Testing
     #expect(fixture.transport.requestCount(for: WaasAPI.Execute.urlPath) == 0)
 }
 
-private let testCredential = CredentialInfo(
+let testCredential = CredentialInfo(
     credentialId: "0xcredential",
     expiresAt: "2099-01-01T00:00:00Z",
     isCaller: true
 )
 
 private func expectNoAuthenticatedWalletSession<T>(
+    expectedCode: OmsSdkErrorCode = .sessionMissing,
     _ operation: () async throws -> T
 ) async {
     do {
         _ = try await operation()
         #expect(Bool(false), "Expected no authenticated wallet session error")
     } catch let error as OmsSdkError {
-        #expect(error.code == .sessionMissing)
+        #expect(error.code == expectedCode)
         #expect(error.operation != nil)
     } catch {
         #expect(Bool(false), "Expected OmsSdkError.sessionMissing")
@@ -2067,7 +2081,7 @@ private func isTransactionError(_ error: (any Error)?, _ expected: TransactionEr
     }
 }
 
-private struct MockWalletClientFixture {
+struct MockWalletClientFixture {
     let client: WalletClient
     let transport: MockWaasTransport
     let signer: MockCredentialSigner
@@ -2087,7 +2101,7 @@ private struct MockWalletClientFixture {
     }
 }
 
-private func makeMockWalletClient(
+func makeMockWalletClient(
     environment: OMSClientEnvironment = OMSClientEnvironment(
         walletApiUrl: "https://wallet.example.test"
     ),
@@ -2152,7 +2166,7 @@ private func makeMockWalletClient(
     )
 }
 
-private func completeAuthResponse(
+func completeAuthResponse(
     identity: Identity = Identity(type: .email, sub: "user@example.com"),
     wallets: [Wallet],
     page: Page? = nil,
@@ -2168,7 +2182,7 @@ private func completeAuthResponse(
     )
 }
 
-private func testWallet(
+func testWallet(
     id: String,
     type: WalletType = .ethereum,
     address: String
@@ -2180,7 +2194,7 @@ private func testWallet(
     )
 }
 
-private func testFeeOptions() -> [FeeOption] {
+func testFeeOptions() -> [FeeOption] {
     [
         FeeOption(
             token: FeeToken(
@@ -2213,7 +2227,7 @@ private func testFeeOptions() -> [FeeOption] {
     ]
 }
 
-private final class MockIndexerBackend: @unchecked Sendable {
+final class MockIndexerBackend: @unchecked Sendable {
     private struct RecordedBalanceRequest {
         let contractAddresses: [String]
         let chainIds: [Int64]
@@ -2330,7 +2344,7 @@ private final class MockIndexerBackend: @unchecked Sendable {
     }
 }
 
-private final class MockIndexerURLProtocol: URLProtocol, @unchecked Sendable {
+final class MockIndexerURLProtocol: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var backendsByHost: [String: MockIndexerBackend] = [:]
 
@@ -2445,7 +2459,7 @@ private func urlDecode(_ value: String) -> String {
         .removingPercentEncoding ?? value
 }
 
-private final class InMemoryKeychain: KeychainManaging {
+final class InMemoryKeychain: KeychainManaging {
     private let lock = NSLock()
     private var storage: [String: String] = [:]
 
@@ -2475,7 +2489,7 @@ private final class InMemoryKeychain: KeychainManaging {
     }
 }
 
-private final class InMemoryOidcRedirectAuthStore: OidcRedirectAuthStore, @unchecked Sendable {
+final class InMemoryOidcRedirectAuthStore: OidcRedirectAuthStore, @unchecked Sendable {
     private let lock = NSLock()
     private(set) var pending: PendingOidcRedirectAuth?
 
@@ -2498,7 +2512,7 @@ private final class InMemoryOidcRedirectAuthStore: OidcRedirectAuthStore, @unche
     }
 }
 
-private final class MockCredentialSigner: CredentialSigner, @unchecked Sendable {
+final class MockCredentialSigner: CredentialSigner, @unchecked Sendable {
     let alg: SigningAlgorithm = .ecdsaP256Sha256
 
     private let lock = NSLock()
@@ -2544,19 +2558,19 @@ private final class MockCredentialSigner: CredentialSigner, @unchecked Sendable 
     }
 }
 
-private struct RecordedWebRPCRequest: Sendable {
+struct RecordedWebRPCRequest: Sendable {
     let path: String
     let body: Data
 }
 
-private enum MockWaasResponse: Sendable {
+enum MockWaasResponse: Sendable {
     case success(Data)
     case httpError(statusCode: Int, body: Data)
     case failure(WebRPCTransportError)
     case cancellation
 }
 
-private final class MockWaasTransport: WebRPCTransport, @unchecked Sendable {
+final class MockWaasTransport: WebRPCTransport, @unchecked Sendable {
     enum MockError: Error {
         case unexpectedRequest(String)
         case missingRecordedRequest(String, Int)
@@ -2587,6 +2601,25 @@ private final class MockWaasTransport: WebRPCTransport, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         responses[path, default: []].append(.httpError(statusCode: statusCode, body: body))
+    }
+
+    func enqueueRawHTTPError(
+        statusCode: Int,
+        body: Data,
+        for path: String
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        responses[path, default: []].append(.httpError(statusCode: statusCode, body: body))
+    }
+
+    func enqueueTransportError(
+        _ error: WebRPCTransportError,
+        for path: String
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        responses[path, default: []].append(.failure(error))
     }
 
     func enqueueCancellation(for path: String) {
