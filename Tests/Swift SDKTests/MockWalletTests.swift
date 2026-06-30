@@ -200,12 +200,25 @@ import Testing
     fixture.client.onSessionExpired = { event in
         expiredEvent = event
     }
-    try await Task.sleep(nanoseconds: 200_000_000)
+    let event = try await waitForSessionExpiredEvent { expiredEvent }
 
-    #expect(expiredEvent?.session.walletAddress == storedCredentials.walletAddress)
-    #expect(expiredEvent?.session.sessionEmail == "user@example.com")
+    #expect(event?.session.walletAddress == storedCredentials.walletAddress)
+    #expect(event?.session.sessionEmail == "user@example.com")
     #expect(fixture.client.session == SessionState(walletAddress: nil))
     #expect(try fixture.storedCredentials()?.walletId == storedCredentials.walletId)
+}
+
+private func waitForSessionExpiredEvent(
+    _ event: () -> SessionExpiredEvent?,
+    attempts: Int = 40
+) async throws -> SessionExpiredEvent? {
+    for _ in 0..<attempts {
+        if let event = event() {
+            return event
+        }
+        try await Task.sleep(nanoseconds: 50_000_000)
+    }
+    return event()
 }
 
 @Test func TestWalletSessionExpiryTimerNotifiesDelegate() async throws {
