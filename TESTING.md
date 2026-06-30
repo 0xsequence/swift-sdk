@@ -19,6 +19,21 @@ Current test files:
 - `RequestsTests.swift` — HTTP request building and signing
 - `MockWalletTests.swift` — wallet auth and session logic with mocked dependencies
 - `IndexerTests.swift` — indexer client pagination and response handling
+- `WaasRequestSigningTests.swift` — generated WaaS request payload signing
+- `PublicErrorContractsTests.swift` — public `OmsSdkError` field, upstream, and recovery contracts
+
+## Public error contract tests
+
+`PublicErrorContractsTests.swift` is the centralized owner for app-facing SDK
+error behavior. It serializes `OmsSdkError` into stable public fields:
+`code`, `operation`, `message`, `status`, nullable `retryable`, `txnId`, and
+`upstreamError`.
+
+When a public SDK method gains, removes, or intentionally changes error
+behavior, update the test, [docs/error-contracts.md](docs/error-contracts.md),
+`API.md`, and user-facing README examples together. Keep the tests
+representative by covering each backend/transport/local failure family through
+real public methods rather than duplicating the same assertion for every method.
 
 ## Integration tests
 
