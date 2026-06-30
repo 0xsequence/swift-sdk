@@ -148,6 +148,19 @@ public final class IndexerClient {
             )
         } catch let error as CancellationError {
             throw error
+        } catch let error as HttpError {
+            guard case .transport = error else {
+                throw error
+            }
+            let upstreamError = indexerTransportUpstreamError(error)
+            throw OmsSdkError(
+                code: .requestFailed,
+                message: upstreamError.message ?? error.localizedDescription,
+                operation: operation,
+                retryable: true,
+                upstreamError: upstreamError,
+                underlyingError: error
+            )
         } catch {
             let upstreamError = indexerTransportUpstreamError(error)
             throw OmsSdkError(

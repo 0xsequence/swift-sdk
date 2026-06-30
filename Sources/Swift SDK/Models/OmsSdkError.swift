@@ -263,7 +263,7 @@ private extension WebRPCError {
             )
         }
 
-        if kind == .webrpcBadResponse || kind == .unknown && code == WebRPCErrorKind.unknown.code {
+        if kind == .webrpcBadResponse || (kind == .unknown && code == WebRPCErrorKind.unknown.code) {
             return OmsSdkError(
                 code: .invalidResponse,
                 message: normalizedMessage,
@@ -324,7 +324,12 @@ private extension WebRPCError {
         }
 
         switch kind {
-        case .webrpcBadRoute, .webrpcBadMethod, .webrpcBadRequest, .webrpcBadResponse:
+        case .webrpcBadRoute,
+             .webrpcBadMethod,
+             .webrpcBadRequest,
+             .webrpcBadResponse,
+             .webrpcServerPanic,
+             .webrpcInternalError:
             return true
         default:
             return error == "WebrpcBadResponse"

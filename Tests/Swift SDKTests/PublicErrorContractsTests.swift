@@ -87,6 +87,35 @@ import Testing
         )
     )
 
+    let serverPanicFixture = makeRestoredWalletClient()
+    serverPanicFixture.transport.enqueueRawHTTPError(
+        statusCode: 500,
+        body: Data(
+            """
+            {"error":"WebrpcServerPanic","code":-6,"msg":"server panic","status":500}
+            """.utf8
+        ),
+        for: WaasAPI.SignMessage.urlPath
+    )
+
+    await expectPublicError(
+        try await serverPanicFixture.client.signMessage(network: .polygon, message: "hello"),
+        equals: error(
+            code: .httpError,
+            operation: .walletSignMessage,
+            message: "server panic",
+            status: 500,
+            retryable: true,
+            upstreamError: upstream(
+                service: .waas,
+                name: "WebrpcServerPanic",
+                code: "-6",
+                message: "server panic",
+                status: 500
+            )
+        )
+    )
+
     let nonJsonFixture = makeRestoredWalletClient()
     nonJsonFixture.transport.enqueueRawHTTPError(
         statusCode: 502,
@@ -623,6 +652,21 @@ import Testing
             )
         )
     )
+
+    let invalidUrlClient = IndexerClient(
+        publishableKey: "test-key",
+        environment: OMSClientEnvironment(indexerGatewayUrl: "http://[::1")
+    )
+    let invalidUrlFailure = await publicError {
+        try await invalidUrlClient.getBalances(
+            GetBalancesParams(walletAddress: "0xwallet", networks: [.polygon])
+        )
+    }
+    #expect(invalidUrlFailure.code == .validationError)
+    #expect(invalidUrlFailure.operation == .indexerGetBalances)
+    #expect(invalidUrlFailure.status == nil)
+    #expect(invalidUrlFailure.retryable == nil)
+    #expect(invalidUrlFailure.upstreamError == nil)
 }
 
 @Test func TestPublicErrorContractsConstructedErrorFieldsAreStable() {
