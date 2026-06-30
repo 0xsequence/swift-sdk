@@ -327,6 +327,11 @@ extension WalletClient {
         code: String,
         sessionLifetimeSeconds: UInt32
     ) async throws -> CompleteAuthResponse {
+        guard !verifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !challenge.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw OmsSdkError.sessionMissing()
+        }
+
         let answer = RequestUtils.hashEmailAuthAnswer(challenge: challenge, code: code)
 
         let params = CompleteAuthRequest(
@@ -472,7 +477,7 @@ extension WalletClient {
         )
         guard !isSessionExpired(selectionSessionState) else {
             expireSession(selectionSessionState)
-            throw OmsSdkError.sessionMissing()
+            throw OmsSdkError.sessionExpired()
         }
         try requireActiveCredential()
         let signerCredentialId = try credentialSession.signer.credentialId()

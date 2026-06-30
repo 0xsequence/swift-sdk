@@ -25,14 +25,18 @@ public final class PendingWalletSelection: @unchecked Sendable {
 
     @discardableResult
     public func selectWallet(walletId: String) async throws -> WalletActivationResult {
-        guard wallets.contains(where: { $0.id == walletId }) else {
-            throw OmsSdkError.walletSelectionUnavailable()
+        try await runOmsOperation(.pendingWalletSelectionSelectWallet) {
+            guard wallets.contains(where: { $0.id == walletId }) else {
+                throw OmsSdkError.walletSelectionUnavailable()
+            }
+            return try await selectWalletAction(walletId)
         }
-        return try await selectWalletAction(walletId)
     }
 
     @discardableResult
     public func createAndSelectWallet(reference: String? = nil) async throws -> WalletActivationResult {
-        try await createAndSelectWalletAction(reference)
+        try await runOmsOperation(.pendingWalletSelectionCreateAndSelectWallet) {
+            try await createAndSelectWalletAction(reference)
+        }
     }
 }

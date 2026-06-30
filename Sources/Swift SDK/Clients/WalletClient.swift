@@ -248,7 +248,7 @@ public class WalletClient: @unchecked Sendable {
     func requireWalletSelectionOrActiveSession() throws {
         if let notification = expireCurrentSessionIfNeeded() {
             deliverSessionExpiredNotification(notification)
-            throw OmsSdkError.sessionMissing()
+            throw OmsSdkError.sessionExpired()
         }
         let hasActiveSession = withSessionLock { () -> Bool in
             let hasWallet = !_walletId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -263,7 +263,7 @@ public class WalletClient: @unchecked Sendable {
     func requireActiveWalletId() throws -> String {
         if let notification = expireCurrentSessionIfNeeded() {
             deliverSessionExpiredNotification(notification)
-            throw OmsSdkError.sessionMissing()
+            throw OmsSdkError.sessionExpired()
         }
         let walletId = withSessionLock {
             _walletId.trimmingCharacters(in: .whitespacesAndNewlines)

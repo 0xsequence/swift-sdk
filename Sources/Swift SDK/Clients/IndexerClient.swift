@@ -138,18 +138,49 @@ public final class IndexerClient {
         let bodyData = try encoder.encode(request)
         let bodyString = String(data: bodyData, encoding: .utf8) ?? "{}"
 
-        let response = try await client.postJson(
-            baseUrl: environment.indexerGatewayUrl,
-            path: path,
-            body: bodyString,
-            headers: defaultHeaders()
-        )
+        let response: HttpResponse
+        do {
+            response = try await client.postJson(
+                baseUrl: environment.indexerGatewayUrl,
+                path: path,
+                body: bodyString,
+                headers: defaultHeaders()
+            )
+        } catch let error as CancellationError {
+            throw error
+        } catch {
+            let upstreamError = indexerTransportUpstreamError(error)
+            throw OmsSdkError(
+                code: .requestFailed,
+                message: upstreamError.message ?? error.localizedDescription,
+                operation: operation,
+                retryable: true,
+                upstreamError: upstreamError,
+                underlyingError: error
+            )
+        }
         try validateSuccessResponse(response, operation: operation)
 
-        return (
-            statusCode: response.statusCode,
-            payload: try decoder.decode(responseType, from: response.body)
-        )
+        do {
+            return (
+                statusCode: response.statusCode,
+                payload: try decoder.decode(responseType, from: response.body)
+            )
+        } catch {
+            let message = "Invalid JSON response from \(operation.rawValue)"
+            throw OmsSdkError(
+                code: .invalidResponse,
+                message: message,
+                operation: operation,
+                status: response.statusCode,
+                upstreamError: OmsUpstreamError(
+                    service: .indexer,
+                    message: message,
+                    status: response.statusCode
+                ),
+                underlyingError: error
+            )
+        }
     }
 
     private func chainScope(
@@ -186,16 +217,63 @@ public final class IndexerClient {
         operation: OmsSdkOperation
     ) throws {
         guard (200...299).contains(response.statusCode) else {
+            let fallbackMessage = "\(operation.rawValue) failed with HTTP \(response.statusCode)"
+            let upstreamError = indexerResponseUpstreamError(
+                from: response.body,
+                status: response.statusCode,
+                fallbackMessage: fallbackMessage
+            )
             throw OmsSdkError(
                 code: .httpError,
-                message: errorMessage(from: response.body)
-                    ?? "Indexer request failed with HTTP status \(response.statusCode).",
+                message: upstreamError.message ?? fallbackMessage,
                 operation: operation,
                 status: response.statusCode,
-                retryable: response.statusCode >= 500
+                retryable: response.statusCode >= 500,
+                upstreamError: upstreamError
             )
         }
     }
+}
+
+private func indexerTransportUpstreamError(_ error: any Error) -> OmsUpstreamError {
+    if let httpError = error as? HttpError,
+       case .transport(let underlyingError) = httpError {
+        return OmsUpstreamError(
+            service: .indexer,
+            name: String(describing: type(of: underlyingError)),
+            message: underlyingError.localizedDescription
+        )
+    }
+
+    return OmsUpstreamError(
+        service: .indexer,
+        name: String(describing: type(of: error)),
+        message: error.localizedDescription
+    )
+}
+
+private func indexerResponseUpstreamError(
+    from body: Data,
+    status: Int,
+    fallbackMessage: String
+) -> OmsUpstreamError {
+    guard
+        let payload = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
+    else {
+        return OmsUpstreamError(
+            service: .indexer,
+            message: fallbackMessage,
+            status: status
+        )
+    }
+
+    return OmsUpstreamError(
+        service: .indexer,
+        name: stringField(payload, "name") ?? stringField(payload, "error"),
+        code: stringOrNumberField(payload, "code"),
+        message: stringField(payload, "message") ?? stringField(payload, "msg") ?? fallbackMessage,
+        status: status
+    )
 }
 
 private struct TokenBalancesFilter: Encodable {
@@ -274,18 +352,20 @@ private func nonEmpty<T>(_ values: [T]?) -> [T]? {
     return values
 }
 
-private func errorMessage(from body: Data) -> String? {
-    guard
-        let payload = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
-    else {
-        return nil
-    }
-    return stringField(payload, "message")
-        ?? stringField(payload, "cause")
-        ?? stringField(payload, "msg")
-}
-
 private func stringField(_ payload: [String: Any], _ key: String) -> String? {
     let value = payload[key]
     return value as? String
+}
+
+private func stringOrNumberField(_ payload: [String: Any], _ key: String) -> String? {
+    switch payload[key] {
+    case let value as String:
+        return value
+    case let value as Int:
+        return String(value)
+    case let value as NSNumber:
+        return value.stringValue
+    default:
+        return nil
+    }
 }
