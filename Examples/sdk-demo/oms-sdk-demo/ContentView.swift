@@ -211,7 +211,7 @@ final class AppViewModel: ObservableObject {
     @Published var loginEmail: String = ""
     @Published var sessionLifetimeText: String = "604800"
     @Published var oms: OMSClient = try! OMSClient(
-        publishableKey: "pk_dev_sdbx_01kqa06hyyetj_01kv5ceg4xefattzmm9fyx04ev"
+        publishableKey: "pk_sdbx_01kqfw9zaykks_01kwetq606fv699qb9bhfmb45s"
     )
 
     init() {
