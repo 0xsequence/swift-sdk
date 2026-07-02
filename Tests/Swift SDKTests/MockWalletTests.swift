@@ -2355,6 +2355,7 @@ func makeMockWalletClient(
     projectId: String = "proj_\(UUID().uuidString)",
     keychain: InMemoryKeychain = InMemoryKeychain(),
     signer: MockCredentialSigner = MockCredentialSigner(),
+    oidcRedirectAuthStoreOverride: (any OidcRedirectAuthStore)? = nil,
     oidcNonceGenerator: @escaping () throws -> String = OidcRedirectAuth.generateNonce,
     currentDate: @escaping () -> Date = Date.init,
     storedCredentials: StorableCredentials? = nil
@@ -2394,7 +2395,7 @@ func makeMockWalletClient(
         signedClient: signedClient,
         publicClient: publicClient,
         indexerClient: indexerClient,
-        oidcRedirectAuthStore: oidcRedirectAuthStore,
+        oidcRedirectAuthStore: oidcRedirectAuthStoreOverride ?? oidcRedirectAuthStore,
         oidcNonceGenerator: oidcNonceGenerator,
         currentDate: currentDate
     )
