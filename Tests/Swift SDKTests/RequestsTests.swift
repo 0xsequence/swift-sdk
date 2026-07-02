@@ -133,6 +133,34 @@ import Testing
     #expect(restored.sessionEmail == "user@example.com")
 }
 
+@Test func TestPendingOidcRedirectAuthRoundTripStoresRedirectAuthMode() throws {
+    let pending = PendingOidcRedirectAuth(
+        verifier: "verifier",
+        challenge: "challenge",
+        nonce: "nonce-123",
+        authMode: .authCode,
+        redirectUri: "omssdkdemo://auth/callback",
+        issuer: "https://issuer.example",
+        authorizationScope: "proj_1",
+        walletType: .ethereum,
+        walletSelection: .manual,
+        sessionLifetimeSeconds: 120,
+        signerCredentialId: "0xcredential",
+        signerKeyType: .ecdsaP256Sha256
+    )
+
+    let json = try pending.jsonString()
+    let object = try #require(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+    let restored = try PendingOidcRedirectAuth.from(jsonString: json)
+
+    #expect(object["authMode"] as? String == "auth-code")
+    #expect(object["walletSelection"] as? String == "manual")
+    #expect(object["sessionLifetimeSeconds"] as? Int == 120)
+    #expect(restored.authMode == .authCode)
+    #expect(restored.walletSelection == .manual)
+    #expect(restored.sessionLifetimeSeconds == 120)
+}
+
 @Test func TestOMSClientIdentityMapsSessionLoginType() throws {
     let emailIdentity = OMSClientIdentity(Identity(type: .email, sub: "user@example.com"))
     let googleIdentity = OMSClientIdentity(Identity(type: .oidc, iss: "https://accounts.google.com", sub: "google-sub"))
@@ -159,10 +187,13 @@ import Testing
         verifier: "verifier",
         challenge: "challenge",
         nonce: "nonce-123",
+        authMode: .authCodePkce,
         redirectUri: "omssdkdemo://auth/callback",
         issuer: "https://issuer.example",
         authorizationScope: "proj_1",
         walletType: .ethereum,
+        walletSelection: nil,
+        sessionLifetimeSeconds: nil,
         signerCredentialId: "0xcredential",
         signerKeyType: .ecdsaP256Sha256
     )

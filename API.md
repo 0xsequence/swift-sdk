@@ -251,6 +251,13 @@ enum CompleteAuthResult {
 ### OIDC Redirect Auth
 
 ```swift
+enum OidcAuthMode {
+    case authCode
+    case authCodePkce
+}
+```
+
+```swift
 struct OidcProviderConfig {
     let issuer: String
     let clientId: String
@@ -258,19 +265,49 @@ struct OidcProviderConfig {
     let scopes: [String]
     let relayRedirectUri: String?
     let authorizeParams: [String: String]
+    let authMode: OidcAuthMode
 }
 ```
 
 ```swift
 enum OidcProviders {
+    static let defaultGoogleClientId: String
+    static let defaultAppleClientId: String
+    static let defaultRelayRedirectUri: String
+
     static func google(
         clientId: String = OidcProviders.defaultGoogleClientId,
         relayRedirectUri: String? = OidcProviders.defaultRelayRedirectUri,
         scopes: [String] = ["openid", "email", "profile"],
-        authorizeParams: [String: String] = [:]
+        authorizeParams: [String: String] = [:],
+        authMode: OidcAuthMode = .authCodePkce
+    ) -> OidcProviderConfig
+
+    static func apple(
+        clientId: String = OidcProviders.defaultAppleClientId,
+        relayRedirectUri: String? = OidcProviders.defaultRelayRedirectUri,
+        scopes: [String] = ["openid", "email"],
+        authorizeParams: [String: String] = [:],
+        authMode: OidcAuthMode = .authCodePkce
     ) -> OidcProviderConfig
 }
 ```
+
+Google defaults to issuer `https://accounts.google.com`, authorization URL
+`https://accounts.google.com/o/oauth2/v2/auth`, scopes `openid email profile`,
+the SDK default Google client ID, the SDK relay redirect URI,
+`access_type=offline`, `prompt=consent`, and PKCE auth-code mode.
+
+Apple defaults to issuer `https://appleid.apple.com`, authorization URL
+`https://appleid.apple.com/auth/authorize`, scopes `openid email`, the SDK
+default Apple Services ID, the SDK relay redirect URI, `response_mode=form_post`,
+and PKCE auth-code mode. Apple `form_post` is intended to work through the
+default relay before returning to your app callback.
+
+Provider configs are the source of truth for authorization scopes. Empty
+`scopes` omits the OAuth `scope` authorization parameter. `.authCodePkce` adds
+`code_challenge` and `code_challenge_method=S256`; `.authCode` omits PKCE
+authorization parameters.
 
 ```swift
 func startOidcRedirectAuth(
@@ -278,7 +315,9 @@ func startOidcRedirectAuth(
     redirectUri: String,
     walletType: WalletType = .ethereum,
     loginHint: String? = nil,
-    authorizeParams: [String: String] = [:]
+    authorizeParams: [String: String] = [:],
+    walletSelection: WalletSelectionBehavior? = nil,
+    sessionLifetimeSeconds: UInt32? = nil
 ) async throws -> StartOidcRedirectAuthResult
 ```
 
@@ -289,11 +328,17 @@ func startOidcRedirectAuth(
     walletType: WalletType = .ethereum,
     relayRedirectUri: String?,
     loginHint: String? = nil,
-    authorizeParams: [String: String] = [:]
+    authorizeParams: [String: String] = [:],
+    walletSelection: WalletSelectionBehavior? = nil,
+    sessionLifetimeSeconds: UInt32? = nil
 ) async throws -> StartOidcRedirectAuthResult
 ```
 
 For Google OIDC providers, `loginHint` is sent as the OAuth `login_hint` parameter. If omitted, the SDK uses the previous session email when available. Non-Google providers do not receive `login_hint`.
+
+`walletSelection` and `sessionLifetimeSeconds` passed at start are persisted in
+pending redirect state and used when the callback is handled unless callback
+arguments override them.
 
 ```swift
 struct StartOidcRedirectAuthResult {
@@ -306,13 +351,14 @@ struct StartOidcRedirectAuthResult {
 ```swift
 func handleOidcRedirectCallback(
     _ callbackUrl: String?,
-    walletSelection: WalletSelectionBehavior = .automatic,
-    sessionLifetimeSeconds: UInt32 = 604_800
+    walletSelection: WalletSelectionBehavior? = nil,
+    sessionLifetimeSeconds: UInt32? = nil
 ) async throws -> OidcRedirectAuthResult
 ```
 
-`sessionLifetimeSeconds` is used when completing the OIDC redirect callback and
-defaults to one week.
+Callback `walletSelection` and `sessionLifetimeSeconds` override values stored
+when starting the redirect. If neither start nor callback provides values, the
+SDK uses automatic wallet selection and a one-week session lifetime.
 
 ```swift
 enum OidcRedirectAuthResult {
