@@ -1,7 +1,22 @@
 import Foundation
 import Security
 
-/// OIDC provider configuration for authorization-code PKCE redirect auth.
+/// OIDC redirect auth-code mode.
+public enum OidcAuthMode: String, Codable, Equatable, Sendable {
+    case authCode = "auth-code"
+    case authCodePkce = "auth-code-pkce"
+
+    var waasAuthMode: AuthMode {
+        switch self {
+        case .authCode:
+            return .authCode
+        case .authCodePkce:
+            return .authCodePkce
+        }
+    }
+}
+
+/// OIDC provider configuration for authorization-code redirect auth.
 public struct OidcProviderConfig: Sendable {
     public let issuer: String
     public let clientId: String
@@ -9,6 +24,7 @@ public struct OidcProviderConfig: Sendable {
     public let scopes: [String]
     public let relayRedirectUri: String?
     public let authorizeParams: [String: String]
+    public let authMode: OidcAuthMode
 
     public init(
         issuer: String,
@@ -16,7 +32,8 @@ public struct OidcProviderConfig: Sendable {
         authorizationUrl: String,
         scopes: [String] = ["openid", "email", "profile"],
         relayRedirectUri: String? = nil,
-        authorizeParams: [String: String] = [:]
+        authorizeParams: [String: String] = [:],
+        authMode: OidcAuthMode = .authCodePkce
     ) {
         self.issuer = issuer
         self.clientId = clientId
@@ -24,19 +41,22 @@ public struct OidcProviderConfig: Sendable {
         self.scopes = scopes
         self.relayRedirectUri = relayRedirectUri
         self.authorizeParams = authorizeParams
+        self.authMode = authMode
     }
 }
 
 /// Built-in OIDC provider configurations.
 public enum OidcProviders {
-    public static let defaultGoogleClientId = "970987756660-0dh5gubqfiugm452raf7mm39qaq639hn.apps.googleusercontent.com"
+    public static let defaultGoogleClientId = "913882656162-7l4ofa0ou2hqo90umlkenhdop1f5inba.apps.googleusercontent.com"
+    public static let defaultAppleClientId = "service.oms.polygon.technology"
     public static let defaultRelayRedirectUri = "https://waas-cf-relay-staging.0xsequence.workers.dev/callback"
 
     public static func google(
         clientId: String = Self.defaultGoogleClientId,
         relayRedirectUri: String? = Self.defaultRelayRedirectUri,
         scopes: [String] = ["openid", "email", "profile"],
-        authorizeParams: [String: String] = [:]
+        authorizeParams: [String: String] = [:],
+        authMode: OidcAuthMode = .authCodePkce
     ) -> OidcProviderConfig {
         OidcProviderConfig(
             issuer: "https://accounts.google.com",
@@ -47,12 +67,33 @@ public enum OidcProviders {
             authorizeParams: [
                 "access_type": "offline",
                 "prompt": "consent"
-            ].merging(authorizeParams) { _, new in new }
+            ].merging(authorizeParams) { _, new in new },
+            authMode: authMode
+        )
+    }
+
+    public static func apple(
+        clientId: String = Self.defaultAppleClientId,
+        relayRedirectUri: String? = Self.defaultRelayRedirectUri,
+        scopes: [String] = ["openid", "email"],
+        authorizeParams: [String: String] = [:],
+        authMode: OidcAuthMode = .authCodePkce
+    ) -> OidcProviderConfig {
+        OidcProviderConfig(
+            issuer: "https://appleid.apple.com",
+            clientId: clientId,
+            authorizationUrl: "https://appleid.apple.com/auth/authorize",
+            scopes: scopes,
+            relayRedirectUri: relayRedirectUri,
+            authorizeParams: [
+                "response_mode": "form_post"
+            ].merging(authorizeParams) { _, new in new },
+            authMode: authMode
         )
     }
 }
 
-/// Result returned after starting an OIDC authorization-code PKCE redirect flow.
+/// Result returned after starting an OIDC authorization-code redirect flow.
 ///
 /// Open `authorizationUrl` in a browser or ASWebAuthenticationSession, then pass
 /// the final app callback URL to `handleOidcRedirectCallback`.
@@ -118,10 +159,13 @@ struct PendingOidcRedirectAuth: Codable, Sendable {
     let verifier: String
     let challenge: String
     let nonce: String
+    let authMode: OidcAuthMode
     let redirectUri: String
     let issuer: String
     let authorizationScope: String
     let walletType: WalletType
+    let walletSelection: WalletSelectionBehavior?
+    let sessionLifetimeSeconds: UInt32?
     let signerCredentialId: String
     let signerKeyType: SigningAlgorithm?
 }
@@ -214,6 +258,7 @@ enum OidcRedirectAuth {
         state: String,
         challenge: String,
         loginHint: String?,
+        authMode: OidcAuthMode,
         authorizeParams: [String: String]
     ) throws -> String {
         guard var components = URLComponents(string: provider.authorizationUrl) else {
@@ -224,6 +269,9 @@ enum OidcRedirectAuth {
         func setQueryParameter(_ name: String, _ value: String) {
             queryItems.removeAll { $0.name == name }
             queryItems.append(URLQueryItem(name: name, value: value))
+        }
+        func removeQueryParameter(_ name: String) {
+            queryItems.removeAll { $0.name == name }
         }
 
         for (key, value) in authorizeParams {
@@ -236,10 +284,19 @@ enum OidcRedirectAuth {
         setQueryParameter("client_id", provider.clientId)
         setQueryParameter("redirect_uri", redirectUri)
         setQueryParameter("response_type", "code")
-        setQueryParameter("scope", provider.scopes.joined(separator: " "))
+        if provider.scopes.isEmpty {
+            removeQueryParameter("scope")
+        } else {
+            setQueryParameter("scope", provider.scopes.joined(separator: " "))
+        }
         setQueryParameter("state", state)
-        setQueryParameter("code_challenge", challenge)
-        setQueryParameter("code_challenge_method", "S256")
+        if authMode == .authCodePkce {
+            setQueryParameter("code_challenge", challenge)
+            setQueryParameter("code_challenge_method", "S256")
+        } else {
+            removeQueryParameter("code_challenge")
+            removeQueryParameter("code_challenge_method")
+        }
 
         components.queryItems = queryItems
         guard let url = components.url?.absoluteString else {

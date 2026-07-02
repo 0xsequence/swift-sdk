@@ -51,9 +51,9 @@ print("Transaction hash:", txResult.txnHash ?? "pending")
 
 ## Overview
 
-`OMSClient` is the root object for the SDK. Create a single instance at app startup and keep it alive for the session. It constructs the SDK sub-clients and restores any saved keychain session automatically.
+`OMSClient` is the root object for the SDK. Create a single instance at app startup and keep it alive for the session. It constructs the SDK sub-clients and restores any saved secure session automatically.
 
-Pass your OMS publishable key when creating the client. The SDK derives the Wallet API URL, IndexerGateway URL, and project scope from the publishable key prefix and project segment. The derived project scope is used for signed Wallet API requests and keychain namespaces for persisted wallet sessions and OIDC redirect state.
+Pass your OMS publishable key when creating the client. The SDK derives the Wallet API URL, IndexerGateway URL, and project scope from the publishable key prefix and project segment. The derived project scope is used for signed Wallet API requests and persisted wallet/OIDC redirect state.
 
 | Property | Type | Description |
 |---|---|---|
@@ -195,20 +195,21 @@ if case .walletSelected(_, let wallet, _, _) = result {
 Use `walletSelection: .manual` with `signInWithOidcIdToken` when you want the
 same app-driven wallet picker shown in the email example.
 
-For OIDC authorization-code PKCE redirect flows, start the redirect, open the
-returned URL with your browser UI, then safely handle incoming app links:
+For OIDC authorization-code redirect flows, start the redirect, open the
+returned URL with your browser UI, then safely handle incoming app links.
+Google and Apple provider helpers include SDK defaults:
 
 ```swift
 let started = try await oms.wallet.startOidcRedirectAuth(
-    provider: OidcProviders.google(clientId: "YOUR_WEB_CLIENT_ID"),
-    redirectUri: "omssdkdemo://auth/callback"
+    provider: OidcProviders.google(),
+    redirectUri: "omssdkdemo://auth/callback",
+    walletSelection: .manual
 )
 
 // Open started.authorizationUrl.
 
 let result = try await oms.wallet.handleOidcRedirectCallback(
-    callbackURLString,
-    walletSelection: .manual
+    callbackURLString
 )
 switch result {
 case .completed(let wallet):
@@ -234,9 +235,25 @@ case .failed(let error):
 }
 ```
 
-Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. Only completed wallet session metadata is restored automatically, including wallet address, expiry, login type, and session email when available. The SDK checks the cached session expiry before restoring a session. Expired sessions are not activated, and the signer credential is cleared; expired metadata may remain in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it. Invalid session metadata is cleared. The private credential key remains owned by the Keychain and is not written into SDK session storage.
+`OidcProviders.google()` uses the SDK default Google client ID, relay redirect
+URI, `openid email profile` scopes, Google offline/consent authorization
+parameters, and PKCE auth-code mode. `OidcProviders.apple()` uses the SDK
+default Apple Services ID, relay redirect URI, `openid email` scopes,
+`response_mode=form_post`, and PKCE auth-code mode. Apple `form_post` works
+through the default relay before returning to your app callback; do not bypass
+the relay unless your provider response mode can call your app callback
+directly.
 
-On subsequent launches, an unexpired completed session is restored from the keychain automatically. To end the session:
+Pass `walletSelection` or `sessionLifetimeSeconds` to `startOidcRedirectAuth`
+to store completion preferences with the pending redirect state. Values passed
+to `handleOidcRedirectCallback` override pending values; otherwise the SDK uses
+automatic wallet selection and a one-week session lifetime. Provider configs
+can use `.authCode` to omit PKCE parameters or `.authCodePkce` for PKCE.
+Providers with empty `scopes` omit the OAuth `scope` authorization parameter.
+
+Wallet API requests are signed with a device-backed credential managed by the SDK. Only completed wallet session metadata is restored automatically, including wallet address, expiry, login type, and session email when available. The SDK checks the cached session expiry before restoring a session. Expired sessions are not activated, and invalid session metadata is cleared; expired metadata may remain in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it.
+
+On subsequent launches, an unexpired completed session is restored from secure storage automatically. To end the session:
 
 ```swift
 try oms.wallet.signOut()

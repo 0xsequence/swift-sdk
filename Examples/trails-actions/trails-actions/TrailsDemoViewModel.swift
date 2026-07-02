@@ -53,24 +53,24 @@ actor TrailsOMSClient {
 
     func startOidcRedirectAuth(
         provider: OidcProviderConfig,
-        redirectUri: String
+        redirectUri: String,
+        walletSelection: WalletSelectionBehavior
     ) async throws -> StartOidcRedirectAuthResult {
         try await performThrowing { client in
             try await client.wallet.startOidcRedirectAuth(
                 provider: provider,
-                redirectUri: redirectUri
+                redirectUri: redirectUri,
+                walletSelection: walletSelection
             )
         }
     }
 
     func handleOidcRedirectCallback(
-        _ callbackUrl: String,
-        walletSelection: WalletSelectionBehavior
+        _ callbackUrl: String
     ) async throws -> TrailsOidcRedirectAuthResult {
         let result = try await performThrowing { client in
             try await client.wallet.handleOidcRedirectCallback(
-                callbackUrl,
-                walletSelection: walletSelection
+                callbackUrl
             )
         }
         return wrap(result)
@@ -388,7 +388,8 @@ final class TrailsDemoViewModel: ObservableObject {
                 redirectStatus = "Opening provider..."
                 let started = try await oms.startOidcRedirectAuth(
                     provider: OidcProviders.google(),
-                    redirectUri: trailsRedirectURI
+                    redirectUri: trailsRedirectURI,
+                    walletSelection: walletSelectionBehavior
                 )
                 guard let authorizationURL = URL(string: started.authorizationUrl) else {
                     throw TrailsDemoError.invalidAuthorizationURL
@@ -403,8 +404,7 @@ final class TrailsDemoViewModel: ObservableObject {
     func handleOpenURL(_ url: URL) async {
         await runAction("Complete Google sign-in") {
             let result = try await oms.handleOidcRedirectCallback(
-                url.absoluteString,
-                walletSelection: walletSelectionBehavior
+                url.absoluteString
             )
 
             switch result {

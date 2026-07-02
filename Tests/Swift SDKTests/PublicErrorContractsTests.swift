@@ -305,11 +305,11 @@ import Testing
         "omssdkdemo://auth/callback?error=access_denied&error_description=User%20cancelled&state=\(started.state)"
     )
 
-    guard case .failed(let error as OmsSdkError) = result else {
+    guard case .failed(let oidcError as OmsSdkError) = result else {
         Issue.record("Expected OIDC failure")
         return
     }
-    #expect(serialize(error) == PublicErrorContract(
+    #expect(serialize(oidcError) == PublicErrorContract(
         code: .validationError,
         operation: .walletHandleOidcRedirectCallback,
         message: "User cancelled",
@@ -318,6 +318,35 @@ import Testing
         txnId: nil,
         upstreamError: nil
     ))
+
+    let storageFixture = makeMockWalletClient(
+        oidcRedirectAuthStoreOverride: ThrowingOidcRedirectAuthStore(),
+        oidcNonceGenerator: { "nonce-456" }
+    )
+    try storageFixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier",
+            loginHint: nil,
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+
+    await expectPublicError(
+        try await storageFixture.client.startOidcRedirectAuth(
+            provider: OidcProviderConfig(
+                issuer: "https://issuer.example.test",
+                clientId: "client-123",
+                authorizationUrl: "https://issuer.example.test/authorize"
+            ),
+            redirectUri: "omssdkdemo://auth/callback"
+        ),
+        equals: error(
+            code: .validationError,
+            operation: .walletStartOidcRedirectAuth,
+            message: "OIDC redirect state save failed"
+        )
+    )
 }
 
 @Test func TestPublicErrorContractsLocalTransactionValidationErrorsHaveNoUpstreamDetails() async throws {
@@ -830,4 +859,24 @@ private struct SerializedUpstreamError: Equatable {
     let code: String?
     let message: String?
     let status: Int?
+}
+
+private final class ThrowingOidcRedirectAuthStore: OidcRedirectAuthStore, @unchecked Sendable {
+    func load() throws -> PendingOidcRedirectAuth? {
+        nil
+    }
+
+    func save(_ pending: PendingOidcRedirectAuth) throws {
+        throw TestStorageError.saveFailed
+    }
+
+    func clear() throws {}
+}
+
+private enum TestStorageError: LocalizedError {
+    case saveFailed
+
+    var errorDescription: String? {
+        "OIDC redirect state save failed"
+    }
 }

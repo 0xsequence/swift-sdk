@@ -3,7 +3,7 @@ import OMS_SDK
 
 let trailsAPIURL = "https://trails-api.sequence.app"
 let trailsRedirectURI = "omsclienttrailsdemo://auth/callback"
-let defaultPublishableKey = "pk_dev_sdbx_01kqa06hyyetj_01kv5ceg4xefattzmm9fyx04ev"
+let defaultPublishableKey = "pk_sdbx_01kqfw9zaykks_01kwetq606fv699qb9bhfmb45s"
 let trailsAccessKey = "AQAAAAAAAMDoWz-avqIIjXGH7JJlBSormpo"
 let trailsAccessKeyHeader = "X-Access-Key"
 

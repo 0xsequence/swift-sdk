@@ -211,7 +211,7 @@ final class AppViewModel: ObservableObject {
     @Published var loginEmail: String = ""
     @Published var sessionLifetimeText: String = "604800"
     @Published var oms: OMSClient = try! OMSClient(
-        publishableKey: "pk_dev_sdbx_01kqa06hyyetj_01kv5ceg4xefattzmm9fyx04ev"
+        publishableKey: "pk_sdbx_01kqfw9zaykks_01kwetq606fv699qb9bhfmb45s"
     )
 
     init() {
@@ -274,7 +274,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func startGoogleRedirectAuth() async {
-        guard sessionLifetimeSeconds != nil else {
+        guard let lifetimeSeconds = sessionLifetimeSeconds else {
             present(DemoAuthError.invalidSessionLifetime)
             return
         }
@@ -285,7 +285,9 @@ final class AppViewModel: ObservableObject {
         do {
             let started = try await oms.wallet.startOidcRedirectAuth(
                 provider: OidcProviders.google(),
-                redirectUri: oidcRedirectUri
+                redirectUri: oidcRedirectUri,
+                walletSelection: walletSelectionBehavior,
+                sessionLifetimeSeconds: lifetimeSeconds
             )
             guard let authorizationUrl = URL(string: started.authorizationUrl) else {
                 throw DemoAuthError.invalidAuthorizationURL
@@ -304,9 +306,7 @@ final class AppViewModel: ObservableObject {
     func handleOpenURL(_ url: URL) async {
         do {
             let result = try await oms.wallet.handleOidcRedirectCallback(
-                url.absoluteString,
-                walletSelection: walletSelectionBehavior,
-                sessionLifetimeSeconds: try validatedSessionLifetimeSeconds()
+                url.absoluteString
             )
 
             switch result {
