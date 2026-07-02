@@ -248,6 +248,15 @@ enum CompleteAuthResult {
 }
 ```
 
+Convenience properties:
+
+| Property | Type | Description |
+|---|---|---|
+| `wallets` | `[Wallet]` | Wallets available to the authenticated credential. |
+| `credential` | `CredentialInfo` | Credential returned by the completed auth flow. |
+| `walletAddress` | `String?` | Selected wallet address, or `nil` when manual wallet selection is pending. |
+| `wallet` | `Wallet?` | Selected wallet, or `nil` when manual wallet selection is pending. |
+
 ### OIDC Redirect Auth
 
 ```swift
@@ -268,6 +277,21 @@ struct OidcProviderConfig {
     let authMode: OidcAuthMode
 }
 ```
+
+```swift
+init(
+    issuer: String,
+    clientId: String,
+    authorizationUrl: String,
+    scopes: [String] = ["openid", "email", "profile"],
+    relayRedirectUri: String? = nil,
+    authorizeParams: [String: String] = [:],
+    authMode: OidcAuthMode = .authCodePkce
+)
+```
+
+`authMode` defaults to `.authCodePkce`. Use `.authCode` only for providers that
+do not support PKCE for the redirect flow.
 
 ```swift
 enum OidcProviders {
@@ -334,7 +358,7 @@ func startOidcRedirectAuth(
 ) async throws -> StartOidcRedirectAuthResult
 ```
 
-For Google OIDC providers, `loginHint` is sent as the OAuth `login_hint` parameter. If omitted, the SDK uses the previous session email when available. Non-Google providers do not receive `login_hint`.
+For `OidcProviders.google()` or other providers using issuer `https://accounts.google.com`, `loginHint` is sent as the OAuth `login_hint` parameter. If omitted, the SDK uses the previous session email when available. Non-Google issuers do not receive `login_hint`.
 
 `walletSelection` and `sessionLifetimeSeconds` passed at start are persisted in
 pending redirect state and used when the callback is handled unless callback
@@ -367,6 +391,20 @@ enum OidcRedirectAuthResult {
     case notOidcRedirectCallback
     case noPendingAuth
     case failed(Error)
+}
+```
+
+```swift
+enum OidcRedirectAuthError {
+    case invalidAuthorizationURL(String)
+    case randomBytesUnavailable
+    case invalidState
+    case stateNonceMismatch
+    case stateScopeMismatch
+    case stateRedirectUriMismatch
+    case providerError(String)
+    case missingCode
+    case signerMismatch
 }
 ```
 

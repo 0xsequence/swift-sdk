@@ -51,9 +51,9 @@ print("Transaction hash:", txResult.txnHash ?? "pending")
 
 ## Overview
 
-`OMSClient` is the root object for the SDK. Create a single instance at app startup and keep it alive for the session. It constructs the SDK sub-clients and restores any saved keychain session automatically.
+`OMSClient` is the root object for the SDK. Create a single instance at app startup and keep it alive for the session. It constructs the SDK sub-clients and restores any saved secure session automatically.
 
-Pass your OMS publishable key when creating the client. The SDK derives the Wallet API URL, IndexerGateway URL, and project scope from the publishable key prefix and project segment. The derived project scope is used for signed Wallet API requests and keychain namespaces for persisted wallet sessions and OIDC redirect state.
+Pass your OMS publishable key when creating the client. The SDK derives the Wallet API URL, IndexerGateway URL, and project scope from the publishable key prefix and project segment. The derived project scope is used for signed Wallet API requests and persisted wallet/OIDC redirect state.
 
 | Property | Type | Description |
 |---|---|---|
@@ -251,9 +251,9 @@ automatic wallet selection and a one-week session lifetime. Provider configs
 can use `.authCode` to omit PKCE parameters or `.authCodePkce` for PKCE.
 Providers with empty `scopes` omit the OAuth `scope` authorization parameter.
 
-Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. Only completed wallet session metadata is restored automatically, including wallet address, expiry, login type, and session email when available. The SDK checks the cached session expiry before restoring a session. Expired sessions are not activated, and the signer credential is cleared; expired metadata may remain in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it. Invalid session metadata is cleared. The private credential key remains owned by the Keychain and is not written into SDK session storage.
+Wallet API requests are signed with a device-backed credential managed by the SDK. Only completed wallet session metadata is restored automatically, including wallet address, expiry, login type, and session email when available. The SDK checks the cached session expiry before restoring a session. Expired sessions are not activated, and invalid session metadata is cleared; expired metadata may remain in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it.
 
-On subsequent launches, an unexpired completed session is restored from the keychain automatically. To end the session:
+On subsequent launches, an unexpired completed session is restored from secure storage automatically. To end the session:
 
 ```swift
 try oms.wallet.signOut()
