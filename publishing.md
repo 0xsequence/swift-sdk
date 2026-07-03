@@ -111,3 +111,34 @@ pod trunk info oms-wallet-swift-sdk
 Do not run `pod trunk push` until the matching git tag has been pushed. CocoaPods versions cannot be overwritten after publishing; if a bad podspec is published, release a new version instead.
 
 If CocoaPods emits only reviewed warnings for a release, append `--allow-warnings` to both `pod spec lint` and `pod trunk push`. Do not use it to ignore unexplained warnings.
+
+## Alpha, Beta, and Snapshot Releases
+
+Alpha and beta releases use the same release flow as stable releases. Set
+`VERSION` to a bare SemVer prerelease such as `0.2.1-alpha.1` or
+`0.2.1-beta.1`, update `s.version`, update any exact install snippets that
+should point at the prerelease, validate, tag, and publish. Do not reuse a
+published prerelease version; CocoaPods and git tags are immutable.
+
+Swift Package Manager resolves prereleases from the pushed git tag. CocoaPods
+publishes prerelease pod versions through `pod trunk push` the same way it
+publishes stable versions.
+
+For snapshot testing, prefer branch or commit references instead of publishing a
+mutable package version:
+
+```swift
+.package(url: "https://github.com/0xsequence/swift-sdk.git", branch: "branch-name")
+.package(url: "https://github.com/0xsequence/swift-sdk.git", revision: "<commit-sha>")
+```
+
+```ruby
+pod 'oms-wallet-swift-sdk',
+    :git => 'https://github.com/0xsequence/swift-sdk.git',
+    :commit => '<commit-sha>'
+```
+
+If a published snapshot artifact is explicitly required, use an immutable
+SemVer prerelease such as `0.2.1-snapshot.20260703.1` and follow the normal
+release flow. Treat it as permanent once pushed; do not expect CocoaPods or git
+tags to behave like mutable Maven `-SNAPSHOT` artifacts.
