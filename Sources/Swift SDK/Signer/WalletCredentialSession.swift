@@ -6,8 +6,7 @@ final class WalletCredentialSession {
         let walletId: String
         let walletAddress: String
         let expiresAt: String?
-        let loginType: SessionLoginType?
-        let sessionEmail: String?
+        let auth: SessionAuth
     }
 
     private let keychain: any KeychainManaging
@@ -42,8 +41,7 @@ final class WalletCredentialSession {
             walletId: credentials.walletId,
             walletAddress: credentials.walletAddress,
             expiresAt: credentials.expiresAt,
-            loginType: credentials.loginType,
-            sessionEmail: credentials.sessionEmail
+            auth: credentials.auth
         )
     }
 
@@ -71,8 +69,7 @@ final class WalletCredentialSession {
                     walletId: credentials.walletId,
                     walletAddress: credentials.walletAddress,
                     expiresAt: credentials.expiresAt,
-                    loginType: credentials.loginType,
-                    sessionEmail: credentials.sessionEmail
+                    auth: credentials.auth
                 )
             }
 
@@ -91,8 +88,7 @@ final class WalletCredentialSession {
         walletId: String,
         walletAddress: String,
         expiresAt: String?,
-        loginType: SessionLoginType?,
-        sessionEmail: String?
+        auth: SessionAuth
     ) throws {
         let credentials = StorableCredentials(
             walletId: walletId,
@@ -100,8 +96,7 @@ final class WalletCredentialSession {
             signerCredentialId: try currentSigner.credentialId(),
             alg: currentSigner.alg,
             expiresAt: expiresAt,
-            loginType: loginType,
-            sessionEmail: sessionEmail
+            auth: auth
         )
 
         try keychain.set(credentials.jsonString(), forKey: credentialsStorageKey)

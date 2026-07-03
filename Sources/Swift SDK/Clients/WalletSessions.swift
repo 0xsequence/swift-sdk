@@ -23,8 +23,7 @@ extension WalletClient {
         let storedSession = SessionState(
             walletAddress: storedWallet.walletAddress,
             expiresAtString: storedWallet.expiresAt,
-            loginType: storedWallet.loginType,
-            sessionEmail: storedWallet.sessionEmail
+            auth: storedWallet.auth
         )
         guard !isSessionExpired(storedSession) else {
             expireStoredSession(storedSession)
@@ -37,8 +36,7 @@ extension WalletClient {
         walletId = restoredWallet.walletId
         walletAddress = restoredWallet.walletAddress
         sessionExpiresAt = restoredWallet.expiresAt
-        sessionLoginType = restoredWallet.loginType
-        sessionEmail = restoredWallet.sessionEmail
+        sessionAuth = restoredWallet.auth
         scheduleSessionExpiry(session)
     }
 
@@ -76,8 +74,7 @@ extension WalletClient {
         return SessionState(
             walletAddress: walletAddress,
             expiresAtString: sessionExpiresAt,
-            loginType: sessionLoginType,
-            sessionEmail: sessionEmail
+            auth: sessionAuth
         )
     }
 
@@ -102,8 +99,7 @@ extension WalletClient {
         verifier = ""
         challenge = ""
         sessionExpiresAt = nil
-        sessionLoginType = nil
-        sessionEmail = nil
+        sessionAuth = nil
         signedClient = signedClientFactory(credentialSession.signer)
     }
 
@@ -186,22 +182,23 @@ extension WalletClient {
         }
         return walletAddress == sessionWalletAddress
             && SessionState.parseDate(sessionExpiresAt) == session.expiresAt
-            && sessionLoginType == session.loginType
-            && sessionEmail == session.sessionEmail
+            && sessionAuth == session.auth
     }
 
     func reauthenticationSessionEmail() -> String? {
         withSessionLock {
-            currentSessionLocked().sessionEmail ?? latestSessionExpiredEvent?.session.sessionEmail
+            currentSessionLocked().auth?.email ?? latestSessionExpiredEvent?.session.auth?.email
         }
     }
 
-    func currentSessionMetadata() -> SessionMetadata {
-        withSessionLock {
-            SessionMetadata(
+    func currentSessionMetadata() throws -> SessionMetadata {
+        try withSessionLock {
+            guard let sessionAuth else {
+                throw OmsSdkError.sessionMissing()
+            }
+            return SessionMetadata(
                 expiresAt: sessionExpiresAt,
-                loginType: sessionLoginType,
-                sessionEmail: sessionEmail
+                auth: sessionAuth
             )
         }
     }
@@ -229,8 +226,7 @@ extension WalletClient {
             verifier = ""
             challenge = ""
             sessionExpiresAt = nil
-            sessionLoginType = nil
-            sessionEmail = nil
+            sessionAuth = nil
             signedClient = signedClientFactory(credentialSession.signer)
         }
         if clearOidcRedirectAuth {

@@ -40,7 +40,7 @@ struct SessionExpiredPrompt: Identifiable {
     let event: SessionExpiredEvent
 
     var email: String? {
-        event.session.sessionEmail
+        event.session.auth?.email
     }
 }
 
@@ -274,6 +274,14 @@ final class AppViewModel: ObservableObject {
     }
 
     func startGoogleRedirectAuth() async {
+        await startOidcRedirectAuth(provider: OidcProviders.google())
+    }
+
+    func startAppleRedirectAuth() async {
+        await startOidcRedirectAuth(provider: OidcProviders.apple())
+    }
+
+    private func startOidcRedirectAuth(provider: OidcProviderConfig) async {
         guard let lifetimeSeconds = sessionLifetimeSeconds else {
             present(DemoAuthError.invalidSessionLifetime)
             return
@@ -284,7 +292,7 @@ final class AppViewModel: ObservableObject {
 
         do {
             let started = try await oms.wallet.startOidcRedirectAuth(
-                provider: OidcProviders.google(),
+                provider: provider,
                 redirectUri: oidcRedirectUri,
                 walletSelection: walletSelectionBehavior,
                 sessionLifetimeSeconds: lifetimeSeconds
@@ -400,9 +408,11 @@ final class AppViewModel: ObservableObject {
             loginEmail = email
         }
 
-        switch prompt.event.session.loginType {
-        case .googleAuth:
+        switch prompt.event.session.auth {
+        case .oidc(let auth) where auth.provider == "google":
             await startGoogleRedirectAuth()
+        case .oidc(let auth) where auth.provider == "apple":
+            await startAppleRedirectAuth()
         case .email:
             guard let email = prompt.email else {
                 screen = .login
@@ -424,7 +434,7 @@ final class AppViewModel: ObservableObject {
         safariAuthSession = nil
         feeOptionSelectionRequest?.cancel()
         feeOptionSelectionRequest = nil
-        if let email = event.session.sessionEmail {
+        if let email = event.session.auth?.email {
             loginEmail = email
         }
         screen = .login
@@ -642,6 +652,15 @@ struct LoginWindow: View {
                 .buttonStyle(DesignButtonStyle(variant: .secondary))
                 .disabled(vm.isLoading)
                 .padding(.top, 12)
+
+                Button {
+                    Task { await vm.startAppleRedirectAuth() }
+                } label: {
+                    label(for: "Continue with Apple", systemImage: "apple.logo", loading: vm.isLoading)
+                }
+                .buttonStyle(DesignButtonStyle(variant: .secondary))
+                .disabled(vm.isLoading)
+                .padding(.top, 8)
                 .padding(.bottom, 24)
             }
         }
@@ -1040,7 +1059,7 @@ struct WalletWindow: View {
                 .help(didCopy ? "Copied" : "Copy address")
             }
 
-            DesignText(sessionEmail, variant: .caption)
+            DesignText(sessionSubtitle, variant: .caption)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
@@ -1183,10 +1202,25 @@ struct WalletWindow: View {
         return "\(address.prefix(6))...\(address.suffix(4))"
     }
 
-    private var sessionEmail: String {
-        vm.oms.wallet.session.sessionEmail ?? "Email unavailable"
+    private var sessionSubtitle: String {
+        sessionAuthLabel(vm.oms.wallet.session.auth)
     }
 
+}
+
+private func sessionAuthLabel(_ auth: SessionAuth?) -> String {
+    switch auth {
+    case .email(let auth):
+        return auth.email ?? "Email"
+    case .oidc(let auth):
+        let provider = auth.providerLabel ?? auth.provider ?? "OIDC"
+        guard let email = auth.email, !email.isEmpty else {
+            return provider
+        }
+        return "\(provider) - \(email)"
+    case .none:
+        return "Auth unavailable"
+    }
 }
 
 // MARK: - Sign Message Window

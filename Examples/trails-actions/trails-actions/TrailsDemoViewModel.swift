@@ -382,12 +382,20 @@ final class TrailsDemoViewModel: ObservableObject {
     }
 
     func startGoogleRedirectAuth() {
+        startOidcRedirectAuth(provider: OidcProviders.google(), providerName: "Google")
+    }
+
+    func startAppleRedirectAuth() {
+        startOidcRedirectAuth(provider: OidcProviders.apple(), providerName: "Apple")
+    }
+
+    private func startOidcRedirectAuth(provider: OidcProviderConfig, providerName: String) {
         Task {
-            await runAction("Start Google sign-in") {
+            await runAction("Start \(providerName) sign-in") {
                 pendingWalletSelection = nil
                 redirectStatus = "Opening provider..."
                 let started = try await oms.startOidcRedirectAuth(
-                    provider: OidcProviders.google(),
+                    provider: provider,
                     redirectUri: trailsRedirectURI,
                     walletSelection: walletSelectionBehavior
                 )
@@ -396,13 +404,13 @@ final class TrailsDemoViewModel: ObservableObject {
                 }
                 safariAuthSession = SafariAuthSession(url: authorizationURL)
             } onFailure: { [self] error in
-                redirectStatus = "Unable to start Google sign-in: \(describe(error))"
+                redirectStatus = "Unable to start \(providerName) sign-in: \(describe(error))"
             }
         }
     }
 
     func handleOpenURL(_ url: URL) async {
-        await runAction("Complete Google sign-in") {
+        await runAction("Complete OIDC sign-in") {
             let result = try await oms.handleOidcRedirectCallback(
                 url.absoluteString
             )
@@ -411,7 +419,7 @@ final class TrailsDemoViewModel: ObservableObject {
             case .completed:
                 safariAuthSession = nil
                 pendingWalletSelection = nil
-                redirectStatus = "Google sign-in complete."
+                redirectStatus = "OIDC sign-in complete."
                 await refreshSession()
                 appendLog("Wallet ready: \(walletAddress ?? "")")
                 if let walletAddress {
@@ -430,7 +438,7 @@ final class TrailsDemoViewModel: ObservableObject {
                 throw error
             }
         } onFailure: { [self] error in
-            redirectStatus = "Unable to finish Google sign-in: \(describe(error))"
+            redirectStatus = "Unable to finish OIDC sign-in: \(describe(error))"
         }
     }
 

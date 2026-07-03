@@ -1,7 +1,7 @@
 # Trails Actions
 
 iOS SwiftUI example app that combines the OMS wallet SDK with the generated
-Trails API WebRPC client. The app demonstrates email OTP and Google OIDC auth,
+Trails API WebRPC client. The app demonstrates email OTP, Google OIDC auth, and Apple OIDC auth,
 manual or automatic wallet selection, Polygon POL/USDC balances, Trails intent
 swaps, USDC earn deposits, an API-only swap-and-earn flow, earn position
 refreshing, and withdraw transactions.

@@ -40,22 +40,13 @@ public class WalletClient: @unchecked Sendable {
             withSessionLock { _sessionExpiresAt = newValue }
         }
     }
-    private var _sessionLoginType: SessionLoginType?
-    var sessionLoginType: SessionLoginType? {
+    private var _sessionAuth: SessionAuth?
+    var sessionAuth: SessionAuth? {
         get {
-            withSessionLock { _sessionLoginType }
+            withSessionLock { _sessionAuth }
         }
         set {
-            withSessionLock { _sessionLoginType = newValue }
-        }
-    }
-    private var _sessionEmail: String?
-    var sessionEmail: String? {
-        get {
-            withSessionLock { _sessionEmail }
-        }
-        set {
-            withSessionLock { _sessionEmail = newValue }
+            withSessionLock { _sessionAuth = newValue }
         }
     }
     private var _activePendingWalletSelection: PendingWalletSelectionSession?
@@ -185,8 +176,7 @@ public class WalletClient: @unchecked Sendable {
         self._walletId = ""
         self._walletAddress = ""
         self._sessionExpiresAt = nil
-        self._sessionLoginType = nil
-        self._sessionEmail = nil
+        self._sessionAuth = nil
         self.credentialSession = credentialSession
 
         self._signedClient = makeSignedClient(credentialSession.signer)
@@ -225,8 +215,7 @@ public class WalletClient: @unchecked Sendable {
         self._walletId = ""
         self._walletAddress = ""
         self._sessionExpiresAt = nil
-        self._sessionLoginType = nil
-        self._sessionEmail = nil
+        self._sessionAuth = nil
         self.credentialSession = credentialSession
         self._signedClient = signedClient
         self.publicClient = publicClient
@@ -307,16 +296,14 @@ public class WalletClient: @unchecked Sendable {
             _walletAddress = walletAddress
             _walletId = walletId
             _sessionExpiresAt = sessionMetadata.expiresAt
-            _sessionLoginType = sessionMetadata.loginType
-            _sessionEmail = sessionMetadata.sessionEmail
+            _sessionAuth = sessionMetadata.auth
         }
 
         try credentialSession.persist(
             walletId: walletId,
             walletAddress: walletAddress,
             expiresAt: sessionMetadata.expiresAt,
-            loginType: sessionMetadata.loginType,
-            sessionEmail: sessionMetadata.sessionEmail
+            auth: sessionMetadata.auth
         )
         scheduleSessionExpiry(session)
     }

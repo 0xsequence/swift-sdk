@@ -101,14 +101,13 @@ import Testing
     let state = SessionState(
         walletAddress: "0xabc",
         expiresAtString: "2026-01-01T00:00:00Z",
-        loginType: .email,
-        sessionEmail: "user@example.com"
+        auth: .email(EmailSessionAuth(email: "user@example.com"))
     )
 
     #expect(state.walletAddress == "0xabc")
     #expect(state.expiresAt == Date(timeIntervalSince1970: 1_767_225_600))
-    #expect(state.loginType == .email)
-    #expect(state.sessionEmail == "user@example.com")
+    #expect(state.auth == .email(EmailSessionAuth(email: "user@example.com")))
+    #expect(state.auth?.email == "user@example.com")
 }
 
 @Test func TestStorableCredentialsRoundTripSessionMetadata() throws {
@@ -118,8 +117,7 @@ import Testing
         signerCredentialId: "0xsigner",
         alg: .ecdsaP256Sha256,
         expiresAt: "2026-01-01T00:00:00Z",
-        loginType: .email,
-        sessionEmail: "user@example.com"
+        auth: .email(EmailSessionAuth(email: "user@example.com"))
     )
 
     let restored = try StorableCredentials.from(jsonString: credentials.jsonString())
@@ -129,8 +127,7 @@ import Testing
     #expect(restored.signerCredentialId == "0xsigner")
     #expect(restored.alg == .ecdsaP256Sha256)
     #expect(restored.expiresAt == "2026-01-01T00:00:00Z")
-    #expect(restored.loginType == .email)
-    #expect(restored.sessionEmail == "user@example.com")
+    #expect(restored.auth == .email(EmailSessionAuth(email: "user@example.com")))
 }
 
 @Test func TestPendingOidcRedirectAuthRoundTripStoresRedirectAuthMode() throws {
@@ -141,6 +138,8 @@ import Testing
         authMode: .authCode,
         redirectUri: "omssdkdemo://auth/callback",
         issuer: "https://issuer.example",
+        provider: "custom",
+        providerLabel: "Custom",
         authorizationScope: "proj_1",
         walletType: .ethereum,
         walletSelection: .manual,
@@ -154,23 +153,15 @@ import Testing
     let restored = try PendingOidcRedirectAuth.from(jsonString: json)
 
     #expect(object["authMode"] as? String == "auth-code")
+    #expect(object["provider"] as? String == "custom")
+    #expect(object["providerLabel"] as? String == "Custom")
     #expect(object["walletSelection"] as? String == "manual")
     #expect(object["sessionLifetimeSeconds"] as? Int == 120)
     #expect(restored.authMode == .authCode)
+    #expect(restored.provider == "custom")
+    #expect(restored.providerLabel == "Custom")
     #expect(restored.walletSelection == .manual)
     #expect(restored.sessionLifetimeSeconds == 120)
-}
-
-@Test func TestOMSClientIdentityMapsSessionLoginType() throws {
-    let emailIdentity = OMSClientIdentity(Identity(type: .email, sub: "user@example.com"))
-    let googleIdentity = OMSClientIdentity(Identity(type: .oidc, iss: "https://accounts.google.com", sub: "google-sub"))
-    let oidcIdentity = OMSClientIdentity(Identity(type: .oidc, iss: "https://idp.example.com", sub: "oidc-sub"))
-    let phoneIdentity = OMSClientIdentity(Identity(type: .phone, sub: "+15555550100"))
-
-    #expect(emailIdentity.sessionLoginType == .email)
-    #expect(googleIdentity.sessionLoginType == .googleAuth)
-    #expect(oidcIdentity.sessionLoginType == .oidc)
-    #expect(phoneIdentity.sessionLoginType == nil)
 }
 
 @Test func TestOidcRedirectAuthMatchesCustomSchemesWithoutAuthority() throws {
@@ -190,6 +181,8 @@ import Testing
         authMode: .authCodePkce,
         redirectUri: "omssdkdemo://auth/callback",
         issuer: "https://issuer.example",
+        provider: nil,
+        providerLabel: nil,
         authorizationScope: "proj_1",
         walletType: .ethereum,
         walletSelection: nil,

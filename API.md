@@ -11,7 +11,6 @@
   - [OMSClientIdentity](#omsclientidentity)
   - [SessionState](#sessionstate)
   - [SessionExpiredEvent](#sessionexpiredevent)
-  - [SessionLoginType](#sessionlogintype)
   - [OMSClientEnvironment](#omsclientenvironment)
   - [FeeOptionSelector](#feeoptionselector)
   - [OmsSdkError](#omssdkerror)
@@ -145,8 +144,8 @@ var onSessionExpired: ((SessionExpiredEvent) -> Void)?
 ```
 
 Called when the active wallet session expires. The event carries the expired
-session snapshot so apps can reuse `sessionEmail` for email OTP reauth or as a
-Google OIDC login hint.
+session snapshot so apps can reuse `session.auth?.email` for email OTP reauth
+or as a Google OIDC login hint.
 
 ### canResumeOidcRedirectAuth
 
@@ -271,6 +270,8 @@ struct OidcProviderConfig {
     let issuer: String
     let clientId: String
     let authorizationUrl: String
+    let provider: String?
+    let providerLabel: String?
     let scopes: [String]
     let relayRedirectUri: String?
     let authorizeParams: [String: String]
@@ -283,6 +284,8 @@ init(
     issuer: String,
     clientId: String,
     authorizationUrl: String,
+    provider: String? = nil,
+    providerLabel: String? = nil,
     scopes: [String] = ["openid", "email", "profile"],
     relayRedirectUri: String? = nil,
     authorizeParams: [String: String] = [:],
@@ -320,13 +323,15 @@ enum OidcProviders {
 Google defaults to issuer `https://accounts.google.com`, authorization URL
 `https://accounts.google.com/o/oauth2/v2/auth`, scopes `openid email profile`,
 the SDK default Google client ID, the SDK relay redirect URI,
-`access_type=offline`, `prompt=consent`, and PKCE auth-code mode.
+`access_type=offline`, `prompt=consent`, provider key `google`, provider label
+`Google`, and PKCE auth-code mode.
 
 Apple defaults to issuer `https://appleid.apple.com`, authorization URL
 `https://appleid.apple.com/auth/authorize`, scopes `openid email`, the SDK
 default Apple Services ID, the SDK relay redirect URI, `response_mode=form_post`,
-and PKCE auth-code mode. Apple `form_post` is intended to work through the
-default relay before returning to your app callback.
+provider key `apple`, provider label `Apple`, and PKCE auth-code mode. Apple
+`form_post` is intended to work through the default relay before returning to
+your app callback.
 
 Provider configs are the source of truth for authorization scopes. Empty
 `scopes` omits the OAuth `scope` authorization parameter. `.authCodePkce` adds
@@ -764,7 +769,6 @@ final class OMSClientIdentity: Sendable {
     let type: IdentityType
     let issuer: String?
     let subject: String
-    var sessionLoginType: SessionLoginType?
 }
 ```
 
@@ -776,12 +780,46 @@ App-facing wrapper for wallet authentication identity details.
 struct SessionState: Equatable, Sendable {
     let walletAddress: String?
     let expiresAt: Date?
-    let loginType: SessionLoginType?
-    let sessionEmail: String?
+    let auth: SessionAuth?
 }
 ```
 
 Current wallet-session snapshot. It intentionally excludes pending auth state.
+
+```swift
+enum SessionAuth: Codable, Equatable, Sendable {
+    case email(EmailSessionAuth)
+    case oidc(OidcSessionAuth)
+
+    var email: String?
+}
+```
+
+```swift
+struct EmailSessionAuth: Codable, Equatable, Sendable {
+    let email: String?
+}
+```
+
+```swift
+enum OidcSessionAuthFlow: String, Codable, Equatable, Sendable {
+    case redirect
+    case idToken
+}
+```
+
+```swift
+struct OidcSessionAuth: Codable, Equatable, Sendable {
+    let flow: OidcSessionAuthFlow
+    let issuer: String
+    let provider: String?
+    let providerLabel: String?
+    let email: String?
+}
+```
+
+OIDC sessions include the flow (`.redirect` or `.idToken`), issuer, optional
+provider key, optional provider label, and email when available.
 
 ### SessionExpiredEvent
 
@@ -792,19 +830,7 @@ struct SessionExpiredEvent: Equatable, Sendable {
 }
 ```
 
-Event delivered to `wallet.onSessionExpired`. `session` is the expired session snapshot, including `sessionEmail` when available, and `expiredAt` is the parsed session expiry time.
-
-### SessionLoginType
-
-```swift
-enum SessionLoginType: String, Codable, Sendable {
-    case email
-    case googleAuth
-    case oidc
-}
-```
-
-Auth method that produced the completed wallet session.
+Event delivered to `wallet.onSessionExpired`. `session` is the expired session snapshot, including `auth.email` when available, and `expiredAt` is the parsed session expiry time.
 
 ### OMSClientEnvironment
 

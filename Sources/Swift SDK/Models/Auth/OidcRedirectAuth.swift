@@ -21,6 +21,8 @@ public struct OidcProviderConfig: Sendable {
     public let issuer: String
     public let clientId: String
     public let authorizationUrl: String
+    public let provider: String?
+    public let providerLabel: String?
     public let scopes: [String]
     public let relayRedirectUri: String?
     public let authorizeParams: [String: String]
@@ -30,6 +32,8 @@ public struct OidcProviderConfig: Sendable {
         issuer: String,
         clientId: String,
         authorizationUrl: String,
+        provider: String? = nil,
+        providerLabel: String? = nil,
         scopes: [String] = ["openid", "email", "profile"],
         relayRedirectUri: String? = nil,
         authorizeParams: [String: String] = [:],
@@ -38,6 +42,8 @@ public struct OidcProviderConfig: Sendable {
         self.issuer = issuer
         self.clientId = clientId
         self.authorizationUrl = authorizationUrl
+        self.provider = provider
+        self.providerLabel = providerLabel
         self.scopes = scopes
         self.relayRedirectUri = relayRedirectUri
         self.authorizeParams = authorizeParams
@@ -62,6 +68,8 @@ public enum OidcProviders {
             issuer: "https://accounts.google.com",
             clientId: clientId,
             authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+            provider: "google",
+            providerLabel: "Google",
             scopes: scopes,
             relayRedirectUri: relayRedirectUri,
             authorizeParams: [
@@ -83,6 +91,8 @@ public enum OidcProviders {
             issuer: "https://appleid.apple.com",
             clientId: clientId,
             authorizationUrl: "https://appleid.apple.com/auth/authorize",
+            provider: "apple",
+            providerLabel: "Apple",
             scopes: scopes,
             relayRedirectUri: relayRedirectUri,
             authorizeParams: [
@@ -162,6 +172,8 @@ struct PendingOidcRedirectAuth: Codable, Sendable {
     let authMode: OidcAuthMode
     let redirectUri: String
     let issuer: String
+    let provider: String?
+    let providerLabel: String?
     let authorizationScope: String
     let walletType: WalletType
     let walletSelection: WalletSelectionBehavior?

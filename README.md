@@ -38,7 +38,7 @@ guard case .walletSelected(_, let wallet, _, _) = auth else {
 }
 
 print("Wallet address:", wallet.address)
-print("Session email:", oms.wallet.session.sessionEmail ?? "unknown")
+print("Session email:", oms.wallet.session.auth?.email ?? "unknown")
 
 let value = try parseUnits(value: "1", decimals: 18)
 let txResult = try await oms.wallet.sendTransaction(
@@ -122,12 +122,11 @@ if case .walletSelected(_, let wallet, _, _) = result {
 let session = oms.wallet.session
 print(session.walletAddress ?? "signed out")
 if let expiresAt = session.expiresAt { print(expiresAt) }
-if let loginType = session.loginType { print(loginType) }
-print(session.sessionEmail ?? "unknown")
+print(session.auth?.email ?? "unknown")
 
 oms.wallet.onSessionExpired = { event in
     print("Session expired:", event.expiredAt)
-    print("Reauth email:", event.session.sessionEmail ?? "unknown")
+    print("Reauth email:", event.session.auth?.email ?? "unknown")
 }
 ```
 

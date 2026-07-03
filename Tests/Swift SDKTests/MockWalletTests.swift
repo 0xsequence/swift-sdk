@@ -2,6 +2,31 @@ import Foundation
 import Testing
 @testable import OMS_SDK
 
+private func isEmailAuth(_ auth: SessionAuth?, email: String? = "user@example.com") -> Bool {
+    guard case .email(let emailAuth) = auth else {
+        return false
+    }
+    return emailAuth.email == email
+}
+
+private func isOidcAuth(
+    _ auth: SessionAuth?,
+    flow: OidcSessionAuthFlow,
+    issuer: String = "https://accounts.google.com",
+    provider: String? = "google",
+    providerLabel: String? = "Google",
+    email: String? = "user@example.com"
+) -> Bool {
+    guard case .oidc(let oidcAuth) = auth else {
+        return false
+    }
+    return oidcAuth.flow == flow
+        && oidcAuth.issuer == issuer
+        && oidcAuth.provider == provider
+        && oidcAuth.providerLabel == providerLabel
+        && oidcAuth.email == email
+}
+
 @Test func TestWalletCompleteEmailAuthManualReturnsPendingWalletSelection() async throws {
     let fixture = makeMockWalletClient()
     let availableWallet = testWallet(id: "wallet-1", address: "0x1111111111111111111111111111111111111111")
@@ -80,8 +105,7 @@ import Testing
     #expect(fixture.client.session.walletAddress == firstWallet.address)
     #expect(storedCredentials?.walletId == firstWallet.id)
     #expect(storedCredentials?.walletAddress == firstWallet.address)
-    #expect(storedCredentials?.loginType == .email)
-    #expect(storedCredentials?.sessionEmail == "user@example.com")
+    #expect(isEmailAuth(storedCredentials?.auth))
 }
 
 @Test func TestWalletCompleteEmailAuthUsesCustomSessionLifetime() async throws {
@@ -141,14 +165,13 @@ import Testing
     let storedCredentials = try fixture.storedCredentials()
     #expect(expiredEvent?.session.walletAddress == wallet.address)
     #expect(expiredEvent?.session.expiresAt == Date(timeIntervalSince1970: 1_767_225_600))
-    #expect(expiredEvent?.session.loginType == .email)
-    #expect(expiredEvent?.session.sessionEmail == "user@example.com")
+    #expect(isEmailAuth(expiredEvent?.session.auth))
     #expect(expiredEvent?.expiredAt == Date(timeIntervalSince1970: 1_767_225_600))
     #expect(fixture.client.session == SessionState(walletAddress: nil))
     #expect(storedCredentials?.walletId == wallet.id)
     #expect(storedCredentials?.walletAddress == wallet.address)
     #expect(storedCredentials?.expiresAt == expiresAt)
-    #expect(storedCredentials?.sessionEmail == "user@example.com")
+    #expect(isEmailAuth(storedCredentials?.auth))
     #expect(fixture.signer.clearCallCount == 1)
     #expect(fixture.transport.requestCount(for: WaasAPI.SignMessage.urlPath) == 0)
 }
@@ -160,8 +183,7 @@ import Testing
         signerCredentialId: "0xmock-credential",
         alg: .ecdsaP256Sha256,
         expiresAt: "2026-01-01T00:00:00Z",
-        loginType: .email,
-        sessionEmail: "user@example.com"
+        auth: .email(EmailSessionAuth(email: "user@example.com"))
     )
     let fixture = makeMockWalletClient(
         currentDate: { Date(timeIntervalSince1970: 1_767_225_601) },
@@ -175,7 +197,7 @@ import Testing
 
     #expect(fixture.client.session == SessionState(walletAddress: nil))
     #expect(expiredEvent?.session.walletAddress == storedCredentials.walletAddress)
-    #expect(expiredEvent?.session.sessionEmail == "user@example.com")
+    #expect(isEmailAuth(expiredEvent?.session.auth))
     #expect(expiredEvent?.expiredAt == Date(timeIntervalSince1970: 1_767_225_600))
     #expect(try fixture.storedCredentials()?.walletId == storedCredentials.walletId)
     #expect(fixture.signer.clearCallCount == 1)
@@ -191,8 +213,7 @@ import Testing
         signerCredentialId: "0xmock-credential",
         alg: .ecdsaP256Sha256,
         expiresAt: formatter.string(from: expiresAt),
-        loginType: .email,
-        sessionEmail: "user@example.com"
+        auth: .email(EmailSessionAuth(email: "user@example.com"))
     )
     let fixture = makeMockWalletClient(storedCredentials: storedCredentials)
     var expiredEvent: SessionExpiredEvent?
@@ -203,7 +224,7 @@ import Testing
     let event = try await waitForSessionExpiredEvent { expiredEvent }
 
     #expect(event?.session.walletAddress == storedCredentials.walletAddress)
-    #expect(event?.session.sessionEmail == "user@example.com")
+    #expect(isEmailAuth(event?.session.auth))
     #expect(fixture.client.session == SessionState(walletAddress: nil))
     #expect(try fixture.storedCredentials()?.walletId == storedCredentials.walletId)
 }
@@ -249,7 +270,7 @@ private func waitForSessionExpiredEvent(
     }
 
     #expect(expiredEvent?.session.walletAddress == wallet.address)
-    #expect(expiredEvent?.session.sessionEmail == "user@example.com")
+    #expect(isEmailAuth(expiredEvent?.session.auth))
     #expect(fixture.client.session == SessionState(walletAddress: nil))
     #expect(try fixture.storedCredentials()?.walletId == wallet.id)
 }
@@ -431,7 +452,7 @@ private func waitForSessionExpiredEvent(
     }
 
     let storedCredentials = try fixture.storedCredentials()
-    #expect(storedCredentials?.sessionEmail != "first@example.com")
+    #expect(storedCredentials?.auth.email != "first@example.com")
 }
 
 @Test func TestWalletPublicUseCreateAndListWalletsUseVerifiedSession() async throws {
@@ -492,8 +513,7 @@ private func waitForSessionExpiredEvent(
     #expect(created.wallet.id == createdWallet.id)
     #expect(fixture.client.walletId == createdWallet.id)
     #expect(fixture.client.walletAddress == createdWallet.address)
-    #expect(fixture.client.session.loginType == .email)
-    #expect(fixture.client.session.sessionEmail == "user@example.com")
+    #expect(isEmailAuth(fixture.client.session.auth))
 }
 
 @Test func TestWalletCompleteEmailAuthSignsOutWhenActivationFails() async throws {
@@ -601,10 +621,8 @@ private func waitForSessionExpiredEvent(
     #expect(wallet.id == selectedWallet.id)
     #expect(fixture.client.walletId == selectedWallet.id)
     #expect(fixture.client.walletAddress == selectedWallet.address)
-    #expect(fixture.client.session.loginType == .googleAuth)
-    #expect(fixture.client.session.sessionEmail == "user@example.com")
-    #expect(storedCredentials?.loginType == .googleAuth)
-    #expect(storedCredentials?.sessionEmail == "user@example.com")
+    #expect(isOidcAuth(fixture.client.session.auth, flow: .idToken))
+    #expect(isOidcAuth(storedCredentials?.auth, flow: .idToken))
 }
 
 @Test func TestWalletSignInWithOidcIdTokenCanReturnManualWalletSelection() async throws {
@@ -659,6 +677,8 @@ private func waitForSessionExpiredEvent(
             authMode: .authCodePkce,
             redirectUri: "omssdkdemo://auth/callback",
             issuer: "https://issuer.example",
+            provider: nil,
+            providerLabel: nil,
             authorizationScope: fixture.projectId,
             walletType: .ethereum,
             walletSelection: nil,
@@ -746,6 +766,8 @@ private func waitForSessionExpiredEvent(
     #expect(provider.relayRedirectUri == "https://waas-cf-relay-staging.0xsequence.workers.dev/callback")
     #expect(provider.issuer == "https://accounts.google.com")
     #expect(provider.authorizationUrl == "https://accounts.google.com/o/oauth2/v2/auth")
+    #expect(provider.provider == "google")
+    #expect(provider.providerLabel == "Google")
     #expect(provider.scopes == ["openid", "email", "profile"])
     #expect(provider.authMode == .authCodePkce)
     #expect(provider.authorizeParams["access_type"] == "offline")
@@ -759,6 +781,8 @@ private func waitForSessionExpiredEvent(
     #expect(provider.relayRedirectUri == "https://waas-cf-relay-staging.0xsequence.workers.dev/callback")
     #expect(provider.issuer == "https://appleid.apple.com")
     #expect(provider.authorizationUrl == "https://appleid.apple.com/auth/authorize")
+    #expect(provider.provider == "apple")
+    #expect(provider.providerLabel == "Apple")
     #expect(provider.scopes == ["openid", "email"])
     #expect(provider.authMode == .authCodePkce)
     #expect(provider.authorizeParams["response_mode"] == "form_post")
@@ -875,8 +899,15 @@ private func waitForSessionExpiredEvent(
         signerCredentialId: "0xmock-credential",
         alg: .ecdsaP256Sha256,
         expiresAt: "2099-01-01T00:00:00Z",
-        loginType: .googleAuth,
-        sessionEmail: "last@example.com"
+        auth: .oidc(
+            OidcSessionAuth(
+                flow: .redirect,
+                issuer: "https://accounts.google.com",
+                provider: "google",
+                providerLabel: "Google",
+                email: "last@example.com"
+            )
+        )
     )
     let fixture = makeMockWalletClient(
         oidcNonceGenerator: { "nonce-123" },
@@ -1031,8 +1062,15 @@ private func waitForSessionExpiredEvent(
     #expect(fixture.oidcRedirectAuthStore.pending == nil)
     #expect(storedCredentials?.walletId == "wallet-def")
     #expect(storedCredentials?.walletAddress == "0xdef")
-    #expect(storedCredentials?.loginType == .oidc)
-    #expect(storedCredentials?.sessionEmail == "user@example.com")
+    #expect(
+        isOidcAuth(
+            storedCredentials?.auth,
+            flow: .redirect,
+            issuer: "https://issuer.example",
+            provider: nil,
+            providerLabel: nil
+        )
+    )
 }
 
 @Test func TestWalletHandleOidcRedirectCallbackCompletesAuthFromFragmentResponseMode() async throws {

@@ -52,7 +52,8 @@ extension WalletClient {
             return try await completeWalletAuth(
                 response,
                 walletType: walletType,
-                walletSelection: walletSelection
+                walletSelection: walletSelection,
+                sessionAuth: .email(EmailSessionAuth(email: response.email))
             )
         }
     }
@@ -99,7 +100,11 @@ extension WalletClient {
                 return try await completeWalletAuth(
                     auth,
                     walletType: walletType,
-                    walletSelection: walletSelection
+                    walletSelection: walletSelection,
+                    sessionAuth: oidcIdTokenSessionAuth(
+                        issuer: issuer,
+                        response: auth
+                    )
                 )
             } catch let error as CancellationError {
                 throw error
@@ -187,6 +192,8 @@ extension WalletClient {
                         authMode: authMode,
                         redirectUri: redirectUri,
                         issuer: provider.issuer,
+                        provider: provider.provider ?? builtInOidcProvider(for: provider.issuer),
+                        providerLabel: provider.providerLabel ?? builtInOidcProviderLabel(for: provider.issuer),
                         authorizationScope: self.projectId,
                         walletType: walletType,
                         walletSelection: walletSelection,
@@ -298,7 +305,11 @@ extension WalletClient {
                 let result = try await completeWalletAuth(
                     response,
                     walletType: pending.walletType,
-                    walletSelection: resolvedWalletSelection
+                    walletSelection: resolvedWalletSelection,
+                    sessionAuth: oidcRedirectSessionAuth(
+                        pending: pending,
+                        response: response
+                    )
                 )
 
                 switch result {
@@ -334,6 +345,68 @@ extension WalletClient {
         loginHint: String?
     ) -> String? {
         provider.issuer == "https://accounts.google.com" ? loginHint : nil
+    }
+
+    private func oidcIdTokenSessionAuth(
+        issuer: String,
+        response: CompleteAuthResponse
+    ) -> SessionAuth {
+        let resolvedIssuer = nonEmpty(response.identity.iss) ?? issuer
+        return .oidc(
+            OidcSessionAuth(
+                flow: .idToken,
+                issuer: resolvedIssuer,
+                provider: builtInOidcProvider(for: resolvedIssuer),
+                providerLabel: builtInOidcProviderLabel(for: resolvedIssuer),
+                email: response.email
+            )
+        )
+    }
+
+    private func oidcRedirectSessionAuth(
+        pending: PendingOidcRedirectAuth,
+        response: CompleteAuthResponse
+    ) -> SessionAuth {
+        let resolvedIssuer = nonEmpty(response.identity.iss) ?? pending.issuer
+        return .oidc(
+            OidcSessionAuth(
+                flow: .redirect,
+                issuer: resolvedIssuer,
+                provider: pending.provider ?? builtInOidcProvider(for: resolvedIssuer),
+                providerLabel: pending.providerLabel ?? builtInOidcProviderLabel(for: resolvedIssuer),
+                email: response.email
+            )
+        )
+    }
+
+    private func builtInOidcProvider(for issuer: String) -> String? {
+        switch issuer {
+        case "https://accounts.google.com":
+            return "google"
+        case "https://appleid.apple.com":
+            return "apple"
+        default:
+            return nil
+        }
+    }
+
+    private func builtInOidcProviderLabel(for issuer: String) -> String? {
+        switch issuer {
+        case "https://accounts.google.com":
+            return "Google"
+        case "https://appleid.apple.com":
+            return "Apple"
+        default:
+            return nil
+        }
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 
     private func confirmEmailSignIn(
@@ -376,18 +449,17 @@ extension WalletClient {
     private func completeWalletAuth(
         _ response: CompleteAuthResponse,
         walletType: WalletType,
-        walletSelection: WalletSelectionBehavior
+        walletSelection: WalletSelectionBehavior,
+        sessionAuth: SessionAuth
     ) async throws -> CompleteAuthResult {
         activePendingWalletSelection = nil
 
         let sessionMetadata = SessionMetadata(
             expiresAt: response.credential.expiresAt,
-            loginType: OMSClientIdentity(response.identity).sessionLoginType,
-            sessionEmail: response.email
+            auth: sessionAuth
         )
         self.sessionExpiresAt = sessionMetadata.expiresAt
-        self.sessionLoginType = sessionMetadata.loginType
-        self.sessionEmail = sessionMetadata.sessionEmail
+        self.sessionAuth = sessionMetadata.auth
 
         let wallets = try await signOutOnFailure {
             try await walletsFromAuthResponse(response)
@@ -485,8 +557,7 @@ extension WalletClient {
         let selectionSessionState = SessionState(
             walletAddress: nil,
             expiresAtString: selectionSession.metadata.expiresAt,
-            loginType: selectionSession.metadata.loginType,
-            sessionEmail: selectionSession.metadata.sessionEmail
+            auth: selectionSession.metadata.auth
         )
         guard !isSessionExpired(selectionSessionState) else {
             expireSession(selectionSessionState)
@@ -520,7 +591,7 @@ extension WalletClient {
             try requireActiveCredential()
             return try await useWallet(
                 walletId: walletId,
-                sessionMetadata: currentSessionMetadata()
+                sessionMetadata: try currentSessionMetadata()
             )
         }
     }
@@ -543,7 +614,7 @@ extension WalletClient {
             return try await createWallet(
                 walletType: walletType,
                 reference: reference,
-                sessionMetadata: currentSessionMetadata()
+                sessionMetadata: try currentSessionMetadata()
             )
         }
     }

@@ -4,8 +4,7 @@ public struct StorableCredentials : Codable {
     let signerCredentialId: String
     let alg: SigningAlgorithm
     let expiresAt: String?
-    let loginType: SessionLoginType?
-    let sessionEmail: String?
+    let auth: SessionAuth
 
     init(
         walletId: String,
@@ -13,15 +12,13 @@ public struct StorableCredentials : Codable {
         signerCredentialId: String,
         alg: SigningAlgorithm,
         expiresAt: String? = nil,
-        loginType: SessionLoginType? = nil,
-        sessionEmail: String? = nil
+        auth: SessionAuth
     ) {
         self.walletId = walletId
         self.walletAddress = walletAddress
         self.signerCredentialId = signerCredentialId
         self.alg = alg
         self.expiresAt = expiresAt
-        self.loginType = loginType
-        self.sessionEmail = sessionEmail
+        self.auth = auth
     }
 }

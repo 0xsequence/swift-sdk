@@ -73,7 +73,7 @@ private struct TrailsWelcomeWindow: View {
                 Spacer(minLength: 32)
 
                 VStack(spacing: 12) {
-                    WelcomeCapabilityRow(title: "Wallet auth", subtitle: "Use email code or Google sign-in.")
+                    WelcomeCapabilityRow(title: "Wallet auth", subtitle: "Use email code, Google, or Apple sign-in.")
                     WelcomeCapabilityRow(title: "Trails actions", subtitle: "Prepare swap, deposit, and swap-and-earn flows.")
                     WelcomeCapabilityRow(title: "Polygon execution", subtitle: "Review fees, send transactions, and track results.")
                 }
@@ -182,6 +182,15 @@ private struct TrailsLoginWindow: View {
                 .buttonStyle(DesignButtonStyle(variant: .secondary, size: .large, fillsWidth: true))
                 .disabled(vm.isBusy)
                 .padding(.top, 12)
+
+                Button {
+                    vm.startAppleRedirectAuth()
+                } label: {
+                    label(for: "Continue with Apple", loading: vm.loadingAction == "Start Apple sign-in")
+                }
+                .buttonStyle(DesignButtonStyle(variant: .secondary, size: .large, fillsWidth: true))
+                .disabled(vm.isBusy)
+                .padding(.top, 8)
                 .padding(.bottom, 24)
             }
         }
@@ -568,7 +577,7 @@ private struct TrailsWalletWindow: View {
     }
 
     private var sessionSubtitle: String {
-        vm.session.sessionEmail ?? loginTypeLabel(vm.session.loginType)
+        sessionAuthLabel(vm.session.auth)
     }
 }
 
@@ -1427,14 +1436,16 @@ private struct MetadataPill: View {
     }
 }
 
-private func loginTypeLabel(_ loginType: SessionLoginType?) -> String {
-    switch loginType {
-    case .email:
-        return "Email"
-    case .googleAuth:
-        return "Google"
-    case .oidc:
-        return "OIDC"
+private func sessionAuthLabel(_ auth: SessionAuth?) -> String {
+    switch auth {
+    case .email(let auth):
+        return auth.email ?? "Email"
+    case .oidc(let auth):
+        let provider = auth.providerLabel ?? auth.provider ?? "OIDC"
+        guard let email = auth.email, !email.isEmpty else {
+            return provider
+        }
+        return "\(provider) - \(email)"
     case .none:
         return "Unknown"
     }

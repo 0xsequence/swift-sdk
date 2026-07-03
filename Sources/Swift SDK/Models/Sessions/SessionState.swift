@@ -7,35 +7,28 @@ public struct SessionState: Equatable, Sendable {
     /// Expiration time for the current completed wallet session, or `nil` when unavailable.
     public let expiresAt: Date?
 
-    /// Auth method that produced the current completed wallet session.
-    public let loginType: SessionLoginType?
-
-    /// Email associated with the current completed wallet session when the wallet API returns one.
-    public let sessionEmail: String?
+    /// Auth metadata for the current completed wallet session.
+    public let auth: SessionAuth?
 
     public init(
         walletAddress: String?,
         expiresAt: Date? = nil,
-        loginType: SessionLoginType? = nil,
-        sessionEmail: String? = nil
+        auth: SessionAuth? = nil
     ) {
         self.walletAddress = walletAddress
         self.expiresAt = expiresAt
-        self.loginType = loginType
-        self.sessionEmail = sessionEmail
+        self.auth = auth
     }
 
     init(
         walletAddress: String?,
         expiresAtString: String?,
-        loginType: SessionLoginType?,
-        sessionEmail: String?
+        auth: SessionAuth?
     ) {
         self.init(
             walletAddress: walletAddress,
             expiresAt: Self.parseDate(expiresAtString),
-            loginType: loginType,
-            sessionEmail: sessionEmail
+            auth: auth
         )
     }
 
