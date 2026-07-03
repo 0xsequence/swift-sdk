@@ -19,7 +19,7 @@ https://github.com/0xsequence/swift-sdk.git
 Add the pod to your `Podfile`:
 
 ```ruby
-pod 'oms-wallet-swift-sdk', '0.1.0-alpha.4'
+pod 'oms-wallet-swift-sdk', '0.2.0'
 ```
 
 ## Quick Start

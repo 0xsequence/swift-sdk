@@ -16,8 +16,8 @@ git switch -c "release-$VERSION"
 the release commands. It does not need to be exported because the commands read
 it through shell expansion; set it again if you continue the release from a new
 shell. `git tag --list "$VERSION"` should print nothing. Use bare version tags
-such as `0.1.0` or `0.1.0-alpha.1`, not `v0.1.0` or `v0.1.0-alpha.1`, because
-the podspec source tag is `s.version.to_s`.
+such as `0.2.0`, not `v0.2.0`, because the podspec source tag is
+`s.version.to_s`.
 
 2. Update release metadata and docs.
 

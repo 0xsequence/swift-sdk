@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name = "oms-wallet-swift-sdk"
-  s.version = "0.1.0-alpha.4"
+  s.version = "0.2.0"
   s.summary = "OMS Wallet Swift SDK."
   s.description = <<-DESC
     OMS Wallet Swift SDK provides email, OIDC ID-token, and OIDC redirect wallet authentication,
