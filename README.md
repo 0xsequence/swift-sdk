@@ -1,4 +1,4 @@
-# OMS SDK (Swift)
+# OMS Wallet (Swift)
 
 A Swift SDK for the OMS (Open Money Stack) platform. Provides email, OIDC ID-token, and OIDC redirect wallet authentication, non-extractable Keychain request signing, keychain session persistence, wallet ID token retrieval with optional TTL and custom claims, on-chain transaction submission with fee selection, message and typed-data signing, signature verification, token balance queries, and base-unit formatting helpers.
 
@@ -19,15 +19,15 @@ https://github.com/0xsequence/swift-sdk.git
 Add the pod to your `Podfile`:
 
 ```ruby
-pod 'oms-client-swift-sdk', '0.1.0-alpha.4'
+pod 'oms-wallet-swift-sdk', '0.1.0-alpha.4'
 ```
 
 ## Quick Start
 
 ```swift
-import OMS_SDK
+import OMSWallet
 
-let oms = try OMSClient(
+let oms = try OMSWallet(
     publishableKey: "pk_dev_sdbx_yourproject_yourkey"
 )
 
@@ -51,7 +51,7 @@ print("Transaction hash:", txResult.txnHash ?? "pending")
 
 ## Overview
 
-`OMSClient` is the root object for the SDK. Create a single instance at app startup and keep it alive for the session. It constructs the SDK sub-clients and restores any saved secure session automatically.
+`OMSWallet` is the root object for the SDK. Create a single instance at app startup and keep it alive for the session. It constructs the SDK sub-clients and restores any saved secure session automatically.
 
 Pass your OMS publishable key when creating the client. The SDK derives the Wallet API URL, IndexerGateway URL, and project scope from the publishable key prefix and project segment. The derived project scope is used for signed Wallet API requests and persisted wallet/OIDC redirect state.
 
@@ -74,7 +74,7 @@ Supported publishable key prefixes route to these API bases:
 
 ## Supported Networks
 
-Use `Network.supportedNetworks` or the `OMSClient` convenience helpers to bind numeric chain IDs and network names to SDK networks.
+Use `Network.supportedNetworks` or the `OMSWallet` convenience helpers to bind numeric chain IDs and network names to SDK networks.
 
 ```swift
 let networks = Network.supportedNetworks
@@ -193,6 +193,8 @@ if case .walletSelected(_, let wallet, _, _) = result {
 
 Use `walletSelection: .manual` with `signInWithOidcIdToken` when you want the
 same app-driven wallet picker shown in the email example.
+Pass `provider` and `providerLabel` for custom ID-token providers when you want
+those labels stored in `oms.wallet.session.auth`.
 
 For OIDC authorization-code redirect flows, start the redirect, open the
 returned URL with your browser UI, then safely handle incoming app links.
@@ -201,7 +203,7 @@ Google and Apple provider helpers include SDK defaults:
 ```swift
 let started = try await oms.wallet.startOidcRedirectAuth(
     provider: OidcProviders.google(),
-    redirectUri: "omssdkdemo://auth/callback",
+    redirectUri: "omsclientswiftdemo://auth/callback",
     walletSelection: .manual
 )
 
@@ -248,7 +250,8 @@ to store completion preferences with the pending redirect state. Values passed
 to `handleOidcRedirectCallback` override pending values; otherwise the SDK uses
 automatic wallet selection and a one-week session lifetime. Provider configs
 can use `.authCode` to omit PKCE parameters or `.authCodePkce` for PKCE.
-Providers with empty `scopes` omit the OAuth `scope` authorization parameter.
+Providers with omitted or empty `scopes` omit the OAuth `scope` authorization
+parameter.
 
 Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. Only completed wallet session metadata is restored automatically, including wallet address, expiry, and auth metadata such as email or OIDC issuer/provider details when available. The SDK checks the cached session expiry before restoring a session. Expired sessions are not activated, and invalid session metadata is cleared; expired metadata may remain in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it. The private credential key remains owned by the Keychain and is not written into SDK session storage.
 
@@ -341,12 +344,12 @@ transactions require the selector to return a fee selection.
 ### Custom Environment
 
 ```swift
-let env = OMSClientEnvironment(
+let env = OMSWalletEnvironment(
     walletApiUrl: "https://staging-wallet.example.com",
     indexerGatewayUrl: "https://staging-api.example.com/v1/IndexerGateway/"
 )
 
-let oms = try OMSClient(
+let oms = try OMSWallet(
     publishableKey: "pk_dev_sdbx_yourproject_yourkey",
     environment: env
 )
@@ -497,7 +500,7 @@ do {
     case .transactionStatusLookupFailed:
         print("Transaction status lookup failed:", error.txnId ?? "unknown")
     default:
-        print("OMS SDK error:", error.localizedDescription, error.upstreamError as Any)
+        print("OMS Wallet error:", error.localizedDescription, error.upstreamError as Any)
     }
 }
 ```

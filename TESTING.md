@@ -6,13 +6,13 @@ How testing works in this repo. `AGENTS.md` points here so agents know how to ve
 
 - **Swift Testing** — the native Swift testing framework (`import Testing`). Uses `@Test` for test
   functions and `#expect` for assertions.
-- No external test dependencies; tests are part of the `"OMS SDKTests"` target in `Package.swift`.
+- No external test dependencies; tests are part of the `"OMSWalletTests"` target in `Package.swift`.
 
 ## Unit tests
 
 - **Scope:** Tests for individual SDK components with mocked transport, Keychain, and indexer
   dependencies. No live network calls or real Keychain access.
-- **Location:** `Tests/Swift SDKTests/`
+- **Location:** `Tests/OMSWalletTests/`
 - **Run:** `swift test`
 
 Current test files:
@@ -37,9 +37,9 @@ real public methods rather than duplicating the same assertion for every method.
 
 ## Integration tests
 
-There is currently no separate integration test suite. All tests in `Tests/Swift SDKTests/` are
+There is currently no separate integration test suite. All tests in `Tests/OMSWalletTests/` are
 unit-style with mocked dependencies. If integration tests (live network, real Keychain) are added,
-place them in `Tests/Swift SDKIntegrationTests/` and document prerequisites here.
+place them in `Tests/OMSWalletIntegrationTests/` and document prerequisites here.
 
 ## Conventions
 
@@ -49,7 +49,6 @@ place them in `Tests/Swift SDKIntegrationTests/` and document prerequisites here
 - Use mocked transport, Keychain, and indexer stubs rather than live services to keep the suite
   fast and reliable in CI.
 - Split tests into separate files by category (e.g. authentication, indexer, signing).
-- Quote paths and target names with spaces in any shell commands.
 
 ## Execution summary
 
@@ -59,5 +58,5 @@ place them in `Tests/Swift SDKIntegrationTests/` and document prerequisites here
 | Build without running tests | `swift build` |
 | Run tests matching a filter | `swift test --filter <TestNamePattern>` |
 | Verbose output | `swift test --verbose` |
-| Build SDK demo app | `xcodebuild -project Examples/sdk-demo/oms-sdk-demo.xcodeproj -scheme oms-sdk-demo build CODE_SIGNING_ALLOWED=NO` |
+| Build SDK demo app | `xcodebuild -project Examples/sdk-demo/oms-wallet-demo.xcodeproj -scheme oms-wallet-demo build CODE_SIGNING_ALLOWED=NO` |
 | Build Trails Actions demo app | `xcodebuild -project Examples/trails-actions/trails-actions.xcodeproj -scheme trails-actions build CODE_SIGNING_ALLOWED=NO` |

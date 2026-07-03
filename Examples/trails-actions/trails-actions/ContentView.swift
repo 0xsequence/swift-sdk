@@ -1,4 +1,4 @@
-import OMS_SDK
+import OMSWallet
 import SafariServices
 import SwiftUI
 import UIKit
@@ -1436,7 +1436,7 @@ private struct MetadataPill: View {
     }
 }
 
-private func sessionAuthLabel(_ auth: SessionAuth?) -> String {
+private func sessionAuthLabel(_ auth: OMSWalletSessionAuth?) -> String {
     switch auth {
     case .email(let auth):
         return auth.email ?? "Email"

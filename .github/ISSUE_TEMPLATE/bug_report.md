@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a bug in the OMS Swift SDK
+about: Report a bug in the OMS Wallet Swift SDK
 labels: bug
 ---
 

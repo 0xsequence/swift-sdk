@@ -21,7 +21,7 @@ the podspec source tag is `s.version.to_s`.
 
 2. Update release metadata and docs.
 
-- Set `s.version` in `oms-client-swift-sdk.podspec` to `$VERSION`.
+- Set `s.version` in `oms-wallet-swift-sdk.podspec` to `$VERSION`.
 - Keep the podspec `s.readme` URL versioned with `s.version` so CocoaPods renders
   the README for the published release.
 - Update the CocoaPods install snippet in `README.md` to the same version.
@@ -33,13 +33,13 @@ the podspec source tag is `s.version.to_s`.
 ```sh
 swift build
 swift test
-pod lib lint oms-client-swift-sdk.podspec --swift-version=6.0 --platforms=ios,macos
+pod lib lint oms-wallet-swift-sdk.podspec --swift-version=6.0 --platforms=ios,macos
 ```
 
 If the demo app changed, also run:
 
 ```sh
-xcodebuild -project Examples/sdk-demo/oms-sdk-demo.xcodeproj -scheme oms-sdk-demo build
+xcodebuild -project Examples/sdk-demo/oms-wallet-demo.xcodeproj -scheme oms-wallet-demo build
 ```
 
 4. Push the branch and open the PR.
@@ -61,7 +61,7 @@ gh pr create \
 VERSION="<release-version>"
 git switch master
 git pull --ff-only origin master
-grep "s.version = \"$VERSION\"" oms-client-swift-sdk.podspec
+grep "s.version = \"$VERSION\"" oms-wallet-swift-sdk.podspec
 GIT_TERMINAL_PROMPT=0 git -c credential.helper= ls-remote --exit-code https://github.com/0xsequence/swift-sdk.git HEAD
 ```
 
@@ -74,7 +74,7 @@ git tag -s "$VERSION" -m "$VERSION"
 git push origin "$VERSION"
 GIT_TERMINAL_PROMPT=0 git -c credential.helper= ls-remote --exit-code https://github.com/0xsequence/swift-sdk.git "refs/tags/$VERSION"
 git fetch origin tag "$VERSION"
-git show "$VERSION":oms-client-swift-sdk.podspec | grep "s.version = \"$VERSION\""
+git show "$VERSION":oms-wallet-swift-sdk.podspec | grep "s.version = \"$VERSION\""
 ```
 
 Existing release tags are annotated and signed. If signing is unavailable, stop and confirm the release policy before pushing an unsigned tag. Swift Package Manager resolves this pushed tag.
@@ -95,7 +95,7 @@ pod trunk me
 Check ownership:
 
 ```sh
-pod trunk info oms-client-swift-sdk
+pod trunk info oms-wallet-swift-sdk
 ```
 
 For the first release, CocoaPods may report that no pod exists yet. If the pod exists, the publishing account from `pod trunk me` must be one of the owners.
@@ -103,9 +103,9 @@ For the first release, CocoaPods may report that no pod exists yet. If the pod e
 8. Validate and publish the CocoaPods spec from the same merged commit.
 
 ```sh
-pod spec lint oms-client-swift-sdk.podspec --swift-version=6.0 --platforms=ios,macos
-pod trunk push oms-client-swift-sdk.podspec --swift-version=6.0
-pod trunk info oms-client-swift-sdk
+pod spec lint oms-wallet-swift-sdk.podspec --swift-version=6.0 --platforms=ios,macos
+pod trunk push oms-wallet-swift-sdk.podspec --swift-version=6.0
+pod trunk info oms-wallet-swift-sdk
 ```
 
 Do not run `pod trunk push` until the matching git tag has been pushed. CocoaPods versions cannot be overwritten after publishing; if a bad podspec is published, release a new version instead.

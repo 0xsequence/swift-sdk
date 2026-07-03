@@ -20,11 +20,11 @@ should be present, and which tests own the contract.
   and service-specific troubleshooting, not primary app branching.
 - `underlyingError` is Swift-local diagnostic context. It is present when the
   SDK wraps a lower-level Swift error such as `WebRPCError`,
-  `WebRPCTransportError`, `TransactionError`, `HttpError`, `URLError`, or a
-  decoding error. It can be absent for deliberate local SDK errors such as
-  missing session and stale wallet selection, and for manually constructed
-  `OmsSdkError` values unless the caller supplies it. Do not serialize or depend
-  on `underlyingError` for cross-SDK behavior.
+  `WebRPCTransportError`, `TransactionError`, HTTP transport failures,
+  `URLError`, or a decoding error. It can be absent for deliberate local SDK
+  errors such as missing session and stale wallet selection, and for manually
+  constructed `OmsSdkError` values unless the caller supplies it. Do not
+  serialize or depend on `underlyingError` for cross-SDK behavior.
 - `OMS_TRANSACTION_EXECUTION_UNCONFIRMED` means transaction preparation
   succeeded and produced a `txnId`, but the execute request failed before the
   SDK could confirm whether the transaction was submitted. Do not blindly resend
@@ -35,7 +35,7 @@ should be present, and which tests own the contract.
 
 ## Maintenance Approach
 
-- Update this matrix, `Tests/Swift SDKTests/PublicErrorContractsTests.swift`,
+- Update this matrix, `Tests/OMSWalletTests/PublicErrorContractsTests.swift`,
   `API.md`, and `README.md` together when a public SDK method gains, removes, or
   intentionally changes an error contract.
 - Keep backend and upstream mapping tests representative rather than exhaustive

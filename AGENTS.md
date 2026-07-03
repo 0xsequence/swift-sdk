@@ -57,34 +57,30 @@ available, set it up: https://context7.com/install
 
 ## Project Overview
 
-This repository is a Swift 6 package for the OMS SDK. It exposes the `OMS_SDK`
+This repository is a Swift 6 package for the OMS Wallet. It exposes the `OMSWallet`
 module and supports iOS 15+ and macOS 12+. The SDK covers wallet auth, Keychain
 request signing and session persistence, OIDC flows, transactions, message and
 typed-data signing, signature verification, token balances, and unit formatting.
 
-The package, product, target, and several directories contain spaces. Quote paths
-and target names in shell commands, for example `"Sources/Swift SDK"` and
-`"OMS SDK"`.
-
 ## Repository Layout
 
-- `Package.swift` defines the Swift package, the `"OMS SDK"` library target, and
-  the `"OMS SDKTests"` test target.
-- `Sources/Swift SDK/` contains the SDK implementation.
-- `Sources/Swift SDK/Clients/` contains `WalletClient` and `IndexerClient`.
-- `Sources/Swift SDK/Signer/` contains Keychain/P-256 signing and credential
+- `Package.swift` defines the Swift package, the `"OMSWallet"` library target, and
+  the `"OMSWalletTests"` test target.
+- `Sources/OMSWallet/` contains the SDK implementation.
+- `Sources/OMSWallet/Clients/` contains `WalletClient` and `IndexerClient`.
+- `Sources/OMSWallet/Signer/` contains Keychain/P-256 signing and credential
   session code.
-- `Sources/Swift SDK/Models/` contains public model types and auth/session
+- `Sources/OMSWallet/Models/` contains public model types and auth/session
   state.
-- `Sources/Swift SDK/Utils/` contains encoding, hashing, request, time, byte, and
+- `Sources/OMSWallet/Utils/` contains encoding, hashing, request, time, byte, and
   unit helpers.
-- `Sources/Swift SDK/Generated/waas.gen.swift` is generated WebRPC client code.
+- `Sources/OMSWallet/Generated/waas.gen.swift` is generated WebRPC client code.
   Do not edit it by hand unless the user explicitly asks for a generated-code
   patch.
-- `Tests/Swift SDKTests/` contains Swift Testing tests using `@Test` and
+- `Tests/OMSWalletTests/` contains Swift Testing tests using `@Test` and
   `#expect`.
-- `Examples/sdk-demo/oms-sdk-demo.xcodeproj` and
-  `Examples/sdk-demo/oms-sdk-demo/` contain the SwiftUI demo app.
+- `Examples/sdk-demo/oms-wallet-demo.xcodeproj` and
+  `Examples/sdk-demo/oms-wallet-demo/` contain the SwiftUI demo app.
 - `Examples/trails-actions/trails-actions.xcodeproj` and
   `Examples/trails-actions/trails-actions/` contain the Trails Actions demo app.
 - `README.md` is the user-facing guide; `API.md` is the detailed API reference.
@@ -94,8 +90,8 @@ and target names in shell commands, for example `"Sources/Swift SDK"` and
 ```sh
 swift build
 swift test
-xcodebuild -list -project Examples/sdk-demo/oms-sdk-demo.xcodeproj
-xcodebuild -project Examples/sdk-demo/oms-sdk-demo.xcodeproj -scheme oms-sdk-demo build CODE_SIGNING_ALLOWED=NO
+xcodebuild -list -project Examples/sdk-demo/oms-wallet-demo.xcodeproj
+xcodebuild -project Examples/sdk-demo/oms-wallet-demo.xcodeproj -scheme oms-wallet-demo build CODE_SIGNING_ALLOWED=NO
 xcodebuild -list -project Examples/trails-actions/trails-actions.xcodeproj
 xcodebuild -project Examples/trails-actions/trails-actions.xcodeproj -scheme trails-actions build CODE_SIGNING_ALLOWED=NO
 ```
@@ -124,8 +120,7 @@ execution commands.
   requests.
 - Avoid floating-point math for token amounts. Use or extend `parseUnits` and
   `formatUnits` for base-unit conversions.
-- When editing paths with spaces, keep command examples quoted and prefer
-  `rg --files`, `rg`, `swift build`, and `swift test` from the repository root.
+- Prefer `rg --files`, `rg`, `swift build`, and `swift test` from the repository root.
 - Commit messages and PR titles follow Conventional Commits.
 
 ## CI/CD
@@ -140,12 +135,12 @@ requested later with `@claude review` in a PR comment.
 
 Update `README.md` when user-facing setup or flow examples change. Update
 `API.md` when public methods, parameters, models, or behavior change. Keep docs
-aligned with the actual Swift names, labels, return types, and the `OMS_SDK`
+aligned with the actual Swift names, labels, return types, and the `OMSWallet`
 import name. Avoid adding method descriptions in source code.
 
 ## Demo App
 
-The demo app should handle OMS SDK errors and open an error window when that
+The demo app should handle OMS Wallet errors and open an error window when that
 happens.
 
 ## Working Tree Notes
@@ -156,7 +151,6 @@ asked.
 
 ## Common Pitfalls
 
-- Paths and target names contain spaces — always quote them in shell commands.
 - `waas.gen.swift` is generated; do not edit by hand unless explicitly asked.
 - Never persist private key material in session storage — the P-256 credential is intentionally non-extractable.
 - Do not use floating-point for token amounts; use `parseUnits`/`formatUnits`.

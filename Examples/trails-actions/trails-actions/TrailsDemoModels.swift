@@ -1,5 +1,5 @@
 import Foundation
-import OMS_SDK
+import OMSWallet
 
 let trailsAPIURL = "https://trails-api.sequence.app"
 let trailsRedirectURI = "omsclienttrailsdemo://auth/callback"

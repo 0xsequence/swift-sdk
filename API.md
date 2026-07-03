@@ -1,17 +1,17 @@
-# OMS SDK (Swift) — API Reference
+# OMS Wallet (Swift) — API Reference
 
 ## Table of Contents
 
-- [OMSClient](#omsclient)
+- [OMSWallet](#omswallet)
 - [WalletClient](#walletclient)
 - [IndexerClient](#indexerclient)
 - [Formatting Helpers](#formatting-helpers)
 - [Types](#types)
   - [Network](#network)
-  - [OMSClientIdentity](#omsclientidentity)
-  - [SessionState](#sessionstate)
-  - [SessionExpiredEvent](#sessionexpiredevent)
-  - [OMSClientEnvironment](#omsclientenvironment)
+  - [OMSWalletIdentity](#omswalletidentity)
+  - [OMSWalletSessionState](#omswalletsessionstate)
+  - [OMSWalletSessionExpiredEvent](#omswalletsessionexpiredevent)
+  - [OMSWalletEnvironment](#omswalletenvironment)
   - [FeeOptionSelector](#feeoptionselector)
   - [OmsSdkError](#omssdkerror)
   - [OmsSdkErrorCode](#omssdkerrorcode)
@@ -45,12 +45,12 @@
 
 ---
 
-## OMSClient
+## OMSWallet
 
 The top-level entry point for the SDK. Requires iOS 15+ or macOS 12+.
 
 ```swift
-let oms = try OMSClient(publishableKey: "pk_dev_sdbx_yourproject_yourkey")
+let oms = try OMSWallet(publishableKey: "pk_dev_sdbx_yourproject_yourkey")
 ```
 
 ### init
@@ -62,14 +62,14 @@ init(
 
 init(
     publishableKey: String,
-    environment: OMSClientEnvironment
+    environment: OMSWalletEnvironment
 ) throws
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | `publishableKey` | `String` | OMS publishable key. |
-| `environment` | `OMSClientEnvironment` | Explicit API endpoint override. |
+| `environment` | `OMSWalletEnvironment` | Explicit API endpoint override. |
 
 ### Properties
 
@@ -106,11 +106,11 @@ init(
 
 init(
     publishableKey: String,
-    environment: OMSClientEnvironment
+    environment: OMSWalletEnvironment
 ) throws
 ```
 
-Most apps create a wallet client through `OMSClient`. Use these initializers only
+Most apps create a wallet client through `OMSWallet`. Use these initializers only
 when constructing `WalletClient` directly.
 
 ### walletAddress
@@ -132,7 +132,7 @@ The read-only server-side wallet ID. Empty until a wallet is restored or activat
 ### session
 
 ```swift
-var session: SessionState
+var session: OMSWalletSessionState
 ```
 
 Snapshot of the currently completed wallet session for this wallet client.
@@ -140,7 +140,7 @@ Snapshot of the currently completed wallet session for this wallet client.
 ### onSessionExpired
 
 ```swift
-var onSessionExpired: ((SessionExpiredEvent) -> Void)?
+var onSessionExpired: ((OMSWalletSessionExpiredEvent) -> Void)?
 ```
 
 Called when the active wallet session expires. The event carries the expired
@@ -189,7 +189,9 @@ func signInWithOidcIdToken(
     audience: String,
     walletType: WalletType = .ethereum,
     walletSelection: WalletSelectionBehavior = .automatic,
-    sessionLifetimeSeconds: UInt32 = 604_800
+    sessionLifetimeSeconds: UInt32 = 604_800,
+    provider: String? = nil,
+    providerLabel: String? = nil
 ) async throws -> CompleteAuthResult
 ```
 
@@ -198,7 +200,10 @@ Signs in with an OIDC ID token for the provided `issuer` and `audience`.
 With `.automatic`, selects the first existing wallet matching `walletType`, or
 creates and selects one when none exists. With `.manual`, returns a pending
 wallet selection without selecting or creating a wallet. `sessionLifetimeSeconds`
-controls the requested credential lifetime and defaults to one week.
+controls the requested credential lifetime and defaults to one week. Pass
+`provider` and `providerLabel` when you want custom session metadata for
+non-built-in identity providers. When omitted, Google and Apple are derived from
+the issuer and custom issuers leave those fields `nil`.
 
 ### WalletSelectionBehavior
 
@@ -286,7 +291,7 @@ init(
     authorizationUrl: String,
     provider: String? = nil,
     providerLabel: String? = nil,
-    scopes: [String] = ["openid", "email", "profile"],
+    scopes: [String] = [],
     relayRedirectUri: String? = nil,
     authorizeParams: [String: String] = [:],
     authMode: OidcAuthMode = .authCodePkce
@@ -333,10 +338,10 @@ provider key `apple`, provider label `Apple`, and PKCE auth-code mode. Apple
 `form_post` is intended to work through the default relay before returning to
 your app callback.
 
-Provider configs are the source of truth for authorization scopes. Empty
-`scopes` omits the OAuth `scope` authorization parameter. `.authCodePkce` adds
-`code_challenge` and `code_challenge_method=S256`; `.authCode` omits PKCE
-authorization parameters.
+Provider configs are the source of truth for authorization scopes and optional
+provider display metadata. Omitted or empty `scopes` omits the OAuth `scope`
+authorization parameter. `.authCodePkce` adds `code_challenge` and
+`code_challenge_method=S256`; `.authCode` omits PKCE authorization parameters.
 
 ```swift
 func startOidcRedirectAuth(
@@ -762,10 +767,10 @@ enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
 
 `Network.amoy` is an alias for `.polygonAmoy`.
 
-### OMSClientIdentity
+### OMSWalletIdentity
 
 ```swift
-final class OMSClientIdentity: Sendable {
+final class OMSWalletIdentity: Sendable {
     let type: IdentityType
     let issuer: String?
     let subject: String
@@ -774,43 +779,43 @@ final class OMSClientIdentity: Sendable {
 
 App-facing wrapper for wallet authentication identity details.
 
-### SessionState
+### OMSWalletSessionState
 
 ```swift
-struct SessionState: Equatable, Sendable {
+struct OMSWalletSessionState: Equatable, Sendable {
     let walletAddress: String?
     let expiresAt: Date?
-    let auth: SessionAuth?
+    let auth: OMSWalletSessionAuth?
 }
 ```
 
 Current wallet-session snapshot. It intentionally excludes pending auth state.
 
 ```swift
-enum SessionAuth: Codable, Equatable, Sendable {
-    case email(EmailSessionAuth)
-    case oidc(OidcSessionAuth)
+enum OMSWalletSessionAuth: Codable, Equatable, Sendable {
+    case email(OMSWalletEmailSessionAuth)
+    case oidc(OMSWalletOidcSessionAuth)
 
     var email: String?
 }
 ```
 
 ```swift
-struct EmailSessionAuth: Codable, Equatable, Sendable {
+struct OMSWalletEmailSessionAuth: Codable, Equatable, Sendable {
     let email: String?
 }
 ```
 
 ```swift
-enum OidcSessionAuthFlow: String, Codable, Equatable, Sendable {
+enum OMSWalletOidcSessionAuthFlow: String, Codable, Equatable, Sendable {
     case redirect
     case idToken
 }
 ```
 
 ```swift
-struct OidcSessionAuth: Codable, Equatable, Sendable {
-    let flow: OidcSessionAuthFlow
+struct OMSWalletOidcSessionAuth: Codable, Equatable, Sendable {
+    let flow: OMSWalletOidcSessionAuthFlow
     let issuer: String
     let provider: String?
     let providerLabel: String?
@@ -821,21 +826,21 @@ struct OidcSessionAuth: Codable, Equatable, Sendable {
 OIDC sessions include the flow (`.redirect` or `.idToken`), issuer, optional
 provider key, optional provider label, and email when available.
 
-### SessionExpiredEvent
+### OMSWalletSessionExpiredEvent
 
 ```swift
-struct SessionExpiredEvent: Equatable, Sendable {
-    let session: SessionState
+struct OMSWalletSessionExpiredEvent: Equatable, Sendable {
+    let session: OMSWalletSessionState
     let expiredAt: Date
 }
 ```
 
 Event delivered to `wallet.onSessionExpired`. `session` is the expired session snapshot, including `auth.email` when available, and `expiredAt` is the parsed session expiry time.
 
-### OMSClientEnvironment
+### OMSWalletEnvironment
 
 ```swift
-struct OMSClientEnvironment: Equatable, Sendable {
+struct OMSWalletEnvironment: Equatable, Sendable {
     static let defaultWalletApiUrl: String
     static let defaultIndexerGatewayUrl: String
 
@@ -843,8 +848,8 @@ struct OMSClientEnvironment: Equatable, Sendable {
     let indexerGatewayUrl: String
 
     init(
-        walletApiUrl: String = OMSClientEnvironment.defaultWalletApiUrl,
-        indexerGatewayUrl: String = OMSClientEnvironment.defaultIndexerGatewayUrl
+        walletApiUrl: String = OMSWalletEnvironment.defaultWalletApiUrl,
+        indexerGatewayUrl: String = OMSWalletEnvironment.defaultIndexerGatewayUrl
     )
 }
 ```
@@ -937,11 +942,11 @@ and service-specific troubleshooting.
 
 `underlyingError` is Swift-local diagnostic context. It is present when the SDK
 wraps a lower-level Swift error such as `WebRPCError`, `WebRPCTransportError`,
-`TransactionError`, `HttpError`, `URLError`, or a decoding error. It can be
-absent for deliberate local SDK errors such as missing session and stale wallet
-selection, and for manually constructed `OmsSdkError` values unless the caller
-supplies it. Do not serialize or depend on `underlyingError` for cross-SDK
-behavior.
+`TransactionError`, HTTP transport failures, `URLError`, or a decoding error. It
+can be absent for deliberate local SDK errors such as missing session and stale
+wallet selection, and for manually constructed `OmsSdkError` values unless the
+caller supplies it. Do not serialize or depend on `underlyingError` for
+cross-SDK behavior.
 
 `PendingWalletSelection` validation failures, such as stale selections or
 unavailable wallet IDs, also throw `OmsSdkError`.

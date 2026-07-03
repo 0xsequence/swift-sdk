@@ -1,24 +1,24 @@
 import Combine
 import Foundation
-import OMS_SDK
+import OMSWallet
 
 // Serializes OMS wallet/indexer access so the Swift 6 example never sends the
 // mutable wallet client directly out of the MainActor view model.
 private final class TrailsOMSStorage: @unchecked Sendable {
-    let oms: OMSClient
+    let oms: OMSWallet
 
     init(publishableKey: String) {
-        self.oms = try! OMSClient(
+        self.oms = try! OMSWallet(
             publishableKey: publishableKey
         )
     }
 }
 
-actor TrailsOMSClient {
+actor TrailsOMSWallet {
     private let storage: TrailsOMSStorage
     private var tail: Task<Void, Never>?
 
-    nonisolated let initialSession: SessionState
+    nonisolated let initialSession: OMSWalletSessionState
 
     init(publishableKey: String) {
         let storage = TrailsOMSStorage(publishableKey: publishableKey)
@@ -26,7 +26,7 @@ actor TrailsOMSClient {
         self.initialSession = storage.oms.wallet.session
     }
 
-    func session() async -> SessionState {
+    func session() async -> OMSWalletSessionState {
         await perform { client in
             client.wallet.session
         }
@@ -172,7 +172,7 @@ actor TrailsOMSClient {
     }
 
     private func perform<T: Sendable>(
-        _ operation: @escaping @Sendable (OMSClient) async -> T
+        _ operation: @escaping @Sendable (OMSWallet) async -> T
     ) async -> T {
         let previous = tail
         let storage = storage
@@ -187,7 +187,7 @@ actor TrailsOMSClient {
     }
 
     private func performThrowing<T: Sendable>(
-        _ operation: @escaping @Sendable (OMSClient) async throws -> T
+        _ operation: @escaping @Sendable (OMSWallet) async throws -> T
     ) async throws -> T {
         let previous = tail
         let storage = storage
@@ -226,9 +226,9 @@ final class TrailsPendingWalletSelection: @unchecked Sendable {
     let credential: CredentialInfo
 
     private let pendingSelection: PendingWalletSelection
-    private let client: TrailsOMSClient
+    private let client: TrailsOMSWallet
 
-    init(_ pendingSelection: PendingWalletSelection, client: TrailsOMSClient) {
+    init(_ pendingSelection: PendingWalletSelection, client: TrailsOMSWallet) {
         self.walletType = pendingSelection.walletType
         self.wallets = pendingSelection.wallets
         self.credential = pendingSelection.credential
@@ -247,7 +247,7 @@ final class TrailsPendingWalletSelection: @unchecked Sendable {
 
 @MainActor
 final class TrailsDemoViewModel: ObservableObject {
-    @Published var session = SessionState(walletAddress: nil)
+    @Published var session = OMSWalletSessionState(walletAddress: nil)
     @Published var authStep: AuthStep = .email
     @Published var email = ""
     @Published var code = ""
@@ -282,7 +282,7 @@ final class TrailsDemoViewModel: ObservableObject {
     @Published var error: AppError?
     @Published var safariAuthSession: SafariAuthSession?
 
-    let oms = TrailsOMSClient(
+    let oms = TrailsOMSWallet(
         publishableKey: defaultPublishableKey
     )
 
