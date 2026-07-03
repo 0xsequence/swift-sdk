@@ -250,7 +250,7 @@ automatic wallet selection and a one-week session lifetime. Provider configs
 can use `.authCode` to omit PKCE parameters or `.authCodePkce` for PKCE.
 Providers with empty `scopes` omit the OAuth `scope` authorization parameter.
 
-Wallet API requests are signed with a device-backed credential managed by the SDK. Only completed wallet session metadata is restored automatically, including wallet address, expiry, login type, and session email when available. The SDK checks the cached session expiry before restoring a session. Expired sessions are not activated, and invalid session metadata is cleared; expired metadata may remain in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it.
+Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. Only completed wallet session metadata is restored automatically, including wallet address, expiry, and auth metadata such as email or OIDC issuer/provider details when available. The SDK checks the cached session expiry before restoring a session. Expired sessions are not activated, and invalid session metadata is cleared; expired metadata may remain in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it. The private credential key remains owned by the Keychain and is not written into SDK session storage.
 
 On subsequent launches, an unexpired completed session is restored from secure storage automatically. To end the session:
 
