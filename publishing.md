@@ -39,7 +39,8 @@ pod lib lint oms-wallet-swift-sdk.podspec --swift-version=6.0 --platforms=ios,ma
 If the demo app changed, also run:
 
 ```sh
-xcodebuild -project Examples/sdk-demo/oms-wallet-demo.xcodeproj -scheme oms-wallet-demo build
+xcodebuild -project Examples/sdk-demo/oms-wallet-demo.xcodeproj -scheme oms-wallet-demo build CODE_SIGNING_ALLOWED=NO
+xcodebuild -project Examples/trails-actions/trails-actions.xcodeproj -scheme trails-actions build CODE_SIGNING_ALLOWED=NO
 ```
 
 4. Push the branch and open the PR.
