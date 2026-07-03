@@ -143,6 +143,15 @@ import name. Avoid adding method descriptions in source code.
 The demo app should handle OMS Wallet errors and open an error window when that
 happens.
 
+## Security and Configuration
+
+- Do not commit secrets, signing keys, provisioning credentials, local build
+  settings, or user-specific Xcode state.
+- Publishable keys used by SDK examples are public project identifiers, not
+  secrets. Concrete sandbox publishable keys may be checked into demo app configs
+  when intentionally provided for runnable examples; do not flag or replace them
+  solely because they are concrete values.
+
 ## Working Tree Notes
 
 The demo app may contain local Xcode or macOS metadata changes. Do not revert
