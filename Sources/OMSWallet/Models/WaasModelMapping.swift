@@ -1,8 +1,7 @@
 import Foundation
-import OMSWalletWaas
 
 extension JSONValue {
-    var waasValue: OMSWalletWaas.WebRPCJSONValue {
+    var waasValue: WaasGenerated.WebRPCJSONValue {
         switch self {
         case .object(let value):
             return .object(value.mapValues { $0.waasValue })
@@ -24,7 +23,7 @@ extension JSONValue {
     }
 }
 
-extension OMSWalletWaas.WebRPCJSONValue {
+extension WaasGenerated.WebRPCJSONValue {
     var sdkValue: JSONValue {
         switch self {
         case .object(let value):
@@ -48,13 +47,13 @@ extension OMSWalletWaas.WebRPCJSONValue {
 }
 
 extension Dictionary where Key == String, Value == JSONValue {
-    var waasValues: [String: OMSWalletWaas.WebRPCJSONValue] {
+    var waasValues: [String: WaasGenerated.WebRPCJSONValue] {
         mapValues { $0.waasValue }
     }
 }
 
 extension WalletType {
-    var waasValue: OMSWalletWaas.WalletType {
+    var waasValue: WaasGenerated.WalletType {
         switch self {
         case .ethereum:
             return .ethereum
@@ -64,7 +63,7 @@ extension WalletType {
     }
 }
 
-extension OMSWalletWaas.WalletType {
+extension WaasGenerated.WalletType {
     var sdkValue: WalletType {
         switch self {
         case .ethereum:
@@ -76,7 +75,7 @@ extension OMSWalletWaas.WalletType {
 }
 
 extension TransactionMode {
-    var waasValue: OMSWalletWaas.TransactionMode {
+    var waasValue: WaasGenerated.TransactionMode {
         switch self {
         case .native:
             return .native
@@ -88,7 +87,7 @@ extension TransactionMode {
     }
 }
 
-extension OMSWalletWaas.TransactionStatus {
+extension WaasGenerated.TransactionStatus {
     var sdkValue: TransactionStatus {
         switch self {
         case .quoted:
@@ -106,7 +105,7 @@ extension OMSWalletWaas.TransactionStatus {
 }
 
 extension Wallet {
-    init(waasValue: OMSWalletWaas.Wallet) {
+    init(waasValue: WaasGenerated.Wallet) {
         self.init(
             id: waasValue.id,
             type: waasValue.type.sdkValue,
@@ -116,14 +115,14 @@ extension Wallet {
     }
 }
 
-extension OMSWalletWaas.Wallet {
+extension WaasGenerated.Wallet {
     var sdkValue: Wallet {
         Wallet(waasValue: self)
     }
 }
 
 extension FeeToken {
-    init(waasValue: OMSWalletWaas.FeeToken) {
+    init(waasValue: WaasGenerated.FeeToken) {
         self.init(
             network: waasValue.network,
             name: waasValue.name,
@@ -137,14 +136,14 @@ extension FeeToken {
     }
 }
 
-extension OMSWalletWaas.FeeToken {
+extension WaasGenerated.FeeToken {
     var sdkValue: FeeToken {
         FeeToken(waasValue: self)
     }
 }
 
 extension FeeOption {
-    init(waasValue: OMSWalletWaas.FeeOption) {
+    init(waasValue: WaasGenerated.FeeOption) {
         self.init(
             token: waasValue.token.sdkValue,
             value: waasValue.value,
@@ -153,42 +152,42 @@ extension FeeOption {
     }
 }
 
-extension OMSWalletWaas.FeeOption {
+extension WaasGenerated.FeeOption {
     var sdkValue: FeeOption {
         FeeOption(waasValue: self)
     }
 }
 
 extension FeeOptionSelection {
-    var waasValue: OMSWalletWaas.FeeOptionSelection {
-        OMSWalletWaas.FeeOptionSelection(token: token)
+    var waasValue: WaasGenerated.FeeOptionSelection {
+        WaasGenerated.FeeOptionSelection(token: token)
     }
 }
 
 extension Page {
-    var waasValue: OMSWalletWaas.Page {
-        OMSWalletWaas.Page(limit: limit, cursor: cursor)
+    var waasValue: WaasGenerated.Page {
+        WaasGenerated.Page(limit: limit, cursor: cursor)
     }
 
-    init(waasValue: OMSWalletWaas.Page) {
+    init(waasValue: WaasGenerated.Page) {
         self.init(limit: waasValue.limit, cursor: waasValue.cursor)
     }
 }
 
-extension OMSWalletWaas.Page {
+extension WaasGenerated.Page {
     var sdkValue: Page {
         Page(waasValue: self)
     }
 }
 
 extension AbiArg {
-    var waasValue: OMSWalletWaas.AbiArg {
-        OMSWalletWaas.AbiArg(type: type, value: value.waasValue)
+    var waasValue: WaasGenerated.AbiArg {
+        WaasGenerated.AbiArg(type: type, value: value.waasValue)
     }
 }
 
 extension CredentialInfo {
-    init(waasValue: OMSWalletWaas.CredentialInfo) {
+    init(waasValue: WaasGenerated.CredentialInfo) {
         self.init(
             credentialId: waasValue.credentialId,
             expiresAt: waasValue.expiresAt,
@@ -197,14 +196,14 @@ extension CredentialInfo {
     }
 }
 
-extension OMSWalletWaas.CredentialInfo {
+extension WaasGenerated.CredentialInfo {
     var sdkValue: CredentialInfo {
         CredentialInfo(waasValue: self)
     }
 }
 
 extension ListAccessResponse {
-    init(waasValue: OMSWalletWaas.ListAccessResponse) {
+    init(waasValue: WaasGenerated.ListAccessResponse) {
         self.init(
             credentials: waasValue.credentials.map { $0.sdkValue },
             page: waasValue.page?.sdkValue
@@ -212,14 +211,14 @@ extension ListAccessResponse {
     }
 }
 
-extension OMSWalletWaas.ListAccessResponse {
+extension WaasGenerated.ListAccessResponse {
     var sdkValue: ListAccessResponse {
         ListAccessResponse(waasValue: self)
     }
 }
 
 extension TransactionStatusResponse {
-    init(waasValue: OMSWalletWaas.TransactionStatusResponse) {
+    init(waasValue: WaasGenerated.TransactionStatusResponse) {
         self.init(
             status: waasValue.status.sdkValue,
             txnHash: waasValue.txnHash
@@ -227,7 +226,7 @@ extension TransactionStatusResponse {
     }
 }
 
-extension OMSWalletWaas.TransactionStatusResponse {
+extension WaasGenerated.TransactionStatusResponse {
     var sdkValue: TransactionStatusResponse {
         TransactionStatusResponse(waasValue: self)
     }

@@ -1,6 +1,5 @@
 import Foundation
 import CryptoKit
-import OMSWalletWaas
 
 @available(macOS 12.0, iOS 15.0, *)
 final class RequestUtils {

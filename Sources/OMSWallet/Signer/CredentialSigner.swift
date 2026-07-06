@@ -1,4 +1,3 @@
-import OMSWalletWaas
 
 @available(macOS 12.0, iOS 15.0, *)
 protocol CredentialSigner: Sendable {

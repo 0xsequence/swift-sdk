@@ -33,6 +33,7 @@ such as `0.2.0`, not `v0.2.0`, because the podspec source tag is
 ```sh
 swift build
 swift test
+scripts/check-public-api-does-not-expose-generated-waas.sh
 pod lib lint oms-wallet-swift-sdk.podspec --swift-version=6.0 --platforms=ios,macos
 ```
 

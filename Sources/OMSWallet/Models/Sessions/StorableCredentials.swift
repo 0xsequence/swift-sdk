@@ -1,4 +1,3 @@
-import OMSWalletWaas
 
 struct StorableCredentials : Codable {
     let walletId: String

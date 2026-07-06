@@ -12,7 +12,7 @@ if [[ -z "$symbol_graph" ]]; then
     exit 1
 fi
 
-forbidden_symbol_pattern='OMSWalletWaas|WebRPC[A-Za-z0-9_]*|Waas(API|PublicAPI|Client|PublicClient)|SigningAlgorithm|IdentityType|(^|[^A-Za-z0-9_])AuthMode([^A-Za-z0-9_]|$)|StartEmailAuthRequest|CompleteEmailAuthRequest|FederateAccountRequest|ListWalletsRequest|CreateWalletRequest|SignMessageRequest|SignTypedDataRequest|ExecuteRequest|PrepareTransactionRequest|PrepareCallContractRequest|GetIdTokenRequest|RevokeAccessRequest|ListAccessRequest|IntentRegistrationRequest|GetTransactionStatusRequest'
+forbidden_symbol_pattern='WaasGenerated|OMSWalletWaas|WebRPC[A-Za-z0-9_]*|Waas(API|PublicAPI|Client|PublicClient)|SigningAlgorithm|IdentityType|(^|[^A-Za-z0-9_])AuthMode([^A-Za-z0-9_]|$)|StartEmailAuthRequest|CompleteEmailAuthRequest|FederateAccountRequest|ListWalletsRequest|CreateWalletRequest|SignMessageRequest|SignTypedDataRequest|ExecuteRequest|PrepareTransactionRequest|PrepareCallContractRequest|GetIdTokenRequest|RevokeAccessRequest|ListAccessRequest|IntentRegistrationRequest|GetTransactionStatusRequest'
 matches="$(grep -Eoh "$forbidden_symbol_pattern" "$symbol_graph" | sort -u || true)"
 if [[ -n "$matches" ]]; then
     echo "Generated WaaS symbols leaked into the public OMSWallet symbol graph:" >&2
@@ -55,12 +55,11 @@ swift build --package-path "$tmpdir" >/dev/null
 
 cat > "$tmpdir/Sources/OMSWalletPublicApiCheck/main.swift" <<'EOF'
 import OMSWallet
-import OMSWalletWaas
 
 let _: JSONValue = .null
-let _ = WEBRPC_HEADER_VALUE
-let _ = WebRPCJSONValue.null
-let _ = WaasClient.self
+let _ = WaasGenerated.WEBRPC_HEADER_VALUE
+let _ = WaasGenerated.WebRPCJSONValue.null
+let _ = WaasGenerated.WaasClient.self
 EOF
 
 set +e
@@ -69,11 +68,11 @@ negative_status=$?
 set -e
 
 if [[ "$negative_status" -eq 0 ]]; then
-    echo "External consumer unexpectedly accessed generated OMSWalletWaas symbols." >&2
+    echo "External consumer unexpectedly accessed generated WaaS symbols." >&2
     exit 1
 fi
 
-for expected in "WEBRPC_HEADER_VALUE" "WebRPCJSONValue" "WaasClient"; do
+for expected in "WaasGenerated"; do
     if [[ "$negative_output" != *"cannot find '$expected' in scope"* ]]; then
         echo "External generated-symbol check failed for an unexpected reason." >&2
         echo "$negative_output" >&2

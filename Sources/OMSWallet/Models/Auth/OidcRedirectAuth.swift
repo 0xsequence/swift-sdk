@@ -1,5 +1,4 @@
 import Foundation
-import OMSWalletWaas
 import Security
 
 /// OIDC redirect auth-code mode.

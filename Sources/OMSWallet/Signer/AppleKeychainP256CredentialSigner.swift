@@ -1,5 +1,4 @@
 import Foundation
-import OMSWalletWaas
 import Security
 
 @available(macOS 12.0, iOS 15.0, *)

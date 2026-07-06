@@ -1,5 +1,4 @@
 import Foundation
-import OMSWalletWaas
 
 @available(macOS 12.0, iOS 15.0, *)
 public final class WalletClient: @unchecked Sendable {
