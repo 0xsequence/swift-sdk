@@ -60,7 +60,7 @@ public final class IndexerClient {
     }
 
     public func getBalances(_ params: GetBalancesParams) async throws -> BalancesResult {
-        try await runOmsOperation(.indexerGetBalances) {
+        try await runOMSWalletOperation(.indexerGetBalances) {
             let chainScope = chainScope(networks: params.networks, networkType: params.networkType)
             let request = GetTokenBalancesDetailsRequest(
                 chainIds: chainScope.chainIds,
@@ -94,7 +94,7 @@ public final class IndexerClient {
     }
 
     public func getTransactionHistory(_ params: GetTransactionHistoryParams) async throws -> TransactionHistoryResult {
-        try await runOmsOperation(.indexerGetTransactionHistory) {
+        try await runOMSWalletOperation(.indexerGetTransactionHistory) {
             let chainScope = chainScope(networks: params.networks, networkType: params.networkType)
             let request = GetTransactionHistoryRequest(
                 chainIds: chainScope.chainIds,
@@ -130,7 +130,7 @@ public final class IndexerClient {
     }
 
     private func postJson<Request: Encodable, Response: Decodable>(
-        operation: OmsSdkOperation,
+        operation: OMSWalletOperation,
         path: String,
         request: Request,
         responseType: Response.Type
@@ -153,7 +153,7 @@ public final class IndexerClient {
                 throw error
             }
             let upstreamError = indexerTransportUpstreamError(error)
-            throw OmsSdkError(
+            throw OMSWalletError(
                 code: .requestFailed,
                 message: upstreamError.message ?? error.localizedDescription,
                 operation: operation,
@@ -163,7 +163,7 @@ public final class IndexerClient {
             )
         } catch {
             let upstreamError = indexerTransportUpstreamError(error)
-            throw OmsSdkError(
+            throw OMSWalletError(
                 code: .requestFailed,
                 message: upstreamError.message ?? error.localizedDescription,
                 operation: operation,
@@ -181,12 +181,12 @@ public final class IndexerClient {
             )
         } catch {
             let message = "Invalid JSON response from \(operation.rawValue)"
-            throw OmsSdkError(
+            throw OMSWalletError(
                 code: .invalidResponse,
                 message: message,
                 operation: operation,
                 status: response.statusCode,
-                upstreamError: OmsUpstreamError(
+                upstreamError: OMSWalletUpstreamError(
                     service: .indexer,
                     message: message,
                     status: response.statusCode
@@ -227,7 +227,7 @@ public final class IndexerClient {
 
     private func validateSuccessResponse(
         _ response: HttpResponse,
-        operation: OmsSdkOperation
+        operation: OMSWalletOperation
     ) throws {
         guard (200...299).contains(response.statusCode) else {
             let fallbackMessage = "\(operation.rawValue) failed with HTTP \(response.statusCode)"
@@ -236,7 +236,7 @@ public final class IndexerClient {
                 status: response.statusCode,
                 fallbackMessage: fallbackMessage
             )
-            throw OmsSdkError(
+            throw OMSWalletError(
                 code: .httpError,
                 message: upstreamError.message ?? fallbackMessage,
                 operation: operation,
@@ -248,17 +248,17 @@ public final class IndexerClient {
     }
 }
 
-private func indexerTransportUpstreamError(_ error: any Error) -> OmsUpstreamError {
+private func indexerTransportUpstreamError(_ error: any Error) -> OMSWalletUpstreamError {
     if let httpError = error as? HttpError,
        case .transport(let underlyingError) = httpError {
-        return OmsUpstreamError(
+        return OMSWalletUpstreamError(
             service: .indexer,
             name: String(describing: type(of: underlyingError)),
             message: underlyingError.localizedDescription
         )
     }
 
-    return OmsUpstreamError(
+    return OMSWalletUpstreamError(
         service: .indexer,
         name: String(describing: type(of: error)),
         message: error.localizedDescription
@@ -269,18 +269,18 @@ private func indexerResponseUpstreamError(
     from body: Data,
     status: Int,
     fallbackMessage: String
-) -> OmsUpstreamError {
+) -> OMSWalletUpstreamError {
     guard
         let payload = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
     else {
-        return OmsUpstreamError(
+        return OMSWalletUpstreamError(
             service: .indexer,
             message: fallbackMessage,
             status: status
         )
     }
 
-    return OmsUpstreamError(
+    return OMSWalletUpstreamError(
         service: .indexer,
         name: stringField(payload, "name") ?? stringField(payload, "error"),
         code: stringOrNumberField(payload, "code"),

@@ -26,6 +26,7 @@ public class WalletClient: @unchecked Sendable {
     let indexerClient: IndexerClient
     
     let projectId: String
+    let environment: OMSWalletEnvironment
     let credentialSession: WalletCredentialSession
     let oidcRedirectAuthStore: any OidcRedirectAuthStore
     let oidcNonceGenerator: () throws -> String
@@ -78,6 +79,7 @@ public class WalletClient: @unchecked Sendable {
     }
     private var _walletAddress: String
     private var _walletId: String
+    var _sessionRevision: UInt64 = 0
     private var _onSessionExpired: ((OMSWalletSessionExpiredEvent) -> Void)?
     private var _verifier = ""
     private var _challenge = ""
@@ -133,6 +135,13 @@ public class WalletClient: @unchecked Sendable {
         }
     }
 
+    deinit {
+        withSessionLock {
+            sessionExpiryTask?.cancel()
+            sessionExpiryTask = nil
+        }
+    }
+
     public convenience init(
         publishableKey: String
     ) throws {
@@ -156,8 +165,9 @@ public class WalletClient: @unchecked Sendable {
         )
     }
 
-    init(publishableKey: String, projectId: String, environment: OMSWalletEnvironment = OMSWalletEnvironment()) {
+    init(publishableKey: String, projectId: String, environment: OMSWalletEnvironment) {
         self.projectId = projectId
+        self.environment = environment
         let credentialSession = WalletCredentialSession(environment: environment, projectId: projectId)
         let storedWallet = credentialSession.storedMetadata()
         self.oidcRedirectAuthStore = KeychainOidcRedirectAuthStore(projectId: projectId, environment: environment)
@@ -194,7 +204,7 @@ public class WalletClient: @unchecked Sendable {
     init(
         publishableKey: String,
         projectId: String,
-        environment: OMSWalletEnvironment = OMSWalletEnvironment(),
+        environment: OMSWalletEnvironment,
         credentialSession: WalletCredentialSession,
         signedClient: WaasClient,
         publicClient: WaasPublicClient,
@@ -205,6 +215,7 @@ public class WalletClient: @unchecked Sendable {
         currentDate: @escaping () -> Date = Date.init
     ) {
         self.projectId = projectId
+        self.environment = environment
         let storedWallet = credentialSession.storedMetadata()
         self.oidcRedirectAuthStore = oidcRedirectAuthStore ?? KeychainOidcRedirectAuthStore(projectId: projectId, environment: environment)
         self.oidcNonceGenerator = oidcNonceGenerator
@@ -234,10 +245,26 @@ public class WalletClient: @unchecked Sendable {
         return try body()
     }
 
+    func sessionRevisionSnapshot() -> UInt64 {
+        withSessionLock { _sessionRevision }
+    }
+
+    func requireCurrentSessionRevision(_ revision: UInt64) throws {
+        try withSessionLock {
+            try requireCurrentSessionRevisionLocked(revision)
+        }
+    }
+
+    func requireCurrentSessionRevisionLocked(_ revision: UInt64) throws {
+        guard _sessionRevision == revision else {
+            throw OMSWalletError.sessionMissing()
+        }
+    }
+
     func requireWalletSelectionOrActiveSession() throws {
         if let notification = expireCurrentSessionIfNeeded() {
             deliverSessionExpiredNotification(notification)
-            throw OmsSdkError.sessionExpired()
+            throw OMSWalletError.sessionExpired()
         }
         let hasActiveSession = withSessionLock { () -> Bool in
             let hasWallet = !_walletId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -245,27 +272,27 @@ public class WalletClient: @unchecked Sendable {
             return hasWallet || hasVerifiedAuth
         }
         guard hasActiveSession else {
-            throw OmsSdkError.sessionMissing()
+            throw OMSWalletError.sessionMissing()
         }
     }
 
     func requireActiveWalletId() throws -> String {
         if let notification = expireCurrentSessionIfNeeded() {
             deliverSessionExpiredNotification(notification)
-            throw OmsSdkError.sessionExpired()
+            throw OMSWalletError.sessionExpired()
         }
         let walletId = withSessionLock {
             _walletId.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         guard !walletId.isEmpty else {
-            throw OmsSdkError.sessionMissing()
+            throw OMSWalletError.sessionMissing()
         }
         return walletId
     }
 
     func requireActiveWalletAddress() throws -> String {
         guard let walletAddress else {
-            throw OmsSdkError.sessionMissing()
+            throw OMSWalletError.sessionMissing()
         }
         return walletAddress
     }
@@ -279,7 +306,7 @@ public class WalletClient: @unchecked Sendable {
 
     func requireActiveCredential() throws {
         guard try credentialSession.signer.hasCredential() else {
-            throw OmsSdkError.sessionExpired()
+            throw OMSWalletError.sessionExpired()
         }
     }
 
@@ -290,21 +317,22 @@ public class WalletClient: @unchecked Sendable {
     func createSequenceWallet(
         walletAddress: String,
         walletId: String,
-        sessionMetadata: SessionMetadata
+        sessionMetadata: SessionMetadata,
+        requiredSessionRevision: UInt64
     ) throws {
-        withSessionLock {
+        try withSessionLock {
+            try requireCurrentSessionRevisionLocked(requiredSessionRevision)
+            try credentialSession.persist(
+                walletId: walletId,
+                walletAddress: walletAddress,
+                expiresAt: sessionMetadata.expiresAt,
+                auth: sessionMetadata.auth
+            )
             _walletAddress = walletAddress
             _walletId = walletId
             _sessionExpiresAt = sessionMetadata.expiresAt
             _sessionAuth = sessionMetadata.auth
         }
-
-        try credentialSession.persist(
-            walletId: walletId,
-            walletAddress: walletAddress,
-            expiresAt: sessionMetadata.expiresAt,
-            auth: sessionMetadata.auth
-        )
         scheduleSessionExpiry(session)
     }
 

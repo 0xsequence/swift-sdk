@@ -14,18 +14,6 @@ public class OMSWallet {
         )
     }
 
-    public convenience init(
-        publishableKey: String,
-        environment: OMSWalletEnvironment
-    ) throws {
-        let parsedKey = try parsePublishableKey(publishableKey)
-        self.init(
-            publishableKey: publishableKey,
-            parsedKey: parsedKey,
-            environment: environment
-        )
-    }
-
     init(
         publishableKey: String,
         parsedKey: ParsedPublishableKey,

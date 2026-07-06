@@ -305,7 +305,7 @@ import Testing
         "omsclientswiftdemo://auth/callback?error=access_denied&error_description=User%20cancelled&state=\(started.state)"
     )
 
-    guard case .failed(let oidcError as OmsSdkError) = result else {
+    guard case .failed(let oidcError as OMSWalletError) = result else {
         Issue.record("Expected OIDC failure")
         return
     }
@@ -342,9 +342,9 @@ import Testing
             redirectUri: "omsclientswiftdemo://auth/callback"
         ),
         equals: error(
-            code: .validationError,
+            code: .storageError,
             operation: .walletStartOidcRedirectAuth,
-            message: "OIDC redirect state save failed"
+            message: "OIDC redirect auth state persistence failed."
         )
     )
 }
@@ -684,7 +684,10 @@ import Testing
 
     let invalidUrlClient = IndexerClient(
         publishableKey: "test-key",
-        environment: OMSWalletEnvironment(indexerGatewayUrl: "http://[::1")
+        environment: OMSWalletEnvironment(
+            walletApiUrl: "https://wallet.example.test",
+            indexerGatewayUrl: "http://[::1"
+        )
     )
     let invalidUrlFailure = await publicError {
         try await invalidUrlClient.getBalances(
@@ -699,14 +702,14 @@ import Testing
 }
 
 @Test func TestPublicErrorContractsConstructedErrorFieldsAreStable() {
-    let upstreamError = OmsUpstreamError(
+    let upstreamError = OMSWalletUpstreamError(
         service: .waas,
         name: "WebrpcRequestFailed",
         code: "-1",
         message: "request failed",
         status: nil
     )
-    let sdkError = OmsSdkError(
+    let sdkError = OMSWalletError(
         code: .requestFailed,
         message: "request failed",
         operation: .walletStartEmailAuth,
@@ -772,7 +775,7 @@ private func publicError<T>(
 }
 
 private func serialize(_ error: any Error) -> PublicErrorContract {
-    guard let sdkError = error as? OmsSdkError else {
+    guard let sdkError = error as? OMSWalletError else {
         return PublicErrorContract(
             code: nil,
             operation: nil,
@@ -787,7 +790,7 @@ private func serialize(_ error: any Error) -> PublicErrorContract {
     return serialize(sdkError)
 }
 
-private func serialize(_ error: OmsSdkError) -> PublicErrorContract {
+private func serialize(_ error: OMSWalletError) -> PublicErrorContract {
     PublicErrorContract(
         code: error.code,
         operation: error.operation,
@@ -808,8 +811,8 @@ private func serialize(_ error: OmsSdkError) -> PublicErrorContract {
 }
 
 private func error(
-    code: OmsSdkErrorCode,
-    operation: OmsSdkOperation,
+    code: OMSWalletErrorCode,
+    operation: OMSWalletOperation,
     message: String,
     status: Int? = nil,
     retryable: Bool? = nil,
@@ -828,7 +831,7 @@ private func error(
 }
 
 private func upstream(
-    service: OmsUpstreamService,
+    service: OMSWalletUpstreamService,
     name: String? = nil,
     code: String? = nil,
     message: String? = nil,
@@ -844,8 +847,8 @@ private func upstream(
 }
 
 private struct PublicErrorContract: Equatable {
-    let code: OmsSdkErrorCode?
-    let operation: OmsSdkOperation?
+    let code: OMSWalletErrorCode?
+    let operation: OMSWalletOperation?
     let message: String?
     let status: Int?
     let retryable: Bool?
@@ -854,7 +857,7 @@ private struct PublicErrorContract: Equatable {
 }
 
 private struct SerializedUpstreamError: Equatable {
-    let service: OmsUpstreamService?
+    let service: OMSWalletUpstreamService?
     let name: String?
     let code: String?
     let message: String?

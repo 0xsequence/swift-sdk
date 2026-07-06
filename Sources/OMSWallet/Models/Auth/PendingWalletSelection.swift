@@ -8,6 +8,8 @@ public final class PendingWalletSelection: @unchecked Sendable {
 
     private let selectWalletAction: (String) async throws -> WalletActivationResult
     private let createAndSelectWalletAction: (String?) async throws -> WalletActivationResult
+    private let actionLock = NSLock()
+    private var actionInFlight = false
 
     init(
         walletType: WalletType,
@@ -25,18 +27,45 @@ public final class PendingWalletSelection: @unchecked Sendable {
 
     @discardableResult
     public func selectWallet(walletId: String) async throws -> WalletActivationResult {
-        try await runOmsOperation(.pendingWalletSelectionSelectWallet) {
+        try await runOMSWalletOperation(.pendingWalletSelectionSelectWallet) {
             guard wallets.contains(where: { $0.id == walletId }) else {
-                throw OmsSdkError.walletSelectionUnavailable()
+                throw OMSWalletError.walletSelectionUnavailable()
             }
-            return try await selectWalletAction(walletId)
+            return try await runSelectionAction {
+                try await selectWalletAction(walletId)
+            }
         }
     }
 
     @discardableResult
     public func createAndSelectWallet(reference: String? = nil) async throws -> WalletActivationResult {
-        try await runOmsOperation(.pendingWalletSelectionCreateAndSelectWallet) {
-            try await createAndSelectWalletAction(reference)
+        try await runOMSWalletOperation(.pendingWalletSelectionCreateAndSelectWallet) {
+            try await runSelectionAction {
+                try await createAndSelectWalletAction(reference)
+            }
         }
+    }
+
+    private func runSelectionAction<T>(_ action: () async throws -> T) async throws -> T {
+        try beginSelectionAction()
+        defer {
+            endSelectionAction()
+        }
+        return try await action()
+    }
+
+    private func beginSelectionAction() throws {
+        actionLock.lock()
+        defer { actionLock.unlock() }
+        guard !actionInFlight else {
+            throw OMSWalletError.walletSelectionInFlight()
+        }
+        actionInFlight = true
+    }
+
+    private func endSelectionAction() {
+        actionLock.lock()
+        actionInFlight = false
+        actionLock.unlock()
     }
 }

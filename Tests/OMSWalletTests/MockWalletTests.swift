@@ -333,7 +333,7 @@ private func waitForSessionExpiredEvent(
     do {
         _ = try await pendingSelection.selectWallet(walletId: "wallet-missing")
         #expect(Bool(false))
-    } catch let error as OmsSdkError {
+    } catch let error as OMSWalletError {
         #expect(error.code == .walletSelectionUnavailable)
         #expect(error.operation == .pendingWalletSelectionSelectWallet)
     } catch {
@@ -352,7 +352,7 @@ private func waitForSessionExpiredEvent(
     do {
         _ = try await pendingSelection.createAndSelectWallet(reference: "after-select")
         #expect(Bool(false))
-    } catch let error as OmsSdkError {
+    } catch let error as OMSWalletError {
         #expect(error.code == .walletSelectionStale)
         #expect(error.operation == .pendingWalletSelectionCreateAndSelectWallet)
     } catch {
@@ -440,7 +440,7 @@ private func waitForSessionExpiredEvent(
     do {
         _ = try await stalePendingSelection.createAndSelectWallet(reference: "stale")
         #expect(Bool(false), "Stale pending wallet selection should not create and select a wallet after a newer auth flow")
-    } catch let error as OmsSdkError {
+    } catch let error as OMSWalletError {
         #expect(error.code == .walletSelectionStale)
         #expect(error.operation == .pendingWalletSelectionCreateAndSelectWallet)
         #expect(fixture.transport.requestCount(for: WaasAPI.CreateWallet.urlPath) == 0)
@@ -533,7 +533,7 @@ private func waitForSessionExpiredEvent(
     do {
         _ = try await fixture.client.completeEmailAuth(code: "123456")
         #expect(Bool(false))
-    } catch let error as OmsSdkError {
+    } catch let error as OMSWalletError {
         #expect(error.code == .requestFailed)
         #expect(error.operation == .walletCompleteEmailAuth)
         #expect(error.status == 500)
@@ -791,7 +791,7 @@ private func waitForSessionExpiredEvent(
             audience: "demo-web-client-id"
         )
         #expect(Bool(false))
-    } catch let error as OmsSdkError {
+    } catch let error as OMSWalletError {
         #expect(error.code == .requestFailed)
         #expect(error.operation == .walletSignInWithOidcIdToken)
         #expect(error.status == 500)
@@ -812,7 +812,7 @@ private func waitForSessionExpiredEvent(
     let provider = OidcProviders.google()
 
     #expect(provider.clientId == "913882656162-7l4ofa0ou2hqo90umlkenhdop1f5inba.apps.googleusercontent.com")
-    #expect(provider.relayRedirectUri == "https://waas-cf-relay-staging.0xsequence.workers.dev/callback")
+    #expect(provider.relayRedirectUri == nil)
     #expect(provider.issuer == "https://accounts.google.com")
     #expect(provider.authorizationUrl == "https://accounts.google.com/o/oauth2/v2/auth")
     #expect(provider.provider == "google")
@@ -827,7 +827,7 @@ private func waitForSessionExpiredEvent(
     let provider = OidcProviders.apple()
 
     #expect(provider.clientId == "service.oms.polygon.technology")
-    #expect(provider.relayRedirectUri == "https://waas-cf-relay-staging.0xsequence.workers.dev/callback")
+    #expect(provider.relayRedirectUri == nil)
     #expect(provider.issuer == "https://appleid.apple.com")
     #expect(provider.authorizationUrl == "https://appleid.apple.com/auth/authorize")
     #expect(provider.provider == "apple")
@@ -937,10 +937,10 @@ private func waitForSessionExpiredEvent(
     #expect(request.authMode == .authCodePkce)
     #expect(request.metadata["iss"] == "https://appleid.apple.com")
     #expect(request.metadata["aud"] == "service.oms.polygon.technology")
-    #expect(request.metadata["redirect_uri"] == "https://waas-cf-relay-staging.0xsequence.workers.dev/callback")
+    #expect(request.metadata["redirect_uri"] == "https://wallet.example.test/auth/waas/callback/apple")
     #expect(uriOriginAndPath(result.authorizationUrl) == "https://appleid.apple.com/auth/authorize")
     #expect(query["client_id"] == "service.oms.polygon.technology")
-    #expect(query["redirect_uri"] == "https://waas-cf-relay-staging.0xsequence.workers.dev/callback")
+    #expect(query["redirect_uri"] == "https://wallet.example.test/auth/waas/callback/apple")
     #expect(query["response_type"] == "code")
     #expect(query["response_mode"] == "form_post")
     #expect(query["scope"] == "openid email")
@@ -1478,7 +1478,7 @@ private func waitForSessionExpiredEvent(
         "omsclientswiftdemo://auth/callback?error=access_denied&error_description=User%20cancelled&state=\(started.state)"
     )
 
-    guard case .failed(let error as OmsSdkError) = result else {
+    guard case .failed(let error as OMSWalletError) = result else {
         #expect(Bool(false))
         return
     }
@@ -1878,7 +1878,7 @@ private func waitForSessionExpiredEvent(
             value: "0",
             selectFeeOption: .firstAvailable
         )
-    } catch let error as OmsSdkError {
+    } catch let error as OMSWalletError {
         #expect(error.code == .validationError)
         #expect(error.operation == .walletSendTransaction)
         #expect(isTransactionError(error.underlyingError, .noFeeOptionSelected))
@@ -2044,7 +2044,7 @@ private func waitForSessionExpiredEvent(
             selectFeeOption: .custom { _ in nil }
         )
         #expect(Bool(false), "Expected no fee option selected error")
-    } catch let error as OmsSdkError {
+    } catch let error as OMSWalletError {
         #expect(error.code == .validationError)
         #expect(error.operation == .walletSendTransaction)
         #expect(isTransactionError(error.underlyingError, .noFeeOptionSelected))
@@ -2375,7 +2375,7 @@ private func waitForSessionExpiredEvent(
             request: SendTransactionRequest(to: "0xabc", value: "0")
         )
         #expect(Bool(false), "Expected no fee options error")
-    } catch let error as OmsSdkError {
+    } catch let error as OMSWalletError {
         #expect(error.code == .validationError)
         #expect(error.operation == .walletSendTransaction)
         #expect(isTransactionError(error.underlyingError, .noFeeOptionsAvailable))
@@ -2393,17 +2393,17 @@ let testCredential = CredentialInfo(
 )
 
 private func expectNoAuthenticatedWalletSession<T>(
-    expectedCode: OmsSdkErrorCode = .sessionMissing,
+    expectedCode: OMSWalletErrorCode = .sessionMissing,
     _ operation: () async throws -> T
 ) async {
     do {
         _ = try await operation()
         #expect(Bool(false), "Expected no authenticated wallet session error")
-    } catch let error as OmsSdkError {
+    } catch let error as OMSWalletError {
         #expect(error.code == expectedCode)
         #expect(error.operation != nil)
     } catch {
-        #expect(Bool(false), "Expected OmsSdkError.sessionMissing")
+        #expect(Bool(false), "Expected OMSWalletError.sessionMissing")
     }
 }
 
@@ -2447,7 +2447,8 @@ struct MockWalletClientFixture {
 
 func makeMockWalletClient(
     environment: OMSWalletEnvironment = OMSWalletEnvironment(
-        walletApiUrl: "https://wallet.example.test"
+        walletApiUrl: "https://wallet.example.test",
+        indexerGatewayUrl: "https://indexer.example.test/v1/IndexerGateway/"
     ),
     projectId: String = "proj_\(UUID().uuidString)",
     keychain: InMemoryKeychain = InMemoryKeychain(),

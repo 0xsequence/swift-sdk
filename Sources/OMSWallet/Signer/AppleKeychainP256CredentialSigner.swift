@@ -15,10 +15,11 @@ final class AppleKeychainP256CredentialSigner: CredentialSigner, @unchecked Send
 
     let alg: SigningAlgorithm = .ecdsaP256Sha256
 
+    private static let keychainLock = NSLock()
+
     private let applicationTag: Data
     private let nonceStorageKey: String
     private let keychain: any KeychainManaging
-    private let nonceLock = NSLock()
 
     init(
         applicationTag: String,
@@ -55,8 +56,8 @@ final class AppleKeychainP256CredentialSigner: CredentialSigner, @unchecked Send
     }
 
     func nextNonce() throws -> String {
-        nonceLock.lock()
-        defer { nonceLock.unlock() }
+        Self.keychainLock.lock()
+        defer { Self.keychainLock.unlock() }
 
         let previous = (try? keychain.string(forKey: nonceStorageKey))?.flatMap(Int64.init) ?? 0
         let now = Int64((Date().timeIntervalSince1970 * 1000).rounded(.down))
@@ -87,10 +88,15 @@ final class AppleKeychainP256CredentialSigner: CredentialSigner, @unchecked Send
     }
 
     func hasCredential() throws -> Bool {
-        try existingPrivateKey() != nil
+        Self.keychainLock.lock()
+        defer { Self.keychainLock.unlock() }
+        return try existingPrivateKey() != nil
     }
 
     func clear() throws {
+        Self.keychainLock.lock()
+        defer { Self.keychainLock.unlock() }
+
         let status = SecItemDelete(privateKeyQuery(returnReference: false) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw SignerError.keyLookupFailed(status)
@@ -99,6 +105,9 @@ final class AppleKeychainP256CredentialSigner: CredentialSigner, @unchecked Send
     }
 
     private func getOrCreatePrivateKey() throws -> SecKey {
+        Self.keychainLock.lock()
+        defer { Self.keychainLock.unlock() }
+
         if let existing = try existingPrivateKey() {
             return existing
         }

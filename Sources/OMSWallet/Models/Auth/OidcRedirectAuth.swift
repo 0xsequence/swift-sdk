@@ -55,11 +55,10 @@ public struct OidcProviderConfig: Sendable {
 public enum OidcProviders {
     public static let defaultGoogleClientId = "913882656162-7l4ofa0ou2hqo90umlkenhdop1f5inba.apps.googleusercontent.com"
     public static let defaultAppleClientId = "service.oms.polygon.technology"
-    public static let defaultRelayRedirectUri = "https://waas-cf-relay-staging.0xsequence.workers.dev/callback"
 
     public static func google(
         clientId: String = Self.defaultGoogleClientId,
-        relayRedirectUri: String? = Self.defaultRelayRedirectUri,
+        relayRedirectUri: String? = nil,
         scopes: [String] = ["openid", "email", "profile"],
         authorizeParams: [String: String] = [:],
         authMode: OidcAuthMode = .authCodePkce
@@ -82,7 +81,7 @@ public enum OidcProviders {
 
     public static func apple(
         clientId: String = Self.defaultAppleClientId,
-        relayRedirectUri: String? = Self.defaultRelayRedirectUri,
+        relayRedirectUri: String? = nil,
         scopes: [String] = ["openid", "email"],
         authorizeParams: [String: String] = [:],
         authMode: OidcAuthMode = .authCodePkce

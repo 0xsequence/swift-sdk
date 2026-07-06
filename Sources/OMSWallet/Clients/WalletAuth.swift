@@ -10,7 +10,7 @@ extension WalletClient {
     ///
     /// - Parameter email: The email address to send the one-time passcode to.
     public func startEmailAuth(email: String) async throws {
-        try await runOmsOperation(.walletStartEmailAuth) {
+        try await runOMSWalletOperation(.walletStartEmailAuth) {
             try signOut()
 
             do {
@@ -44,7 +44,8 @@ extension WalletClient {
         walletType: WalletType = WalletType.ethereum,
         sessionLifetimeSeconds: UInt32 = 604_800
     ) async throws -> CompleteAuthResult {
-        try await runOmsOperation(.walletCompleteEmailAuth) {
+        try await runOMSWalletOperation(.walletCompleteEmailAuth) {
+            let authRevision = sessionRevisionSnapshot()
             let response = try await confirmEmailSignIn(
                 code: code,
                 sessionLifetimeSeconds: sessionLifetimeSeconds
@@ -53,7 +54,8 @@ extension WalletClient {
                 response,
                 walletType: walletType,
                 walletSelection: walletSelection,
-                sessionAuth: .email(OMSWalletEmailSessionAuth(email: response.email))
+                sessionAuth: .email(OMSWalletEmailSessionAuth(email: response.email)),
+                requiredSessionRevision: authRevision
             )
         }
     }
@@ -74,8 +76,9 @@ extension WalletClient {
         provider: String? = nil,
         providerLabel: String? = nil
     ) async throws -> CompleteAuthResult {
-        try await runOmsOperation(.walletSignInWithOidcIdToken) {
+        try await runOMSWalletOperation(.walletSignInWithOidcIdToken) {
             try clearSession(clearOidcRedirectAuth: true)
+            let authRevision = sessionRevisionSnapshot()
 
             do {
                 let expiresAt = try OidcIdToken.expiresAtEpochSeconds(idToken)
@@ -108,7 +111,8 @@ extension WalletClient {
                         provider: provider,
                         providerLabel: providerLabel,
                         response: auth
-                    )
+                    ),
+                    requiredSessionRevision: authRevision
                 )
             } catch let error as CancellationError {
                 throw error
@@ -133,12 +137,12 @@ extension WalletClient {
         walletSelection: WalletSelectionBehavior? = nil,
         sessionLifetimeSeconds: UInt32? = nil
     ) async throws -> StartOidcRedirectAuthResult {
-        try await runOmsOperation(.walletStartOidcRedirectAuth) {
+        try await runOMSWalletOperation(.walletStartOidcRedirectAuth) {
             try await startOidcRedirectAuth(
                 provider: provider,
                 redirectUri: redirectUri,
                 walletType: walletType,
-                relayRedirectUri: provider.relayRedirectUri,
+                relayRedirectUri: provider.relayRedirectUri ?? derivedRelayRedirectUri(for: provider),
                 loginHint: loginHint,
                 authorizeParams: authorizeParams,
                 walletSelection: walletSelection,
@@ -160,9 +164,10 @@ extension WalletClient {
         walletSelection: WalletSelectionBehavior? = nil,
         sessionLifetimeSeconds: UInt32? = nil
     ) async throws -> StartOidcRedirectAuthResult {
-        try await runOmsOperation(.walletStartOidcRedirectAuth) {
+        try await runOMSWalletOperation(.walletStartOidcRedirectAuth) {
             let previousSessionEmail = reauthenticationSessionEmail()
             try clearSession(clearOidcRedirectAuth: true)
+            let authRevision = sessionRevisionSnapshot()
 
             do {
                 let signerCredentialId = try credentialSession.signer.credentialId()
@@ -188,24 +193,33 @@ extension WalletClient {
 
                 verifier = response.verifier
                 challenge = response.challenge
-                try oidcRedirectAuthStore.save(
-                    PendingOidcRedirectAuth(
-                        verifier: response.verifier,
-                        challenge: response.challenge,
-                        nonce: nonce,
-                        authMode: authMode,
-                        redirectUri: redirectUri,
-                        issuer: provider.issuer,
-                        provider: provider.provider ?? builtInOidcProvider(for: provider.issuer),
-                        providerLabel: provider.providerLabel ?? builtInOidcProviderLabel(for: provider.issuer),
-                        authorizationScope: self.projectId,
-                        walletType: walletType,
-                        walletSelection: walletSelection,
-                        sessionLifetimeSeconds: sessionLifetimeSeconds,
-                        signerCredentialId: signerCredentialId,
-                        signerKeyType: credentialSession.signer.alg
+                do {
+                    try oidcRedirectAuthStore.save(
+                        PendingOidcRedirectAuth(
+                            verifier: response.verifier,
+                            challenge: response.challenge,
+                            nonce: nonce,
+                            authMode: authMode,
+                            redirectUri: redirectUri,
+                            issuer: provider.issuer,
+                            provider: provider.provider ?? builtInOidcProvider(for: provider.issuer),
+                            providerLabel: provider.providerLabel ?? builtInOidcProviderLabel(for: provider.issuer),
+                            authorizationScope: self.projectId,
+                            walletType: walletType,
+                            walletSelection: walletSelection,
+                            sessionLifetimeSeconds: sessionLifetimeSeconds,
+                            signerCredentialId: signerCredentialId,
+                            signerKeyType: credentialSession.signer.alg
+                        )
                     )
-                )
+                } catch {
+                    throw OMSWalletError.storageError(
+                        message: "OIDC redirect auth state persistence failed.",
+                        underlyingError: error
+                    )
+                }
+
+                try requireCurrentSessionRevision(authRevision)
 
                 let authorizationUrl = try OidcRedirectAuth.buildAuthorizationUrl(
                     provider: provider,
@@ -243,7 +257,7 @@ extension WalletClient {
         walletSelection: WalletSelectionBehavior? = nil,
         sessionLifetimeSeconds: UInt32? = nil
     ) async throws -> OidcRedirectAuthResult {
-        try await runOmsOperation(.walletHandleOidcRedirectCallback) {
+        try await runOMSWalletOperation(.walletHandleOidcRedirectCallback) {
             guard let callbackUrl = callbackUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !callbackUrl.isEmpty else {
                 return .notOidcRedirectCallback
@@ -261,7 +275,13 @@ extension WalletClient {
                 }
                 pending = loaded
             } catch {
-                return .noPendingAuth
+                return .failed(
+                    OMSWalletError.storageError(
+                        message: "OIDC redirect auth state restore failed.",
+                        operation: .walletHandleOidcRedirectCallback,
+                        underlyingError: error
+                    )
+                )
             }
 
             guard OidcRedirectAuth.matchesRedirectUri(
@@ -295,6 +315,7 @@ extension WalletClient {
                 }
 
                 try restorePendingOidcRedirectAuth(pending)
+                let authRevision = sessionRevisionSnapshot()
                 let resolvedWalletSelection = walletSelection ?? pending.walletSelection ?? .automatic
                 let resolvedSessionLifetimeSeconds = sessionLifetimeSeconds ?? pending.sessionLifetimeSeconds ?? 604_800
                 let response = try await signedClient.completeAuth(
@@ -313,7 +334,8 @@ extension WalletClient {
                     sessionAuth: oidcRedirectSessionAuth(
                         pending: pending,
                         response: response
-                    )
+                    ),
+                    requiredSessionRevision: authRevision
                 )
 
                 switch result {
@@ -327,7 +349,7 @@ extension WalletClient {
                 throw error
             } catch {
                 try? clearSession(clearOidcRedirectAuth: false)
-                return .failed(toOmsSdkError(error, operation: .walletHandleOidcRedirectCallback))
+                return .failed(toOMSWalletError(error, operation: .walletHandleOidcRedirectCallback))
             }
         }
     }
@@ -349,6 +371,14 @@ extension WalletClient {
         loginHint: String?
     ) -> String? {
         provider.issuer == "https://accounts.google.com" ? loginHint : nil
+    }
+
+    private func derivedRelayRedirectUri(for provider: OidcProviderConfig) -> String? {
+        let relayProvider = provider.provider ?? builtInOidcProvider(for: provider.issuer)
+        guard let relayProvider, relayProvider == "google" || relayProvider == "apple" else {
+            return nil
+        }
+        return "\(environment.walletApiUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/auth/waas/callback/\(relayProvider)"
     }
 
     private func oidcIdTokenSessionAuth(
@@ -421,7 +451,7 @@ extension WalletClient {
     ) async throws -> CompleteAuthResponse {
         guard !verifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !challenge.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw OmsSdkError.sessionMissing()
+            throw OMSWalletError.sessionMissing()
         }
 
         let answer = RequestUtils.hashEmailAuthAnswer(challenge: challenge, code: code)
@@ -456,20 +486,26 @@ extension WalletClient {
         _ response: CompleteAuthResponse,
         walletType: WalletType,
         walletSelection: WalletSelectionBehavior,
-        sessionAuth: OMSWalletSessionAuth
+        sessionAuth: OMSWalletSessionAuth,
+        requiredSessionRevision: UInt64
     ) async throws -> CompleteAuthResult {
+        try requireCurrentSessionRevision(requiredSessionRevision)
         activePendingWalletSelection = nil
 
         let sessionMetadata = SessionMetadata(
             expiresAt: response.credential.expiresAt,
             auth: sessionAuth
         )
-        self.sessionExpiresAt = sessionMetadata.expiresAt
-        self.sessionAuth = sessionMetadata.auth
+        try withSessionLock {
+            try requireCurrentSessionRevisionLocked(requiredSessionRevision)
+            self.sessionExpiresAt = sessionMetadata.expiresAt
+            self.sessionAuth = sessionMetadata.auth
+        }
 
         let wallets = try await signOutOnFailure {
             try await walletsFromAuthResponse(response)
         }
+        try requireCurrentSessionRevision(requiredSessionRevision)
 
         let candidateWallets = wallets.filter { $0.type == walletType }
         guard walletSelection == .automatic else {
@@ -489,14 +525,16 @@ extension WalletClient {
             activated = try await signOutOnFailure {
                 try await useWallet(
                     walletId: selectedWallet.id,
-                    sessionMetadata: sessionMetadata
+                    sessionMetadata: sessionMetadata,
+                    requiredSessionRevision: requiredSessionRevision
                 )
             }
         } else {
             activated = try await signOutOnFailure {
                 try await createWallet(
                     walletType: walletType,
-                    sessionMetadata: sessionMetadata
+                    sessionMetadata: sessionMetadata,
+                    requiredSessionRevision: requiredSessionRevision
                 )
             }
         }
@@ -521,19 +559,23 @@ extension WalletClient {
             credential: credential,
             selectWalletAction: { walletId in
                 try self.requireActivePendingWalletSelection(selectionSession)
+                let selectionRevision = self.sessionRevisionSnapshot()
                 let result = try await self.useWallet(
                     walletId: walletId,
-                    sessionMetadata: selectionSession.metadata
+                    sessionMetadata: selectionSession.metadata,
+                    requiredSessionRevision: selectionRevision
                 )
                 self.activePendingWalletSelection = nil
                 return result
             },
             createAndSelectWalletAction: { reference in
                 try self.requireActivePendingWalletSelection(selectionSession)
+                let selectionRevision = self.sessionRevisionSnapshot()
                 let result = try await self.createWallet(
                     walletType: walletType,
                     reference: reference,
-                    sessionMetadata: selectionSession.metadata
+                    sessionMetadata: selectionSession.metadata,
+                    requiredSessionRevision: selectionRevision
                 )
                 self.activePendingWalletSelection = nil
                 return result
@@ -558,7 +600,7 @@ extension WalletClient {
         _ selectionSession: PendingWalletSelectionSession
     ) throws {
         guard activePendingWalletSelection?.id == selectionSession.id else {
-            throw OmsSdkError.walletSelectionStale()
+            throw OMSWalletError.walletSelectionStale()
         }
         let selectionSessionState = OMSWalletSessionState(
             walletAddress: nil,
@@ -567,13 +609,13 @@ extension WalletClient {
         )
         guard !isSessionExpired(selectionSessionState) else {
             expireSession(selectionSessionState)
-            throw OmsSdkError.sessionExpired()
+            throw OMSWalletError.sessionExpired()
         }
         try requireActiveCredential()
         let signerCredentialId = try credentialSession.signer.credentialId()
         guard signerCredentialId.lowercased() == selectionSession.signerCredentialId.lowercased(),
               credentialSession.signer.alg == selectionSession.signerKeyType else {
-            throw OmsSdkError.walletSelectionStale()
+            throw OMSWalletError.walletSelectionStale()
         }
     }
 
@@ -592,12 +634,14 @@ extension WalletClient {
     /// signer metadata to the keychain.
     @discardableResult
     public func useWallet(walletId: String) async throws -> WalletActivationResult {
-        try await runOmsOperation(.walletUseWallet) {
+        try await runOMSWalletOperation(.walletUseWallet) {
             try requireWalletSelectionOrActiveSession()
             try requireActiveCredential()
+            let activationRevision = sessionRevisionSnapshot()
             return try await useWallet(
                 walletId: walletId,
-                sessionMetadata: try currentSessionMetadata()
+                sessionMetadata: try currentSessionMetadata(),
+                requiredSessionRevision: activationRevision
             )
         }
     }
@@ -614,20 +658,22 @@ extension WalletClient {
         walletType: WalletType = WalletType.ethereum,
         reference: String? = nil
     ) async throws -> WalletActivationResult {
-        try await runOmsOperation(.walletCreateWallet) {
+        try await runOMSWalletOperation(.walletCreateWallet) {
             try requireWalletSelectionOrActiveSession()
             try requireActiveCredential()
+            let activationRevision = sessionRevisionSnapshot()
             return try await createWallet(
                 walletType: walletType,
                 reference: reference,
-                sessionMetadata: try currentSessionMetadata()
+                sessionMetadata: try currentSessionMetadata(),
+                requiredSessionRevision: activationRevision
             )
         }
     }
 
     /// Lists all wallets available to the authenticated credential.
     public func listWallets() async throws -> [Wallet] {
-        try await runOmsOperation(.walletListWallets) {
+        try await runOMSWalletOperation(.walletListWallets) {
             try requireWalletSelectionOrActiveSession()
             try requireActiveCredential()
             return try await listWallets(startingAt: nil)
@@ -637,7 +683,8 @@ extension WalletClient {
     private func createWallet(
         walletType: WalletType,
         reference: String? = nil,
-        sessionMetadata: SessionMetadata
+        sessionMetadata: SessionMetadata,
+        requiredSessionRevision: UInt64
     ) async throws -> WalletActivationResult {
         let params = CreateWalletRequest(
             type: walletType,
@@ -648,7 +695,8 @@ extension WalletClient {
         try createSequenceWallet(
             walletAddress: response.wallet.address,
             walletId: response.wallet.id,
-            sessionMetadata: sessionMetadata
+            sessionMetadata: sessionMetadata,
+            requiredSessionRevision: requiredSessionRevision
         )
 
         return WalletActivationResult(
@@ -664,7 +712,11 @@ extension WalletClient {
     /// a wallet of the requested type on their account.
     ///
     /// - Parameter walletType: The wallet type to load (e.g. `.ethereumEoa`).
-    private func useWallet(walletId: String, sessionMetadata: SessionMetadata) async throws -> WalletActivationResult {
+    private func useWallet(
+        walletId: String,
+        sessionMetadata: SessionMetadata,
+        requiredSessionRevision: UInt64
+    ) async throws -> WalletActivationResult {
         let params = UseWalletRequest(
             walletId: walletId
         )
@@ -673,7 +725,8 @@ extension WalletClient {
         try createSequenceWallet(
             walletAddress: response.wallet.address,
             walletId: response.wallet.id,
-            sessionMetadata: sessionMetadata
+            sessionMetadata: sessionMetadata,
+            requiredSessionRevision: requiredSessionRevision
         )
 
         return WalletActivationResult(

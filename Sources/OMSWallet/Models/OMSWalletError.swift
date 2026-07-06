@@ -1,6 +1,6 @@
 import Foundation
 
-public enum OmsSdkErrorCode: String, Sendable {
+public enum OMSWalletErrorCode: String, Sendable {
     case httpError = "OMS_HTTP_ERROR"
     case invalidResponse = "OMS_INVALID_RESPONSE"
     case requestFailed = "OMS_REQUEST_FAILED"
@@ -13,9 +13,10 @@ public enum OmsSdkErrorCode: String, Sendable {
     case transactionExecutionUnconfirmed = "OMS_TRANSACTION_EXECUTION_UNCONFIRMED"
     case transactionStatusLookupFailed = "OMS_TRANSACTION_STATUS_LOOKUP_FAILED"
     case validationError = "OMS_VALIDATION_ERROR"
+    case storageError = "OMS_STORAGE_ERROR"
 }
 
-public enum OmsSdkOperation: String, Sendable {
+public enum OMSWalletOperation: String, Sendable {
     case pendingWalletSelection = "wallet.pendingWalletSelection"
     case pendingWalletSelectionSelectWallet = "wallet.pendingWalletSelection.selectWallet"
     case pendingWalletSelectionCreateAndSelectWallet = "wallet.pendingWalletSelection.createAndSelectWallet"
@@ -46,20 +47,20 @@ public enum OmsSdkOperation: String, Sendable {
     case indexerGetTransactionHistory = "indexer.getTransactionHistory"
 }
 
-public enum OmsUpstreamService: String, Sendable {
+public enum OMSWalletUpstreamService: String, Sendable {
     case waas = "Waas"
     case indexer = "Indexer"
 }
 
-public struct OmsUpstreamError: Equatable, Sendable {
-    public let service: OmsUpstreamService
+public struct OMSWalletUpstreamError: Equatable, Sendable {
+    public let service: OMSWalletUpstreamService
     public let name: String?
     public let code: String?
     public let message: String?
     public let status: Int?
 
     public init(
-        service: OmsUpstreamService,
+        service: OMSWalletUpstreamService,
         name: String? = nil,
         code: String? = nil,
         message: String? = nil,
@@ -73,24 +74,24 @@ public struct OmsUpstreamError: Equatable, Sendable {
     }
 }
 
-public struct OmsSdkError: Error, LocalizedError, @unchecked Sendable {
-    public let code: OmsSdkErrorCode
-    public let operation: OmsSdkOperation?
+public struct OMSWalletError: Error, LocalizedError, @unchecked Sendable {
+    public let code: OMSWalletErrorCode
+    public let operation: OMSWalletOperation?
     public let status: Int?
     public let txnId: String?
     public let retryable: Bool?
-    public let upstreamError: OmsUpstreamError?
+    public let upstreamError: OMSWalletUpstreamError?
     public let underlyingError: (any Error)?
     private let message: String
 
     public init(
-        code: OmsSdkErrorCode,
+        code: OMSWalletErrorCode,
         message: String,
-        operation: OmsSdkOperation? = nil,
+        operation: OMSWalletOperation? = nil,
         status: Int? = nil,
         txnId: String? = nil,
         retryable: Bool? = nil,
-        upstreamError: OmsUpstreamError? = nil,
+        upstreamError: OMSWalletUpstreamError? = nil,
         underlyingError: (any Error)? = nil
     ) {
         self.code = code
@@ -108,11 +109,11 @@ public struct OmsSdkError: Error, LocalizedError, @unchecked Sendable {
     }
 }
 
-public extension OmsSdkError {
+public extension OMSWalletError {
     static func walletSelectionUnavailable(
-        operation: OmsSdkOperation? = nil
-    ) -> OmsSdkError {
-        OmsSdkError(
+        operation: OMSWalletOperation? = nil
+    ) -> OMSWalletError {
+        OMSWalletError(
             code: .walletSelectionUnavailable,
             message: "Selected wallet is not one of the available options.",
             operation: operation
@@ -120,9 +121,9 @@ public extension OmsSdkError {
     }
 
     static func walletSelectionStale(
-        operation: OmsSdkOperation? = nil
-    ) -> OmsSdkError {
-        OmsSdkError(
+        operation: OMSWalletOperation? = nil
+    ) -> OMSWalletError {
+        OMSWalletError(
             code: .walletSelectionStale,
             message: "Pending wallet selection is no longer active.",
             operation: operation
@@ -130,9 +131,9 @@ public extension OmsSdkError {
     }
 
     static func sessionMissing(
-        operation: OmsSdkOperation? = nil
-    ) -> OmsSdkError {
-        OmsSdkError(
+        operation: OMSWalletOperation? = nil
+    ) -> OMSWalletError {
+        OMSWalletError(
             code: .sessionMissing,
             message: "No authenticated wallet session.",
             operation: operation
@@ -140,19 +141,42 @@ public extension OmsSdkError {
     }
 
     static func sessionExpired(
-        operation: OmsSdkOperation? = nil
-    ) -> OmsSdkError {
-        OmsSdkError(
+        operation: OMSWalletOperation? = nil
+    ) -> OMSWalletError {
+        OMSWalletError(
             code: .sessionExpired,
             message: "No active credential.",
             operation: operation
         )
     }
+
+    static func walletSelectionInFlight(
+        operation: OMSWalletOperation? = nil
+    ) -> OMSWalletError {
+        OMSWalletError(
+            code: .walletSelectionInFlight,
+            message: "Pending wallet selection is already processing.",
+            operation: operation
+        )
+    }
+
+    static func storageError(
+        message: String,
+        operation: OMSWalletOperation? = nil,
+        underlyingError: (any Error)? = nil
+    ) -> OMSWalletError {
+        OMSWalletError(
+            code: .storageError,
+            message: message,
+            operation: operation,
+            underlyingError: underlyingError
+        )
+    }
 }
 
 @available(macOS 12.0, iOS 15.0, *)
-func runOmsOperation<T>(
-    _ operation: OmsSdkOperation,
+func runOMSWalletOperation<T>(
+    _ operation: OMSWalletOperation,
     _ body: () async throws -> T
 ) async throws -> T {
     do {
@@ -160,28 +184,28 @@ func runOmsOperation<T>(
     } catch let error as CancellationError {
         throw error
     } catch {
-        throw toOmsSdkError(error, operation: operation)
+        throw toOMSWalletError(error, operation: operation)
     }
 }
 
 @available(macOS 12.0, iOS 15.0, *)
-func runOmsOperation<T>(
-    _ operation: OmsSdkOperation,
+func runOMSWalletOperation<T>(
+    _ operation: OMSWalletOperation,
     _ body: () throws -> T
 ) throws -> T {
     do {
         return try body()
     } catch {
-        throw toOmsSdkError(error, operation: operation)
+        throw toOMSWalletError(error, operation: operation)
     }
 }
 
-func toOmsSdkError(_ error: any Error, operation: OmsSdkOperation) -> OmsSdkError {
-    if let omsError = error as? OmsSdkError {
+func toOMSWalletError(_ error: any Error, operation: OMSWalletOperation) -> OMSWalletError {
+    if let omsError = error as? OMSWalletError {
         if omsError.operation == operation || omsError.isNestedTransactionBoundary {
             return omsError
         }
-        return OmsSdkError(
+        return OMSWalletError(
             code: omsError.code,
             message: omsError.localizedDescription,
             operation: operation,
@@ -194,11 +218,11 @@ func toOmsSdkError(_ error: any Error, operation: OmsSdkOperation) -> OmsSdkErro
     }
 
     if let webRPCError = error as? WebRPCError {
-        return webRPCError.toOmsSdkError(operation: operation)
+        return webRPCError.toOMSWalletError(operation: operation)
     }
 
     if let transportError = error as? WebRPCTransportError {
-        return OmsSdkError(
+        return OMSWalletError(
             code: .requestFailed,
             message: transportError.message,
             operation: operation,
@@ -209,15 +233,15 @@ func toOmsSdkError(_ error: any Error, operation: OmsSdkOperation) -> OmsSdkErro
     }
 
     if let transactionError = error as? TransactionError {
-        return transactionError.toOmsSdkError(operation: operation)
+        return transactionError.toOMSWalletError(operation: operation)
     }
 
     if let httpError = error as? HttpError {
-        return httpError.toOmsSdkError(operation: operation)
+        return httpError.toOMSWalletError(operation: operation)
     }
 
     if error is DecodingError {
-        return OmsSdkError(
+        return OMSWalletError(
             code: .invalidResponse,
             message: error.localizedDescription,
             operation: operation,
@@ -225,7 +249,15 @@ func toOmsSdkError(_ error: any Error, operation: OmsSdkOperation) -> OmsSdkErro
         )
     }
 
-    return OmsSdkError(
+    if error is KeychainManager.KeychainError || error is AppleKeychainP256CredentialSigner.SignerError {
+        return .storageError(
+            message: error.localizedDescription,
+            operation: operation,
+            underlyingError: error
+        )
+    }
+
+    return OMSWalletError(
         code: .validationError,
         message: error.localizedDescription,
         operation: operation,
@@ -234,13 +266,13 @@ func toOmsSdkError(_ error: any Error, operation: OmsSdkOperation) -> OmsSdkErro
 }
 
 private extension WebRPCError {
-    func toOmsSdkError(operation: OmsSdkOperation) -> OmsSdkError {
+    func toOMSWalletError(operation: OMSWalletOperation) -> OMSWalletError {
         let normalizedStatus = normalizedStatus
         let upstreamError = toWaasUpstreamError(status: normalizedStatus)
         let normalizedMessage = normalizedMessage
 
         if kind == .commitmentConsumed {
-            return OmsSdkError(
+            return OMSWalletError(
                 code: .authCommitmentConsumed,
                 message: normalizedMessage,
                 operation: operation,
@@ -252,7 +284,7 @@ private extension WebRPCError {
         }
 
         if isHttpWebRPCError(status: normalizedStatus) {
-            return OmsSdkError(
+            return OMSWalletError(
                 code: .httpError,
                 message: normalizedMessage,
                 operation: operation,
@@ -264,7 +296,7 @@ private extension WebRPCError {
         }
 
         if kind == .webrpcBadResponse || (kind == .unknown && code == WebRPCErrorKind.unknown.code) {
-            return OmsSdkError(
+            return OMSWalletError(
                 code: .invalidResponse,
                 message: normalizedMessage,
                 operation: operation,
@@ -274,7 +306,7 @@ private extension WebRPCError {
             )
         }
 
-        return OmsSdkError(
+        return OMSWalletError(
             code: .requestFailed,
             message: normalizedMessage,
             operation: operation,
@@ -308,8 +340,8 @@ private extension WebRPCError {
         return message
     }
 
-    private func toWaasUpstreamError(status: Int?) -> OmsUpstreamError {
-        OmsUpstreamError(
+    private func toWaasUpstreamError(status: Int?) -> OMSWalletUpstreamError {
+        OMSWalletUpstreamError(
             service: .waas,
             name: error,
             code: normalizedCode,
@@ -338,10 +370,10 @@ private extension WebRPCError {
 }
 
 private extension TransactionError {
-    func toOmsSdkError(operation: OmsSdkOperation) -> OmsSdkError {
+    func toOMSWalletError(operation: OMSWalletOperation) -> OMSWalletError {
         switch self {
         case .pollingTimedOut:
-            return OmsSdkError(
+            return OMSWalletError(
                 code: .transactionStatusLookupFailed,
                 message: localizedDescription,
                 operation: operation,
@@ -349,14 +381,14 @@ private extension TransactionError {
                 underlyingError: self
             )
         case .noFeeOptionsAvailable, .noFeeOptionSelected, .missingTransactionHash:
-            return OmsSdkError(
+            return OMSWalletError(
                 code: .validationError,
                 message: localizedDescription,
                 operation: operation,
                 underlyingError: self
             )
         case .transactionFailed:
-            return OmsSdkError(
+            return OMSWalletError(
                 code: .requestFailed,
                 message: localizedDescription,
                 operation: operation,
@@ -368,22 +400,22 @@ private extension TransactionError {
 }
 
 private extension HttpError {
-    func toOmsSdkError(operation: OmsSdkOperation) -> OmsSdkError {
+    func toOMSWalletError(operation: OMSWalletOperation) -> OMSWalletError {
         switch self {
         case .invalidResponse:
-            return OmsSdkError(
+            return OMSWalletError(
                 code: .invalidResponse,
                 message: "OMS response was invalid.",
                 operation: operation,
                 underlyingError: self
             )
         case .transport(let error):
-            return OmsSdkError(
+            return OMSWalletError(
                 code: .requestFailed,
                 message: error.localizedDescription,
                 operation: operation,
                 retryable: true,
-                upstreamError: OmsUpstreamError(
+                upstreamError: OMSWalletUpstreamError(
                     service: .indexer,
                     name: String(describing: type(of: error)),
                     message: error.localizedDescription
@@ -391,7 +423,7 @@ private extension HttpError {
                 underlyingError: self
             )
         case .invalidUrl, .encodingFailed:
-            return OmsSdkError(
+            return OMSWalletError(
                 code: .validationError,
                 message: localizedDescription,
                 operation: operation,
@@ -402,8 +434,8 @@ private extension HttpError {
 }
 
 private extension WebRPCTransportError {
-    func toWaasUpstreamError() -> OmsUpstreamError {
-        OmsUpstreamError(
+    func toWaasUpstreamError() -> OMSWalletUpstreamError {
+        OMSWalletUpstreamError(
             service: .waas,
             name: "WebrpcRequestFailed",
             code: String(WebRPCErrorKind.webrpcRequestFailed.code),
@@ -413,7 +445,7 @@ private extension WebRPCTransportError {
     }
 }
 
-private extension OmsSdkError {
+private extension OMSWalletError {
     var isNestedTransactionBoundary: Bool {
         code == .transactionExecutionUnconfirmed || code == .transactionStatusLookupFailed
     }

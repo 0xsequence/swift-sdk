@@ -71,12 +71,12 @@ import Testing
         do {
             _ = try OMSWallet(publishableKey: publishableKey)
             #expect(Bool(false), "Expected invalid publishable key")
-        } catch let error as OmsSdkError {
+        } catch let error as OMSWalletError {
             #expect(error.code == .validationError)
             #expect(error.operation == nil)
             #expect(error.localizedDescription == "Invalid publishableKey.")
         } catch {
-            #expect(Bool(false), "Expected OmsSdkError")
+            #expect(Bool(false), "Expected OMSWalletError")
         }
     }
 }
@@ -343,14 +343,14 @@ import Testing
             )
         )
         #expect(Bool(false), "Expected indexer HTTP error")
-    } catch let error as OmsSdkError {
+    } catch let error as OMSWalletError {
         #expect(error.code == .httpError)
         #expect(error.operation == .indexerGetBalances)
         #expect(error.status == 500)
         #expect(error.retryable == true)
         #expect(error.localizedDescription == "gateway unavailable")
     } catch {
-        #expect(Bool(false), "Expected OmsSdkError")
+        #expect(Bool(false), "Expected OMSWalletError")
     }
 
     let historyRecorder = IndexerRequestRecorder(
@@ -367,14 +367,14 @@ import Testing
             )
         )
         #expect(Bool(false), "Expected indexer HTTP error")
-    } catch let error as OmsSdkError {
+    } catch let error as OMSWalletError {
         #expect(error.code == .httpError)
         #expect(error.operation == .indexerGetTransactionHistory)
         #expect(error.status == 404)
         #expect(error.retryable == false)
         #expect(error.localizedDescription == "indexer.getTransactionHistory failed with HTTP 404")
     } catch {
-        #expect(Bool(false), "Expected OmsSdkError")
+        #expect(Bool(false), "Expected OMSWalletError")
     }
 }
 
@@ -390,6 +390,7 @@ func makeRecordingIndexerClient(recorder: IndexerRequestRecorder) -> IndexerClie
     let session = URLSession(configuration: configuration)
     let httpClient = HttpClient(session: session)
     let environment = OMSWalletEnvironment(
+        walletApiUrl: "https://wallet.example.test",
         indexerGatewayUrl: "https://\(host)/v1/IndexerGateway/"
     )
 

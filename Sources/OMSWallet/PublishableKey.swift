@@ -46,8 +46,8 @@ func parsePublishableKey(_ publishableKey: String) throws -> ParsedPublishableKe
     )
 }
 
-private func invalidPublishableKey() -> OmsSdkError {
-    OmsSdkError(
+private func invalidPublishableKey() -> OMSWalletError {
+    OMSWalletError(
         code: .validationError,
         message: "Invalid publishableKey."
     )

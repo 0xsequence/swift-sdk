@@ -9,7 +9,7 @@ extension WalletClient {
     ///   - message: The plaintext message to sign.
     /// - Returns: A hex-encoded signature string.
     public func signMessage(network: Network, message: String) async throws -> String {
-        try await runOmsOperation(.walletSignMessage) {
+        try await runOMSWalletOperation(.walletSignMessage) {
             let walletId = try requireActiveWalletId()
             let params = SignMessageRequest(
                 network: network.chainId,
@@ -23,7 +23,7 @@ extension WalletClient {
     }
 
     public func signTypedData(network: Network, typedData: WebRPCJSONValue) async throws -> String {
-        try await runOmsOperation(.walletSignTypedData) {
+        try await runOMSWalletOperation(.walletSignTypedData) {
             let walletId = try requireActiveWalletId()
             let params = SignTypedDataRequest(
                 network: network.chainId,
@@ -42,7 +42,7 @@ extension WalletClient {
         message: String,
         signature: String
     ) async throws -> Bool {
-        try await runOmsOperation(.walletIsValidMessageSignature) {
+        try await runOMSWalletOperation(.walletIsValidMessageSignature) {
             let walletId = try requireActiveWalletId()
             let response = try await publicClient.isValidMessageSignature(
                 IsValidMessageSignatureRequest(
@@ -64,7 +64,7 @@ extension WalletClient {
         typedData: WebRPCJSONValue,
         signature: String
     ) async throws -> Bool {
-        try await runOmsOperation(.walletIsValidTypedDataSignature) {
+        try await runOMSWalletOperation(.walletIsValidTypedDataSignature) {
             let walletId = try requireActiveWalletId()
             let response = try await publicClient.isValidTypedDataSignature(
                 IsValidTypedDataSignatureRequest(
@@ -89,7 +89,7 @@ extension WalletClient {
         waitForStatus: Bool = true,
         statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()
     ) async throws -> SendTransactionResponse {
-        try await runOmsOperation(.walletSendTransaction) {
+        try await runOMSWalletOperation(.walletSendTransaction) {
             let walletId = try requireActiveWalletId()
             let walletAddress = try walletAddressIfNeeded(for: selectFeeOption)
             return try await sendTransaction(
@@ -116,7 +116,7 @@ extension WalletClient {
         waitForStatus: Bool = true,
         statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()
     ) async throws -> SendTransactionResponse {
-        try await runOmsOperation(.walletSendTransaction) {
+        try await runOMSWalletOperation(.walletSendTransaction) {
             let walletId = try requireActiveWalletId()
             let walletAddress = try walletAddressIfNeeded(for: selectFeeOption)
             return try await sendTransaction(
@@ -171,7 +171,7 @@ extension WalletClient {
         waitForStatus: Bool = true,
         statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()
     ) async throws -> SendTransactionResponse {
-        try await runOmsOperation(.walletCallContract) {
+        try await runOMSWalletOperation(.walletCallContract) {
             let walletId = try requireActiveWalletId()
             let walletAddress = try walletAddressIfNeeded(for: selectFeeOption)
             let prepareResponse = try await signedClient.prepareEthereumContractCall(
@@ -201,7 +201,7 @@ extension WalletClient {
     /// - Parameter txnId: The transaction ID returned by the wallet API prepare/execute flow.
     /// - Returns: The current transaction status and transaction hash when available.
     public func getTransactionStatus(txnId: String) async throws -> TransactionStatusResponse {
-        try await runOmsOperation(.walletGetTransactionStatus) {
+        try await runOMSWalletOperation(.walletGetTransactionStatus) {
             _ = try requireActiveWalletId()
             try requireActiveCredential()
             return try await signedClient.transactionStatus(
@@ -236,8 +236,8 @@ extension WalletClient {
         } catch let error as CancellationError {
             throw error
         } catch {
-            let sdkError = toOmsSdkError(error, operation: .walletExecute)
-            throw OmsSdkError(
+            let sdkError = toOMSWalletError(error, operation: .walletExecute)
+            throw OMSWalletError(
                 code: .transactionExecutionUnconfirmed,
                 message: "Transaction execution failed before status could be confirmed",
                 operation: .walletExecute,
@@ -299,7 +299,7 @@ extension WalletClient {
         }
 
         guard let walletAddress else {
-            throw OmsSdkError.sessionMissing()
+            throw OMSWalletError.sessionMissing()
         }
 
         let feeOptionSelection = try await feeOptionSelector(
@@ -399,8 +399,8 @@ extension WalletClient {
             } catch let error as CancellationError {
                 throw error
             } catch {
-                let sdkError = toOmsSdkError(error, operation: .walletTransactionStatus)
-                throw OmsSdkError(
+                let sdkError = toOMSWalletError(error, operation: .walletTransactionStatus)
+                throw OMSWalletError(
                     code: .transactionStatusLookupFailed,
                     message: "Transaction was submitted, but status polling failed",
                     operation: .walletTransactionStatus,

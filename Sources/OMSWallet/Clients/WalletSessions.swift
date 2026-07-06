@@ -90,6 +90,7 @@ extension WalletClient {
     }
 
     private func clearActiveSessionForExpiryLocked() {
+        _sessionRevision += 1
         sessionExpiryTask?.cancel()
         sessionExpiryTask = nil
         activePendingWalletSelection = nil
@@ -194,7 +195,7 @@ extension WalletClient {
     func currentSessionMetadata() throws -> SessionMetadata {
         try withSessionLock {
             guard let sessionAuth else {
-                throw OmsSdkError.sessionMissing()
+                throw OMSWalletError.sessionMissing()
             }
             return SessionMetadata(
                 expiresAt: sessionExpiresAt,
@@ -209,13 +210,14 @@ extension WalletClient {
     /// and the user will need to sign in again via `startEmailAuth(email:)`. Navigate to your
     /// sign-in screen after calling this.
     public func signOut() throws {
-        try runOmsOperation(.walletSignOut) {
+        try runOMSWalletOperation(.walletSignOut) {
             try clearSession(clearOidcRedirectAuth: true)
         }
     }
 
     func clearSession(clearOidcRedirectAuth: Bool) throws {
         try withSessionLock {
+            _sessionRevision += 1
             latestSessionExpiredEvent = nil
             sessionExpiryTask?.cancel()
             sessionExpiryTask = nil
@@ -242,7 +244,7 @@ extension WalletClient {
     /// - Returns: An array of `CredentialInfo` values representing each credential
     ///   with access to this wallet.
     public func listAccess(pageSize: UInt32? = nil) async throws -> [CredentialInfo] {
-        try await runOmsOperation(.walletListAccess) {
+        try await runOMSWalletOperation(.walletListAccess) {
             var credentials: [CredentialInfo] = []
             for try await response in listAccessPages(pageSize: pageSize) {
                 credentials += response.credentials
@@ -261,7 +263,7 @@ extension WalletClient {
         pageSize: UInt32? = nil,
         cursor: String? = nil
     ) async throws -> ListAccessResponse {
-        try await runOmsOperation(.walletListAccessPage) {
+        try await runOMSWalletOperation(.walletListAccessPage) {
             let walletId = try requireActiveWalletId()
             try requireActiveCredential()
             return try await signedClient.listAccess(
@@ -274,7 +276,7 @@ extension WalletClient {
     }
 
     public func getIdToken(ttlSeconds: UInt32? = nil, customClaims: [String: WebRPCJSONValue]? = nil) async throws -> String {
-        try await runOmsOperation(.walletGetIdToken) {
+        try await runOMSWalletOperation(.walletGetIdToken) {
             let walletId = try requireActiveWalletId()
             let params = GetIDTokenRequest(
                 walletId: walletId,
@@ -297,7 +299,7 @@ extension WalletClient {
     ///
     /// - Parameter targetCredentialId: The unique identifier of the credential to revoke.
     public func revokeAccess(targetCredentialId: String) async throws {
-        try await runOmsOperation(.walletRevokeAccess) {
+        try await runOMSWalletOperation(.walletRevokeAccess) {
             let walletId = try requireActiveWalletId()
             let params = RevokeAccessRequest(
                 targetCredentialId: targetCredentialId,
@@ -345,7 +347,7 @@ public struct ListAccessPages: AsyncSequence {
         }
 
         public mutating func next() async throws -> ListAccessResponse? {
-            try await runOmsOperation(.walletListAccessPages) {
+            try await runOMSWalletOperation(.walletListAccessPages) {
                 if hasStarted && cursor == nil {
                     return nil
                 }

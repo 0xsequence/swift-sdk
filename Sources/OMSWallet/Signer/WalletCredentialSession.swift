@@ -12,10 +12,11 @@ final class WalletCredentialSession {
     private let keychain: any KeychainManaging
     private let credentialsStorageKey: String
     private let signerFactory: () -> any CredentialSigner
+    private let lock = NSRecursiveLock()
     private var currentSigner: any CredentialSigner
 
     var signer: any CredentialSigner {
-        currentSigner
+        withLock { currentSigner }
     }
 
     init(
@@ -33,19 +34,27 @@ final class WalletCredentialSession {
     }
 
     func storedMetadata() -> WalletMetadata? {
-        guard let credentials = loadCredentials() else {
-            return nil
-        }
+        withLock {
+            guard let credentials = loadCredentials() else {
+                return nil
+            }
 
-        return WalletMetadata(
-            walletId: credentials.walletId,
-            walletAddress: credentials.walletAddress,
-            expiresAt: credentials.expiresAt,
-            auth: credentials.auth
-        )
+            return WalletMetadata(
+                walletId: credentials.walletId,
+                walletAddress: credentials.walletAddress,
+                expiresAt: credentials.expiresAt,
+                auth: credentials.auth
+            )
+        }
     }
 
     func restore() -> WalletMetadata? {
+        withLock {
+            restoreLocked()
+        }
+    }
+
+    private func restoreLocked() -> WalletMetadata? {
         guard let credentials = loadCredentials() else {
             return nil
         }
@@ -90,27 +99,33 @@ final class WalletCredentialSession {
         expiresAt: String?,
         auth: OMSWalletSessionAuth
     ) throws {
-        let credentials = StorableCredentials(
-            walletId: walletId,
-            walletAddress: walletAddress,
-            signerCredentialId: try currentSigner.credentialId(),
-            alg: currentSigner.alg,
-            expiresAt: expiresAt,
-            auth: auth
-        )
+        try withLock {
+            let credentials = StorableCredentials(
+                walletId: walletId,
+                walletAddress: walletAddress,
+                signerCredentialId: try currentSigner.credentialId(),
+                alg: currentSigner.alg,
+                expiresAt: expiresAt,
+                auth: auth
+            )
 
-        try keychain.set(credentials.jsonString(), forKey: credentialsStorageKey)
+            try keychain.set(credentials.jsonString(), forKey: credentialsStorageKey)
+        }
     }
 
     func clearSignerKeepingCredentials() throws {
-        try currentSigner.clear()
-        currentSigner = signerFactory()
+        try withLock {
+            try currentSigner.clear()
+            currentSigner = signerFactory()
+        }
     }
 
     func clear() throws {
-        try currentSigner.clear()
-        try keychain.delete(forKey: credentialsStorageKey)
-        currentSigner = signerFactory()
+        try withLock {
+            try currentSigner.clear()
+            try keychain.delete(forKey: credentialsStorageKey)
+            currentSigner = signerFactory()
+        }
     }
 
     private func loadCredentials() -> StorableCredentials? {
@@ -139,6 +154,14 @@ final class WalletCredentialSession {
         _ = try? makeCredentialSigner().clear()
         _ = try? keychain.delete(forKey: credentialsStorageKey)
         currentSigner = signerFactory()
+    }
+
+    private func withLock<T>(_ body: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+        return try body()
     }
 
     private static func sessionIsExpired(expiresAt value: String?) -> Bool {
