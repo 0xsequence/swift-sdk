@@ -1,4 +1,5 @@
 import Foundation
+import OMSWalletWaas
 
 @available(macOS 12.0, iOS 15.0, *)
 extension WalletClient {
@@ -136,7 +137,11 @@ extension WalletClient {
             expireSessionFromTimer(session)
             return
         }
-        let nanoseconds = UInt64(min(delay * 1_000_000_000, Double(UInt64.max)))
+        let delayNanoseconds = delay * 1_000_000_000
+        let cappedNanoseconds = delayNanoseconds.isFinite
+            ? min(delayNanoseconds, Double(UInt64.max - 1))
+            : Double(UInt64.max - 1)
+        let nanoseconds = UInt64(cappedNanoseconds)
         let task = Task { [weak self] in
             try? await Task.sleep(nanoseconds: nanoseconds)
             guard !Task.isCancelled else {
@@ -269,19 +274,20 @@ extension WalletClient {
             return try await signedClient.listAccess(
                 ListAccessRequest(
                     walletId: walletId,
-                    page: accessPage(pageSize: pageSize, cursor: cursor)
+                    page: accessPage(pageSize: pageSize, cursor: cursor)?.waasValue
                 )
-            )
+            ).sdkValue
         }
     }
 
-    public func getIdToken(ttlSeconds: UInt32? = nil, customClaims: [String: WebRPCJSONValue]? = nil) async throws -> String {
+    public func getIdToken(ttlSeconds: UInt32? = nil, customClaims: [String: JSONValue]? = nil) async throws -> String {
         try await runOMSWalletOperation(.walletGetIdToken) {
             let walletId = try requireActiveWalletId()
+            try requireActiveCredential()
             let params = GetIDTokenRequest(
                 walletId: walletId,
                 ttlSeconds: ttlSeconds,
-                customClaims: customClaims
+                customClaims: customClaims?.waasValues
             )
 
             let response = try await signedClient.getIdToken(params)
@@ -301,6 +307,7 @@ extension WalletClient {
     public func revokeAccess(targetCredentialId: String) async throws {
         try await runOMSWalletOperation(.walletRevokeAccess) {
             let walletId = try requireActiveWalletId()
+            try requireActiveCredential()
             let params = RevokeAccessRequest(
                 targetCredentialId: targetCredentialId,
                 walletId: walletId

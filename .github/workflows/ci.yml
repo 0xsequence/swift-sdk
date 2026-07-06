@@ -23,6 +23,9 @@ jobs:
       - name: Test
         run: swift test
 
+      - name: Check public API
+        run: scripts/check-public-api-does-not-expose-generated-waas.sh
+
       - name: Build SDK demo app
         run: xcodebuild -project Examples/sdk-demo/oms-wallet-demo.xcodeproj -scheme oms-wallet-demo build CODE_SIGNING_ALLOWED=NO
 

@@ -1,4 +1,5 @@
 import Foundation
+import OMSWalletWaas
 
 struct PendingWalletSelectionSession {
     let id: UUID

@@ -1,4 +1,5 @@
 import Foundation
+import OMSWalletWaas
 
 @available(macOS 12.0, iOS 15.0, *)
 extension WalletClient {
@@ -11,6 +12,7 @@ extension WalletClient {
     public func signMessage(network: Network, message: String) async throws -> String {
         try await runOMSWalletOperation(.walletSignMessage) {
             let walletId = try requireActiveWalletId()
+            try requireActiveCredential()
             let params = SignMessageRequest(
                 network: network.chainId,
                 walletId: walletId,
@@ -22,13 +24,14 @@ extension WalletClient {
         }
     }
 
-    public func signTypedData(network: Network, typedData: WebRPCJSONValue) async throws -> String {
+    public func signTypedData(network: Network, typedData: JSONValue) async throws -> String {
         try await runOMSWalletOperation(.walletSignTypedData) {
             let walletId = try requireActiveWalletId()
+            try requireActiveCredential()
             let params = SignTypedDataRequest(
                 network: network.chainId,
                 walletId: walletId,
-                typedData: typedData
+                typedData: typedData.waasValue
             )
 
             let response = try await signedClient.signTypedData(params)
@@ -61,7 +64,7 @@ extension WalletClient {
     public func isValidTypedDataSignature(
         network: Network,
         walletAddress: String,
-        typedData: WebRPCJSONValue,
+        typedData: JSONValue,
         signature: String
     ) async throws -> Bool {
         try await runOMSWalletOperation(.walletIsValidTypedDataSignature) {
@@ -71,7 +74,7 @@ extension WalletClient {
                     network: network.chainId,
                     walletAddress: walletAddress,
                     walletId: walletId,
-                    typedData: typedData,
+                    typedData: typedData.waasValue,
                     signature: signature
                 )
             )
@@ -91,6 +94,7 @@ extension WalletClient {
     ) async throws -> SendTransactionResponse {
         try await runOMSWalletOperation(.walletSendTransaction) {
             let walletId = try requireActiveWalletId()
+            try requireActiveCredential()
             let walletAddress = try walletAddressIfNeeded(for: selectFeeOption)
             return try await sendTransaction(
                 network: network,
@@ -118,6 +122,7 @@ extension WalletClient {
     ) async throws -> SendTransactionResponse {
         try await runOMSWalletOperation(.walletSendTransaction) {
             let walletId = try requireActiveWalletId()
+            try requireActiveCredential()
             let walletAddress = try walletAddressIfNeeded(for: selectFeeOption)
             return try await sendTransaction(
                 network: network,
@@ -147,7 +152,7 @@ extension WalletClient {
                 to: request.to,
                 value: request.value,
                 data: request.data,
-                mode: request.mode
+                mode: request.mode.waasValue
             )
         )
 
@@ -173,6 +178,7 @@ extension WalletClient {
     ) async throws -> SendTransactionResponse {
         try await runOMSWalletOperation(.walletCallContract) {
             let walletId = try requireActiveWalletId()
+            try requireActiveCredential()
             let walletAddress = try walletAddressIfNeeded(for: selectFeeOption)
             let prepareResponse = try await signedClient.prepareEthereumContractCall(
                 PrepareEthereumContractCallRequest(
@@ -180,8 +186,8 @@ extension WalletClient {
                     walletId: walletId,
                     contract: contract,
                     method: method,
-                    args: args,
-                    mode: mode
+                    args: args?.map { $0.waasValue },
+                    mode: mode.waasValue
                 )
             )
 
@@ -206,7 +212,7 @@ extension WalletClient {
             try requireActiveCredential()
             return try await signedClient.transactionStatus(
                 TransactionStatusRequest(txnId: txnId)
-            )
+            ).sdkValue
         }
     }
 
@@ -227,7 +233,7 @@ extension WalletClient {
 
         let executeRequest = ExecuteRequest(
             txnId: prepareResponse.txnId,
-            feeOption: feeOptionSelection
+            feeOption: feeOptionSelection?.waasValue
         )
 
         let executeResponse: ExecuteResponse
@@ -251,13 +257,13 @@ extension WalletClient {
         if !waitForStatus {
             return SendTransactionResponse(
                 txnId: prepareResponse.txnId,
-                status: executeResponse.status
+                status: executeResponse.status.sdkValue
             )
         }
 
         let statusResponse = try await waitForTransactionStatus(
             txnId: prepareResponse.txnId,
-            fallbackStatus: executeResponse.status,
+            fallbackStatus: executeResponse.status.sdkValue,
             options: statusPolling
         )
         let response = SendTransactionResponse(
@@ -283,16 +289,17 @@ extension WalletClient {
         feeOptionSelector: FeeOptionSelector?,
         walletAddress: String?
     ) async throws -> FeeOptionSelection? {
+        let feeOptions = prepareResponse.feeOptions.map { $0.sdkValue }
         guard !prepareResponse.sponsored else {
             return nil
         }
 
-        guard !prepareResponse.feeOptions.isEmpty else {
+        guard !feeOptions.isEmpty else {
             throw TransactionError.noFeeOptionsAvailable
         }
 
         guard let feeOptionSelector else {
-            guard let feeOptionSelection = prepareResponse.feeOptions.defaultSelection() else {
+            guard let feeOptionSelection = feeOptions.defaultSelection() else {
                 throw TransactionError.noFeeOptionsAvailable
             }
             return feeOptionSelection
@@ -306,7 +313,7 @@ extension WalletClient {
             enrichFeeOptionsWithBalances(
                 network: network,
                 walletAddress: walletAddress,
-                feeOptions: prepareResponse.feeOptions
+                feeOptions: feeOptions
             )
         )
 
@@ -395,7 +402,7 @@ extension WalletClient {
             do {
                 lastStatus = try await signedClient.transactionStatus(
                     TransactionStatusRequest(txnId: txnId)
-                )
+                ).sdkValue
             } catch let error as CancellationError {
                 throw error
             } catch {

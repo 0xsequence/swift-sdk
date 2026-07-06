@@ -1,4 +1,5 @@
 import Foundation
+import OMSWalletWaas
 
 public enum OMSWalletErrorCode: String, Sendable {
     case httpError = "OMS_HTTP_ERROR"

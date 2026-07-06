@@ -1389,7 +1389,7 @@ private struct AbiArgInput: Identifiable {
     var value: String = ""
 }
 
-/// Convert a free-form text input into a `WebRPCJSONValue`.
+/// Convert a free-form text input into a `JSONValue`.
 ///
 /// Plain text is always preserved as a `.string` — no numeric coercion. This
 /// matters for ABI args because uint256 / int256 values exceed JSON's safe
@@ -1401,7 +1401,7 @@ private struct AbiArgInput: Identifiable {
 ///   - empty → .null
 ///   - looks like JSON (`[` or `{`) and decodes → .array / .object
 ///   - otherwise → .string  (numbers, addresses, hex, bools — all kept verbatim)
-private func parseAbiValue(_ raw: String) -> WebRPCJSONValue {
+private func parseAbiValue(_ raw: String) -> JSONValue {
     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 
     if trimmed.isEmpty {
@@ -1410,7 +1410,7 @@ private func parseAbiValue(_ raw: String) -> WebRPCJSONValue {
 
     if trimmed.hasPrefix("[") || trimmed.hasPrefix("{") {
         if let data = trimmed.data(using: .utf8),
-           let decoded = try? JSONDecoder().decode(WebRPCJSONValue.self, from: data) {
+           let decoded = try? JSONDecoder().decode(JSONValue.self, from: data) {
             return decoded
         }
     }

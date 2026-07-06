@@ -25,17 +25,6 @@ private func errorMessage(for error: Error) -> String {
         return errorMessage(for: error)
     }
 
-    if let error = error as? WebRPCError {
-        return errorMessage(for: error)
-    }
-
-    if let error = error as? WebRPCTransportError {
-        if let underlyingDescription = error.underlyingDescription, !underlyingDescription.isEmpty {
-            return "Unable to reach the OMS service. \(underlyingDescription)"
-        }
-        return "Unable to reach the OMS service. \(error.message)"
-    }
-
     if let error = error as? TransactionError {
         switch error {
         case .noFeeOptionsAvailable:
@@ -76,7 +65,7 @@ private func isCancellation(_ error: Error) -> Bool {
 
 private func errorMessage(for error: OMSWalletError) -> String {
     var sections = [String]()
-    sections.append(cleanPrimaryMessage(error.localizedDescription) ?? fallbackMessage(for: error))
+    sections.append(primaryMessage(for: error))
 
     var details = [String]()
     if let operation = error.operation {
@@ -92,9 +81,7 @@ private func errorMessage(for error: OMSWalletError) -> String {
         details.append(contentsOf: upstreamDetails(upstreamError))
     }
 
-    if let webRPCError = webRPCError(from: error.underlyingError) {
-        details.append(contentsOf: webRPCDetails(webRPCError))
-    } else if let underlyingError = error.underlyingError {
+    if let underlyingError = error.underlyingError {
         details.append("Underlying error: \(String(describing: underlyingError))")
     }
 
@@ -103,6 +90,13 @@ private func errorMessage(for error: OMSWalletError) -> String {
     }
 
     return sections.joined(separator: "\n\n")
+}
+
+private func primaryMessage(for error: OMSWalletError) -> String {
+    if let message = waasMessage(for: error) {
+        return message
+    }
+    return cleanPrimaryMessage(error.localizedDescription) ?? fallbackMessage(for: error)
 }
 
 private func retryableDescription(_ retryable: Bool?) -> String {
@@ -116,45 +110,59 @@ private func retryableDescription(_ retryable: Bool?) -> String {
     }
 }
 
-private func errorMessage(for error: WebRPCError) -> String {
-    let details = webRPCDetails(error).joined(separator: "\n")
-    let diagnosticSuffix = details.isEmpty ? "" : "\n\n\(details)"
+private func waasMessage(for error: OMSWalletError) -> String? {
+    guard let upstreamError = error.upstreamError, upstreamError.service == .waas else {
+        return nil
+    }
 
-    switch error.kind {
-    case .answerIncorrect:
-        return "The verification code is incorrect. Please try again.\(diagnosticSuffix)"
-    case .challengeExpired:
-        return "The verification code expired. Request a new code and try again.\(diagnosticSuffix)"
-    case .commitmentConsumed:
-        return "This verification code has already been used. Request a new code and try again.\(diagnosticSuffix)"
-    case .tooManyAttempts:
-        return "Too many attempts. Please wait a moment before trying again.\(diagnosticSuffix)"
-    case .unauthorized:
-        return "You are not authorized for this action. Please sign in again.\(diagnosticSuffix)"
-    case .unsupportedNetwork:
-        return "The selected network is not supported.\(diagnosticSuffix)"
-    case .transactionFailed:
-        return serviceErrorMessage(error, fallback: "The transaction failed.") + diagnosticSuffix
-    case .walletProviderError:
-        return serviceErrorMessage(error, fallback: "The wallet provider could not complete the request.") + diagnosticSuffix
-    case .walletNotFound:
-        return "Wallet not found. Please sign in again.\(diagnosticSuffix)"
-    case .invalidRequest, .webrpcBadRequest:
-        return serviceErrorMessage(error, fallback: "The request was invalid.") + diagnosticSuffix
-    case .webrpcBadResponse:
-        return "The OMS service returned an unexpected response. Please try again.\(diagnosticSuffix)"
-    case .webrpcRequestFailed:
-        return "The OMS request failed. Please check your connection and try again.\(diagnosticSuffix)"
-    case .internalError, .databaseError, .dataIntegrityError, .encryptionError, .webrpcInternalError, .webrpcServerPanic:
-        return "The OMS service encountered an error. Please try again.\(diagnosticSuffix)"
+    switch upstreamKey(upstreamError) {
+    case "7003", "answerincorrect":
+        return "The verification code is incorrect. Please try again."
+    case "7004", "challengeexpired":
+        return "The verification code expired. Request a new code and try again."
+    case "7008", "commitmentconsumed":
+        return "This verification code has already been used. Request a new code and try again."
+    case "7005", "toomanyattempts":
+        return "Too many attempts. Please wait a moment before trying again."
+    case "7207", "unauthorized":
+        return "You are not authorized for this action. Please sign in again."
+    case "7304", "unsupportednetwork":
+        return "The selected network is not supported."
+    case "7306", "transactionfailed":
+        return serviceErrorMessage(upstreamError, fallback: "The transaction failed.")
+    case "7307", "walletprovidererror":
+        return serviceErrorMessage(upstreamError, fallback: "The wallet provider could not complete the request.")
+    case "7300", "walletnotfound":
+        return "Wallet not found. Please sign in again."
+    case "7200", "invalidrequest", "-4", "webrpcbadrequest":
+        return serviceErrorMessage(upstreamError, fallback: "The request was invalid.")
+    case "-5", "webrpcbadresponse":
+        return "The OMS service returned an unexpected response. Please try again."
+    case "-1", "webrpcrequestfailed":
+        return "The OMS request failed. Please check your connection and try again."
+    case "7100", "7101", "7102", "7103", "-6", "-7",
+         "internalerror", "databaseerror", "dataintegrityerror", "encryptionerror",
+         "webrpcinternalerror", "webrpcserverpanic":
+        return "The OMS service encountered an error. Please try again."
     default:
-        return serviceErrorMessage(error, fallback: "An unexpected OMS error occurred.") + diagnosticSuffix
+        return nil
     }
 }
 
-private func serviceErrorMessage(_ error: WebRPCError, fallback: String) -> String {
-    let details = [error.message, error.cause]
-        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+private func upstreamKey(_ error: OMSWalletUpstreamError) -> String {
+    if let code = error.code?.trimmingCharacters(in: .whitespacesAndNewlines), !code.isEmpty {
+        return code
+    }
+    return error.name?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .replacingOccurrences(of: "_", with: "")
+        .replacingOccurrences(of: "-", with: "")
+        .lowercased() ?? ""
+}
+
+private func serviceErrorMessage(_ error: OMSWalletUpstreamError, fallback: String) -> String {
+    let details = [error.message]
+        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
         .filter { !$0.isEmpty && $0 != "endpoint error" && $0 != "bad response" }
 
     guard let detail = details.first else {
@@ -192,16 +200,6 @@ private func fallbackMessage(for error: OMSWalletError) -> String {
     }
 }
 
-private func webRPCError(from error: (any Error)?) -> WebRPCError? {
-    if let error = error as? WebRPCError {
-        return error
-    }
-    if let error = error as? OMSWalletError {
-        return webRPCError(from: error.underlyingError)
-    }
-    return nil
-}
-
 private func upstreamDetails(_ error: OMSWalletUpstreamError) -> [String] {
     var details = ["Upstream service: \(error.service.rawValue)"]
 
@@ -216,27 +214,6 @@ private func upstreamDetails(_ error: OMSWalletUpstreamError) -> [String] {
     }
     if let status = error.status {
         details.append("Upstream status: \(status)")
-    }
-
-    return details
-}
-
-private func webRPCDetails(_ error: WebRPCError) -> [String] {
-    var details = [
-        "WebRPC error: \(error.error)",
-        "WebRPC code: \(error.code)",
-        "WebRPC kind: \(String(describing: error.kind))",
-        "WebRPC status: \(error.status)"
-    ]
-
-    let message = error.message.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !message.isEmpty {
-        details.append("WebRPC message: \(message)")
-    }
-
-    let cause = error.cause.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !cause.isEmpty {
-        details.append("WebRPC cause: \(cause)")
     }
 
     return details

@@ -1,0 +1,58 @@
+import OMSWalletWaas
+
+typealias WaasAPI = OMSWalletWaas.WaasAPI
+typealias WaasPublicAPI = OMSWalletWaas.WaasPublicAPI
+typealias WaasClient = OMSWalletWaas.WaasClient
+typealias WaasPublicClient = OMSWalletWaas.WaasPublicClient
+typealias WebRPCJSON = OMSWalletWaas.WebRPCJSON
+typealias WebRPCHTTPResponse = OMSWalletWaas.WebRPCHTTPResponse
+typealias WebRPCTransport = OMSWalletWaas.WebRPCTransport
+typealias WebRPCTransportError = OMSWalletWaas.WebRPCTransportError
+typealias WebRPCGeneratedVersions = OMSWalletWaas.WebRPCGeneratedVersions
+typealias WebRPCErrorKind = OMSWalletWaas.WebRPCErrorKind
+
+let WEBRPC_HEADER_VALUE = OMSWalletWaas.WEBRPC_HEADER_VALUE
+
+typealias SigningAlgorithm = OMSWalletWaas.SigningAlgorithm
+typealias AuthMode = OMSWalletWaas.AuthMode
+typealias Identity = OMSWalletWaas.Identity
+typealias IdentityType = OMSWalletWaas.IdentityType
+
+typealias CommitVerifierRequest = OMSWalletWaas.CommitVerifierRequest
+typealias CommitVerifierResponse = OMSWalletWaas.CommitVerifierResponse
+typealias CompleteAuthRequest = OMSWalletWaas.CompleteAuthRequest
+typealias CompleteAuthResponse = OMSWalletWaas.CompleteAuthResponse
+typealias CreateWalletRequest = OMSWalletWaas.CreateWalletRequest
+typealias CreateWalletResponse = OMSWalletWaas.CreateWalletResponse
+typealias ExecuteRequest = OMSWalletWaas.ExecuteRequest
+typealias ExecuteResponse = OMSWalletWaas.ExecuteResponse
+typealias GetIDTokenRequest = OMSWalletWaas.GetIDTokenRequest
+typealias GetIDTokenResponse = OMSWalletWaas.GetIDTokenResponse
+typealias IsValidMessageSignatureRequest = OMSWalletWaas.IsValidMessageSignatureRequest
+typealias IsValidMessageSignatureResponse = OMSWalletWaas.IsValidMessageSignatureResponse
+typealias IsValidTypedDataSignatureRequest = OMSWalletWaas.IsValidTypedDataSignatureRequest
+typealias IsValidTypedDataSignatureResponse = OMSWalletWaas.IsValidTypedDataSignatureResponse
+typealias ListAccessRequest = OMSWalletWaas.ListAccessRequest
+typealias ListWalletsRequest = OMSWalletWaas.ListWalletsRequest
+typealias ListWalletsResponse = OMSWalletWaas.ListWalletsResponse
+typealias PrepareEthereumContractCallRequest = OMSWalletWaas.PrepareEthereumContractCallRequest
+typealias PrepareEthereumTransactionRequest = OMSWalletWaas.PrepareEthereumTransactionRequest
+typealias PrepareResponse = OMSWalletWaas.PrepareResponse
+typealias RevokeAccessRequest = OMSWalletWaas.RevokeAccessRequest
+typealias RevokeAccessResponse = OMSWalletWaas.RevokeAccessResponse
+typealias SignMessageRequest = OMSWalletWaas.SignMessageRequest
+typealias SignMessageResponse = OMSWalletWaas.SignMessageResponse
+typealias SignTypedDataRequest = OMSWalletWaas.SignTypedDataRequest
+typealias SignTypedDataResponse = OMSWalletWaas.SignTypedDataResponse
+typealias TransactionStatusRequest = OMSWalletWaas.TransactionStatusRequest
+typealias UseWalletRequest = OMSWalletWaas.UseWalletRequest
+typealias UseWalletResponse = OMSWalletWaas.UseWalletResponse
+
+typealias WaasCredentialInfo = OMSWalletWaas.CredentialInfo
+typealias WaasFeeOption = OMSWalletWaas.FeeOption
+typealias WaasFeeToken = OMSWalletWaas.FeeToken
+typealias WaasListAccessResponse = OMSWalletWaas.ListAccessResponse
+typealias WaasPage = OMSWalletWaas.Page
+typealias WaasTransactionStatusResponse = OMSWalletWaas.TransactionStatusResponse
+typealias WaasWallet = OMSWalletWaas.Wallet
+typealias WaasWalletType = OMSWalletWaas.WalletType

@@ -1,4 +1,5 @@
 import Foundation
+import OMSWalletWaas
 
 @available(macOS 12.0, iOS 15.0, *)
 extension WalletClient {
@@ -519,7 +520,7 @@ extension WalletClient {
                 pendingWalletSelection(
                     walletType: walletType,
                     wallets: candidateWallets,
-                    credential: response.credential,
+                    credential: response.credential.sdkValue,
                     selectionSession: pendingSelectionSession
                 )
             )
@@ -548,7 +549,7 @@ extension WalletClient {
             walletAddress: activated.walletAddress,
             wallet: activated.wallet,
             wallets: candidateWallets.isEmpty ? wallets + [activated.wallet] : wallets,
-            credential: response.credential
+            credential: response.credential.sdkValue
         )
     }
 
@@ -692,7 +693,7 @@ extension WalletClient {
         requiredSessionRevision: UInt64
     ) async throws -> WalletActivationResult {
         let params = CreateWalletRequest(
-            type: walletType,
+            type: walletType.waasValue,
             reference: reference
         )
 
@@ -706,7 +707,7 @@ extension WalletClient {
 
         return WalletActivationResult(
             walletAddress: response.wallet.address,
-            wallet: response.wallet
+            wallet: response.wallet.sdkValue
         )
     }
 
@@ -736,12 +737,12 @@ extension WalletClient {
 
         return WalletActivationResult(
             walletAddress: response.wallet.address,
-            wallet: response.wallet
+            wallet: response.wallet.sdkValue
         )
     }
 
     private func walletsFromAuthResponse(_ response: CompleteAuthResponse) async throws -> [Wallet] {
-        var wallets = response.wallets
+        var wallets = response.wallets.map { $0.sdkValue }
         if let cursor = nonEmptyCursor(response.page?.cursor) {
             wallets += try await listWallets(startingAt: cursor)
         }
@@ -755,10 +756,10 @@ extension WalletClient {
         repeat {
             let response = try await signedClient.listWallets(
                 ListWalletsRequest(
-                    page: cursor.map { Page(cursor: $0) }
+                    page: cursor.map { Page(cursor: $0).waasValue }
                 )
             )
-            wallets += response.wallets
+            wallets += response.wallets.map { $0.sdkValue }
             cursor = nonEmptyCursor(response.page?.cursor)
         } while cursor != nil
 

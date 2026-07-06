@@ -1,9 +1,10 @@
 import Foundation
 import CryptoKit
+import OMSWalletWaas
 
 @available(macOS 12.0, iOS 15.0, *)
-public class RequestUtils {
-    public static func buildWalletRequestPreimage(
+final class RequestUtils {
+    static func buildWalletRequestPreimage(
         endpoint: String,
         nonce: String,
         scope: String,
@@ -12,7 +13,7 @@ public class RequestUtils {
         return "POST /v1/Waas\(endpoint)\nnonce: \(nonce)\nscope: \(scope)\n\n\(payload)"
     }
     
-    public static func buildWalletSignatureHeader(
+    static func buildWalletSignatureHeader(
         alg: SigningAlgorithm,
         scope: String,
         cred: String,
@@ -22,7 +23,7 @@ public class RequestUtils {
         return "alg=\"\(alg.wireValue)\", scope=\"\(scope)\", cred=\"\(cred)\", nonce=\(nonce), sig=\"\(sig)\""
     }
     
-    public static func hashEmailAuthAnswer(
+    static func hashEmailAuthAnswer(
         challenge: String,
         code: String
     ) -> String {
@@ -37,7 +38,7 @@ public class RequestUtils {
     }
 }
 
-public enum OidcIdTokenError: Error, Equatable, Sendable {
+enum OidcIdTokenError: Error, Equatable, Sendable {
     case missingPayload
     case invalidPayload
     case missingExpiration
@@ -45,7 +46,7 @@ public enum OidcIdTokenError: Error, Equatable, Sendable {
 }
 
 extension OidcIdTokenError: LocalizedError {
-    public var errorDescription: String? {
+    var errorDescription: String? {
         switch self {
         case .missingPayload:
             return "OIDC ID token must contain header and payload sections."
@@ -59,8 +60,8 @@ extension OidcIdTokenError: LocalizedError {
     }
 }
 
-public enum OidcIdToken {
-    public static func expiresAtEpochSeconds(_ idToken: String) throws -> Int64 {
+enum OidcIdToken {
+    static func expiresAtEpochSeconds(_ idToken: String) throws -> Int64 {
         let payload = try parsePayload(idToken)
         guard let value = payload["exp"] else {
             throw OidcIdTokenError.missingExpiration
@@ -71,7 +72,7 @@ public enum OidcIdToken {
         return expiration
     }
 
-    public static func handleHash(_ idToken: String) -> String {
+    static func handleHash(_ idToken: String) -> String {
         let digest = SHA256.hash(data: Data(idToken.utf8))
         return base64UrlEncode(Data(digest))
     }

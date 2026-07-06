@@ -8,7 +8,6 @@
 - [Formatting Helpers](#formatting-helpers)
 - [Types](#types)
   - [Network](#network)
-  - [OMSWalletIdentity](#omswalletidentity)
   - [OMSWalletSessionState](#omswalletsessionstate)
   - [OMSWalletSessionExpiredEvent](#omswalletsessionexpiredevent)
   - [OMSWalletEnvironment](#omswalletenvironment)
@@ -41,7 +40,7 @@
   - [TokenBalance](#tokenbalance)
   - [CredentialInfo](#credentialinfo)
   - [ListAccessPages](#listaccesspages)
-  - [WebRPCJSONValue](#webrpcjsonvalue)
+  - [JSONValue](#jsonvalue)
 
 ---
 
@@ -470,7 +469,7 @@ let signature = try await oms.wallet.signMessage(
 ### signTypedData
 
 ```swift
-func signTypedData(network: Network, typedData: WebRPCJSONValue) async throws -> String
+func signTypedData(network: Network, typedData: JSONValue) async throws -> String
 ```
 
 Signs an EIP-712 typed-data JSON payload using the wallet's session key.
@@ -494,7 +493,7 @@ Verifies a message signature against the provided wallet address and the active 
 func isValidTypedDataSignature(
     network: Network,
     walletAddress: String,
-    typedData: WebRPCJSONValue,
+    typedData: JSONValue,
     signature: String
 ) async throws -> Bool
 ```
@@ -598,13 +597,13 @@ Returns one credential-access page for this wallet.
 ```swift
 func getIdToken(
     ttlSeconds: UInt32? = nil,
-    customClaims: [String: WebRPCJSONValue]? = nil
+    customClaims: [String: JSONValue]? = nil
 ) async throws -> String
 ```
 
 Returns an ID token for the active wallet. `ttlSeconds` requests a token
 lifetime in seconds, and `customClaims` adds app-defined claims encoded as
-`WebRPCJSONValue`. Omit both parameters to use the server defaults.
+`JSONValue`. Omit both parameters to use the server defaults.
 
 ### revokeAccess
 
@@ -760,18 +759,6 @@ enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
 | `.katana` | `747474` | Katana | `katana` | `ETH` |
 
 Use `.polygonAmoy` for Polygon Amoy.
-
-### OMSWalletIdentity
-
-```swift
-final class OMSWalletIdentity: Sendable {
-    let type: IdentityType
-    let issuer: String?
-    let subject: String
-}
-```
-
-App-facing wrapper for wallet authentication identity details.
 
 ### OMSWalletSessionState
 
@@ -936,8 +923,8 @@ Branch application behavior on SDK-level `code`; use `upstreamError` for logs
 and service-specific troubleshooting.
 
 `underlyingError` is Swift-local diagnostic context. It is present when the SDK
-wraps a lower-level Swift error such as `WebRPCError`, `WebRPCTransportError`,
-`TransactionError`, HTTP transport failures, `URLError`, or a decoding error. It
+wraps a lower-level Swift error such as `TransactionError`, HTTP transport
+failures, `URLError`, generated service-client failures, or a decoding error. It
 can be absent for deliberate local SDK errors such as missing session and stale
 wallet selection, and for manually constructed `OMSWalletError` values unless the
 caller supplies it. Do not serialize or depend on `underlyingError` for
@@ -1082,8 +1069,9 @@ Transaction-flow detail cases may be preserved under
 `OMSWalletError.underlyingError`. `noFeeOptionsAvailable` is used when an
 unsponsored transaction has no fee options, and `noFeeOptionSelected` is used
 when a custom selector does not return a selection for an unsponsored
-transaction. Terminal non-executed statuses use `transactionFailed`. A normal
-pending polling timeout returns
+transaction. Non-submitted terminal statuses other than `.failed` use
+`transactionFailed`; `.pending` and `.failed` return a normal
+`SendTransactionResponse`. A normal pending polling timeout returns
 `SendTransactionResponse(status: .pending, txnHash: nil)` instead of throwing.
 
 ### SendTransactionResponse
@@ -1303,8 +1291,8 @@ struct SortBy: Codable, Sendable {
 struct TokenBalancesPage: Codable, Sendable {
     let page: Int?
     let column: String?
-    let before: WebRPCJSONValue?
-    let after: WebRPCJSONValue?
+    let before: JSONValue?
+    let after: JSONValue?
     let sort: [SortBy]?
     let pageSize: Int?
     let more: Bool?
@@ -1317,8 +1305,8 @@ struct TokenBalancesPage: Codable, Sendable {
 struct TokenBalancesPageRequest: Codable, Sendable {
     let page: Int?
     let column: String?
-    let before: WebRPCJSONValue?
-    let after: WebRPCJSONValue?
+    let before: JSONValue?
+    let after: JSONValue?
     let sort: [SortBy]?
     let pageSize: Int?
 }
@@ -1384,7 +1372,7 @@ struct TokenContractInfo: Codable, Sendable {
     let logoURI: String?
     let deployed: Bool?
     let bytecodeHash: String?
-    let extensions: [String: WebRPCJSONValue]?
+    let extensions: [String: JSONValue]?
     let updatedAt: String?
     let queuedAt: String?
     let status: String?
@@ -1404,8 +1392,8 @@ struct TokenMetadata: Codable, Sendable {
     let image: String?
     let video: String?
     let audio: String?
-    let properties: [String: WebRPCJSONValue]?
-    let attributes: [[String: WebRPCJSONValue]]?
+    let properties: [String: JSONValue]?
+    let attributes: [[String: JSONValue]]?
     let imageData: String?
     let externalUrl: String?
     let backgroundColor: String?
@@ -1455,12 +1443,12 @@ struct ListAccessPages: AsyncSequence
 
 Async sequence returned by `WalletClient.listAccessPages(pageSize:)`.
 
-### WebRPCJSONValue
+### JSONValue
 
 ```swift
-enum WebRPCJSONValue: Codable, Sendable {
-    case object([String: WebRPCJSONValue])
-    case array([WebRPCJSONValue])
+enum JSONValue: Codable, Sendable {
+    case object([String: JSONValue])
+    case array([JSONValue])
     case string(String)
     case integer(Int64)
     case unsignedInteger(UInt64)

@@ -1,16 +1,16 @@
 public struct TokenBalancesPageRequest: Codable, Sendable {
     public let page: Int?
     public let column: String?
-    public let before: WebRPCJSONValue?
-    public let after: WebRPCJSONValue?
+    public let before: JSONValue?
+    public let after: JSONValue?
     public let sort: [SortBy]?
     public let pageSize: Int?
 
     public init(
         page: Int? = nil,
         column: String? = nil,
-        before: WebRPCJSONValue? = nil,
-        after: WebRPCJSONValue? = nil,
+        before: JSONValue? = nil,
+        after: JSONValue? = nil,
         sort: [SortBy]? = nil,
         pageSize: Int? = nil
     ) {

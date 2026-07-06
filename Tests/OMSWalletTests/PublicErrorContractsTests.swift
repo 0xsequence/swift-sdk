@@ -292,6 +292,18 @@ import Testing
             message: "No active credential."
         )
     )
+
+    let missingCredentialFixture = makeRestoredWalletClient()
+    try missingCredentialFixture.signer.clear()
+
+    await expectPublicError(
+        try await missingCredentialFixture.client.signMessage(network: .polygon, message: "hello"),
+        equals: error(
+            code: .sessionMissing,
+            operation: .walletSignMessage,
+            message: "No authenticated wallet session."
+        )
+    )
 }
 
 @Test func TestPublicErrorContractsOidcLocalErrorsHaveNoUpstreamDetails() async throws {

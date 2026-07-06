@@ -19,12 +19,12 @@ should be present, and which tests own the contract.
   response, malformed remote response, or transport failure. Use it for logging
   and service-specific troubleshooting, not primary app branching.
 - `underlyingError` is Swift-local diagnostic context. It is present when the
-  SDK wraps a lower-level Swift error such as `WebRPCError`,
-  `WebRPCTransportError`, `TransactionError`, HTTP transport failures,
-  `URLError`, or a decoding error. It can be absent for deliberate local SDK
-  errors such as missing session and stale wallet selection, and for manually
-  constructed `OMSWalletError` values unless the caller supplies it. Do not
-  serialize or depend on `underlyingError` for cross-SDK behavior.
+  SDK wraps a lower-level Swift error such as `TransactionError`, HTTP transport
+  failures, `URLError`, generated service-client failures, or a decoding error.
+  It can be absent for deliberate local SDK errors such as missing session and
+  stale wallet selection, and for manually constructed `OMSWalletError` values
+  unless the caller supplies it. Do not serialize or depend on `underlyingError`
+  for cross-SDK behavior.
 - `OMS_TRANSACTION_EXECUTION_UNCONFIRMED` means transaction preparation
   succeeded and produced a `txnId`, but the execute request failed before the
   SDK could confirm whether the transaction was submitted. Do not blindly resend
@@ -61,7 +61,8 @@ should be present, and which tests own the contract.
 | `oms.wallet.completeEmailAuth` | WaaS domain error | SDK-specific code such as `.authCommitmentConsumed` | Follow the SDK code; for consumed commitments, restart auth | Present | `PublicErrorContractsTests.swift` |
 | `oms.wallet.*`, representative WaaS methods | WaaS HTTP error | `OMSWalletError`, `.httpError`, `status`, `retryable == true` for 5xx | Use SDK code/status for branching; log upstream detail | Present | `PublicErrorContractsTests.swift` |
 | `oms.wallet.completeEmailAuth` and `PendingWalletSelection` actions | Local auth/session/selection state | `.sessionMissing`, `.walletSelectionStale`, or `.walletSelectionUnavailable` | Fix local flow state or restart auth; no remote diagnostics are expected | Absent | `PublicErrorContractsTests.swift` |
-| OIDC redirect and ID-token auth methods | Local OIDC config, callback, storage, or state mismatch | `.sessionMissing`, `.validationError`, or failed OIDC result containing `OMSWalletError` | Fix redirect config/state or restart OIDC flow | Absent | `PublicErrorContractsTests.swift` |
+| OIDC redirect and ID-token auth methods | Local OIDC config, callback, or state mismatch | `.sessionMissing`, `.validationError`, or failed OIDC result containing `OMSWalletError` | Fix redirect config/state or restart OIDC flow | Absent | `PublicErrorContractsTests.swift` |
+| `oms.wallet.startOidcRedirectAuth` | Local OIDC redirect-state persistence failure | `.storageError` | Retry starting OIDC auth after resolving the local storage issue | Absent | `PublicErrorContractsTests.swift` |
 | Protected wallet methods: `getIdToken`, `signMessage`, `signTypedData`, `sendTransaction`, `callContract`, `getTransactionStatus`, `listAccessPage`, `listAccessPages`, `revokeAccess` | Missing or expired local session | `.sessionMissing` or `.sessionExpired` | Authenticate again or recover local session; no remote request was made | Absent | `PublicErrorContractsTests.swift` |
 | `oms.wallet.signMessage`, `signTypedData`, `getIdToken`, `sendTransaction`, `callContract` | SDK-local validation or fee-selection failure | `.validationError` | Correct parameters or local fee selection; do not retry as an upstream outage | Absent | `PublicErrorContractsTests.swift` |
 | `oms.wallet.isValidMessageSignature`, `isValidTypedDataSignature` | WaaS validation backend failure | `.httpError`, `.requestFailed`, or `.invalidResponse` with the validation operation | Retry based on SDK code/status; log upstream detail | Present | `PublicErrorContractsTests.swift` |

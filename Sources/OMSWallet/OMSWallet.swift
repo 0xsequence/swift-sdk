@@ -1,5 +1,5 @@
 @available(macOS 12.0, iOS 15.0, *)
-public class OMSWallet {
+public final class OMSWallet {
     public let wallet: WalletClient
     public let indexer: IndexerClient
 

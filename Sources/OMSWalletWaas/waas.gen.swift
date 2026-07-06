@@ -8,21 +8,21 @@ import FoundationNetworking
 //
 // webrpc-gen -schema=schema/waas.ridl -target=github.com/webrpc/gen-swift@v0.1.2 -client -out=./clients/waas.gen.swift
 
-public let WEBRPC_VERSION = "v1"
-public let WEBRPC_SCHEMA_VERSION = "v1-26.6.17-061733f"
-public let WEBRPC_SCHEMA_HASH = "2279592e720c50a33130cd3fd935b3e2e74ff67d"
+package let WEBRPC_VERSION = "v1"
+package let WEBRPC_SCHEMA_VERSION = "v1-26.6.17-061733f"
+package let WEBRPC_SCHEMA_HASH = "2279592e720c50a33130cd3fd935b3e2e74ff67d"
 
-public let WEBRPC_HEADER = "Webrpc"
-public let WEBRPC_HEADER_VALUE = "webrpc@v0.37.2;gen-swift@v0.1.2;waas@v1-26.6.17-061733f"
+package let WEBRPC_HEADER = "Webrpc"
+package let WEBRPC_HEADER_VALUE = "webrpc@v0.37.2;gen-swift@v0.1.2;waas@v1-26.6.17-061733f"
 
-public struct WebRPCGeneratedVersions: Sendable, Equatable {
-    public let webrpcGenVersion: String
-    public let codeGenName: String
-    public let codeGenVersion: String
-    public let schemaName: String
-    public let schemaVersion: String
+package struct WebRPCGeneratedVersions: Sendable, Equatable {
+    package let webrpcGenVersion: String
+    package let codeGenName: String
+    package let codeGenVersion: String
+    package let schemaName: String
+    package let schemaVersion: String
 
-    public init(
+    package init(
         webrpcGenVersion: String = "",
         codeGenName: String = "",
         codeGenVersion: String = "",
@@ -36,17 +36,17 @@ public struct WebRPCGeneratedVersions: Sendable, Equatable {
         self.schemaVersion = schemaVersion
     }
 
-    public static let empty = WebRPCGeneratedVersions()
+    package static let empty = WebRPCGeneratedVersions()
 }
 
-public func versionFromHeader(_ headers: [String: String]) -> WebRPCGeneratedVersions {
+package func versionFromHeader(_ headers: [String: String]) -> WebRPCGeneratedVersions {
     guard let headerValue = webRPCHeaderValue(in: headers) else {
         return .empty
     }
     return parseWebRPCGeneratedVersions(headerValue)
 }
 
-public func versionFromHeader(_ response: WebRPCHTTPResponse) -> WebRPCGeneratedVersions {
+package func versionFromHeader(_ response: WebRPCHTTPResponse) -> WebRPCGeneratedVersions {
     versionFromHeader(response.headers)
 }
 
@@ -89,20 +89,20 @@ private func makeWebRPCHeaders(
     return requestHeaders
 }
 
-public enum WebRPCJSON {
-    public static func makeEncoder() -> JSONEncoder {
+package enum WebRPCJSON {
+    package static func makeEncoder() -> JSONEncoder {
         JSONEncoder()
     }
 
-    public static func makeDecoder() -> JSONDecoder {
+    package static func makeDecoder() -> JSONDecoder {
         JSONDecoder()
     }
 }
 
-public struct WebRPCNull: Codable, Sendable {
-    public init() {}
+package struct WebRPCNull: Codable, Sendable {
+    package init() {}
 
-    public init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         guard container.decodeNil() else {
             throw DecodingError.typeMismatch(
@@ -115,13 +115,13 @@ public struct WebRPCNull: Codable, Sendable {
         }
     }
 
-    public func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encodeNil()
     }
 }
 
-public enum WebRPCJSONValue: Codable, Sendable {
+package enum WebRPCJSONValue: Codable, Sendable {
     case object([String: WebRPCJSONValue])
     case array([WebRPCJSONValue])
     case string(String)
@@ -131,7 +131,7 @@ public enum WebRPCJSONValue: Codable, Sendable {
     case bool(Bool)
     case null
 
-    public init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
 
         if container.decodeNil() {
@@ -158,7 +158,7 @@ public enum WebRPCJSONValue: Codable, Sendable {
         }
     }
 
-    public func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
 
         switch self {
@@ -182,20 +182,20 @@ public enum WebRPCJSONValue: Codable, Sendable {
     }
 }
 
-public protocol WebRPCEnumKey: Hashable, Sendable {
+package protocol WebRPCEnumKey: Hashable, Sendable {
     init(wireValue: String)
     var wireValue: String { get }
 }
 
-public struct WebRPCEnumMap<Key, Value>: Codable, Sendable
+package struct WebRPCEnumMap<Key, Value>: Codable, Sendable
 where Key: WebRPCEnumKey, Value: Codable & Sendable {
-    public var values: [Key: Value]
+    package var values: [Key: Value]
 
-    public init(_ values: [Key: Value] = [:]) {
+    package init(_ values: [Key: Value] = [:]) {
         self.values = values
     }
 
-    public init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let rawValues = try container.decode([String: Value].self)
 
@@ -209,19 +209,19 @@ where Key: WebRPCEnumKey, Value: Codable & Sendable {
         self.values = values
     }
 
-    public func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         let rawValues = Dictionary(uniqueKeysWithValues: values.map { ($0.key.wireValue, $0.value) })
         var container = encoder.singleValueContainer()
         try container.encode(rawValues)
     }
 }
 
-public struct WebRPCHTTPResponse: Sendable {
-    public let statusCode: Int
-    public let body: Data
-    public let headers: [String: String]
+package struct WebRPCHTTPResponse: Sendable {
+    package let statusCode: Int
+    package let body: Data
+    package let headers: [String: String]
 
-    public init(
+    package init(
         statusCode: Int,
         body: Data,
         headers: [String: String] = [:]
@@ -232,7 +232,7 @@ public struct WebRPCHTTPResponse: Sendable {
     }
 }
 
-public protocol WebRPCTransport: Sendable {
+package protocol WebRPCTransport: Sendable {
     func post(
         baseURL: String,
         path: String,
@@ -241,24 +241,24 @@ public protocol WebRPCTransport: Sendable {
     ) async throws -> WebRPCHTTPResponse
 }
 
-public struct WebRPCTransportError: Error, Sendable {
-    public let message: String
-    public let underlyingDescription: String?
+package struct WebRPCTransportError: Error, Sendable {
+    package let message: String
+    package let underlyingDescription: String?
 
-    public init(message: String, underlyingDescription: String? = nil) {
+    package init(message: String, underlyingDescription: String? = nil) {
         self.message = message
         self.underlyingDescription = underlyingDescription
     }
 }
 
-public struct URLSessionWebRPCTransport: WebRPCTransport, @unchecked Sendable {
-    public let session: URLSession
+package struct URLSessionWebRPCTransport: WebRPCTransport, @unchecked Sendable {
+    package let session: URLSession
 
-    public init(session: URLSession = .shared) {
+    package init(session: URLSession = .shared) {
         self.session = session
     }
 
-    public func post(
+    package func post(
         baseURL: String,
         path: String,
         body: Data,
@@ -307,7 +307,7 @@ private func joinWebRPCURL(baseURL: String, path: String) -> String {
     baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/" + path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
 }
 
-public func executeWebRPC<Response>(
+package func executeWebRPC<Response>(
     baseURL: String,
     urlPath: String,
     body: Data,
@@ -351,7 +351,7 @@ public func executeWebRPC<Response>(
     }
 }
 
-public enum WebRPCErrorKind: Sendable {
+package enum WebRPCErrorKind: Sendable {
     case webrpcEndpoint
     case webrpcRequestFailed
     case webrpcBadRoute
@@ -399,7 +399,7 @@ public enum WebRPCErrorKind: Sendable {
     case transactionBroadcastFailed
     case unknown
 
-    public var code: Int {
+    package var code: Int {
         switch self {
         case .webrpcEndpoint:
             return 0
@@ -496,7 +496,7 @@ public enum WebRPCErrorKind: Sendable {
         }
     }
 
-    public static func fromCode(_ code: Int) -> WebRPCErrorKind {
+    package static func fromCode(_ code: Int) -> WebRPCErrorKind {
         switch code {
         case 0:
             return .webrpcEndpoint
@@ -594,15 +594,15 @@ public enum WebRPCErrorKind: Sendable {
     }
 }
 
-public struct WebRPCError: Error, Sendable {
-    public let error: String
-    public let code: Int
-    public let message: String
-    public let cause: String
-    public let status: Int
-    public let kind: WebRPCErrorKind
+package struct WebRPCError: Error, Sendable {
+    package let error: String
+    package let code: Int
+    package let message: String
+    package let cause: String
+    package let status: Int
+    package let kind: WebRPCErrorKind
 
-    public init(
+    package init(
         error: String,
         code: Int,
         message: String,
@@ -627,7 +627,7 @@ private struct WebRPCErrorPayload: Decodable, Sendable {
     let status: Int?
 }
 
-public func decodeWebRPCError(
+package func decodeWebRPCError(
     statusCode: Int,
     data: Data,
     decoder: JSONDecoder = WebRPCJSON.makeDecoder()
@@ -671,11 +671,11 @@ private func webRPCBadResponseError(
 
 
 // MARK: - Types
-public enum WalletType: Codable, Hashable, Sendable, WebRPCEnumKey {
+package enum WalletType: Codable, Hashable, Sendable, WebRPCEnumKey {
     case ethereum
     case unknown(String)
 
-    public var wireValue: String {
+    package var wireValue: String {
         switch self {
         case .ethereum:
             return "ethereum"
@@ -684,7 +684,7 @@ public enum WalletType: Codable, Hashable, Sendable, WebRPCEnumKey {
         }
     }
 
-    public init(wireValue: String) {
+    package init(wireValue: String) {
         switch wireValue {
         case "ethereum":
             self = .ethereum
@@ -693,25 +693,25 @@ public enum WalletType: Codable, Hashable, Sendable, WebRPCEnumKey {
         }
     }
 
-    public init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let value = try container.decode(String.self)
         self = WalletType(wireValue: value)
     }
 
-    public func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(wireValue)
     }
 }
 
 
-public enum WalletStatus: Codable, Hashable, Sendable, WebRPCEnumKey {
+package enum WalletStatus: Codable, Hashable, Sendable, WebRPCEnumKey {
     case active
     case suspended
     case unknown(String)
 
-    public var wireValue: String {
+    package var wireValue: String {
         switch self {
         case .active:
             return "active"
@@ -722,7 +722,7 @@ public enum WalletStatus: Codable, Hashable, Sendable, WebRPCEnumKey {
         }
     }
 
-    public init(wireValue: String) {
+    package init(wireValue: String) {
         switch wireValue {
         case "active":
             self = .active
@@ -733,25 +733,25 @@ public enum WalletStatus: Codable, Hashable, Sendable, WebRPCEnumKey {
         }
     }
 
-    public init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let value = try container.decode(String.self)
         self = WalletStatus(wireValue: value)
     }
 
-    public func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(wireValue)
     }
 }
 
 
-public enum TransactionMode: Codable, Hashable, Sendable, WebRPCEnumKey {
+package enum TransactionMode: Codable, Hashable, Sendable, WebRPCEnumKey {
     case native
     case relayer
     case unknown(String)
 
-    public var wireValue: String {
+    package var wireValue: String {
         switch self {
         case .native:
             return "native"
@@ -762,7 +762,7 @@ public enum TransactionMode: Codable, Hashable, Sendable, WebRPCEnumKey {
         }
     }
 
-    public init(wireValue: String) {
+    package init(wireValue: String) {
         switch wireValue {
         case "native":
             self = .native
@@ -773,25 +773,25 @@ public enum TransactionMode: Codable, Hashable, Sendable, WebRPCEnumKey {
         }
     }
 
-    public init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let value = try container.decode(String.self)
         self = TransactionMode(wireValue: value)
     }
 
-    public func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(wireValue)
     }
 }
 
 
-public enum KeyOrigin: Codable, Hashable, Sendable, WebRPCEnumKey {
+package enum KeyOrigin: Codable, Hashable, Sendable, WebRPCEnumKey {
     case enclave
     case imported
     case unknown(String)
 
-    public var wireValue: String {
+    package var wireValue: String {
         switch self {
         case .enclave:
             return "enclave"
@@ -802,7 +802,7 @@ public enum KeyOrigin: Codable, Hashable, Sendable, WebRPCEnumKey {
         }
     }
 
-    public init(wireValue: String) {
+    package init(wireValue: String) {
         switch wireValue {
         case "enclave":
             self = .enclave
@@ -813,27 +813,27 @@ public enum KeyOrigin: Codable, Hashable, Sendable, WebRPCEnumKey {
         }
     }
 
-    public init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let value = try container.decode(String.self)
         self = KeyOrigin(wireValue: value)
     }
 
-    public func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(wireValue)
     }
 }
 
 
-public enum IdentityType: Codable, Hashable, Sendable, WebRPCEnumKey {
+package enum IdentityType: Codable, Hashable, Sendable, WebRPCEnumKey {
     case email
     case phone
     case oidc
     case passkey
     case unknown(String)
 
-    public var wireValue: String {
+    package var wireValue: String {
         switch self {
         case .email:
             return "email"
@@ -848,7 +848,7 @@ public enum IdentityType: Codable, Hashable, Sendable, WebRPCEnumKey {
         }
     }
 
-    public init(wireValue: String) {
+    package init(wireValue: String) {
         switch wireValue {
         case "email":
             self = .email
@@ -863,27 +863,27 @@ public enum IdentityType: Codable, Hashable, Sendable, WebRPCEnumKey {
         }
     }
 
-    public init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let value = try container.decode(String.self)
         self = IdentityType(wireValue: value)
     }
 
-    public func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(wireValue)
     }
 }
 
 
-public enum AuthMode: Codable, Hashable, Sendable, WebRPCEnumKey {
+package enum AuthMode: Codable, Hashable, Sendable, WebRPCEnumKey {
     case otp
     case idToken
     case authCode
     case authCodePkce
     case unknown(String)
 
-    public var wireValue: String {
+    package var wireValue: String {
         switch self {
         case .otp:
             return "otp"
@@ -898,7 +898,7 @@ public enum AuthMode: Codable, Hashable, Sendable, WebRPCEnumKey {
         }
     }
 
-    public init(wireValue: String) {
+    package init(wireValue: String) {
         switch wireValue {
         case "otp":
             self = .otp
@@ -913,25 +913,25 @@ public enum AuthMode: Codable, Hashable, Sendable, WebRPCEnumKey {
         }
     }
 
-    public init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let value = try container.decode(String.self)
         self = AuthMode(wireValue: value)
     }
 
-    public func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(wireValue)
     }
 }
 
 
-public enum SigningAlgorithm: Codable, Hashable, Sendable, WebRPCEnumKey {
+package enum SigningAlgorithm: Codable, Hashable, Sendable, WebRPCEnumKey {
     case ecdsaP256Sha256
     case ecdsaP256kEip191
     case unknown(String)
 
-    public var wireValue: String {
+    package var wireValue: String {
         switch self {
         case .ecdsaP256Sha256:
             return "ecdsa-p256-sha256"
@@ -942,7 +942,7 @@ public enum SigningAlgorithm: Codable, Hashable, Sendable, WebRPCEnumKey {
         }
     }
 
-    public init(wireValue: String) {
+    package init(wireValue: String) {
         switch wireValue {
         case "ecdsa-p256-sha256":
             self = .ecdsaP256Sha256
@@ -953,27 +953,27 @@ public enum SigningAlgorithm: Codable, Hashable, Sendable, WebRPCEnumKey {
         }
     }
 
-    public init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let value = try container.decode(String.self)
         self = SigningAlgorithm(wireValue: value)
     }
 
-    public func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(wireValue)
     }
 }
 
 
-public enum TransactionStatus: Codable, Hashable, Sendable, WebRPCEnumKey {
+package enum TransactionStatus: Codable, Hashable, Sendable, WebRPCEnumKey {
     case quoted
     case pending
     case executed
     case failed
     case unknown(String)
 
-    public var wireValue: String {
+    package var wireValue: String {
         switch self {
         case .quoted:
             return "quoted"
@@ -988,7 +988,7 @@ public enum TransactionStatus: Codable, Hashable, Sendable, WebRPCEnumKey {
         }
     }
 
-    public init(wireValue: String) {
+    package init(wireValue: String) {
         switch wireValue {
         case "quoted":
             self = .quoted
@@ -1003,13 +1003,13 @@ public enum TransactionStatus: Codable, Hashable, Sendable, WebRPCEnumKey {
         }
     }
 
-    public init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let value = try container.decode(String.self)
         self = TransactionStatus(wireValue: value)
     }
 
-    public func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(wireValue)
     }
@@ -1017,12 +1017,12 @@ public enum TransactionStatus: Codable, Hashable, Sendable, WebRPCEnumKey {
 
 
 
-public struct Identity: Codable, Sendable {
-    public let type: IdentityType
-    public let iss: String?
-    public let sub: String
+package struct Identity: Codable, Sendable {
+    package let type: IdentityType
+    package let iss: String?
+    package let sub: String
 
-    public init(type: IdentityType, iss: String? = nil, sub: String
+    package init(type: IdentityType, iss: String? = nil, sub: String
     ) {
         self.type = type
         self.iss = iss
@@ -1037,12 +1037,12 @@ public struct Identity: Codable, Sendable {
 
 
 
-public struct IdentityExtras: Codable, Sendable {
-    public let email: String?
-    public let phone: String?
-    public let emailVerified: Bool?
+package struct IdentityExtras: Codable, Sendable {
+    package let email: String?
+    package let phone: String?
+    package let emailVerified: Bool?
 
-    public init(email: String? = nil, phone: String? = nil, emailVerified: Bool? = nil
+    package init(email: String? = nil, phone: String? = nil, emailVerified: Bool? = nil
     ) {
         self.email = email
         self.phone = phone
@@ -1057,13 +1057,13 @@ public struct IdentityExtras: Codable, Sendable {
 
 
 
-public struct Wallet: Codable, Sendable {
-    public let id: String
-    public let type: WalletType
-    public let address: String
-    public let reference: String?
+package struct Wallet: Codable, Sendable {
+    package let id: String
+    package let type: WalletType
+    package let address: String
+    package let reference: String?
 
-    public init(id: String, type: WalletType, address: String, reference: String? = nil
+    package init(id: String, type: WalletType, address: String, reference: String? = nil
     ) {
         self.id = id
         self.type = type
@@ -1080,13 +1080,13 @@ public struct Wallet: Codable, Sendable {
 
 
 
-public struct AuthID: Codable, Sendable {
-    public let scope: String
-    public let authMode: AuthMode
-    public let identityType: IdentityType
-    public let verifier: String
+package struct AuthID: Codable, Sendable {
+    package let scope: String
+    package let authMode: AuthMode
+    package let identityType: IdentityType
+    package let verifier: String
 
-    public init(scope: String, authMode: AuthMode, identityType: IdentityType, verifier: String
+    package init(scope: String, authMode: AuthMode, identityType: IdentityType, verifier: String
     ) {
         self.scope = scope
         self.authMode = authMode
@@ -1103,17 +1103,17 @@ public struct AuthID: Codable, Sendable {
 
 
 
-public struct FeeToken: Codable, Sendable {
-    public let network: String
-    public let name: String
-    public let symbol: String
-    public let type: String
-    public let decimals: UInt32?
-    public let logoUrl: String?
-    public let contractAddress: String?
-    public let tokenId: String?
+package struct FeeToken: Codable, Sendable {
+    package let network: String
+    package let name: String
+    package let symbol: String
+    package let type: String
+    package let decimals: UInt32?
+    package let logoUrl: String?
+    package let contractAddress: String?
+    package let tokenId: String?
 
-    public init(network: String, name: String, symbol: String, type: String, decimals: UInt32? = nil, logoUrl: String? = nil, contractAddress: String? = nil, tokenId: String? = nil
+    package init(network: String, name: String, symbol: String, type: String, decimals: UInt32? = nil, logoUrl: String? = nil, contractAddress: String? = nil, tokenId: String? = nil
     ) {
         self.network = network
         self.name = name
@@ -1138,12 +1138,12 @@ public struct FeeToken: Codable, Sendable {
 
 
 
-public struct FeeOption: Codable, Sendable {
-    public let token: FeeToken
-    public let value: String
-    public let displayValue: String
+package struct FeeOption: Codable, Sendable {
+    package let token: FeeToken
+    package let value: String
+    package let displayValue: String
 
-    public init(token: FeeToken, value: String, displayValue: String
+    package init(token: FeeToken, value: String, displayValue: String
     ) {
         self.token = token
         self.value = value
@@ -1158,10 +1158,10 @@ public struct FeeOption: Codable, Sendable {
 
 
 
-public struct FeeOptionSelection: Codable, Sendable {
-    public let token: String
+package struct FeeOptionSelection: Codable, Sendable {
+    package let token: String
 
-    public init(token: String
+    package init(token: String
     ) {
         self.token = token
     }
@@ -1172,11 +1172,11 @@ public struct FeeOptionSelection: Codable, Sendable {
 
 
 
-public struct Page: Codable, Sendable {
-    public let limit: UInt32?
-    public let cursor: String?
+package struct Page: Codable, Sendable {
+    package let limit: UInt32?
+    package let cursor: String?
 
-    public init(limit: UInt32? = nil, cursor: String? = nil
+    package init(limit: UInt32? = nil, cursor: String? = nil
     ) {
         self.limit = limit
         self.cursor = cursor
@@ -1189,13 +1189,13 @@ public struct Page: Codable, Sendable {
 
 
 
-public struct CommitVerifierRequest: Codable, Sendable {
-    public let identityType: IdentityType
-    public let authMode: AuthMode
-    public let metadata: [String: String]
-    public let handle: String?
+package struct CommitVerifierRequest: Codable, Sendable {
+    package let identityType: IdentityType
+    package let authMode: AuthMode
+    package let metadata: [String: String]
+    package let handle: String?
 
-    public init(identityType: IdentityType, authMode: AuthMode, metadata: [String: String], handle: String? = nil
+    package init(identityType: IdentityType, authMode: AuthMode, metadata: [String: String], handle: String? = nil
     ) {
         self.identityType = identityType
         self.authMode = authMode
@@ -1212,12 +1212,12 @@ public struct CommitVerifierRequest: Codable, Sendable {
 
 
 
-public struct CommitVerifierResponse: Codable, Sendable {
-    public let verifier: String
-    public let loginHint: String?
-    public let challenge: String
+package struct CommitVerifierResponse: Codable, Sendable {
+    package let verifier: String
+    package let loginHint: String?
+    package let challenge: String
 
-    public init(verifier: String, loginHint: String? = nil, challenge: String
+    package init(verifier: String, loginHint: String? = nil, challenge: String
     ) {
         self.verifier = verifier
         self.loginHint = loginHint
@@ -1232,14 +1232,14 @@ public struct CommitVerifierResponse: Codable, Sendable {
 
 
 
-public struct CompleteAuthRequest: Codable, Sendable {
-    public let identityType: IdentityType
-    public let authMode: AuthMode
-    public let verifier: String
-    public let answer: String
-    public let lifetime: UInt32?
+package struct CompleteAuthRequest: Codable, Sendable {
+    package let identityType: IdentityType
+    package let authMode: AuthMode
+    package let verifier: String
+    package let answer: String
+    package let lifetime: UInt32?
 
-    public init(identityType: IdentityType, authMode: AuthMode, verifier: String, answer: String, lifetime: UInt32? = nil
+    package init(identityType: IdentityType, authMode: AuthMode, verifier: String, answer: String, lifetime: UInt32? = nil
     ) {
         self.identityType = identityType
         self.authMode = authMode
@@ -1258,14 +1258,14 @@ public struct CompleteAuthRequest: Codable, Sendable {
 
 
 
-public struct CompleteAuthResponse: Codable, Sendable {
-    public let identity: Identity
-    public let wallets: [Wallet]
-    public let page: Page?
-    public let email: String?
-    public let credential: CredentialInfo
+package struct CompleteAuthResponse: Codable, Sendable {
+    package let identity: Identity
+    package let wallets: [Wallet]
+    package let page: Page?
+    package let email: String?
+    package let credential: CredentialInfo
 
-    public init(identity: Identity, wallets: [Wallet], page: Page? = nil, email: String? = nil, credential: CredentialInfo
+    package init(identity: Identity, wallets: [Wallet], page: Page? = nil, email: String? = nil, credential: CredentialInfo
     ) {
         self.identity = identity
         self.wallets = wallets
@@ -1284,11 +1284,11 @@ public struct CompleteAuthResponse: Codable, Sendable {
 
 
 
-public struct CreateWalletRequest: Codable, Sendable {
-    public let type: WalletType
-    public let reference: String?
+package struct CreateWalletRequest: Codable, Sendable {
+    package let type: WalletType
+    package let reference: String?
 
-    public init(type: WalletType, reference: String? = nil
+    package init(type: WalletType, reference: String? = nil
     ) {
         self.type = type
         self.reference = reference
@@ -1301,10 +1301,10 @@ public struct CreateWalletRequest: Codable, Sendable {
 
 
 
-public struct CreateWalletResponse: Codable, Sendable {
-    public let wallet: Wallet
+package struct CreateWalletResponse: Codable, Sendable {
+    package let wallet: Wallet
 
-    public init(wallet: Wallet
+    package init(wallet: Wallet
     ) {
         self.wallet = wallet
     }
@@ -1315,10 +1315,10 @@ public struct CreateWalletResponse: Codable, Sendable {
 
 
 
-public struct UseWalletRequest: Codable, Sendable {
-    public let walletId: String
+package struct UseWalletRequest: Codable, Sendable {
+    package let walletId: String
 
-    public init(walletId: String
+    package init(walletId: String
     ) {
         self.walletId = walletId
     }
@@ -1329,10 +1329,10 @@ public struct UseWalletRequest: Codable, Sendable {
 
 
 
-public struct UseWalletResponse: Codable, Sendable {
-    public let wallet: Wallet
+package struct UseWalletResponse: Codable, Sendable {
+    package let wallet: Wallet
 
-    public init(wallet: Wallet
+    package init(wallet: Wallet
     ) {
         self.wallet = wallet
     }
@@ -1343,12 +1343,12 @@ public struct UseWalletResponse: Codable, Sendable {
 
 
 
-public struct SignMessageRequest: Codable, Sendable {
-    public let network: String
-    public let walletId: String
-    public let message: String
+package struct SignMessageRequest: Codable, Sendable {
+    package let network: String
+    package let walletId: String
+    package let message: String
 
-    public init(network: String, walletId: String, message: String
+    package init(network: String, walletId: String, message: String
     ) {
         self.network = network
         self.walletId = walletId
@@ -1363,10 +1363,10 @@ public struct SignMessageRequest: Codable, Sendable {
 
 
 
-public struct SignMessageResponse: Codable, Sendable {
-    public let signature: String
+package struct SignMessageResponse: Codable, Sendable {
+    package let signature: String
 
-    public init(signature: String
+    package init(signature: String
     ) {
         self.signature = signature
     }
@@ -1377,12 +1377,12 @@ public struct SignMessageResponse: Codable, Sendable {
 
 
 
-public struct SignTypedDataRequest: Codable, Sendable {
-    public let network: String
-    public let walletId: String
-    public let typedData: WebRPCJSONValue
+package struct SignTypedDataRequest: Codable, Sendable {
+    package let network: String
+    package let walletId: String
+    package let typedData: WebRPCJSONValue
 
-    public init(network: String, walletId: String, typedData: WebRPCJSONValue
+    package init(network: String, walletId: String, typedData: WebRPCJSONValue
     ) {
         self.network = network
         self.walletId = walletId
@@ -1397,10 +1397,10 @@ public struct SignTypedDataRequest: Codable, Sendable {
 
 
 
-public struct SignTypedDataResponse: Codable, Sendable {
-    public let signature: String
+package struct SignTypedDataResponse: Codable, Sendable {
+    package let signature: String
 
-    public init(signature: String
+    package init(signature: String
     ) {
         self.signature = signature
     }
@@ -1411,11 +1411,11 @@ public struct SignTypedDataResponse: Codable, Sendable {
 
 
 
-public struct AbiArg: Codable, Sendable {
-    public let type: String
-    public let value: WebRPCJSONValue
+package struct AbiArg: Codable, Sendable {
+    package let type: String
+    package let value: WebRPCJSONValue
 
-    public init(type: String, value: WebRPCJSONValue
+    package init(type: String, value: WebRPCJSONValue
     ) {
         self.type = type
         self.value = value
@@ -1428,11 +1428,11 @@ public struct AbiArg: Codable, Sendable {
 
 
 
-public struct ListAccessRequest: Codable, Sendable {
-    public let walletId: String
-    public let page: Page?
+package struct ListAccessRequest: Codable, Sendable {
+    package let walletId: String
+    package let page: Page?
 
-    public init(walletId: String, page: Page? = nil
+    package init(walletId: String, page: Page? = nil
     ) {
         self.walletId = walletId
         self.page = page
@@ -1445,11 +1445,11 @@ public struct ListAccessRequest: Codable, Sendable {
 
 
 
-public struct ListAccessResponse: Codable, Sendable {
-    public let credentials: [CredentialInfo]
-    public let page: Page?
+package struct ListAccessResponse: Codable, Sendable {
+    package let credentials: [CredentialInfo]
+    package let page: Page?
 
-    public init(credentials: [CredentialInfo], page: Page? = nil
+    package init(credentials: [CredentialInfo], page: Page? = nil
     ) {
         self.credentials = credentials
         self.page = page
@@ -1462,10 +1462,10 @@ public struct ListAccessResponse: Codable, Sendable {
 
 
 
-public struct ListWalletsRequest: Codable, Sendable {
-    public let page: Page?
+package struct ListWalletsRequest: Codable, Sendable {
+    package let page: Page?
 
-    public init(page: Page? = nil
+    package init(page: Page? = nil
     ) {
         self.page = page
     }
@@ -1476,11 +1476,11 @@ public struct ListWalletsRequest: Codable, Sendable {
 
 
 
-public struct ListWalletsResponse: Codable, Sendable {
-    public let wallets: [Wallet]
-    public let page: Page?
+package struct ListWalletsResponse: Codable, Sendable {
+    package let wallets: [Wallet]
+    package let page: Page?
 
-    public init(wallets: [Wallet], page: Page? = nil
+    package init(wallets: [Wallet], page: Page? = nil
     ) {
         self.wallets = wallets
         self.page = page
@@ -1493,11 +1493,11 @@ public struct ListWalletsResponse: Codable, Sendable {
 
 
 
-public struct RevokeAccessRequest: Codable, Sendable {
-    public let targetCredentialId: String
-    public let walletId: String
+package struct RevokeAccessRequest: Codable, Sendable {
+    package let targetCredentialId: String
+    package let walletId: String
 
-    public init(targetCredentialId: String, walletId: String
+    package init(targetCredentialId: String, walletId: String
     ) {
         self.targetCredentialId = targetCredentialId
         self.walletId = walletId
@@ -1510,10 +1510,10 @@ public struct RevokeAccessRequest: Codable, Sendable {
 
 
 
-public struct RevokeAccessResponse: Codable, Sendable {
-    public let ok: Bool
+package struct RevokeAccessResponse: Codable, Sendable {
+    package let ok: Bool
 
-    public init(ok: Bool
+    package init(ok: Bool
     ) {
         self.ok = ok
     }
@@ -1524,15 +1524,15 @@ public struct RevokeAccessResponse: Codable, Sendable {
 
 
 
-public struct PrepareEthereumTransactionRequest: Codable, Sendable {
-    public let network: String
-    public let walletId: String
-    public let to: String
-    public let value: String
-    public let data: String?
-    public let mode: TransactionMode
+package struct PrepareEthereumTransactionRequest: Codable, Sendable {
+    package let network: String
+    package let walletId: String
+    package let to: String
+    package let value: String
+    package let data: String?
+    package let mode: TransactionMode
 
-    public init(network: String, walletId: String, to: String, value: String, data: String? = nil, mode: TransactionMode
+    package init(network: String, walletId: String, to: String, value: String, data: String? = nil, mode: TransactionMode
     ) {
         self.network = network
         self.walletId = walletId
@@ -1553,15 +1553,15 @@ public struct PrepareEthereumTransactionRequest: Codable, Sendable {
 
 
 
-public struct PrepareEthereumContractCallRequest: Codable, Sendable {
-    public let network: String
-    public let walletId: String
-    public let contract: String
-    public let method: String
-    public let args: [AbiArg]?
-    public let mode: TransactionMode
+package struct PrepareEthereumContractCallRequest: Codable, Sendable {
+    package let network: String
+    package let walletId: String
+    package let contract: String
+    package let method: String
+    package let args: [AbiArg]?
+    package let mode: TransactionMode
 
-    public init(network: String, walletId: String, contract: String, method: String, args: [AbiArg]? = nil, mode: TransactionMode
+    package init(network: String, walletId: String, contract: String, method: String, args: [AbiArg]? = nil, mode: TransactionMode
     ) {
         self.network = network
         self.walletId = walletId
@@ -1582,11 +1582,11 @@ public struct PrepareEthereumContractCallRequest: Codable, Sendable {
 
 
 
-public struct ExecuteRequest: Codable, Sendable {
-    public let txnId: String
-    public let feeOption: FeeOptionSelection?
+package struct ExecuteRequest: Codable, Sendable {
+    package let txnId: String
+    package let feeOption: FeeOptionSelection?
 
-    public init(txnId: String, feeOption: FeeOptionSelection? = nil
+    package init(txnId: String, feeOption: FeeOptionSelection? = nil
     ) {
         self.txnId = txnId
         self.feeOption = feeOption
@@ -1599,10 +1599,10 @@ public struct ExecuteRequest: Codable, Sendable {
 
 
 
-public struct TransactionStatusRequest: Codable, Sendable {
-    public let txnId: String
+package struct TransactionStatusRequest: Codable, Sendable {
+    package let txnId: String
 
-    public init(txnId: String
+    package init(txnId: String
     ) {
         self.txnId = txnId
     }
@@ -1613,14 +1613,14 @@ public struct TransactionStatusRequest: Codable, Sendable {
 
 
 
-public struct PrepareResponse: Codable, Sendable {
-    public let txnId: String
-    public let status: TransactionStatus
-    public let feeOptions: [FeeOption]
-    public let sponsored: Bool
-    public let expiresAt: String
+package struct PrepareResponse: Codable, Sendable {
+    package let txnId: String
+    package let status: TransactionStatus
+    package let feeOptions: [FeeOption]
+    package let sponsored: Bool
+    package let expiresAt: String
 
-    public init(txnId: String, status: TransactionStatus, feeOptions: [FeeOption], sponsored: Bool, expiresAt: String
+    package init(txnId: String, status: TransactionStatus, feeOptions: [FeeOption], sponsored: Bool, expiresAt: String
     ) {
         self.txnId = txnId
         self.status = status
@@ -1639,10 +1639,10 @@ public struct PrepareResponse: Codable, Sendable {
 
 
 
-public struct ExecuteResponse: Codable, Sendable {
-    public let status: TransactionStatus
+package struct ExecuteResponse: Codable, Sendable {
+    package let status: TransactionStatus
 
-    public init(status: TransactionStatus
+    package init(status: TransactionStatus
     ) {
         self.status = status
     }
@@ -1653,11 +1653,11 @@ public struct ExecuteResponse: Codable, Sendable {
 
 
 
-public struct TransactionStatusResponse: Codable, Sendable {
-    public let status: TransactionStatus
-    public let txnHash: String?
+package struct TransactionStatusResponse: Codable, Sendable {
+    package let status: TransactionStatus
+    package let txnHash: String?
 
-    public init(status: TransactionStatus, txnHash: String? = nil
+    package init(status: TransactionStatus, txnHash: String? = nil
     ) {
         self.status = status
         self.txnHash = txnHash
@@ -1670,12 +1670,12 @@ public struct TransactionStatusResponse: Codable, Sendable {
 
 
 
-public struct CredentialInfo: Codable, Sendable {
-    public let credentialId: String
-    public let expiresAt: String
-    public let isCaller: Bool
+package struct CredentialInfo: Codable, Sendable {
+    package let credentialId: String
+    package let expiresAt: String
+    package let isCaller: Bool
 
-    public init(credentialId: String, expiresAt: String, isCaller: Bool
+    package init(credentialId: String, expiresAt: String, isCaller: Bool
     ) {
         self.credentialId = credentialId
         self.expiresAt = expiresAt
@@ -1690,14 +1690,14 @@ public struct CredentialInfo: Codable, Sendable {
 
 
 
-public struct IsValidMessageSignatureRequest: Codable, Sendable {
-    public let network: String?
-    public let walletAddress: String?
-    public let walletId: String?
-    public let message: String
-    public let signature: String
+package struct IsValidMessageSignatureRequest: Codable, Sendable {
+    package let network: String?
+    package let walletAddress: String?
+    package let walletId: String?
+    package let message: String
+    package let signature: String
 
-    public init(network: String? = nil, walletAddress: String? = nil, walletId: String? = nil, message: String, signature: String
+    package init(network: String? = nil, walletAddress: String? = nil, walletId: String? = nil, message: String, signature: String
     ) {
         self.network = network
         self.walletAddress = walletAddress
@@ -1716,10 +1716,10 @@ public struct IsValidMessageSignatureRequest: Codable, Sendable {
 
 
 
-public struct IsValidMessageSignatureResponse: Codable, Sendable {
-    public let isValid: Bool
+package struct IsValidMessageSignatureResponse: Codable, Sendable {
+    package let isValid: Bool
 
-    public init(isValid: Bool
+    package init(isValid: Bool
     ) {
         self.isValid = isValid
     }
@@ -1730,14 +1730,14 @@ public struct IsValidMessageSignatureResponse: Codable, Sendable {
 
 
 
-public struct IsValidTypedDataSignatureRequest: Codable, Sendable {
-    public let network: String?
-    public let walletAddress: String?
-    public let walletId: String?
-    public let typedData: WebRPCJSONValue
-    public let signature: String
+package struct IsValidTypedDataSignatureRequest: Codable, Sendable {
+    package let network: String?
+    package let walletAddress: String?
+    package let walletId: String?
+    package let typedData: WebRPCJSONValue
+    package let signature: String
 
-    public init(network: String? = nil, walletAddress: String? = nil, walletId: String? = nil, typedData: WebRPCJSONValue, signature: String
+    package init(network: String? = nil, walletAddress: String? = nil, walletId: String? = nil, typedData: WebRPCJSONValue, signature: String
     ) {
         self.network = network
         self.walletAddress = walletAddress
@@ -1756,10 +1756,10 @@ public struct IsValidTypedDataSignatureRequest: Codable, Sendable {
 
 
 
-public struct IsValidTypedDataSignatureResponse: Codable, Sendable {
-    public let isValid: Bool
+package struct IsValidTypedDataSignatureResponse: Codable, Sendable {
+    package let isValid: Bool
 
-    public init(isValid: Bool
+    package init(isValid: Bool
     ) {
         self.isValid = isValid
     }
@@ -1770,12 +1770,12 @@ public struct IsValidTypedDataSignatureResponse: Codable, Sendable {
 
 
 
-public struct GetIDTokenRequest: Codable, Sendable {
-    public let walletId: String
-    public let ttlSeconds: UInt32?
-    public let customClaims: [String: WebRPCJSONValue]?
+package struct GetIDTokenRequest: Codable, Sendable {
+    package let walletId: String
+    package let ttlSeconds: UInt32?
+    package let customClaims: [String: WebRPCJSONValue]?
 
-    public init(walletId: String, ttlSeconds: UInt32? = nil, customClaims: [String: WebRPCJSONValue]? = nil
+    package init(walletId: String, ttlSeconds: UInt32? = nil, customClaims: [String: WebRPCJSONValue]? = nil
     ) {
         self.walletId = walletId
         self.ttlSeconds = ttlSeconds
@@ -1790,10 +1790,10 @@ public struct GetIDTokenRequest: Codable, Sendable {
 
 
 
-public struct GetIDTokenResponse: Codable, Sendable {
-    public let idToken: String
+package struct GetIDTokenResponse: Codable, Sendable {
+    package let idToken: String
 
-    public init(idToken: String
+    package init(idToken: String
     ) {
         self.idToken = idToken
     }
@@ -1804,16 +1804,16 @@ public struct GetIDTokenResponse: Codable, Sendable {
 
 
 
-public struct JWK: Codable, Sendable {
-    public let alg: String
-    public let crv: String
-    public let kid: String
-    public let kty: String
-    public let use: String
-    public let x: String
-    public let y: String
+package struct JWK: Codable, Sendable {
+    package let alg: String
+    package let crv: String
+    package let kid: String
+    package let kty: String
+    package let use: String
+    package let x: String
+    package let y: String
 
-    public init(alg: String, crv: String, kid: String, kty: String, use: String, x: String, y: String
+    package init(alg: String, crv: String, kid: String, kty: String, use: String, x: String, y: String
     ) {
         self.alg = alg
         self.crv = crv
@@ -1839,20 +1839,20 @@ public struct JWK: Codable, Sendable {
 
 
 
-public enum WaasAPI {
-    public static let basePath = "/v1/Waas"
+package enum WaasAPI {
+    package static let basePath = "/v1/Waas"
 
-    public enum CommitVerifier {
-        public static let path = "/CommitVerifier"
-        public static let urlPath = "/v1/Waas/CommitVerifier"
-        public static func encodeRequest(
+    package enum CommitVerifier {
+        package static let path = "/CommitVerifier"
+        package static let urlPath = "/v1/Waas/CommitVerifier"
+        package static func encodeRequest(
             _ request: CommitVerifierRequest,
             encoder: JSONEncoder = WebRPCJSON.makeEncoder()
         ) throws -> Data {
             try encoder.encode(request)
         }
 
-        public static func decodeResponse(
+        package static func decodeResponse(
             _ data: Data,
             decoder: JSONDecoder = WebRPCJSON.makeDecoder()
         ) throws -> CommitVerifierResponse {
@@ -1860,17 +1860,17 @@ public enum WaasAPI {
         }
     }
 
-    public enum CompleteAuth {
-        public static let path = "/CompleteAuth"
-        public static let urlPath = "/v1/Waas/CompleteAuth"
-        public static func encodeRequest(
+    package enum CompleteAuth {
+        package static let path = "/CompleteAuth"
+        package static let urlPath = "/v1/Waas/CompleteAuth"
+        package static func encodeRequest(
             _ request: CompleteAuthRequest,
             encoder: JSONEncoder = WebRPCJSON.makeEncoder()
         ) throws -> Data {
             try encoder.encode(request)
         }
 
-        public static func decodeResponse(
+        package static func decodeResponse(
             _ data: Data,
             decoder: JSONDecoder = WebRPCJSON.makeDecoder()
         ) throws -> CompleteAuthResponse {
@@ -1878,17 +1878,17 @@ public enum WaasAPI {
         }
     }
 
-    public enum CreateWallet {
-        public static let path = "/CreateWallet"
-        public static let urlPath = "/v1/Waas/CreateWallet"
-        public static func encodeRequest(
+    package enum CreateWallet {
+        package static let path = "/CreateWallet"
+        package static let urlPath = "/v1/Waas/CreateWallet"
+        package static func encodeRequest(
             _ request: CreateWalletRequest,
             encoder: JSONEncoder = WebRPCJSON.makeEncoder()
         ) throws -> Data {
             try encoder.encode(request)
         }
 
-        public static func decodeResponse(
+        package static func decodeResponse(
             _ data: Data,
             decoder: JSONDecoder = WebRPCJSON.makeDecoder()
         ) throws -> CreateWalletResponse {
@@ -1896,17 +1896,17 @@ public enum WaasAPI {
         }
     }
 
-    public enum UseWallet {
-        public static let path = "/UseWallet"
-        public static let urlPath = "/v1/Waas/UseWallet"
-        public static func encodeRequest(
+    package enum UseWallet {
+        package static let path = "/UseWallet"
+        package static let urlPath = "/v1/Waas/UseWallet"
+        package static func encodeRequest(
             _ request: UseWalletRequest,
             encoder: JSONEncoder = WebRPCJSON.makeEncoder()
         ) throws -> Data {
             try encoder.encode(request)
         }
 
-        public static func decodeResponse(
+        package static func decodeResponse(
             _ data: Data,
             decoder: JSONDecoder = WebRPCJSON.makeDecoder()
         ) throws -> UseWalletResponse {
@@ -1914,17 +1914,17 @@ public enum WaasAPI {
         }
     }
 
-    public enum SignMessage {
-        public static let path = "/SignMessage"
-        public static let urlPath = "/v1/Waas/SignMessage"
-        public static func encodeRequest(
+    package enum SignMessage {
+        package static let path = "/SignMessage"
+        package static let urlPath = "/v1/Waas/SignMessage"
+        package static func encodeRequest(
             _ request: SignMessageRequest,
             encoder: JSONEncoder = WebRPCJSON.makeEncoder()
         ) throws -> Data {
             try encoder.encode(request)
         }
 
-        public static func decodeResponse(
+        package static func decodeResponse(
             _ data: Data,
             decoder: JSONDecoder = WebRPCJSON.makeDecoder()
         ) throws -> SignMessageResponse {
@@ -1932,17 +1932,17 @@ public enum WaasAPI {
         }
     }
 
-    public enum SignTypedData {
-        public static let path = "/SignTypedData"
-        public static let urlPath = "/v1/Waas/SignTypedData"
-        public static func encodeRequest(
+    package enum SignTypedData {
+        package static let path = "/SignTypedData"
+        package static let urlPath = "/v1/Waas/SignTypedData"
+        package static func encodeRequest(
             _ request: SignTypedDataRequest,
             encoder: JSONEncoder = WebRPCJSON.makeEncoder()
         ) throws -> Data {
             try encoder.encode(request)
         }
 
-        public static func decodeResponse(
+        package static func decodeResponse(
             _ data: Data,
             decoder: JSONDecoder = WebRPCJSON.makeDecoder()
         ) throws -> SignTypedDataResponse {
@@ -1950,17 +1950,17 @@ public enum WaasAPI {
         }
     }
 
-    public enum PrepareEthereumTransaction {
-        public static let path = "/PrepareEthereumTransaction"
-        public static let urlPath = "/v1/Waas/PrepareEthereumTransaction"
-        public static func encodeRequest(
+    package enum PrepareEthereumTransaction {
+        package static let path = "/PrepareEthereumTransaction"
+        package static let urlPath = "/v1/Waas/PrepareEthereumTransaction"
+        package static func encodeRequest(
             _ request: PrepareEthereumTransactionRequest,
             encoder: JSONEncoder = WebRPCJSON.makeEncoder()
         ) throws -> Data {
             try encoder.encode(request)
         }
 
-        public static func decodeResponse(
+        package static func decodeResponse(
             _ data: Data,
             decoder: JSONDecoder = WebRPCJSON.makeDecoder()
         ) throws -> PrepareResponse {
@@ -1968,17 +1968,17 @@ public enum WaasAPI {
         }
     }
 
-    public enum PrepareEthereumContractCall {
-        public static let path = "/PrepareEthereumContractCall"
-        public static let urlPath = "/v1/Waas/PrepareEthereumContractCall"
-        public static func encodeRequest(
+    package enum PrepareEthereumContractCall {
+        package static let path = "/PrepareEthereumContractCall"
+        package static let urlPath = "/v1/Waas/PrepareEthereumContractCall"
+        package static func encodeRequest(
             _ request: PrepareEthereumContractCallRequest,
             encoder: JSONEncoder = WebRPCJSON.makeEncoder()
         ) throws -> Data {
             try encoder.encode(request)
         }
 
-        public static func decodeResponse(
+        package static func decodeResponse(
             _ data: Data,
             decoder: JSONDecoder = WebRPCJSON.makeDecoder()
         ) throws -> PrepareResponse {
@@ -1986,17 +1986,17 @@ public enum WaasAPI {
         }
     }
 
-    public enum Execute {
-        public static let path = "/Execute"
-        public static let urlPath = "/v1/Waas/Execute"
-        public static func encodeRequest(
+    package enum Execute {
+        package static let path = "/Execute"
+        package static let urlPath = "/v1/Waas/Execute"
+        package static func encodeRequest(
             _ request: ExecuteRequest,
             encoder: JSONEncoder = WebRPCJSON.makeEncoder()
         ) throws -> Data {
             try encoder.encode(request)
         }
 
-        public static func decodeResponse(
+        package static func decodeResponse(
             _ data: Data,
             decoder: JSONDecoder = WebRPCJSON.makeDecoder()
         ) throws -> ExecuteResponse {
@@ -2004,17 +2004,17 @@ public enum WaasAPI {
         }
     }
 
-    public enum TransactionStatusMethod {
-        public static let path = "/TransactionStatus"
-        public static let urlPath = "/v1/Waas/TransactionStatus"
-        public static func encodeRequest(
+    package enum TransactionStatusMethod {
+        package static let path = "/TransactionStatus"
+        package static let urlPath = "/v1/Waas/TransactionStatus"
+        package static func encodeRequest(
             _ request: TransactionStatusRequest,
             encoder: JSONEncoder = WebRPCJSON.makeEncoder()
         ) throws -> Data {
             try encoder.encode(request)
         }
 
-        public static func decodeResponse(
+        package static func decodeResponse(
             _ data: Data,
             decoder: JSONDecoder = WebRPCJSON.makeDecoder()
         ) throws -> TransactionStatusResponse {
@@ -2022,17 +2022,17 @@ public enum WaasAPI {
         }
     }
 
-    public enum ListAccess {
-        public static let path = "/ListAccess"
-        public static let urlPath = "/v1/Waas/ListAccess"
-        public static func encodeRequest(
+    package enum ListAccess {
+        package static let path = "/ListAccess"
+        package static let urlPath = "/v1/Waas/ListAccess"
+        package static func encodeRequest(
             _ request: ListAccessRequest,
             encoder: JSONEncoder = WebRPCJSON.makeEncoder()
         ) throws -> Data {
             try encoder.encode(request)
         }
 
-        public static func decodeResponse(
+        package static func decodeResponse(
             _ data: Data,
             decoder: JSONDecoder = WebRPCJSON.makeDecoder()
         ) throws -> ListAccessResponse {
@@ -2040,17 +2040,17 @@ public enum WaasAPI {
         }
     }
 
-    public enum RevokeAccess {
-        public static let path = "/RevokeAccess"
-        public static let urlPath = "/v1/Waas/RevokeAccess"
-        public static func encodeRequest(
+    package enum RevokeAccess {
+        package static let path = "/RevokeAccess"
+        package static let urlPath = "/v1/Waas/RevokeAccess"
+        package static func encodeRequest(
             _ request: RevokeAccessRequest,
             encoder: JSONEncoder = WebRPCJSON.makeEncoder()
         ) throws -> Data {
             try encoder.encode(request)
         }
 
-        public static func decodeResponse(
+        package static func decodeResponse(
             _ data: Data,
             decoder: JSONDecoder = WebRPCJSON.makeDecoder()
         ) throws -> RevokeAccessResponse {
@@ -2058,17 +2058,17 @@ public enum WaasAPI {
         }
     }
 
-    public enum ListWallets {
-        public static let path = "/ListWallets"
-        public static let urlPath = "/v1/Waas/ListWallets"
-        public static func encodeRequest(
+    package enum ListWallets {
+        package static let path = "/ListWallets"
+        package static let urlPath = "/v1/Waas/ListWallets"
+        package static func encodeRequest(
             _ request: ListWalletsRequest,
             encoder: JSONEncoder = WebRPCJSON.makeEncoder()
         ) throws -> Data {
             try encoder.encode(request)
         }
 
-        public static func decodeResponse(
+        package static func decodeResponse(
             _ data: Data,
             decoder: JSONDecoder = WebRPCJSON.makeDecoder()
         ) throws -> ListWalletsResponse {
@@ -2076,17 +2076,17 @@ public enum WaasAPI {
         }
     }
 
-    public enum GetIDToken {
-        public static let path = "/GetIDToken"
-        public static let urlPath = "/v1/Waas/GetIDToken"
-        public static func encodeRequest(
+    package enum GetIDToken {
+        package static let path = "/GetIDToken"
+        package static let urlPath = "/v1/Waas/GetIDToken"
+        package static func encodeRequest(
             _ request: GetIDTokenRequest,
             encoder: JSONEncoder = WebRPCJSON.makeEncoder()
         ) throws -> Data {
             try encoder.encode(request)
         }
 
-        public static func decodeResponse(
+        package static func decodeResponse(
             _ data: Data,
             decoder: JSONDecoder = WebRPCJSON.makeDecoder()
         ) throws -> GetIDTokenResponse {
@@ -2095,12 +2095,12 @@ public enum WaasAPI {
     }
 }
 
-public struct WaasClient: Sendable {
-    public let baseURL: String
-    public let transport: any WebRPCTransport
-    public let headers: @Sendable () -> [String: String]
+package struct WaasClient: Sendable {
+    package let baseURL: String
+    package let transport: any WebRPCTransport
+    package let headers: @Sendable () -> [String: String]
 
-    public init(
+    package init(
         baseURL: String,
         transport: any WebRPCTransport = URLSessionWebRPCTransport(),
         headers: @escaping @Sendable () -> [String: String] = { [:] }
@@ -2110,7 +2110,7 @@ public struct WaasClient: Sendable {
         self.headers = headers
     }
 
-    public func commitVerifier(_ request:CommitVerifierRequest) async throws -> CommitVerifierResponse {
+    package func commitVerifier(_ request:CommitVerifierRequest) async throws -> CommitVerifierResponse {
         let body = try WaasAPI.CommitVerifier.encodeRequest(request)
         let requestHeaders = makeWebRPCHeaders(
             headers(),
@@ -2126,7 +2126,7 @@ public struct WaasClient: Sendable {
         )
     }
 
-    public func completeAuth(_ request:CompleteAuthRequest) async throws -> CompleteAuthResponse {
+    package func completeAuth(_ request:CompleteAuthRequest) async throws -> CompleteAuthResponse {
         let body = try WaasAPI.CompleteAuth.encodeRequest(request)
         let requestHeaders = makeWebRPCHeaders(
             headers(),
@@ -2142,7 +2142,7 @@ public struct WaasClient: Sendable {
         )
     }
 
-    public func createWallet(_ request:CreateWalletRequest) async throws -> CreateWalletResponse {
+    package func createWallet(_ request:CreateWalletRequest) async throws -> CreateWalletResponse {
         let body = try WaasAPI.CreateWallet.encodeRequest(request)
         let requestHeaders = makeWebRPCHeaders(
             headers(),
@@ -2158,7 +2158,7 @@ public struct WaasClient: Sendable {
         )
     }
 
-    public func useWallet(_ request:UseWalletRequest) async throws -> UseWalletResponse {
+    package func useWallet(_ request:UseWalletRequest) async throws -> UseWalletResponse {
         let body = try WaasAPI.UseWallet.encodeRequest(request)
         let requestHeaders = makeWebRPCHeaders(
             headers(),
@@ -2174,7 +2174,7 @@ public struct WaasClient: Sendable {
         )
     }
 
-    public func signMessage(_ request:SignMessageRequest) async throws -> SignMessageResponse {
+    package func signMessage(_ request:SignMessageRequest) async throws -> SignMessageResponse {
         let body = try WaasAPI.SignMessage.encodeRequest(request)
         let requestHeaders = makeWebRPCHeaders(
             headers(),
@@ -2190,7 +2190,7 @@ public struct WaasClient: Sendable {
         )
     }
 
-    public func signTypedData(_ request:SignTypedDataRequest) async throws -> SignTypedDataResponse {
+    package func signTypedData(_ request:SignTypedDataRequest) async throws -> SignTypedDataResponse {
         let body = try WaasAPI.SignTypedData.encodeRequest(request)
         let requestHeaders = makeWebRPCHeaders(
             headers(),
@@ -2206,7 +2206,7 @@ public struct WaasClient: Sendable {
         )
     }
 
-    public func prepareEthereumTransaction(_ request:PrepareEthereumTransactionRequest) async throws -> PrepareResponse {
+    package func prepareEthereumTransaction(_ request:PrepareEthereumTransactionRequest) async throws -> PrepareResponse {
         let body = try WaasAPI.PrepareEthereumTransaction.encodeRequest(request)
         let requestHeaders = makeWebRPCHeaders(
             headers(),
@@ -2222,7 +2222,7 @@ public struct WaasClient: Sendable {
         )
     }
 
-    public func prepareEthereumContractCall(_ request:PrepareEthereumContractCallRequest) async throws -> PrepareResponse {
+    package func prepareEthereumContractCall(_ request:PrepareEthereumContractCallRequest) async throws -> PrepareResponse {
         let body = try WaasAPI.PrepareEthereumContractCall.encodeRequest(request)
         let requestHeaders = makeWebRPCHeaders(
             headers(),
@@ -2238,7 +2238,7 @@ public struct WaasClient: Sendable {
         )
     }
 
-    public func execute(_ request:ExecuteRequest) async throws -> ExecuteResponse {
+    package func execute(_ request:ExecuteRequest) async throws -> ExecuteResponse {
         let body = try WaasAPI.Execute.encodeRequest(request)
         let requestHeaders = makeWebRPCHeaders(
             headers(),
@@ -2254,7 +2254,7 @@ public struct WaasClient: Sendable {
         )
     }
 
-    public func transactionStatus(_ request:TransactionStatusRequest) async throws -> TransactionStatusResponse {
+    package func transactionStatus(_ request:TransactionStatusRequest) async throws -> TransactionStatusResponse {
         let body = try WaasAPI.TransactionStatusMethod.encodeRequest(request)
         let requestHeaders = makeWebRPCHeaders(
             headers(),
@@ -2270,7 +2270,7 @@ public struct WaasClient: Sendable {
         )
     }
 
-    public func listAccess(_ request:ListAccessRequest) async throws -> ListAccessResponse {
+    package func listAccess(_ request:ListAccessRequest) async throws -> ListAccessResponse {
         let body = try WaasAPI.ListAccess.encodeRequest(request)
         let requestHeaders = makeWebRPCHeaders(
             headers(),
@@ -2286,7 +2286,7 @@ public struct WaasClient: Sendable {
         )
     }
 
-    public func revokeAccess(_ request:RevokeAccessRequest) async throws -> RevokeAccessResponse {
+    package func revokeAccess(_ request:RevokeAccessRequest) async throws -> RevokeAccessResponse {
         let body = try WaasAPI.RevokeAccess.encodeRequest(request)
         let requestHeaders = makeWebRPCHeaders(
             headers(),
@@ -2302,7 +2302,7 @@ public struct WaasClient: Sendable {
         )
     }
 
-    public func listWallets(_ request:ListWalletsRequest) async throws -> ListWalletsResponse {
+    package func listWallets(_ request:ListWalletsRequest) async throws -> ListWalletsResponse {
         let body = try WaasAPI.ListWallets.encodeRequest(request)
         let requestHeaders = makeWebRPCHeaders(
             headers(),
@@ -2318,7 +2318,7 @@ public struct WaasClient: Sendable {
         )
     }
 
-    public func getIdToken(_ request:GetIDTokenRequest) async throws -> GetIDTokenResponse {
+    package func getIdToken(_ request:GetIDTokenRequest) async throws -> GetIDTokenResponse {
         let body = try WaasAPI.GetIDToken.encodeRequest(request)
         let requestHeaders = makeWebRPCHeaders(
             headers(),
@@ -2336,19 +2336,19 @@ public struct WaasClient: Sendable {
 }
 
 
-public enum WaasPublicAPI {
-    public static let basePath = "/v1/WaasPublic"
+package enum WaasPublicAPI {
+    package static let basePath = "/v1/WaasPublic"
 
-    public enum Status {
-        public static let path = "/Status"
-        public static let urlPath = "/v1/WaasPublic/Status"
+    package enum Status {
+        package static let path = "/Status"
+        package static let urlPath = "/v1/WaasPublic/Status"
 
-        public struct Response: Codable, Sendable {
-            public let ver: String
-            public let env: String
-            public let pcr0: String
+        package struct Response: Codable, Sendable {
+            package let ver: String
+            package let env: String
+            package let pcr0: String
 
-            public init(ver: String, env: String, pcr0: String
+            package init(ver: String, env: String, pcr0: String
             ) {
                 self.ver = ver
                 self.env = env
@@ -2360,11 +2360,11 @@ public enum WaasPublicAPI {
                 case pcr0 = "pcr0"
             }
         }
-        public static func encodeRequest(encoder _: JSONEncoder = WebRPCJSON.makeEncoder()) throws -> Data {
+        package static func encodeRequest(encoder _: JSONEncoder = WebRPCJSON.makeEncoder()) throws -> Data {
             Data("{}".utf8)
         }
 
-        public static func decodeResponse(
+        package static func decodeResponse(
             _ data: Data,
             decoder: JSONDecoder = WebRPCJSON.makeDecoder()
         ) throws -> WaasPublicAPI.Status.Response {
@@ -2372,14 +2372,14 @@ public enum WaasPublicAPI {
         }
     }
 
-    public enum GetJWKS {
-        public static let path = "/GetJWKS"
-        public static let urlPath = "/v1/WaasPublic/GetJWKS"
+    package enum GetJWKS {
+        package static let path = "/GetJWKS"
+        package static let urlPath = "/v1/WaasPublic/GetJWKS"
 
-        public struct Response: Codable, Sendable {
-            public let keys: [JWK]
+        package struct Response: Codable, Sendable {
+            package let keys: [JWK]
 
-            public init(keys: [JWK]
+            package init(keys: [JWK]
             ) {
                 self.keys = keys
             }
@@ -2387,11 +2387,11 @@ public enum WaasPublicAPI {
                 case keys = "keys"
             }
         }
-        public static func encodeRequest(encoder _: JSONEncoder = WebRPCJSON.makeEncoder()) throws -> Data {
+        package static func encodeRequest(encoder _: JSONEncoder = WebRPCJSON.makeEncoder()) throws -> Data {
             Data("{}".utf8)
         }
 
-        public static func decodeResponse(
+        package static func decodeResponse(
             _ data: Data,
             decoder: JSONDecoder = WebRPCJSON.makeDecoder()
         ) throws -> WaasPublicAPI.GetJWKS.Response {
@@ -2399,17 +2399,17 @@ public enum WaasPublicAPI {
         }
     }
 
-    public enum IsValidMessageSignature {
-        public static let path = "/IsValidMessageSignature"
-        public static let urlPath = "/v1/WaasPublic/IsValidMessageSignature"
-        public static func encodeRequest(
+    package enum IsValidMessageSignature {
+        package static let path = "/IsValidMessageSignature"
+        package static let urlPath = "/v1/WaasPublic/IsValidMessageSignature"
+        package static func encodeRequest(
             _ request: IsValidMessageSignatureRequest,
             encoder: JSONEncoder = WebRPCJSON.makeEncoder()
         ) throws -> Data {
             try encoder.encode(request)
         }
 
-        public static func decodeResponse(
+        package static func decodeResponse(
             _ data: Data,
             decoder: JSONDecoder = WebRPCJSON.makeDecoder()
         ) throws -> IsValidMessageSignatureResponse {
@@ -2417,17 +2417,17 @@ public enum WaasPublicAPI {
         }
     }
 
-    public enum IsValidTypedDataSignature {
-        public static let path = "/IsValidTypedDataSignature"
-        public static let urlPath = "/v1/WaasPublic/IsValidTypedDataSignature"
-        public static func encodeRequest(
+    package enum IsValidTypedDataSignature {
+        package static let path = "/IsValidTypedDataSignature"
+        package static let urlPath = "/v1/WaasPublic/IsValidTypedDataSignature"
+        package static func encodeRequest(
             _ request: IsValidTypedDataSignatureRequest,
             encoder: JSONEncoder = WebRPCJSON.makeEncoder()
         ) throws -> Data {
             try encoder.encode(request)
         }
 
-        public static func decodeResponse(
+        package static func decodeResponse(
             _ data: Data,
             decoder: JSONDecoder = WebRPCJSON.makeDecoder()
         ) throws -> IsValidTypedDataSignatureResponse {
@@ -2436,12 +2436,12 @@ public enum WaasPublicAPI {
     }
 }
 
-public struct WaasPublicClient: Sendable {
-    public let baseURL: String
-    public let transport: any WebRPCTransport
-    public let headers: @Sendable () -> [String: String]
+package struct WaasPublicClient: Sendable {
+    package let baseURL: String
+    package let transport: any WebRPCTransport
+    package let headers: @Sendable () -> [String: String]
 
-    public init(
+    package init(
         baseURL: String,
         transport: any WebRPCTransport = URLSessionWebRPCTransport(),
         headers: @escaping @Sendable () -> [String: String] = { [:] }
@@ -2451,7 +2451,7 @@ public struct WaasPublicClient: Sendable {
         self.headers = headers
     }
 
-    public func status() async throws -> WaasPublicAPI.Status.Response {
+    package func status() async throws -> WaasPublicAPI.Status.Response {
         let body = try WaasPublicAPI.Status.encodeRequest()
         let requestHeaders = makeWebRPCHeaders(
             headers(),
@@ -2467,7 +2467,7 @@ public struct WaasPublicClient: Sendable {
         )
     }
 
-    public func getJwks() async throws -> WaasPublicAPI.GetJWKS.Response {
+    package func getJwks() async throws -> WaasPublicAPI.GetJWKS.Response {
         let body = try WaasPublicAPI.GetJWKS.encodeRequest()
         let requestHeaders = makeWebRPCHeaders(
             headers(),
@@ -2483,7 +2483,7 @@ public struct WaasPublicClient: Sendable {
         )
     }
 
-    public func isValidMessageSignature(_ request:IsValidMessageSignatureRequest) async throws -> IsValidMessageSignatureResponse {
+    package func isValidMessageSignature(_ request:IsValidMessageSignatureRequest) async throws -> IsValidMessageSignatureResponse {
         let body = try WaasPublicAPI.IsValidMessageSignature.encodeRequest(request)
         let requestHeaders = makeWebRPCHeaders(
             headers(),
@@ -2499,7 +2499,7 @@ public struct WaasPublicClient: Sendable {
         )
     }
 
-    public func isValidTypedDataSignature(_ request:IsValidTypedDataSignatureRequest) async throws -> IsValidTypedDataSignatureResponse {
+    package func isValidTypedDataSignature(_ request:IsValidTypedDataSignatureRequest) async throws -> IsValidTypedDataSignatureResponse {
         let body = try WaasPublicAPI.IsValidTypedDataSignature.encodeRequest(request)
         let requestHeaders = makeWebRPCHeaders(
             headers(),

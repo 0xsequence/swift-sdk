@@ -1,7 +1,8 @@
 import Foundation
+import OMSWalletWaas
 
 @available(macOS 12.0, iOS 15.0, *)
-public class WalletClient: @unchecked Sendable {
+public final class WalletClient: @unchecked Sendable {
     typealias SessionExpiredNotification = (
         handler: ((OMSWalletSessionExpiredEvent) -> Void)?,
         event: OMSWalletSessionExpiredEvent
@@ -306,7 +307,7 @@ public class WalletClient: @unchecked Sendable {
 
     func requireActiveCredential() throws {
         guard try credentialSession.signer.hasCredential() else {
-            throw OMSWalletError.sessionExpired()
+            throw OMSWalletError.sessionMissing()
         }
     }
 

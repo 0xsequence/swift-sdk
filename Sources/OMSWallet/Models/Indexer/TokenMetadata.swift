@@ -8,8 +8,8 @@ public struct TokenMetadata: Codable, Sendable {
     public let image: String?
     public let video: String?
     public let audio: String?
-    public let properties: [String: WebRPCJSONValue]?
-    public let attributes: [[String: WebRPCJSONValue]]?
+    public let properties: [String: JSONValue]?
+    public let attributes: [[String: JSONValue]]?
     public let imageData: String?
     public let externalUrl: String?
     public let backgroundColor: String?
@@ -31,8 +31,8 @@ public struct TokenMetadata: Codable, Sendable {
         image: String? = nil,
         video: String? = nil,
         audio: String? = nil,
-        properties: [String: WebRPCJSONValue]? = nil,
-        attributes: [[String: WebRPCJSONValue]]? = nil,
+        properties: [String: JSONValue]? = nil,
+        attributes: [[String: JSONValue]]? = nil,
         imageData: String? = nil,
         externalUrl: String? = nil,
         backgroundColor: String? = nil,
@@ -104,8 +104,8 @@ public struct TokenMetadata: Codable, Sendable {
         self.image = try container.decodeIfPresent(String.self, forKey: .image)
         self.video = try container.decodeIfPresent(String.self, forKey: .video)
         self.audio = try container.decodeIfPresent(String.self, forKey: .audio)
-        self.properties = try container.decodeIfPresent([String: WebRPCJSONValue].self, forKey: .properties)
-        self.attributes = try container.decodeIfPresent([[String: WebRPCJSONValue]].self, forKey: .attributes)
+        self.properties = try container.decodeIfPresent([String: JSONValue].self, forKey: .properties)
+        self.attributes = try container.decodeIfPresent([[String: JSONValue]].self, forKey: .attributes)
         self.imageData = try container.decodeIfPresent(String.self, forKey: .imageData)
         self.externalUrl = try container.decodeIfPresent(String.self, forKey: .externalUrl)
         self.backgroundColor = try container.decodeIfPresent(String.self, forKey: .backgroundColor)

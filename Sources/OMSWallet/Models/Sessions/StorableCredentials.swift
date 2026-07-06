@@ -1,4 +1,6 @@
-public struct StorableCredentials : Codable {
+import OMSWalletWaas
+
+struct StorableCredentials : Codable {
     let walletId: String
     let walletAddress: String
     let signerCredentialId: String

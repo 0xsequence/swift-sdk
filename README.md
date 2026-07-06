@@ -389,7 +389,7 @@ let isValid = try await oms.wallet.isValidMessageSignature(
 ### Sign Typed Data
 
 ```swift
-let typedData: WebRPCJSONValue = .object([
+let typedData: JSONValue = .object([
     "domain": .object([
         "name": .string("Example"),
         "version": .string("1"),

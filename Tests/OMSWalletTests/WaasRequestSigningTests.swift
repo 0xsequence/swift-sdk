@@ -95,7 +95,7 @@ import Testing
             identity: Identity(type: .email, sub: "user@example.com"),
             wallets: [],
             email: "user@example.com",
-            credential: CredentialInfo(
+            credential: WaasCredentialInfo(
                 credentialId: testCredentialId,
                 expiresAt: "2099-01-01T00:00:00Z",
                 isCaller: true

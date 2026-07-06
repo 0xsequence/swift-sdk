@@ -9,7 +9,7 @@ public struct TokenContractInfo: Codable, Sendable {
     public let logoURI: String?
     public let deployed: Bool?
     public let bytecodeHash: String?
-    public let extensions: [String: WebRPCJSONValue]?
+    public let extensions: [String: JSONValue]?
     public let updatedAt: String?
     public let queuedAt: String?
     public let status: String?
@@ -25,7 +25,7 @@ public struct TokenContractInfo: Codable, Sendable {
         logoURI: String? = nil,
         deployed: Bool? = nil,
         bytecodeHash: String? = nil,
-        extensions: [String: WebRPCJSONValue]? = nil,
+        extensions: [String: JSONValue]? = nil,
         updatedAt: String? = nil,
         queuedAt: String? = nil,
         status: String? = nil

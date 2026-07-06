@@ -56,6 +56,7 @@ place them in `Tests/OMSWalletIntegrationTests/` and document prerequisites here
 |---|---|
 | Run all tests | `swift test` |
 | Build without running tests | `swift build` |
+| Check public API generated-type boundaries | `scripts/check-public-api-does-not-expose-generated-waas.sh` |
 | Run tests matching a filter | `swift test --filter <TestNamePattern>` |
 | Verbose output | `swift test --verbose` |
 | Build SDK demo app | `xcodebuild -project Examples/sdk-demo/oms-wallet-demo.xcodeproj -scheme oms-wallet-demo build CODE_SIGNING_ALLOWED=NO` |

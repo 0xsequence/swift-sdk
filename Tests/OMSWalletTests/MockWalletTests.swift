@@ -157,7 +157,7 @@ private func isOidcAuth(
     var now = Date(timeIntervalSince1970: 1_767_225_599)
     let fixture = makeMockWalletClient(currentDate: { now })
     let wallet = testWallet(id: "wallet-expiring", address: "0x1111111111111111111111111111111111111111")
-    let credential = CredentialInfo(
+    let credential = WaasCredentialInfo(
         credentialId: "0xcredential",
         expiresAt: expiresAt,
         isCaller: true
@@ -267,7 +267,7 @@ private func waitForSessionExpiredEvent(
         currentDate: { Date(timeIntervalSince1970: 1_767_225_601) }
     )
     let wallet = testWallet(id: "wallet-expired-timer", address: "0x2222222222222222222222222222222222222222")
-    let credential = CredentialInfo(
+    let credential = WaasCredentialInfo(
         credentialId: "0xcredential",
         expiresAt: "2026-01-01T00:00:00Z",
         isCaller: true
@@ -301,15 +301,15 @@ private func waitForSessionExpiredEvent(
     let secondWallet = testWallet(id: "wallet-2", address: "0x2222222222222222222222222222222222222222")
     let thirdWallet = testWallet(id: "wallet-3", address: "0x3333333333333333333333333333333333333333")
     try fixture.transport.enqueue(
-        completeAuthResponse(wallets: [firstWallet], page: Page(cursor: "cursor-1")),
+        completeAuthResponse(wallets: [firstWallet], page: WaasPage(cursor: "cursor-1")),
         for: WaasAPI.CompleteAuth.urlPath
     )
     try fixture.transport.enqueue(
-        ListWalletsResponse(wallets: [secondWallet], page: Page(cursor: " cursor-2 ")),
+        ListWalletsResponse(wallets: [secondWallet], page: WaasPage(cursor: " cursor-2 ")),
         for: WaasAPI.ListWallets.urlPath
     )
     try fixture.transport.enqueue(
-        ListWalletsResponse(wallets: [thirdWallet], page: Page(cursor: " ")),
+        ListWalletsResponse(wallets: [thirdWallet], page: WaasPage(cursor: " ")),
         for: WaasAPI.ListWallets.urlPath
     )
 
@@ -485,7 +485,7 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.CompleteAuth.urlPath
     )
     try fixture.transport.enqueue(
-        ListWalletsResponse(wallets: [existingWallet], page: Page(cursor: "next")),
+        ListWalletsResponse(wallets: [existingWallet], page: WaasPage(cursor: "next")),
         for: WaasAPI.ListWallets.urlPath
     )
     try fixture.transport.enqueue(
@@ -1697,32 +1697,32 @@ private func waitForSessionExpiredEvent(
 @Test func TestWalletListAccessPaginationHelpersUseWaasPages() async throws {
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"
-    let firstCredential = CredentialInfo(
+    let firstCredential = WaasCredentialInfo(
         credentialId: "credential-1",
         expiresAt: "2026-01-01T00:00:00Z",
         isCaller: true
     )
-    let secondCredential = CredentialInfo(
+    let secondCredential = WaasCredentialInfo(
         credentialId: "credential-2",
         expiresAt: "2026-01-02T00:00:00Z",
         isCaller: false
     )
-    let manualCredential = CredentialInfo(
+    let manualCredential = WaasCredentialInfo(
         credentialId: "credential-3",
         expiresAt: "2026-01-03T00:00:00Z",
         isCaller: false
     )
 
     try fixture.transport.enqueue(
-        ListAccessResponse(credentials: [firstCredential], page: Page(cursor: "next")),
+        WaasListAccessResponse(credentials: [firstCredential], page: WaasPage(cursor: "next")),
         for: WaasAPI.ListAccess.urlPath
     )
     try fixture.transport.enqueue(
-        ListAccessResponse(credentials: [secondCredential]),
+        WaasListAccessResponse(credentials: [secondCredential]),
         for: WaasAPI.ListAccess.urlPath
     )
     try fixture.transport.enqueue(
-        ListAccessResponse(credentials: [manualCredential], page: Page(cursor: "after-manual")),
+        WaasListAccessResponse(credentials: [manualCredential], page: WaasPage(cursor: "after-manual")),
         for: WaasAPI.ListAccess.urlPath
     )
 
@@ -1760,22 +1760,22 @@ private func waitForSessionExpiredEvent(
     fixture.client.walletId = "wallet-main"
 
     try fixture.transport.enqueue(
-        ListAccessResponse(
+        WaasListAccessResponse(
             credentials: [
-                CredentialInfo(
+                WaasCredentialInfo(
                     credentialId: "credential-1",
                     expiresAt: "2026-01-01T00:00:00Z",
                     isCaller: true
                 )
             ],
-            page: Page(cursor: "next")
+            page: WaasPage(cursor: "next")
         ),
         for: WaasAPI.ListAccess.urlPath
     )
     try fixture.transport.enqueue(
-        ListAccessResponse(
+        WaasListAccessResponse(
             credentials: [
-                CredentialInfo(
+                WaasCredentialInfo(
                     credentialId: "credential-2",
                     expiresAt: "2026-01-02T00:00:00Z",
                     isCaller: false
@@ -1808,7 +1808,7 @@ private func waitForSessionExpiredEvent(
         PrepareResponse(
             txnId: "txn-1",
             status: .quoted,
-            feeOptions: testFeeOptions(),
+            feeOptions: testWaasFeeOptions(),
             sponsored: false,
             expiresAt: "2026-04-27T00:00:00Z"
         ),
@@ -1819,7 +1819,7 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.Execute.urlPath
     )
     try fixture.transport.enqueue(
-        TransactionStatusResponse(status: .executed, txnHash: "0xdeadbeef"),
+        WaasTransactionStatusResponse(status: .executed, txnHash: "0xdeadbeef"),
         for: WaasAPI.TransactionStatusMethod.urlPath
     )
 
@@ -1897,7 +1897,7 @@ private func waitForSessionExpiredEvent(
         PrepareResponse(
             txnId: "txn-1",
             status: .quoted,
-            feeOptions: testFeeOptions(),
+            feeOptions: testWaasFeeOptions(),
             sponsored: false,
             expiresAt: "2026-04-27T00:00:00Z"
         ),
@@ -1908,7 +1908,7 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.Execute.urlPath
     )
     try fixture.transport.enqueue(
-        TransactionStatusResponse(status: .executed, txnHash: "0xdeadbeef"),
+        WaasTransactionStatusResponse(status: .executed, txnHash: "0xdeadbeef"),
         for: WaasAPI.TransactionStatusMethod.urlPath
     )
 
@@ -1966,7 +1966,7 @@ private func waitForSessionExpiredEvent(
         PrepareResponse(
             txnId: "txn-1",
             status: .quoted,
-            feeOptions: testFeeOptions(),
+            feeOptions: testWaasFeeOptions(),
             sponsored: false,
             expiresAt: "2026-04-27T00:00:00Z"
         ),
@@ -2072,7 +2072,7 @@ private func waitForSessionExpiredEvent(
         PrepareResponse(
             txnId: "txn-1",
             status: .quoted,
-            feeOptions: testFeeOptions(),
+            feeOptions: testWaasFeeOptions(),
             sponsored: false,
             expiresAt: "2026-04-27T00:00:00Z"
         ),
@@ -2083,7 +2083,7 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.Execute.urlPath
     )
     try fixture.transport.enqueue(
-        TransactionStatusResponse(status: .executed, txnHash: "0xdeadbeef"),
+        WaasTransactionStatusResponse(status: .executed, txnHash: "0xdeadbeef"),
         for: WaasAPI.TransactionStatusMethod.urlPath
     )
 
@@ -2132,7 +2132,7 @@ private func waitForSessionExpiredEvent(
         PrepareResponse(
             txnId: "txn-1",
             status: .quoted,
-            feeOptions: testFeeOptions(),
+            feeOptions: testWaasFeeOptions(),
             sponsored: false,
             expiresAt: "2026-04-27T00:00:00Z"
         ),
@@ -2166,7 +2166,7 @@ private func waitForSessionExpiredEvent(
         PrepareResponse(
             txnId: "txn-1",
             status: .quoted,
-            feeOptions: testFeeOptions(),
+            feeOptions: testWaasFeeOptions(),
             sponsored: true,
             expiresAt: "2026-04-27T00:00:00Z"
         ),
@@ -2177,7 +2177,7 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.Execute.urlPath
     )
     try fixture.transport.enqueue(
-        TransactionStatusResponse(status: .executed),
+        WaasTransactionStatusResponse(status: .executed),
         for: WaasAPI.TransactionStatusMethod.urlPath
     )
 
@@ -2211,7 +2211,7 @@ private func waitForSessionExpiredEvent(
         PrepareResponse(
             txnId: "txn-contract-1",
             status: .quoted,
-            feeOptions: testFeeOptions(),
+            feeOptions: testWaasFeeOptions(),
             sponsored: false,
             expiresAt: "2026-04-27T00:00:00Z"
         ),
@@ -2222,7 +2222,7 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.Execute.urlPath
     )
     try fixture.transport.enqueue(
-        TransactionStatusResponse(status: .executed, txnHash: "0xcontractdeadbeef"),
+        WaasTransactionStatusResponse(status: .executed, txnHash: "0xcontractdeadbeef"),
         for: WaasAPI.TransactionStatusMethod.urlPath
     )
 
@@ -2333,7 +2333,7 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.Execute.urlPath
     )
     try fixture.transport.enqueue(
-        TransactionStatusResponse(status: .pending),
+        WaasTransactionStatusResponse(status: .pending),
         for: WaasAPI.TransactionStatusMethod.urlPath
     )
 
@@ -2372,7 +2372,7 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.Execute.urlPath
     )
     try fixture.transport.enqueue(
-        TransactionStatusResponse(status: .pending, txnHash: "0xsubmitted"),
+        WaasTransactionStatusResponse(status: .pending, txnHash: "0xsubmitted"),
         for: WaasAPI.TransactionStatusMethod.urlPath
     )
 
@@ -2406,7 +2406,7 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.Execute.urlPath
     )
     try fixture.transport.enqueue(
-        TransactionStatusResponse(status: .failed),
+        WaasTransactionStatusResponse(status: .failed),
         for: WaasAPI.TransactionStatusMethod.urlPath
     )
 
@@ -2440,7 +2440,7 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.Execute.urlPath
     )
     try fixture.transport.enqueue(
-        TransactionStatusResponse(status: .pending, txnHash: "0xfastsubmitted"),
+        WaasTransactionStatusResponse(status: .pending, txnHash: "0xfastsubmitted"),
         for: WaasAPI.TransactionStatusMethod.urlPath
     )
 
@@ -2488,7 +2488,7 @@ private func waitForSessionExpiredEvent(
     #expect(fixture.transport.requestCount(for: WaasAPI.Execute.urlPath) == 0)
 }
 
-let testCredential = CredentialInfo(
+let testCredential: WaasCredentialInfo = WaasCredentialInfo(
     credentialId: "0xcredential",
     expiresAt: "2099-01-01T00:00:00Z",
     isCaller: true
@@ -2616,10 +2616,10 @@ func makeMockWalletClient(
 
 func completeAuthResponse(
     identity: Identity = Identity(type: .email, sub: "user@example.com"),
-    wallets: [Wallet],
-    page: Page? = nil,
+    wallets: [WaasWallet],
+    page: WaasPage? = nil,
     email: String? = "user@example.com",
-    credential: CredentialInfo = testCredential
+    credential: WaasCredentialInfo = testCredential
 ) -> CompleteAuthResponse {
     CompleteAuthResponse(
         identity: identity,
@@ -2632,10 +2632,10 @@ func completeAuthResponse(
 
 func testWallet(
     id: String,
-    type: WalletType = .ethereum,
+    type: WaasWalletType = .ethereum,
     address: String
-) -> Wallet {
-    Wallet(
+) -> WaasWallet {
+    WaasWallet(
         id: id,
         type: type,
         address: address
@@ -2673,6 +2673,25 @@ func testFeeOptions() -> [FeeOption] {
             displayValue: "0.002"
         )
     ]
+}
+
+func testWaasFeeOptions() -> [WaasFeeOption] {
+    testFeeOptions().map { feeOption in
+        WaasFeeOption(
+            token: WaasFeeToken(
+                network: feeOption.token.network,
+                name: feeOption.token.name,
+                symbol: feeOption.token.symbol,
+                type: feeOption.token.type,
+                decimals: feeOption.token.decimals,
+                logoUrl: feeOption.token.logoUrl,
+                contractAddress: feeOption.token.contractAddress,
+                tokenId: feeOption.token.tokenId
+            ),
+            value: feeOption.value,
+            displayValue: feeOption.displayValue
+        )
+    }
 }
 
 final class MockIndexerBackend: @unchecked Sendable {

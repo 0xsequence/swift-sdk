@@ -1,4 +1,4 @@
-public class Keccak256 {
+final class Keccak256 {
 
     // MARK: - Constants
 
@@ -76,7 +76,7 @@ public class Keccak256 {
 
     /// Computes the Keccak-256 hash of the input string.
     /// Returns a 64-character lowercase hex string.
-    public static func Keccak256(data: String) -> String {
+    static func Keccak256(data: String) -> String {
         let input = Array(data.utf8)
         let hash = keccak256Bytes(input)
         return "0x" + hash.map { String(format: "%02x", $0) }.joined()
