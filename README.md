@@ -131,7 +131,8 @@ oms.wallet.onSessionExpired = { event in
 ```
 
 Auth completion methods accept `sessionLifetimeSeconds` when you need a shorter
-or longer requested session; the default is one week.
+or longer requested session; the default is one week. Custom values must be from
+1 through 2,592,000 seconds (30 days).
 
 To opt out of automatic activation and drive wallet selection yourself:
 
@@ -249,8 +250,9 @@ can call your app callback directly.
 Pass `walletSelection` or `sessionLifetimeSeconds` to `startOidcRedirectAuth`
 to store completion preferences with the pending redirect state. Values passed
 to `handleOidcRedirectCallback` override pending values; otherwise the SDK uses
-automatic wallet selection and a one-week session lifetime. Provider configs
-can use `.authCode` to omit PKCE parameters or `.authCodePkce` for PKCE.
+automatic wallet selection and a one-week session lifetime. Custom session
+lifetime values must be from 1 through 2,592,000 seconds (30 days). Provider
+configs can use `.authCode` to omit PKCE parameters or `.authCodePkce` for PKCE.
 Providers with omitted or empty `scopes` omit the OAuth `scope` authorization
 parameter.
 

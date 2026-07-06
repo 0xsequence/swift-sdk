@@ -158,6 +158,19 @@ import Testing
         )
     )
 
+    let invalidLifetimeFixture = makeMockWalletClient()
+    await expectPublicError(
+        try await invalidLifetimeFixture.client.completeEmailAuth(
+            code: "123456",
+            sessionLifetimeSeconds: 0
+        ),
+        equals: error(
+            code: .validationError,
+            operation: .walletCompleteEmailAuth,
+            message: "sessionLifetimeSeconds must be an integer between 1 and 2592000"
+        )
+    )
+
     let selectionFixture = makeMockWalletClient()
     let availableWallet = testWallet(id: "wallet-1", address: "0x1111111111111111111111111111111111111111")
     try selectionFixture.transport.enqueue(
@@ -313,6 +326,41 @@ import Testing
         code: .validationError,
         operation: .walletHandleOidcRedirectCallback,
         message: "User cancelled",
+        status: nil,
+        retryable: nil,
+        txnId: nil,
+        upstreamError: nil
+    ))
+
+    let invalidLifetimeFixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-789" })
+    try invalidLifetimeFixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier",
+            loginHint: nil,
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    let invalidLifetimeStart = try await invalidLifetimeFixture.client.startOidcRedirectAuth(
+        provider: OidcProviderConfig(
+            issuer: "https://issuer.example.test",
+            clientId: "client-123",
+            authorizationUrl: "https://issuer.example.test/authorize"
+        ),
+        redirectUri: "omsclientswiftdemo://auth/callback"
+    )
+    let invalidLifetimeResult = try await invalidLifetimeFixture.client.handleOidcRedirectCallback(
+        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(invalidLifetimeStart.state)",
+        sessionLifetimeSeconds: 0
+    )
+    guard case .failed(let invalidLifetimeError as OMSWalletError) = invalidLifetimeResult else {
+        Issue.record("Expected invalid lifetime failure")
+        return
+    }
+    #expect(serialize(invalidLifetimeError) == PublicErrorContract(
+        code: .validationError,
+        operation: .walletHandleOidcRedirectCallback,
+        message: "sessionLifetimeSeconds must be an integer between 1 and 2592000",
         status: nil,
         retryable: nil,
         txnId: nil,

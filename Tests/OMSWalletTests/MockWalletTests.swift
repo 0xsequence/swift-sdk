@@ -132,6 +132,26 @@ private func isOidcAuth(
     #expect(completeAuthRequest.lifetime == 30)
 }
 
+@Test func TestWalletCompleteEmailAuthRejectsInvalidSessionLifetimeBeforeRequest() async throws {
+    let fixture = makeMockWalletClient()
+
+    do {
+        _ = try await fixture.client.completeEmailAuth(
+            code: "123456",
+            sessionLifetimeSeconds: 0
+        )
+        #expect(Bool(false))
+    } catch let error as OMSWalletError {
+        #expect(error.code == .validationError)
+        #expect(error.operation == .walletCompleteEmailAuth)
+        #expect(error.localizedDescription == "sessionLifetimeSeconds must be an integer between 1 and 2592000")
+    } catch {
+        #expect(Bool(false))
+    }
+
+    #expect(fixture.transport.requestCount(for: WaasAPI.CompleteAuth.urlPath) == 0)
+}
+
 @Test func TestWalletOperationExpiresSessionRetainsMetadataAndNotifiesDelegate() async throws {
     let expiresAt = "2026-01-01T00:00:00Z"
     var now = Date(timeIntervalSince1970: 1_767_225_599)
@@ -625,6 +645,28 @@ private func waitForSessionExpiredEvent(
     #expect(isOidcAuth(storedCredentials?.auth, flow: .idToken))
 }
 
+@Test func TestWalletSignInWithOidcIdTokenRejectsInvalidSessionLifetimeBeforeRequest() async throws {
+    let fixture = makeMockWalletClient()
+
+    do {
+        _ = try await fixture.client.signInWithOidcIdToken(
+            idToken: try fakeOidcIdToken(),
+            issuer: "https://accounts.google.com",
+            audience: "demo-web-client-id",
+            sessionLifetimeSeconds: 2_592_001
+        )
+        #expect(Bool(false))
+    } catch let error as OMSWalletError {
+        #expect(error.code == .validationError)
+        #expect(error.operation == .walletSignInWithOidcIdToken)
+        #expect(error.localizedDescription == "sessionLifetimeSeconds must be an integer between 1 and 2592000")
+    } catch {
+        #expect(Bool(false))
+    }
+
+    #expect(fixture.transport.requestCount(for: WaasAPI.CommitVerifier.urlPath) == 0)
+}
+
 @Test func TestWalletSignInWithOidcIdTokenCanReturnManualWalletSelection() async throws {
     let fixture = makeMockWalletClient()
     let availableWallet = testWallet(id: "wallet-def", address: "0xdef")
@@ -909,6 +951,32 @@ private func waitForSessionExpiredEvent(
     #expect(fixture.oidcRedirectAuthStore.pending?.signerKeyType == .ecdsaP256Sha256)
     #expect(fixture.client.canResumeOidcRedirectAuth)
     #expect(fixture.client.verifier == "oidc-verifier-123")
+}
+
+@Test func TestWalletStartOidcRedirectAuthRejectsInvalidSessionLifetimeBeforeRequest() async throws {
+    let fixture = makeMockWalletClient()
+
+    do {
+        _ = try await fixture.client.startOidcRedirectAuth(
+            provider: OidcProviderConfig(
+                issuer: "https://issuer.example",
+                clientId: "client-123",
+                authorizationUrl: "https://issuer.example/oauth/authorize"
+            ),
+            redirectUri: "omsclientswiftdemo://auth/callback",
+            sessionLifetimeSeconds: 2_592_001
+        )
+        #expect(Bool(false))
+    } catch let error as OMSWalletError {
+        #expect(error.code == .validationError)
+        #expect(error.operation == .walletStartOidcRedirectAuth)
+        #expect(error.localizedDescription == "sessionLifetimeSeconds must be an integer between 1 and 2592000")
+    } catch {
+        #expect(Bool(false))
+    }
+
+    #expect(fixture.transport.requestCount(for: WaasAPI.CommitVerifier.urlPath) == 0)
+    #expect(fixture.oidcRedirectAuthStore.pending == nil)
 }
 
 @Test func TestWalletStartOidcRedirectAuthUsesAppleDefaultsThroughRelay() async throws {
@@ -1343,6 +1411,40 @@ private func waitForSessionExpiredEvent(
     #expect(wallet.id == selectedWallet.id)
     #expect(fixture.transport.requestCount(for: WaasAPI.UseWallet.urlPath) == 1)
     #expect(fixture.oidcRedirectAuthStore.pending == nil)
+}
+
+@Test func TestWalletHandleOidcRedirectCallbackRejectsInvalidSessionLifetimeBeforeRequest() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    let started = try await fixture.client.startOidcRedirectAuth(
+        provider: OidcProviderConfig(
+            issuer: "https://issuer.example",
+            clientId: "client-123",
+            authorizationUrl: "https://issuer.example/oauth/authorize"
+        ),
+        redirectUri: "omsclientswiftdemo://auth/callback"
+    )
+
+    let result = try await fixture.client.handleOidcRedirectCallback(
+        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(started.state)",
+        sessionLifetimeSeconds: 0
+    )
+    guard case .failed(let error as OMSWalletError) = result else {
+        #expect(Bool(false))
+        return
+    }
+
+    #expect(error.code == .validationError)
+    #expect(error.operation == .walletHandleOidcRedirectCallback)
+    #expect(error.localizedDescription == "sessionLifetimeSeconds must be an integer between 1 and 2592000")
+    #expect(fixture.transport.requestCount(for: WaasAPI.CompleteAuth.urlPath) == 0)
 }
 
 @Test func TestWalletHandleOidcRedirectCallbackIgnoresUnrelatedCallbackWithoutClearingPendingAuth() async throws {

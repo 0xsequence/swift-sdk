@@ -45,10 +45,11 @@ extension WalletClient {
         sessionLifetimeSeconds: UInt32 = 604_800
     ) async throws -> CompleteAuthResult {
         try await runOMSWalletOperation(.walletCompleteEmailAuth) {
+            let validatedSessionLifetimeSeconds = try requireWaasSessionLifetimeSeconds(sessionLifetimeSeconds)
             let authRevision = sessionRevisionSnapshot()
             let response = try await confirmEmailSignIn(
                 code: code,
-                sessionLifetimeSeconds: sessionLifetimeSeconds
+                sessionLifetimeSeconds: validatedSessionLifetimeSeconds
             )
             return try await completeWalletAuth(
                 response,
@@ -77,6 +78,7 @@ extension WalletClient {
         providerLabel: String? = nil
     ) async throws -> CompleteAuthResult {
         try await runOMSWalletOperation(.walletSignInWithOidcIdToken) {
+            let validatedSessionLifetimeSeconds = try requireWaasSessionLifetimeSeconds(sessionLifetimeSeconds)
             try clearSession(clearOidcRedirectAuth: true)
             let authRevision = sessionRevisionSnapshot()
 
@@ -100,7 +102,7 @@ extension WalletClient {
 
                 let auth = try await confirmOidcIdTokenSignIn(
                     idToken: idToken,
-                    sessionLifetimeSeconds: sessionLifetimeSeconds
+                    sessionLifetimeSeconds: validatedSessionLifetimeSeconds
                 )
                 return try await completeWalletAuth(
                     auth,
@@ -165,6 +167,7 @@ extension WalletClient {
         sessionLifetimeSeconds: UInt32? = nil
     ) async throws -> StartOidcRedirectAuthResult {
         try await runOMSWalletOperation(.walletStartOidcRedirectAuth) {
+            let requestedSessionLifetimeSeconds = try sessionLifetimeSeconds.map(requireWaasSessionLifetimeSeconds)
             let previousSessionEmail = reauthenticationSessionEmail()
             try clearSession(clearOidcRedirectAuth: true)
             let authRevision = sessionRevisionSnapshot()
@@ -207,7 +210,7 @@ extension WalletClient {
                             authorizationScope: self.projectId,
                             walletType: walletType,
                             walletSelection: walletSelection,
-                            sessionLifetimeSeconds: sessionLifetimeSeconds,
+                            sessionLifetimeSeconds: requestedSessionLifetimeSeconds,
                             signerCredentialId: signerCredentialId,
                             signerKeyType: credentialSession.signer.alg
                         )
@@ -317,7 +320,9 @@ extension WalletClient {
                 try restorePendingOidcRedirectAuth(pending)
                 let authRevision = sessionRevisionSnapshot()
                 let resolvedWalletSelection = walletSelection ?? pending.walletSelection ?? .automatic
-                let resolvedSessionLifetimeSeconds = sessionLifetimeSeconds ?? pending.sessionLifetimeSeconds ?? 604_800
+                let resolvedSessionLifetimeSeconds = try requireWaasSessionLifetimeSeconds(
+                    sessionLifetimeSeconds ?? pending.sessionLifetimeSeconds ?? defaultWaasSessionLifetimeSeconds
+                )
                 let response = try await signedClient.completeAuth(
                     CompleteAuthRequest(
                         identityType: .oidc,
@@ -767,4 +772,17 @@ extension WalletClient {
         return cursor
     }
 
+}
+
+private let defaultWaasSessionLifetimeSeconds: UInt32 = 604_800
+private let maxWaasSessionLifetimeSeconds: UInt32 = 2_592_000
+
+private func requireWaasSessionLifetimeSeconds(_ sessionLifetimeSeconds: UInt32) throws -> UInt32 {
+    guard sessionLifetimeSeconds >= 1 && sessionLifetimeSeconds <= maxWaasSessionLifetimeSeconds else {
+        throw OMSWalletError(
+            code: .validationError,
+            message: "sessionLifetimeSeconds must be an integer between 1 and \(maxWaasSessionLifetimeSeconds)"
+        )
+    }
+    return sessionLifetimeSeconds
 }

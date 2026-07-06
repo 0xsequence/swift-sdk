@@ -167,7 +167,8 @@ Verifies the OTP code. With `.automatic`, selects the first existing wallet
 matching `walletType`, or creates and selects one when none exists. With
 `.manual`, returns a pending wallet selection without selecting or creating a
 wallet. `sessionLifetimeSeconds` controls the requested credential lifetime and
-defaults to one week.
+defaults to one week. Custom values must be from 1 through 2,592,000 seconds
+(30 days).
 
 ### signInWithOidcIdToken
 
@@ -189,10 +190,11 @@ Signs in with an OIDC ID token for the provided `issuer` and `audience`.
 With `.automatic`, selects the first existing wallet matching `walletType`, or
 creates and selects one when none exists. With `.manual`, returns a pending
 wallet selection without selecting or creating a wallet. `sessionLifetimeSeconds`
-controls the requested credential lifetime and defaults to one week. Pass
-`provider` and `providerLabel` when you want custom session metadata for
-non-built-in identity providers. When omitted, Google and Apple are derived from
-the issuer and custom issuers leave those fields `nil`.
+controls the requested credential lifetime and defaults to one week. Custom
+values must be from 1 through 2,592,000 seconds (30 days). Pass `provider` and
+`providerLabel` when you want custom session metadata for non-built-in identity
+providers. When omitted, Google and Apple are derived from the issuer and custom
+issuers leave those fields `nil`.
 
 ### WalletSelectionBehavior
 
@@ -363,7 +365,8 @@ For `OidcProviders.google()` or other providers using issuer `https://accounts.g
 
 `walletSelection` and `sessionLifetimeSeconds` passed at start are persisted in
 pending redirect state and used when the callback is handled unless callback
-arguments override them.
+arguments override them. Custom session lifetime values must be from 1 through
+2,592,000 seconds (30 days).
 
 ```swift
 struct StartOidcRedirectAuthResult {
@@ -756,7 +759,7 @@ enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
 | `.avalancheTestnet` | `43113` | Avalanche Testnet | `avalanche-testnet` | `AVAX` |
 | `.katana` | `747474` | Katana | `katana` | `ETH` |
 
-`Network.amoy` is an alias for `.polygonAmoy`.
+Use `.polygonAmoy` for Polygon Amoy.
 
 ### OMSWalletIdentity
 
@@ -848,8 +851,8 @@ struct OMSWalletEnvironment: Equatable, Sendable {
 | `indexerGatewayUrl` | `String` | Base URL of the IndexerGateway API. |
 
 `OMSWallet(publishableKey:)` and `WalletClient(publishableKey:)` derive the
-environment from the publishable key. `OMSWalletEnvironment` remains available
-for lower-level internal/test construction.
+environment from the publishable key. Use `OMSWalletEnvironment` for lower-level
+internal/test construction.
 
 ### FeeOptionSelector
 
@@ -1082,7 +1085,6 @@ when a custom selector does not return a selection for an unsponsored
 transaction. Terminal non-executed statuses use `transactionFailed`. A normal
 pending polling timeout returns
 `SendTransactionResponse(status: .pending, txnHash: nil)` instead of throwing.
-`missingTransactionHash` and `pollingTimedOut` remain public compatibility cases.
 
 ### SendTransactionResponse
 
@@ -1098,7 +1100,6 @@ Returned by `sendTransaction` and `callContract`. `txnId` and `status` are alway
 available; `txnHash` is present when the service has a chain transaction hash.
 The transaction flow returns as soon as status is `.executed` or a non-empty
 `txnHash` is available.
-`TransactionResult` remains available as a compatibility alias.
 
 ### TransactionStatusPollingOptions
 
@@ -1137,7 +1138,8 @@ enum UnitConversionError: Error, Equatable {
 }
 ```
 
-Thrown by `parseUnits` and `formatUnits`. The `fractionalComponentExceedsDecimals` case is retained for source compatibility; `parseUnits` rounds excess fractional precision to the nearest base unit.
+Thrown by `parseUnits` and `formatUnits`. `parseUnits` rounds excess fractional
+precision to the nearest base unit.
 
 ### SendTransactionRequest
 

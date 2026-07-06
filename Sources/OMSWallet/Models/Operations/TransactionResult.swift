@@ -30,7 +30,3 @@ public struct SendTransactionResponse: Codable, Sendable, Equatable {
         self.txnHash = txnHash
     }
 }
-
-@available(macOS 12.0, iOS 15.0, *)
-@available(*, deprecated, renamed: "SendTransactionResponse")
-public typealias TransactionResult = SendTransactionResponse

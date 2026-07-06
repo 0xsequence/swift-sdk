@@ -44,6 +44,8 @@ struct SessionExpiredPrompt: Identifiable {
     }
 }
 
+private let maxSessionLifetimeSeconds: UInt32 = 2_592_000
+
 private enum DemoAuthError: Error, LocalizedError {
     case invalidAuthorizationURL
     case invalidSessionLifetime
@@ -53,7 +55,7 @@ private enum DemoAuthError: Error, LocalizedError {
         case .invalidAuthorizationURL:
             return "The authorization URL could not be opened."
         case .invalidSessionLifetime:
-            return "Enter a session length of at least 1 second."
+            return "Enter a session length from 1 to 2,592,000 seconds."
         }
     }
 }
@@ -228,7 +230,9 @@ final class AppViewModel: ObservableObject {
 
     var sessionLifetimeSeconds: UInt32? {
         let trimmed = sessionLifetimeText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let seconds = UInt32(trimmed), seconds > 0 else {
+        guard let seconds = UInt32(trimmed),
+              seconds >= 1,
+              seconds <= maxSessionLifetimeSeconds else {
             return nil
         }
         return seconds
