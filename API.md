@@ -13,11 +13,11 @@
   - [OMSWalletSessionExpiredEvent](#omswalletsessionexpiredevent)
   - [OMSWalletEnvironment](#omswalletenvironment)
   - [FeeOptionSelector](#feeoptionselector)
-  - [OmsSdkError](#omssdkerror)
-  - [OmsSdkErrorCode](#omssdkerrorcode)
-  - [OmsSdkOperation](#omssdkoperation)
-  - [OmsUpstreamService](#omsupstreamservice)
-  - [OmsUpstreamError](#omsupstreamerror)
+  - [OMSWalletError](#omswalleterror)
+  - [OMSWalletErrorCode](#omswalleterrorcode)
+  - [OMSWalletOperation](#omswalletoperation)
+  - [OMSWalletUpstreamService](#omswalletupstreamservice)
+  - [OMSWalletUpstreamError](#omswalletupstreamerror)
   - [TransactionError](#transactionerror)
   - [SendTransactionResponse](#sendtransactionresponse)
   - [TransactionMode](#transactionmode)
@@ -59,17 +59,11 @@ let oms = try OMSWallet(publishableKey: "pk_dev_sdbx_yourproject_yourkey")
 init(
     publishableKey: String
 ) throws
-
-init(
-    publishableKey: String,
-    environment: OMSWalletEnvironment
-) throws
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
-| `publishableKey` | `String` | OMS publishable key. |
-| `environment` | `OMSWalletEnvironment` | Explicit API endpoint override. |
+| `publishableKey` | `String` | OMS publishable key. The SDK derives API endpoints and project scope from this key. |
 
 ### Properties
 
@@ -102,11 +96,6 @@ signing, signature verification, and transaction submission.
 ```swift
 init(
     publishableKey: String
-) throws
-
-init(
-    publishableKey: String,
-    environment: OMSWalletEnvironment
 ) throws
 ```
 
@@ -236,7 +225,7 @@ that user choice. Automatic "first wallet" selection belongs to
 `WalletSelectionBehavior.automatic`, not manual mode. A pending selection is
 single-use and is invalidated by successful wallet selection, sign-out, or a
 new auth completion; using an invalidated selection throws
-`OmsSdkError` with `code == .walletSelectionStale`.
+`OMSWalletError` with `code == .walletSelectionStale`.
 
 ### CompleteAuthResult
 
@@ -305,11 +294,10 @@ do not support PKCE for the redirect flow.
 enum OidcProviders {
     static let defaultGoogleClientId: String
     static let defaultAppleClientId: String
-    static let defaultRelayRedirectUri: String
 
     static func google(
         clientId: String = OidcProviders.defaultGoogleClientId,
-        relayRedirectUri: String? = OidcProviders.defaultRelayRedirectUri,
+        relayRedirectUri: String? = nil,
         scopes: [String] = ["openid", "email", "profile"],
         authorizeParams: [String: String] = [:],
         authMode: OidcAuthMode = .authCodePkce
@@ -317,7 +305,7 @@ enum OidcProviders {
 
     static func apple(
         clientId: String = OidcProviders.defaultAppleClientId,
-        relayRedirectUri: String? = OidcProviders.defaultRelayRedirectUri,
+        relayRedirectUri: String? = nil,
         scopes: [String] = ["openid", "email"],
         authorizeParams: [String: String] = [:],
         authMode: OidcAuthMode = .authCodePkce
@@ -327,16 +315,19 @@ enum OidcProviders {
 
 Google defaults to issuer `https://accounts.google.com`, authorization URL
 `https://accounts.google.com/o/oauth2/v2/auth`, scopes `openid email profile`,
-the SDK default Google client ID, the SDK relay redirect URI,
-`access_type=offline`, `prompt=consent`, provider key `google`, provider label
+the SDK default Google client ID, `access_type=offline`, `prompt=consent`,
+provider key `google`, provider label
 `Google`, and PKCE auth-code mode.
 
 Apple defaults to issuer `https://appleid.apple.com`, authorization URL
 `https://appleid.apple.com/auth/authorize`, scopes `openid email`, the SDK
-default Apple Services ID, the SDK relay redirect URI, `response_mode=form_post`,
-provider key `apple`, provider label `Apple`, and PKCE auth-code mode. Apple
-`form_post` is intended to work through the default relay before returning to
-your app callback.
+default Apple Services ID, `response_mode=form_post`, provider key `apple`,
+provider label `Apple`, and PKCE auth-code mode. When the provider relay URL is
+omitted, `startOidcRedirectAuth(provider:redirectUri:...)` derives the relay URL
+from the publishable-key environment as
+`{walletApiUrl}/auth/waas/callback/{google|apple}` for built-in Google and
+Apple providers. Apple `form_post` is intended to work through that relay before
+returning to your app callback.
 
 Provider configs are the source of truth for authorization scopes and optional
 provider display metadata. Omitted or empty `scopes` omits the OAuth `scope`
@@ -841,15 +832,12 @@ Event delivered to `wallet.onSessionExpired`. `session` is the expired session s
 
 ```swift
 struct OMSWalletEnvironment: Equatable, Sendable {
-    static let defaultWalletApiUrl: String
-    static let defaultIndexerGatewayUrl: String
-
     let walletApiUrl: String
     let indexerGatewayUrl: String
 
     init(
-        walletApiUrl: String = OMSWalletEnvironment.defaultWalletApiUrl,
-        indexerGatewayUrl: String = OMSWalletEnvironment.defaultIndexerGatewayUrl
+        walletApiUrl: String,
+        indexerGatewayUrl: String
     )
 }
 ```
@@ -858,6 +846,10 @@ struct OMSWalletEnvironment: Equatable, Sendable {
 |---|---|---|
 | `walletApiUrl` | `String` | Base URL of the OMS Wallet API. |
 | `indexerGatewayUrl` | `String` | Base URL of the IndexerGateway API. |
+
+`OMSWallet(publishableKey:)` and `WalletClient(publishableKey:)` derive the
+environment from the publishable key. `OMSWalletEnvironment` remains available
+for lower-level internal/test construction.
 
 ### FeeOptionSelector
 
@@ -913,22 +905,22 @@ integer balance. Use `selection` when returning a quoted option from a custom
 selector; it preserves the option's `tokenID` when present and falls back to the
 symbol for native fee options.
 
-### OmsSdkError
+### OMSWalletError
 
 ```swift
-struct OmsSdkError: Error, LocalizedError, @unchecked Sendable {
-    let code: OmsSdkErrorCode
-    let operation: OmsSdkOperation?
+struct OMSWalletError: Error, LocalizedError, @unchecked Sendable {
+    let code: OMSWalletErrorCode
+    let operation: OMSWalletOperation?
     let status: Int?
     let txnId: String?
     let retryable: Bool?
-    let upstreamError: OmsUpstreamError?
+    let upstreamError: OMSWalletUpstreamError?
     let underlyingError: (any Error)?
 }
 ```
 
 Public `WalletClient` and `IndexerClient` methods normalize recoverable SDK
-failures to `OmsSdkError`. Use `code` for stable app handling, `operation` for
+failures to `OMSWalletError`. Use `code` for stable app handling, `operation` for
 logging and analytics, `status` for HTTP-backed failures, `txnId` for
 transaction recovery, and `retryable == true` for retry UI. `retryable` is
 nullable because not every error family has meaningful retry semantics.
@@ -944,19 +936,19 @@ and service-specific troubleshooting.
 wraps a lower-level Swift error such as `WebRPCError`, `WebRPCTransportError`,
 `TransactionError`, HTTP transport failures, `URLError`, or a decoding error. It
 can be absent for deliberate local SDK errors such as missing session and stale
-wallet selection, and for manually constructed `OmsSdkError` values unless the
+wallet selection, and for manually constructed `OMSWalletError` values unless the
 caller supplies it. Do not serialize or depend on `underlyingError` for
 cross-SDK behavior.
 
 `PendingWalletSelection` validation failures, such as stale selections or
-unavailable wallet IDs, also throw `OmsSdkError`.
+unavailable wallet IDs, also throw `OMSWalletError`.
 
 `CancellationError` is not wrapped.
 
 ```swift
 do {
     _ = try await oms.wallet.signMessage(network: .polygon, message: "hello")
-} catch let error as OmsSdkError {
+} catch let error as OMSWalletError {
     switch error.code {
     case .sessionMissing, .sessionExpired:
         // Prompt the user to sign in again.
@@ -977,10 +969,10 @@ do {
 }
 ```
 
-### OmsSdkErrorCode
+### OMSWalletErrorCode
 
 ```swift
-enum OmsSdkErrorCode: String, Sendable {
+enum OMSWalletErrorCode: String, Sendable {
     case httpError = "OMS_HTTP_ERROR"
     case invalidResponse = "OMS_INVALID_RESPONSE"
     case requestFailed = "OMS_REQUEST_FAILED"
@@ -990,6 +982,7 @@ enum OmsSdkErrorCode: String, Sendable {
     case walletSelectionStale = "OMS_WALLET_SELECTION_STALE"
     case walletSelectionUnavailable = "OMS_WALLET_SELECTION_UNAVAILABLE"
     case walletSelectionInFlight = "OMS_WALLET_SELECTION_IN_FLIGHT"
+    case storageError = "OMS_STORAGE_ERROR"
     case transactionExecutionUnconfirmed = "OMS_TRANSACTION_EXECUTION_UNCONFIRMED"
     case transactionStatusLookupFailed = "OMS_TRANSACTION_STATUS_LOOKUP_FAILED"
     case validationError = "OMS_VALIDATION_ERROR"
@@ -1008,10 +1001,10 @@ write solely because the upstream failure looked temporary.
 post-submit status polling failed. The error includes `txnId` when available and
 is retryable by checking status again with `getTransactionStatus(txnId:)`.
 
-### OmsSdkOperation
+### OMSWalletOperation
 
 ```swift
-enum OmsSdkOperation: String, Sendable {
+enum OMSWalletOperation: String, Sendable {
     case pendingWalletSelection = "wallet.pendingWalletSelection"
     case pendingWalletSelectionSelectWallet = "wallet.pendingWalletSelection.selectWallet"
     case pendingWalletSelectionCreateAndSelectWallet = "wallet.pendingWalletSelection.createAndSelectWallet"
@@ -1045,20 +1038,20 @@ enum OmsSdkOperation: String, Sendable {
 
 Use `operation.rawValue` when logging SDK failures.
 
-### OmsUpstreamService
+### OMSWalletUpstreamService
 
 ```swift
-enum OmsUpstreamService: String, Sendable {
+enum OMSWalletUpstreamService: String, Sendable {
     case waas = "Waas"
     case indexer = "Indexer"
 }
 ```
 
-### OmsUpstreamError
+### OMSWalletUpstreamError
 
 ```swift
-struct OmsUpstreamError: Equatable, Sendable {
-    let service: OmsUpstreamService
+struct OMSWalletUpstreamError: Equatable, Sendable {
+    let service: OMSWalletUpstreamService
     let name: String?
     let code: String?
     let message: String?
@@ -1083,7 +1076,7 @@ enum TransactionError: Error {
 ```
 
 Transaction-flow detail cases may be preserved under
-`OmsSdkError.underlyingError`. `noFeeOptionsAvailable` is used when an
+`OMSWalletError.underlyingError`. `noFeeOptionsAvailable` is used when an
 unsponsored transaction has no fee options, and `noFeeOptionSelected` is used
 when a custom selector does not return a selection for an unsponsored
 transaction. Terminal non-executed statuses use `transactionFailed`. A normal

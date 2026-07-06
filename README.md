@@ -173,7 +173,7 @@ case .walletSelected:
 
 `PendingWalletSelection` values are single-use. They become invalid after a
 wallet is selected or created, after sign-out, or after another auth completion.
-Using an invalidated pending selection throws `OmsSdkError` with
+Using an invalidated pending selection throws `OMSWalletError` with
 `code == .walletSelectionStale`.
 
 For OIDC ID-token flows such as Google Sign-In, pass the provider token plus
@@ -236,14 +236,15 @@ case .failed(let error):
 }
 ```
 
-`OidcProviders.google()` uses the SDK default Google client ID, relay redirect
-URI, `openid email profile` scopes, Google offline/consent authorization
-parameters, and PKCE auth-code mode. `OidcProviders.apple()` uses the SDK
-default Apple Services ID, relay redirect URI, `openid email` scopes,
-`response_mode=form_post`, and PKCE auth-code mode. Apple `form_post` works
-through the default relay before returning to your app callback; do not bypass
-the relay unless your provider response mode can call your app callback
-directly.
+`OidcProviders.google()` uses the SDK default Google client ID, `openid email
+profile` scopes, Google offline/consent authorization parameters, and PKCE
+auth-code mode. `OidcProviders.apple()` uses the SDK default Apple Services ID,
+`openid email` scopes, `response_mode=form_post`, and PKCE auth-code mode. When
+the provider relay URL is omitted, `startOidcRedirectAuth(provider:redirectUri:...)`
+derives the relay URL from the publishable-key environment for built-in Google
+and Apple providers. Apple `form_post` works through that relay before returning
+to your app callback; do not bypass the relay unless your provider response mode
+can call your app callback directly.
 
 Pass `walletSelection` or `sessionLifetimeSeconds` to `startOidcRedirectAuth`
 to store completion preferences with the pending redirect state. Values passed
@@ -341,19 +342,8 @@ transactions require the selector to return a fee selection.
 
 ## Configuration
 
-### Custom Environment
-
-```swift
-let env = OMSWalletEnvironment(
-    walletApiUrl: "https://staging-wallet.example.com",
-    indexerGatewayUrl: "https://staging-api.example.com/v1/IndexerGateway/"
-)
-
-let oms = try OMSWallet(
-    publishableKey: "pk_dev_sdbx_yourproject_yourkey",
-    environment: env
-)
-```
+The SDK derives API endpoints from the publishable key. Use the key prefix for
+the target environment rather than passing custom endpoint defaults in app code.
 
 ## Unit Formatting
 
@@ -463,7 +453,7 @@ let txResult = try await oms.wallet.callContract(
 
 ### Handle SDK Errors
 
-Public methods throw `OmsSdkError` with stable fields such as `code`,
+Public methods throw `OMSWalletError` with stable fields such as `code`,
 `operation`, `status`, nullable `retryable`, and `txnId`. When a failure comes
 from a remote OMS service response or transport failure, `upstreamError`
 contains normalized WaaS or Indexer detail for logging. Application logic should
@@ -489,7 +479,7 @@ do {
     } else {
         print("Sent:", txResult.txnHash ?? "no hash")
     }
-} catch let error as OmsSdkError {
+} catch let error as OMSWalletError {
     switch error.code {
     case .sessionMissing, .sessionExpired:
         print("Sign in again")
