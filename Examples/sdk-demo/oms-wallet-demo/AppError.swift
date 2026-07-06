@@ -21,7 +21,7 @@ private func errorMessage(for error: Error) -> String {
         return "The operation was cancelled."
     }
 
-    if let error = error as? OmsSdkError {
+    if let error = error as? OMSWalletError {
         return errorMessage(for: error)
     }
 
@@ -74,7 +74,7 @@ private func isCancellation(_ error: Error) -> Bool {
     return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
 }
 
-private func errorMessage(for error: OmsSdkError) -> String {
+private func errorMessage(for error: OMSWalletError) -> String {
     var sections = [String]()
     sections.append(cleanPrimaryMessage(error.localizedDescription) ?? fallbackMessage(for: error))
 
@@ -175,7 +175,7 @@ private func cleanPrimaryMessage(_ message: String) -> String? {
     return trimmed
 }
 
-private func fallbackMessage(for error: OmsSdkError) -> String {
+private func fallbackMessage(for error: OMSWalletError) -> String {
     switch error.code {
     case .httpError:
         return "The OMS service returned an HTTP error."
@@ -196,13 +196,13 @@ private func webRPCError(from error: (any Error)?) -> WebRPCError? {
     if let error = error as? WebRPCError {
         return error
     }
-    if let error = error as? OmsSdkError {
+    if let error = error as? OMSWalletError {
         return webRPCError(from: error.underlyingError)
     }
     return nil
 }
 
-private func upstreamDetails(_ error: OmsUpstreamError) -> [String] {
+private func upstreamDetails(_ error: OMSWalletUpstreamError) -> [String] {
     var details = ["Upstream service: \(error.service.rawValue)"]
 
     if let name = error.name, !name.isEmpty {

@@ -1,14 +1,14 @@
 # Public Error Contracts
 
 This document is the audit surface for Swift SDK error behavior. It records which
-public runtime surfaces can fail, which structured `OmsSdkError` shape apps
+public runtime surfaces can fail, which structured `OMSWalletError` shape apps
 should see, what recovery decision the error supports, whether `upstreamError`
 should be present, and which tests own the contract.
 
 ## Terms
 
 - `code` is the stable app-facing compatibility field. Branch on
-  `OmsSdkErrorCode` raw values for durable app behavior.
+  `OMSWalletErrorCode` raw values for durable app behavior.
 - `operation` identifies the public SDK operation that failed. Use
   `operation.rawValue` for logs and analytics.
 - `retryable` is nullable. When it is non-nil, it describes the failed SDK
@@ -23,7 +23,7 @@ should be present, and which tests own the contract.
   `WebRPCTransportError`, `TransactionError`, HTTP transport failures,
   `URLError`, or a decoding error. It can be absent for deliberate local SDK
   errors such as missing session and stale wallet selection, and for manually
-  constructed `OmsSdkError` values unless the caller supplies it. Do not
+  constructed `OMSWalletError` values unless the caller supplies it. Do not
   serialize or depend on `underlyingError` for cross-SDK behavior.
 - `OMS_TRANSACTION_EXECUTION_UNCONFIRMED` means transaction preparation
   succeeded and produced a `txnId`, but the execute request failed before the
@@ -42,11 +42,11 @@ should be present, and which tests own the contract.
   per method. Cover each transport or response family through real public calls
   instead of duplicating the same assertions for every method.
 - Public runtime methods should own runtime error contract coverage. Only assert
-  manually constructed `OmsSdkError` values when the initializer or field shape
+  manually constructed `OMSWalletError` values when the initializer or field shape
   itself is the unit under test.
 - Keychain, signer, and storage classes are internal platform boundaries in this
   SDK. Cover their failures in focused tests unless a failure is intentionally
-  normalized through a documented public `OmsSdkError`.
+  normalized through a documented public `OMSWalletError`.
 - Serialized contract changes are not automatically regressions. Decide whether
   the new error shape is the intended public contract: if correct, update the
   assertion and related docs; if accidental, fix the implementation.
@@ -57,11 +57,11 @@ should be present, and which tests own the contract.
 
 | Public surface | Failure family | User-facing error | Recovery meaning | `upstreamError` | Covering test |
 |---|---|---|---|---|---|
-| `oms.wallet.startEmailAuth`, representative WaaS methods | WaaS transport failure | `OmsSdkError`, `.requestFailed`, operation-specific, `retryable == true` for transport failures | Retry the same read/auth request when appropriate | Present | `PublicErrorContractsTests.swift` |
+| `oms.wallet.startEmailAuth`, representative WaaS methods | WaaS transport failure | `OMSWalletError`, `.requestFailed`, operation-specific, `retryable == true` for transport failures | Retry the same read/auth request when appropriate | Present | `PublicErrorContractsTests.swift` |
 | `oms.wallet.completeEmailAuth` | WaaS domain error | SDK-specific code such as `.authCommitmentConsumed` | Follow the SDK code; for consumed commitments, restart auth | Present | `PublicErrorContractsTests.swift` |
-| `oms.wallet.*`, representative WaaS methods | WaaS HTTP error | `OmsSdkError`, `.httpError`, `status`, `retryable == true` for 5xx | Use SDK code/status for branching; log upstream detail | Present | `PublicErrorContractsTests.swift` |
+| `oms.wallet.*`, representative WaaS methods | WaaS HTTP error | `OMSWalletError`, `.httpError`, `status`, `retryable == true` for 5xx | Use SDK code/status for branching; log upstream detail | Present | `PublicErrorContractsTests.swift` |
 | `oms.wallet.completeEmailAuth` and `PendingWalletSelection` actions | Local auth/session/selection state | `.sessionMissing`, `.walletSelectionStale`, or `.walletSelectionUnavailable` | Fix local flow state or restart auth; no remote diagnostics are expected | Absent | `PublicErrorContractsTests.swift` |
-| OIDC redirect and ID-token auth methods | Local OIDC config, callback, storage, or state mismatch | `.sessionMissing`, `.validationError`, or failed OIDC result containing `OmsSdkError` | Fix redirect config/state or restart OIDC flow | Absent | `PublicErrorContractsTests.swift` |
+| OIDC redirect and ID-token auth methods | Local OIDC config, callback, storage, or state mismatch | `.sessionMissing`, `.validationError`, or failed OIDC result containing `OMSWalletError` | Fix redirect config/state or restart OIDC flow | Absent | `PublicErrorContractsTests.swift` |
 | Protected wallet methods: `getIdToken`, `signMessage`, `signTypedData`, `sendTransaction`, `callContract`, `getTransactionStatus`, `listAccessPage`, `listAccessPages`, `revokeAccess` | Missing or expired local session | `.sessionMissing` or `.sessionExpired` | Authenticate again or recover local session; no remote request was made | Absent | `PublicErrorContractsTests.swift` |
 | `oms.wallet.signMessage`, `signTypedData`, `getIdToken`, `sendTransaction`, `callContract` | SDK-local validation or fee-selection failure | `.validationError` | Correct parameters or local fee selection; do not retry as an upstream outage | Absent | `PublicErrorContractsTests.swift` |
 | `oms.wallet.isValidMessageSignature`, `isValidTypedDataSignature` | WaaS validation backend failure | `.httpError`, `.requestFailed`, or `.invalidResponse` with the validation operation | Retry based on SDK code/status; log upstream detail | Present | `PublicErrorContractsTests.swift` |
@@ -71,4 +71,4 @@ should be present, and which tests own the contract.
 | `oms.wallet.listAccessPage`, `listAccessPages`, `revokeAccess` | WaaS access backend failure | `.httpError`, `.requestFailed`, or `.invalidResponse` with access operation | Retry based on SDK code/status; log upstream detail | Present | `PublicErrorContractsTests.swift` |
 | `oms.indexer.getBalances`, `getTransactionHistory` | IndexerGateway backend, transport, malformed JSON, or malformed payload | `.httpError`, `.requestFailed`, or `.invalidResponse` with indexer operation | Retry based on SDK code/status; log upstream detail | Present for remote/transport response failures | `PublicErrorContractsTests.swift` |
 | `oms.indexer.getBalances`, `getTransactionHistory` | IndexerGateway non-JSON HTTP body | `.httpError` with sanitized message | Do not expose raw upstream HTML/text bodies; log normalized detail | Present, sanitized | `PublicErrorContractsTests.swift` |
-| Public `OmsSdkError` initializer and upstream fields | Error field contract | Stable public fields on constructed errors | Use only when the initializer/field shape is the unit under test | As constructed | `PublicErrorContractsTests.swift` |
+| Public `OMSWalletError` initializer and upstream fields | Error field contract | Stable public fields on constructed errors | Use only when the initializer/field shape is the unit under test | As constructed | `PublicErrorContractsTests.swift` |

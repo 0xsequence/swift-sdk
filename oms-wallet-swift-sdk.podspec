@@ -12,8 +12,8 @@ Pod::Spec.new do |s|
   s.readme = "https://raw.githubusercontent.com/0xsequence/swift-sdk/#{s.version}/README.md"
   s.authors = "0xSequence"
   s.license = {
-    :type => "Proprietary",
-    :text => "Copyright 0xSequence. All rights reserved."
+    :type => "Apache-2.0",
+    :file => "LICENSE"
   }
   s.source = { :git => "https://github.com/0xsequence/swift-sdk.git", :tag => s.version.to_s }
 
