@@ -24,20 +24,47 @@ public struct OidcProviderConfig: Sendable {
     public let provider: String?
     public let providerLabel: String?
     public let scopes: [String]
-    public let relayRedirectUri: String?
+    public let providerRedirectUri: String?
     public let authorizeParams: [String: String]
     public let authMode: OidcAuthMode
+    let defaultRelayProvider: String?
 
     public init(
         issuer: String,
         clientId: String,
         authorizationUrl: String,
+        providerRedirectUri: String,
         provider: String? = nil,
         providerLabel: String? = nil,
         scopes: [String] = [],
-        relayRedirectUri: String? = nil,
         authorizeParams: [String: String] = [:],
         authMode: OidcAuthMode = .authCodePkce
+    ) {
+        self.init(
+            issuer: issuer,
+            clientId: clientId,
+            authorizationUrl: authorizationUrl,
+            providerRedirectUri: providerRedirectUri,
+            provider: provider,
+            providerLabel: providerLabel,
+            scopes: scopes,
+            authorizeParams: authorizeParams,
+            authMode: authMode,
+            defaultRelayProvider: nil
+        )
+    }
+
+    fileprivate init(
+        issuer: String,
+        clientId: String,
+        authorizationUrl: String,
+        providerRedirectUri: String?,
+        provider: String? = nil,
+        providerLabel: String? = nil,
+        scopes: [String] = [],
+        authorizeParams: [String: String] = [:],
+        authMode: OidcAuthMode = .authCodePkce,
+        defaultRelayProvider: String?
     ) {
         self.issuer = issuer
         self.clientId = clientId
@@ -45,9 +72,10 @@ public struct OidcProviderConfig: Sendable {
         self.provider = provider
         self.providerLabel = providerLabel
         self.scopes = scopes
-        self.relayRedirectUri = relayRedirectUri
+        self.providerRedirectUri = providerRedirectUri
         self.authorizeParams = authorizeParams
         self.authMode = authMode
+        self.defaultRelayProvider = defaultRelayProvider
     }
 }
 
@@ -58,7 +86,7 @@ public enum OidcProviders {
 
     public static func google(
         clientId: String = Self.defaultGoogleClientId,
-        relayRedirectUri: String? = nil,
+        providerRedirectUri: String? = nil,
         scopes: [String] = ["openid", "email", "profile"],
         authorizeParams: [String: String] = [:],
         authMode: OidcAuthMode = .authCodePkce
@@ -67,21 +95,22 @@ public enum OidcProviders {
             issuer: "https://accounts.google.com",
             clientId: clientId,
             authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+            providerRedirectUri: providerRedirectUri,
             provider: "google",
             providerLabel: "Google",
             scopes: scopes,
-            relayRedirectUri: relayRedirectUri,
             authorizeParams: [
                 "access_type": "offline",
                 "prompt": "consent"
             ].merging(authorizeParams) { _, new in new },
-            authMode: authMode
+            authMode: authMode,
+            defaultRelayProvider: "google"
         )
     }
 
     public static func apple(
         clientId: String = Self.defaultAppleClientId,
-        relayRedirectUri: String? = nil,
+        providerRedirectUri: String? = nil,
         scopes: [String] = ["openid", "email"],
         authorizeParams: [String: String] = [:],
         authMode: OidcAuthMode = .authCodePkce
@@ -90,14 +119,15 @@ public enum OidcProviders {
             issuer: "https://appleid.apple.com",
             clientId: clientId,
             authorizationUrl: "https://appleid.apple.com/auth/authorize",
+            providerRedirectUri: providerRedirectUri,
             provider: "apple",
             providerLabel: "Apple",
             scopes: scopes,
-            relayRedirectUri: relayRedirectUri,
             authorizeParams: [
                 "response_mode": "form_post"
             ].merging(authorizeParams) { _, new in new },
-            authMode: authMode
+            authMode: authMode,
+            defaultRelayProvider: "apple"
         )
     }
 }
@@ -105,7 +135,7 @@ public enum OidcProviders {
 /// Result returned after starting an OIDC authorization-code redirect flow.
 ///
 /// Open `authorizationUrl` in a browser or ASWebAuthenticationSession, then pass
-/// the final app callback URL to `handleOidcRedirectCallback`.
+/// the resulting callback URL to `handleOidcRedirectCallback`.
 public struct StartOidcRedirectAuthResult: Sendable {
     public let authorizationUrl: String
     public let state: String
@@ -134,6 +164,8 @@ public enum OidcRedirectAuthError: Error, Equatable, Sendable {
     case stateNonceMismatch
     case stateScopeMismatch
     case stateRedirectUriMismatch
+    case missingProviderRedirectUri
+    case unsupportedRelayProvider
     case providerError(String)
     case missingCode
     case signerMismatch
@@ -154,6 +186,10 @@ extension OidcRedirectAuthError: LocalizedError {
             return "OIDC state scope mismatch."
         case .stateRedirectUriMismatch:
             return "OIDC state redirect URI mismatch."
+        case .missingProviderRedirectUri:
+            return "OIDC provider redirect URI is required."
+        case .unsupportedRelayProvider:
+            return "OIDC relay return URI can only be used with built-in relayed providers."
         case .providerError(let message):
             return message
         case .missingCode:
@@ -178,7 +214,7 @@ struct PendingOidcRedirectAuth: Codable, Sendable {
     let walletSelection: WalletSelectionBehavior?
     let sessionLifetimeSeconds: UInt32?
     let signerCredentialId: String
-    let signerKeyType: SigningAlgorithm?
+    let signerKeyType: SigningAlgorithm
 }
 
 protocol OidcRedirectAuthStore: Sendable {

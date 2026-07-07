@@ -110,14 +110,16 @@ extension WalletClient {
         }
         let event = OMSWalletSessionExpiredEvent(session: session, expiredAt: expiredAt)
         latestSessionExpiredEvent = event
-        return (onSessionExpired, event)
+        return (sessionExpiredObserversLocked(), event)
     }
 
     func deliverSessionExpiredNotification(_ notification: SessionExpiredNotification?) {
         guard let notification else {
             return
         }
-        notification.handler?(notification.event)
+        for observer in notification.observers {
+            observer(notification.event)
+        }
     }
 
     func scheduleSessionExpiry(_ session: OMSWalletSessionState) {

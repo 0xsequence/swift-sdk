@@ -53,13 +53,13 @@ actor TrailsOMSWallet {
 
     func startOidcRedirectAuth(
         provider: OidcProviderConfig,
-        redirectUri: String,
+        omsRelayReturnUri: String,
         walletSelection: WalletSelectionBehavior
     ) async throws -> StartOidcRedirectAuthResult {
         try await performThrowing { client in
             try await client.wallet.startOidcRedirectAuth(
                 provider: provider,
-                redirectUri: redirectUri,
+                omsRelayReturnUri: omsRelayReturnUri,
                 walletSelection: walletSelection
             )
         }
@@ -396,7 +396,7 @@ final class TrailsDemoViewModel: ObservableObject {
                 redirectStatus = "Opening provider..."
                 let started = try await oms.startOidcRedirectAuth(
                     provider: provider,
-                    redirectUri: trailsRedirectURI,
+                    omsRelayReturnUri: trailsRedirectURI,
                     walletSelection: walletSelectionBehavior
                 )
                 guard let authorizationURL = URL(string: started.authorizationUrl) else {

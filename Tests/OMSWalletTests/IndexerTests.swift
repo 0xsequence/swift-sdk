@@ -3,8 +3,6 @@ import Testing
 @testable import OMSWallet
 
 @Test func TestSupportedNetworks() throws {
-    let oms = try OMSWallet(publishableKey: "pk_dev_sdbx_project_key")
-    
     #expect(Network.supportedNetworks == [
         .mainnet,
         .sepolia,
@@ -24,9 +22,10 @@ import Testing
         .katana,
     ])
 
-    #expect(oms.findNetworkById(chainId: 8453) == .base)
-    #expect(oms.findNetworkById(chainId: 747474) == .katana)
-    #expect(oms.findNetworkByName(name: "optimism-sepolia") == .optimismSepolia)
+    #expect(Network.findById(8453) == .base)
+    #expect(Network.findById(747474) == .katana)
+    #expect(Network.findByName("optimism-sepolia") == .optimismSepolia)
+    #expect(Network.findByName("polygonamoy") == .polygonAmoy)
     #expect(Network(rawValue: "arbitrum-sepolia") == .arbitrumSepolia)
     #expect(Network(rawValue: "amoy") == .polygonAmoy)
 

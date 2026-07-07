@@ -2,8 +2,9 @@ import Foundation
 
 @available(macOS 12.0, iOS 15.0, *)
 public final class WalletClient: @unchecked Sendable {
+    typealias SessionExpiredObserver = (OMSWalletSessionExpiredEvent) -> Void
     typealias SessionExpiredNotification = (
-        handler: ((OMSWalletSessionExpiredEvent) -> Void)?,
+        observers: [SessionExpiredObserver],
         event: OMSWalletSessionExpiredEvent
     )
 
@@ -80,7 +81,7 @@ public final class WalletClient: @unchecked Sendable {
     private var _walletAddress: String
     private var _walletId: String
     var _sessionRevision: UInt64 = 0
-    private var _onSessionExpired: ((OMSWalletSessionExpiredEvent) -> Void)?
+    private var _sessionExpiredObservers: [UUID: SessionExpiredObserver] = [:]
     private var _verifier = ""
     private var _challenge = ""
 
@@ -103,21 +104,6 @@ public final class WalletClient: @unchecked Sendable {
             withSessionLock { _walletId = newValue }
         }
     }
-    public var onSessionExpired: ((OMSWalletSessionExpiredEvent) -> Void)? {
-        get {
-            withSessionLock { _onSessionExpired }
-        }
-        set {
-            let event = withSessionLock { () -> OMSWalletSessionExpiredEvent? in
-                _onSessionExpired = newValue
-                return _latestSessionExpiredEvent
-            }
-            if let event {
-                newValue?(event)
-            }
-        }
-    }
-
     var verifier: String {
         get {
             withSessionLock { _verifier }
@@ -237,6 +223,33 @@ public final class WalletClient: @unchecked Sendable {
         restoreStoredWalletSession(storedWallet)
     }
 
+    @discardableResult
+    public func addSessionExpiredObserver(
+        _ observer: @escaping (OMSWalletSessionExpiredEvent) -> Void
+    ) -> OMSWalletSessionExpiredObservation {
+        let observerId = UUID()
+        let replayEvent = withSessionLock { () -> OMSWalletSessionExpiredEvent? in
+            _sessionExpiredObservers[observerId] = observer
+            return _latestSessionExpiredEvent
+        }
+        if let replayEvent {
+            observer(replayEvent)
+        }
+        return OMSWalletSessionExpiredObservation { [weak self] in
+            self?.removeSessionExpiredObserver(observerId)
+        }
+    }
+
+    func removeSessionExpiredObserver(_ observerId: UUID) {
+        withSessionLock {
+            _sessionExpiredObservers[observerId] = nil
+        }
+    }
+
+    func sessionExpiredObserversLocked() -> [SessionExpiredObserver] {
+        Array(_sessionExpiredObservers.values)
+    }
+
     func withSessionLock<T>(_ body: () throws -> T) rethrows -> T {
         sessionLock.lock()
         defer {
@@ -328,6 +341,7 @@ public final class WalletClient: @unchecked Sendable {
                 expiresAt: sessionMetadata.expiresAt,
                 auth: sessionMetadata.auth
             )
+            _latestSessionExpiredEvent = nil
             _walletAddress = walletAddress
             _walletId = walletId
             _sessionExpiresAt = sessionMetadata.expiresAt
@@ -365,5 +379,27 @@ public final class WalletClient: @unchecked Sendable {
                 ]
             }
         )
+    }
+}
+
+@available(macOS 12.0, iOS 15.0, *)
+public final class OMSWalletSessionExpiredObservation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var onCancel: (() -> Void)?
+
+    init(onCancel: @escaping () -> Void) {
+        self.onCancel = onCancel
+    }
+
+    deinit {
+        cancel()
+    }
+
+    public func cancel() {
+        lock.lock()
+        let onCancel = self.onCancel
+        self.onCancel = nil
+        lock.unlock()
+        onCancel?()
     }
 }

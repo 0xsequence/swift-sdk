@@ -10,6 +10,7 @@
   - [Network](#network)
   - [OMSWalletSessionState](#omswalletsessionstate)
   - [OMSWalletSessionExpiredEvent](#omswalletsessionexpiredevent)
+  - [OMSWalletSessionExpiredObservation](#omswalletsessionexpiredobservation)
   - [OMSWalletEnvironment](#omswalletenvironment)
   - [FeeOptionSelector](#feeoptionselector)
   - [OMSWalletError](#omswalleterror)
@@ -70,18 +71,6 @@ init(
 |---|---|---|
 | `wallet` | `WalletClient` | Authentication, signing, access, and transaction helper. |
 | `indexer` | `IndexerClient` | Token balance query helper. |
-| `supportedNetworks` | `[Network]` | Supported SDK network list. |
-
-### Network Lookup
-
-```swift
-func findNetworkById(chainId: Int) -> Network?
-func findNetworkByName(name: String) -> Network?
-```
-
-Returns the supported `Network` for a numeric chain ID or network name, or `nil`
-when the chain is not supported. Names are trimmed and lowercased before lookup;
-`polygonamoy` is also accepted for `.polygonAmoy`.
 
 ---
 
@@ -125,15 +114,18 @@ var session: OMSWalletSessionState
 
 Snapshot of the currently completed wallet session for this wallet client.
 
-### onSessionExpired
+### addSessionExpiredObserver
 
 ```swift
-var onSessionExpired: ((OMSWalletSessionExpiredEvent) -> Void)?
+func addSessionExpiredObserver(
+    _ observer: @escaping (OMSWalletSessionExpiredEvent) -> Void
+) -> OMSWalletSessionExpiredObservation
 ```
 
-Called when the active wallet session expires. The event carries the expired
-session snapshot so apps can reuse `session.auth?.email` for email OTP reauth
-or as a Google OIDC login hint.
+Registers an observer called when the active wallet session expires. Multiple
+observers are supported. The latest expired event is replayed to new observers
+until a new auth flow, new session, or `signOut()` clears it. Retain the returned
+observation token and call `cancel()` when the observer is no longer needed.
 
 ### canResumeOidcRedirectAuth
 
@@ -268,7 +260,7 @@ struct OidcProviderConfig {
     let provider: String?
     let providerLabel: String?
     let scopes: [String]
-    let relayRedirectUri: String?
+    let providerRedirectUri: String?
     let authorizeParams: [String: String]
     let authMode: OidcAuthMode
 }
@@ -279,17 +271,19 @@ init(
     issuer: String,
     clientId: String,
     authorizationUrl: String,
+    providerRedirectUri: String,
     provider: String? = nil,
     providerLabel: String? = nil,
     scopes: [String] = [],
-    relayRedirectUri: String? = nil,
     authorizeParams: [String: String] = [:],
     authMode: OidcAuthMode = .authCodePkce
 )
 ```
 
-`authMode` defaults to `.authCodePkce`. Use `.authCode` only for providers that
-do not support PKCE for the redirect flow.
+Manual provider configs require `providerRedirectUri`. The SDK sends it as the
+OAuth `redirect_uri` and expects the eventual callback URL to match it. `authMode`
+defaults to `.authCodePkce`. Use `.authCode` only for providers that do not
+support PKCE for the redirect flow.
 
 ```swift
 enum OidcProviders {
@@ -298,7 +292,7 @@ enum OidcProviders {
 
     static func google(
         clientId: String = OidcProviders.defaultGoogleClientId,
-        relayRedirectUri: String? = nil,
+        providerRedirectUri: String? = nil,
         scopes: [String] = ["openid", "email", "profile"],
         authorizeParams: [String: String] = [:],
         authMode: OidcAuthMode = .authCodePkce
@@ -306,7 +300,7 @@ enum OidcProviders {
 
     static func apple(
         clientId: String = OidcProviders.defaultAppleClientId,
-        relayRedirectUri: String? = nil,
+        providerRedirectUri: String? = nil,
         scopes: [String] = ["openid", "email"],
         authorizeParams: [String: String] = [:],
         authMode: OidcAuthMode = .authCodePkce
@@ -323,12 +317,12 @@ provider key `google`, provider label
 Apple defaults to issuer `https://appleid.apple.com`, authorization URL
 `https://appleid.apple.com/auth/authorize`, scopes `openid email`, the SDK
 default Apple Services ID, `response_mode=form_post`, provider key `apple`,
-provider label `Apple`, and PKCE auth-code mode. When the provider relay URL is
-omitted, `startOidcRedirectAuth(provider:redirectUri:...)` derives the relay URL
+provider label `Apple`, and PKCE auth-code mode. Helper-created Google and Apple
+configs may omit `providerRedirectUri`; when omitted,
+`startOidcRedirectAuth(provider:omsRelayReturnUri:...)` derives the OMS relay URL
 from the publishable-key environment as
-`{walletApiUrl}/auth/waas/callback/{google|apple}` for built-in Google and
-Apple providers. Apple `form_post` is intended to work through that relay before
-returning to your app callback.
+`{walletApiUrl}/auth/waas/callback/{google|apple}`. Apple `form_post` is intended
+to work through that relay before returning to your app callback.
 
 Provider configs are the source of truth for authorization scopes and optional
 provider display metadata. Omitted or empty `scopes` omits the OAuth `scope`
@@ -338,7 +332,6 @@ authorization parameter. `.authCodePkce` adds `code_challenge` and
 ```swift
 func startOidcRedirectAuth(
     provider: OidcProviderConfig,
-    redirectUri: String,
     walletType: WalletType = .ethereum,
     loginHint: String? = nil,
     authorizeParams: [String: String] = [:],
@@ -347,18 +340,28 @@ func startOidcRedirectAuth(
 ) async throws -> StartOidcRedirectAuthResult
 ```
 
+Starts a direct custom-provider redirect flow. `provider.providerRedirectUri`
+is required and is used both as OAuth `redirect_uri` and the expected callback
+URL.
+
 ```swift
 func startOidcRedirectAuth(
     provider: OidcProviderConfig,
-    redirectUri: String,
+    omsRelayReturnUri: String,
     walletType: WalletType = .ethereum,
-    relayRedirectUri: String?,
     loginHint: String? = nil,
     authorizeParams: [String: String] = [:],
     walletSelection: WalletSelectionBehavior? = nil,
     sessionLifetimeSeconds: UInt32? = nil
 ) async throws -> StartOidcRedirectAuthResult
 ```
+
+Starts the relayed helper flow for `OidcProviders.google()` or
+`OidcProviders.apple()`. The SDK sends `provider.providerRedirectUri` when set,
+otherwise the derived OMS relay URL, as OAuth `redirect_uri`. The
+`omsRelayReturnUri` is stored in OAuth state and used as the expected callback
+URL after the relay returns to the app. Manual configs, even when their issuer or
+provider values look like Google or Apple, do not support this overload.
 
 For `OidcProviders.google()` or other providers using issuer `https://accounts.google.com`, `loginHint` is sent as the OAuth `login_hint` parameter. If omitted, the SDK uses the previous session email when available. Non-Google issuers do not receive `login_hint`.
 
@@ -736,8 +739,15 @@ enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
     var description: String
 
     static var supportedNetworks: [Network]
+    static func findById(_ chainId: Int) -> Network?
+    static func findByName(_ name: String) -> Network?
 }
 ```
+
+`findById(_:)` and `findByName(_:)` return the supported `Network` for a numeric
+chain ID or network name, or `nil` when the chain is not supported. Names are
+trimmed and lowercased before lookup; `polygonamoy` is also accepted for
+`.polygonAmoy`.
 
 | Case | Chain ID | Display name | Name | Native token |
 |---|---|---|---|---|
@@ -816,7 +826,20 @@ struct OMSWalletSessionExpiredEvent: Equatable, Sendable {
 }
 ```
 
-Event delivered to `wallet.onSessionExpired`. `session` is the expired session snapshot, including `auth.email` when available, and `expiredAt` is the parsed session expiry time.
+Event delivered to observers registered with `wallet.addSessionExpiredObserver`.
+`session` is the expired session snapshot, including `auth.email` when available,
+and `expiredAt` is the parsed session expiry time.
+
+### OMSWalletSessionExpiredObservation
+
+```swift
+final class OMSWalletSessionExpiredObservation {
+    func cancel()
+}
+```
+
+Cancelable token returned by `wallet.addSessionExpiredObserver`. Keep it alive
+for as long as the observer should remain registered.
 
 ### OMSWalletEnvironment
 

@@ -128,11 +128,10 @@ extension WalletClient {
     /// Starts OIDC authorization-code redirect authentication.
     ///
     /// Open the returned `authorizationUrl` in a browser or `ASWebAuthenticationSession`.
-    /// After the provider redirects back to your app, pass the callback URL to
+    /// After the provider redirects back to the configured provider redirect URI, pass the callback URL to
     /// `handleOidcRedirectCallback(_:walletSelection:sessionLifetimeSeconds:)`.
     public func startOidcRedirectAuth(
         provider: OidcProviderConfig,
-        redirectUri: String,
         walletType: WalletType = WalletType.ethereum,
         loginHint: String? = nil,
         authorizeParams: [String: String] = [:],
@@ -140,11 +139,15 @@ extension WalletClient {
         sessionLifetimeSeconds: UInt32? = nil
     ) async throws -> StartOidcRedirectAuthResult {
         try await runOMSWalletOperation(.walletStartOidcRedirectAuth) {
-            try await startOidcRedirectAuth(
+            guard let providerRedirectUri = provider.providerRedirectUri else {
+                throw OidcRedirectAuthError.missingProviderRedirectUri
+            }
+            return try await startOidcRedirectAuth(
                 provider: provider,
-                redirectUri: redirectUri,
+                providerRedirectUri: providerRedirectUri,
+                expectedCallbackUri: providerRedirectUri,
+                stateRedirectUri: nil,
                 walletType: walletType,
-                relayRedirectUri: provider.relayRedirectUri ?? derivedRelayRedirectUri(for: provider),
                 loginHint: loginHint,
                 authorizeParams: authorizeParams,
                 walletSelection: walletSelection,
@@ -153,99 +156,124 @@ extension WalletClient {
         }
     }
 
-    /// Starts OIDC authorization-code redirect authentication with an explicit
-    /// OAuth redirect URI override. Pass `nil` to use the app callback URI directly
-    /// even when the provider configuration has a relay redirect URI.
+    /// Starts OIDC authorization-code redirect authentication through the built-in
+    /// OMS relay for helper-created Google and Apple provider configurations.
     public func startOidcRedirectAuth(
         provider: OidcProviderConfig,
-        redirectUri: String,
+        omsRelayReturnUri: String,
         walletType: WalletType = WalletType.ethereum,
-        relayRedirectUri: String?,
         loginHint: String? = nil,
         authorizeParams: [String: String] = [:],
         walletSelection: WalletSelectionBehavior? = nil,
         sessionLifetimeSeconds: UInt32? = nil
     ) async throws -> StartOidcRedirectAuthResult {
         try await runOMSWalletOperation(.walletStartOidcRedirectAuth) {
-            let requestedSessionLifetimeSeconds = try sessionLifetimeSeconds.map(requireWaasSessionLifetimeSeconds)
-            let previousSessionEmail = reauthenticationSessionEmail()
-            try clearSession(clearOidcRedirectAuth: true)
-            let authRevision = sessionRevisionSnapshot()
+            guard let relayProvider = provider.defaultRelayProvider else {
+                throw OidcRedirectAuthError.unsupportedRelayProvider
+            }
+            let providerRedirectUri = provider.providerRedirectUri ?? derivedRelayRedirectUri(for: relayProvider)
+            return try await startOidcRedirectAuth(
+                provider: provider,
+                providerRedirectUri: providerRedirectUri,
+                expectedCallbackUri: omsRelayReturnUri,
+                stateRedirectUri: omsRelayReturnUri,
+                walletType: walletType,
+                loginHint: loginHint,
+                authorizeParams: authorizeParams,
+                walletSelection: walletSelection,
+                sessionLifetimeSeconds: sessionLifetimeSeconds
+            )
+        }
+    }
 
+    private func startOidcRedirectAuth(
+        provider: OidcProviderConfig,
+        providerRedirectUri: String,
+        expectedCallbackUri: String,
+        stateRedirectUri: String?,
+        walletType: WalletType,
+        loginHint: String?,
+        authorizeParams: [String: String],
+        walletSelection: WalletSelectionBehavior?,
+        sessionLifetimeSeconds: UInt32?
+    ) async throws -> StartOidcRedirectAuthResult {
+        let requestedSessionLifetimeSeconds = try sessionLifetimeSeconds.map(requireWaasSessionLifetimeSeconds)
+        let previousSessionEmail = reauthenticationSessionEmail()
+        try clearSession(clearOidcRedirectAuth: true)
+        let authRevision = sessionRevisionSnapshot()
+
+        do {
+            let signerCredentialId = try credentialSession.signer.credentialId()
+            let authMode = provider.authMode
+            let response = try await signedClient.commitVerifier(
+                CommitVerifierRequest(
+                    identityType: .oidc,
+                    authMode: authMode.waasAuthMode,
+                    metadata: [
+                        "iss": provider.issuer,
+                        "aud": provider.clientId,
+                        "redirect_uri": providerRedirectUri
+                    ]
+                )
+            )
+            let nonce = try oidcNonceGenerator()
+            let state = try OidcRedirectAuth.encodeState(
+                nonce: nonce,
+                scope: projectId,
+                redirectUri: stateRedirectUri
+            )
+
+            verifier = response.verifier
+            challenge = response.challenge
             do {
-                let signerCredentialId = try credentialSession.signer.credentialId()
-                let oauthRedirectUri = relayRedirectUri ?? redirectUri
-                let authMode = provider.authMode
-                let response = try await signedClient.commitVerifier(
-                    CommitVerifierRequest(
-                        identityType: .oidc,
-                        authMode: authMode.waasAuthMode,
-                        metadata: [
-                            "iss": provider.issuer,
-                            "aud": provider.clientId,
-                            "redirect_uri": oauthRedirectUri
-                        ]
+                try oidcRedirectAuthStore.save(
+                    PendingOidcRedirectAuth(
+                        verifier: response.verifier,
+                        challenge: response.challenge,
+                        nonce: nonce,
+                        authMode: authMode,
+                        redirectUri: expectedCallbackUri,
+                        issuer: provider.issuer,
+                        provider: provider.provider ?? builtInOidcProvider(for: provider.issuer),
+                        providerLabel: provider.providerLabel ?? builtInOidcProviderLabel(for: provider.issuer),
+                        authorizationScope: self.projectId,
+                        walletType: walletType,
+                        walletSelection: walletSelection,
+                        sessionLifetimeSeconds: requestedSessionLifetimeSeconds,
+                        signerCredentialId: signerCredentialId,
+                        signerKeyType: credentialSession.signer.alg
                     )
-                )
-                let nonce = try oidcNonceGenerator()
-                let state = try OidcRedirectAuth.encodeState(
-                    nonce: nonce,
-                    scope: projectId,
-                    redirectUri: oauthRedirectUri == redirectUri ? nil : redirectUri
-                )
-
-                verifier = response.verifier
-                challenge = response.challenge
-                do {
-                    try oidcRedirectAuthStore.save(
-                        PendingOidcRedirectAuth(
-                            verifier: response.verifier,
-                            challenge: response.challenge,
-                            nonce: nonce,
-                            authMode: authMode,
-                            redirectUri: redirectUri,
-                            issuer: provider.issuer,
-                            provider: provider.provider ?? builtInOidcProvider(for: provider.issuer),
-                            providerLabel: provider.providerLabel ?? builtInOidcProviderLabel(for: provider.issuer),
-                            authorizationScope: self.projectId,
-                            walletType: walletType,
-                            walletSelection: walletSelection,
-                            sessionLifetimeSeconds: requestedSessionLifetimeSeconds,
-                            signerCredentialId: signerCredentialId,
-                            signerKeyType: credentialSession.signer.alg
-                        )
-                    )
-                } catch {
-                    throw OMSWalletError.storageError(
-                        message: "OIDC redirect auth state persistence failed.",
-                        underlyingError: error
-                    )
-                }
-
-                try requireCurrentSessionRevision(authRevision)
-
-                let authorizationUrl = try OidcRedirectAuth.buildAuthorizationUrl(
-                    provider: provider,
-                    redirectUri: oauthRedirectUri,
-                    state: state,
-                    challenge: response.challenge,
-                    loginHint: loginHintForProvider(
-                        provider,
-                        loginHint: loginHint ?? previousSessionEmail
-                    ),
-                    authMode: authMode,
-                    authorizeParams: provider.authorizeParams.merging(authorizeParams) { _, new in new }
-                )
-
-                return StartOidcRedirectAuthResult(
-                    authorizationUrl: authorizationUrl,
-                    state: state,
-                    challenge: response.challenge
                 )
             } catch {
-                try? clearSession(clearOidcRedirectAuth: true)
-                throw error
+                throw OMSWalletError.storageError(
+                    message: "OIDC redirect auth state persistence failed.",
+                    underlyingError: error
+                )
             }
+
+            try requireCurrentSessionRevision(authRevision)
+
+            let authorizationUrl = try OidcRedirectAuth.buildAuthorizationUrl(
+                provider: provider,
+                redirectUri: providerRedirectUri,
+                state: state,
+                challenge: response.challenge,
+                loginHint: loginHintForProvider(
+                    provider,
+                    loginHint: loginHint ?? previousSessionEmail
+                ),
+                authMode: authMode,
+                authorizeParams: provider.authorizeParams.merging(authorizeParams) { _, new in new }
+            )
+
+            return StartOidcRedirectAuthResult(
+                authorizationUrl: authorizationUrl,
+                state: state,
+                challenge: response.challenge
+            )
+        } catch {
+            try? clearSession(clearOidcRedirectAuth: true)
+            throw error
         }
     }
 
@@ -363,7 +391,7 @@ extension WalletClient {
         try requireActiveCredential()
         let signerCredentialId = try credentialSession.signer.credentialId()
         guard signerCredentialId.lowercased() == pending.signerCredentialId.lowercased(),
-              pending.signerKeyType == nil || pending.signerKeyType == credentialSession.signer.alg else {
+              pending.signerKeyType == credentialSession.signer.alg else {
             throw OidcRedirectAuthError.signerMismatch
         }
 
@@ -378,11 +406,7 @@ extension WalletClient {
         provider.issuer == "https://accounts.google.com" ? loginHint : nil
     }
 
-    private func derivedRelayRedirectUri(for provider: OidcProviderConfig) -> String? {
-        let relayProvider = provider.provider ?? builtInOidcProvider(for: provider.issuer)
-        guard let relayProvider, relayProvider == "google" || relayProvider == "apple" else {
-            return nil
-        }
+    private func derivedRelayRedirectUri(for relayProvider: String) -> String {
         return "\(environment.walletApiUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/auth/waas/callback/\(relayProvider)"
     }
 

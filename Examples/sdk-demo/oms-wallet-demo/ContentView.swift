@@ -215,9 +215,10 @@ final class AppViewModel: ObservableObject {
     @Published var oms: OMSWallet = try! OMSWallet(
         publishableKey: "pk_sdbx_01kqfw9zaykks_01kwetq606fv699qb9bhfmb45s"
     )
+    private var sessionExpiredObservation: OMSWalletSessionExpiredObservation?
 
     init() {
-        oms.wallet.onSessionExpired = { [weak self] event in
+        sessionExpiredObservation = oms.wallet.addSessionExpiredObserver { [weak self] event in
             Task { @MainActor [weak self] in
                 self?.handleSessionExpired(event)
             }
@@ -297,7 +298,7 @@ final class AppViewModel: ObservableObject {
         do {
             let started = try await oms.wallet.startOidcRedirectAuth(
                 provider: provider,
-                redirectUri: oidcRedirectUri,
+                omsRelayReturnUri: oidcRedirectUri,
                 walletSelection: walletSelectionBehavior,
                 sessionLifetimeSeconds: lifetimeSeconds
             )

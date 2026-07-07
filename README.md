@@ -59,7 +59,6 @@ Pass your OMS publishable key when creating the client. The SDK derives the Wall
 |---|---|---|
 | `wallet` | `WalletClient` | Authentication, session, signing, access management, and transaction helpers. |
 | `indexer` | `IndexerClient` | Token balance and on-chain query helpers. |
-| `supportedNetworks` | `[Network]` | Supported network list. |
 
 Supported publishable key prefixes route to these API bases:
 
@@ -74,14 +73,16 @@ Supported publishable key prefixes route to these API bases:
 
 ## Supported Networks
 
-Use `Network.supportedNetworks` or the `OMSWallet` convenience helpers to bind numeric chain IDs and network names to SDK networks.
+Use `Network.supportedNetworks`, `Network.findById(_:)`, and
+`Network.findByName(_:)` to bind numeric chain IDs and network names to SDK
+networks. `polygonamoy` is also accepted as a lookup alias for `.polygonAmoy`.
 
 ```swift
 let networks = Network.supportedNetworks
-let polygon = oms.findNetworkById(chainId: 137)
-let amoy = oms.findNetworkById(chainId: 80002)
-let base = oms.findNetworkByName(name: "base")
-let katana = oms.findNetworkByName(name: "katana")
+let polygon = Network.findById(137)
+let amoy = Network.findById(80002)
+let base = Network.findByName("base")
+let katana = Network.findByName("katana")
 ```
 
 | Chain ID | Network | Swift case | Indexer value | Native token |
@@ -124,10 +125,13 @@ print(session.walletAddress ?? "signed out")
 if let expiresAt = session.expiresAt { print(expiresAt) }
 print(session.auth?.email ?? "unknown")
 
-oms.wallet.onSessionExpired = { event in
+let sessionExpiredObservation = oms.wallet.addSessionExpiredObserver { event in
     print("Session expired:", event.expiredAt)
     print("Reauth email:", event.session.auth?.email ?? "unknown")
 }
+
+// Later, when the observer is no longer needed:
+sessionExpiredObservation.cancel()
 ```
 
 Auth completion methods accept `sessionLifetimeSeconds` when you need a shorter
@@ -204,7 +208,7 @@ Google and Apple provider helpers include SDK defaults:
 ```swift
 let started = try await oms.wallet.startOidcRedirectAuth(
     provider: OidcProviders.google(),
-    redirectUri: "omsclientswiftdemo://auth/callback",
+    omsRelayReturnUri: "omsclientswiftdemo://auth/callback",
     walletSelection: .manual
 )
 
@@ -241,11 +245,21 @@ case .failed(let error):
 profile` scopes, Google offline/consent authorization parameters, and PKCE
 auth-code mode. `OidcProviders.apple()` uses the SDK default Apple Services ID,
 `openid email` scopes, `response_mode=form_post`, and PKCE auth-code mode. When
-the provider relay URL is omitted, `startOidcRedirectAuth(provider:redirectUri:...)`
-derives the relay URL from the publishable-key environment for built-in Google
-and Apple providers. Apple `form_post` works through that relay before returning
-to your app callback; do not bypass the relay unless your provider response mode
-can call your app callback directly.
+`providerRedirectUri` is omitted on those helper-created providers,
+`startOidcRedirectAuth(provider:omsRelayReturnUri:...)` derives the OMS relay URL
+from the publishable-key environment and stores `omsRelayReturnUri` in the OAuth
+state so the relay can return to your app callback. Apple `form_post` works
+through that relay before returning to your app callback.
+
+If you pass `providerRedirectUri` to a Google or Apple helper and still use an
+intermediate relay, pass `omsRelayReturnUri` when starting auth so the relay can
+return to your app. To bypass the relay, call `startOidcRedirectAuth(provider:...)`
+without `omsRelayReturnUri`.
+
+For custom providers, create `OidcProviderConfig` with a required
+`providerRedirectUri` and call `startOidcRedirectAuth(provider:...)` without
+`omsRelayReturnUri`. The SDK sends `providerRedirectUri` as OAuth `redirect_uri`
+and expects the callback URL to match that same URI.
 
 Pass `walletSelection` or `sessionLifetimeSeconds` to `startOidcRedirectAuth`
 to store completion preferences with the pending redirect state. Values passed

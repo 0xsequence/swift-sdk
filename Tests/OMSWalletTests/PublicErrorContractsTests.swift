@@ -321,9 +321,9 @@ import Testing
         provider: OidcProviderConfig(
             issuer: "https://issuer.example.test",
             clientId: "client-123",
-            authorizationUrl: "https://issuer.example.test/authorize"
-        ),
-        redirectUri: "omsclientswiftdemo://auth/callback"
+            authorizationUrl: "https://issuer.example.test/authorize",
+            providerRedirectUri: "omsclientswiftdemo://auth/callback"
+        )
     )
 
     let result = try await fixture.client.handleOidcRedirectCallback(
@@ -357,9 +357,9 @@ import Testing
         provider: OidcProviderConfig(
             issuer: "https://issuer.example.test",
             clientId: "client-123",
-            authorizationUrl: "https://issuer.example.test/authorize"
-        ),
-        redirectUri: "omsclientswiftdemo://auth/callback"
+            authorizationUrl: "https://issuer.example.test/authorize",
+            providerRedirectUri: "omsclientswiftdemo://auth/callback"
+        )
     )
     let invalidLifetimeResult = try await invalidLifetimeFixture.client.handleOidcRedirectCallback(
         "omsclientswiftdemo://auth/callback?code=auth-code&state=\(invalidLifetimeStart.state)",
@@ -397,9 +397,9 @@ import Testing
             provider: OidcProviderConfig(
                 issuer: "https://issuer.example.test",
                 clientId: "client-123",
-                authorizationUrl: "https://issuer.example.test/authorize"
-            ),
-            redirectUri: "omsclientswiftdemo://auth/callback"
+                authorizationUrl: "https://issuer.example.test/authorize",
+                providerRedirectUri: "omsclientswiftdemo://auth/callback"
+            )
         ),
         equals: error(
             code: .storageError,
