@@ -1142,7 +1142,7 @@ private func waitForSessionExpiredEvent(
     #expect(fixture.oidcRedirectAuthStore.pending?.redirectUri == "omsclientswiftdemo://auth/callback")
 }
 
-@Test func TestWalletStartOidcRedirectAuthUsesHelperProviderRedirectUriThroughRelay() async throws {
+@Test func TestWalletStartOidcRedirectAuthUsesDerivedRelayForHelperProvider() async throws {
     let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
     try fixture.transport.enqueue(
         CommitVerifierResponse(
@@ -1152,9 +1152,8 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.CommitVerifier.urlPath
     )
 
-    let providerRedirectUri = "https://custom-relay.example/google/callback"
     let result = try await fixture.client.startOidcRedirectAuth(
-        provider: OidcProviders.google(providerRedirectUri: providerRedirectUri),
+        provider: OidcProviders.google(),
         omsRelayReturnUri: "omsclientswiftdemo://auth/callback"
     )
     let request = try fixture.transport.decodedRequest(
@@ -1168,8 +1167,8 @@ private func waitForSessionExpiredEvent(
     #expect(request.authMode == .authCodePkce)
     #expect(request.metadata["iss"] == "https://accounts.google.com")
     #expect(request.metadata["aud"] == OidcProviders.defaultGoogleClientId)
-    #expect(request.metadata["redirect_uri"] == providerRedirectUri)
-    #expect(query["redirect_uri"] == providerRedirectUri)
+    #expect(request.metadata["redirect_uri"] == "https://wallet.example.test/auth/waas/callback/google")
+    #expect(query["redirect_uri"] == "https://wallet.example.test/auth/waas/callback/google")
     #expect(decodedState["redirect_uri"] as? String == "omsclientswiftdemo://auth/callback")
     #expect(fixture.oidcRedirectAuthStore.pending?.redirectUri == "omsclientswiftdemo://auth/callback")
 }

@@ -86,7 +86,6 @@ public enum OidcProviders {
 
     public static func google(
         clientId: String = Self.defaultGoogleClientId,
-        providerRedirectUri: String? = nil,
         scopes: [String] = ["openid", "email", "profile"],
         authorizeParams: [String: String] = [:],
         authMode: OidcAuthMode = .authCodePkce
@@ -95,7 +94,7 @@ public enum OidcProviders {
             issuer: "https://accounts.google.com",
             clientId: clientId,
             authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-            providerRedirectUri: providerRedirectUri,
+            providerRedirectUri: nil,
             provider: "google",
             providerLabel: "Google",
             scopes: scopes,
@@ -110,7 +109,6 @@ public enum OidcProviders {
 
     public static func apple(
         clientId: String = Self.defaultAppleClientId,
-        providerRedirectUri: String? = nil,
         scopes: [String] = ["openid", "email"],
         authorizeParams: [String: String] = [:],
         authMode: OidcAuthMode = .authCodePkce
@@ -119,7 +117,7 @@ public enum OidcProviders {
             issuer: "https://appleid.apple.com",
             clientId: clientId,
             authorizationUrl: "https://appleid.apple.com/auth/authorize",
-            providerRedirectUri: providerRedirectUri,
+            providerRedirectUri: nil,
             provider: "apple",
             providerLabel: "Apple",
             scopes: scopes,

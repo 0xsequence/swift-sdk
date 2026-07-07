@@ -244,17 +244,16 @@ case .failed(let error):
 `OidcProviders.google()` uses the SDK default Google client ID, `openid email
 profile` scopes, Google offline/consent authorization parameters, and PKCE
 auth-code mode. `OidcProviders.apple()` uses the SDK default Apple Services ID,
-`openid email` scopes, `response_mode=form_post`, and PKCE auth-code mode. When
-`providerRedirectUri` is omitted on those helper-created providers,
+`openid email` scopes, `response_mode=form_post`, and PKCE auth-code mode. These
+helpers are the SDK default OMS-relayed providers:
 `startOidcRedirectAuth(provider:omsRelayReturnUri:...)` derives the OMS relay URL
 from the publishable-key environment and stores `omsRelayReturnUri` in the OAuth
 state so the relay can return to your app callback. Apple `form_post` works
 through that relay before returning to your app callback.
 
-If you pass `providerRedirectUri` to a Google or Apple helper and still use an
-intermediate relay, pass `omsRelayReturnUri` when starting auth so the relay can
-return to your app. To bypass the relay, call `startOidcRedirectAuth(provider:...)`
-without `omsRelayReturnUri`.
+To use Google or Apple without the SDK relay, configure that provider as a custom
+`OidcProviderConfig` with `providerRedirectUri`; custom providers do not use
+`omsRelayReturnUri`.
 
 For custom providers, create `OidcProviderConfig` with a required
 `providerRedirectUri` and call `startOidcRedirectAuth(provider:...)` without

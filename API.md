@@ -292,7 +292,6 @@ enum OidcProviders {
 
     static func google(
         clientId: String = OidcProviders.defaultGoogleClientId,
-        providerRedirectUri: String? = nil,
         scopes: [String] = ["openid", "email", "profile"],
         authorizeParams: [String: String] = [:],
         authMode: OidcAuthMode = .authCodePkce
@@ -300,7 +299,6 @@ enum OidcProviders {
 
     static func apple(
         clientId: String = OidcProviders.defaultAppleClientId,
-        providerRedirectUri: String? = nil,
         scopes: [String] = ["openid", "email"],
         authorizeParams: [String: String] = [:],
         authMode: OidcAuthMode = .authCodePkce
@@ -318,11 +316,13 @@ Apple defaults to issuer `https://appleid.apple.com`, authorization URL
 `https://appleid.apple.com/auth/authorize`, scopes `openid email`, the SDK
 default Apple Services ID, `response_mode=form_post`, provider key `apple`,
 provider label `Apple`, and PKCE auth-code mode. Helper-created Google and Apple
-configs may omit `providerRedirectUri`; when omitted,
+configs are the SDK default OMS-relayed providers:
 `startOidcRedirectAuth(provider:omsRelayReturnUri:...)` derives the OMS relay URL
 from the publishable-key environment as
 `{walletApiUrl}/auth/waas/callback/{google|apple}`. Apple `form_post` is intended
-to work through that relay before returning to your app callback.
+to work through that relay before returning to your app callback. To use Google
+or Apple without the SDK relay, configure that provider as a custom
+`OidcProviderConfig` with `providerRedirectUri`.
 
 Provider configs are the source of truth for authorization scopes and optional
 provider display metadata. Omitted or empty `scopes` omits the OAuth `scope`
@@ -357,11 +357,11 @@ func startOidcRedirectAuth(
 ```
 
 Starts the relayed helper flow for `OidcProviders.google()` or
-`OidcProviders.apple()`. The SDK sends `provider.providerRedirectUri` when set,
-otherwise the derived OMS relay URL, as OAuth `redirect_uri`. The
-`omsRelayReturnUri` is stored in OAuth state and used as the expected callback
-URL after the relay returns to the app. Manual configs, even when their issuer or
-provider values look like Google or Apple, do not support this overload.
+`OidcProviders.apple()`. The SDK sends the derived OMS relay URL as OAuth
+`redirect_uri`. The `omsRelayReturnUri` is stored in OAuth state and used as the
+expected callback URL after the relay returns to the app. Manual configs, even
+when their issuer or provider values look like Google or Apple, do not support
+this overload.
 
 For `OidcProviders.google()` or other providers using issuer `https://accounts.google.com`, `loginHint` is sent as the OAuth `login_hint` parameter. If omitted, the SDK uses the previous session email when available. Non-Google issuers do not receive `login_hint`.
 

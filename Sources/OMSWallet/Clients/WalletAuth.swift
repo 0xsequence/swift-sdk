@@ -171,7 +171,7 @@ extension WalletClient {
             guard let relayProvider = provider.defaultRelayProvider else {
                 throw OidcRedirectAuthError.unsupportedRelayProvider
             }
-            let providerRedirectUri = provider.providerRedirectUri ?? derivedRelayRedirectUri(for: relayProvider)
+            let providerRedirectUri = derivedRelayRedirectUri(for: relayProvider)
             return try await startOidcRedirectAuth(
                 provider: provider,
                 providerRedirectUri: providerRedirectUri,
