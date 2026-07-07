@@ -4,6 +4,12 @@ A Swift SDK for the OMS (Open Money Stack) platform. Provides email, OIDC ID-tok
 
 **Requirements:** iOS 15+ · macOS 12+
 
+## Before You Start
+
+- Use an OMS publishable key for your project. Use sandbox/dev keys for local development and testnet flows.
+- Register any OIDC return URI you use, such as `yourapp://auth/callback`, as an app URL scheme or universal link before testing redirect auth.
+- Start with sign-in, message signing, or balance reads. Transaction examples below use Polygon Amoy; mainnet transactions can move real funds.
+
 ## Installation
 
 ### Swift Package Manager
@@ -40,25 +46,29 @@ guard case .walletSelected(_, let wallet, _, _) = auth else {
 print("Wallet address:", wallet.address)
 print("Session email:", oms.wallet.session.auth?.email ?? "unknown")
 
-let value = try parseUnits(value: "1", decimals: 18)
-let txResult = try await oms.wallet.sendTransaction(
-    network: .polygon,
-    to: "0xRecipient",
-    value: value
+let signature = try await oms.wallet.signMessage(
+    network: .polygonAmoy,
+    message: "hello from OMS Wallet"
 )
-print("Transaction hash:", txResult.txnHash ?? "pending")
+print("Signature:", signature)
 ```
 
 ## Overview
 
 `OMSWallet` is the root object for the SDK. Create a single instance at app startup and keep it alive for the session. It constructs the SDK sub-clients and restores any saved secure session automatically.
 
-Pass your OMS publishable key when creating the client. The SDK derives the Wallet API URL, IndexerGateway URL, and project scope from the publishable key prefix and project segment. The derived project scope is used for signed Wallet API requests and persisted wallet/OIDC redirect state.
+Pass your OMS publishable key when creating the client. The SDK derives the wallet API URL and indexer URL from the publishable key prefix and project segment.
 
 | Property | Type | Description |
 |---|---|---|
 | `wallet` | `WalletClient` | Authentication, session, signing, access management, and transaction helpers. |
 | `indexer` | `IndexerClient` | Token balance and on-chain query helpers. |
+
+## Security Model
+
+Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. The private credential key remains owned by the Keychain and is not written into SDK session storage.
+
+Only completed wallet session metadata is restored automatically, including wallet address, expiry, and auth metadata such as email or OIDC issuer/provider details when available. The SDK checks the cached session expiry before restoring a session. Expired sessions are not activated, and invalid session metadata is cleared; expired metadata may remain in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it.
 
 Supported publishable key prefixes route to these API bases:
 
@@ -208,7 +218,7 @@ Google and Apple provider helpers include SDK defaults:
 ```swift
 let started = try await oms.wallet.startOidcRedirectAuth(
     provider: OidcProviders.google(),
-    omsRelayReturnUri: "omsclientswiftdemo://auth/callback",
+    omsRelayReturnUri: "yourapp://auth/callback",
     walletSelection: .manual
 )
 
@@ -255,10 +265,30 @@ To use Google or Apple without the SDK relay, configure that provider as a custo
 `OidcProviderConfig` with `providerRedirectUri`; custom providers do not use
 `omsRelayReturnUri`.
 
+| Flow | Provider config | App return URL | Provider OAuth callback |
+|---|---|---|---|
+| SDK default Google/Apple | `OidcProviders.google()` / `OidcProviders.apple()` | `omsRelayReturnUri` | OMS relay callback derived as `{walletApiUrl}/auth/waas/callback/{google|apple}` |
+| Custom OIDC provider | Custom `OidcProviderConfig` | `providerRedirectUri` | `providerRedirectUri` |
+| Google/Apple without SDK relay | Custom `OidcProviderConfig` for Google or Apple | `providerRedirectUri` | `providerRedirectUri` |
+
 For custom providers, create `OidcProviderConfig` with a required
 `providerRedirectUri` and call `startOidcRedirectAuth(provider:...)` without
 `omsRelayReturnUri`. The SDK sends `providerRedirectUri` as OAuth `redirect_uri`
 and expects the callback URL to match that same URI.
+
+```swift
+let acmeProvider = OidcProviderConfig(
+    issuer: "https://login.acme.example",
+    clientId: "acme-client-id",
+    authorizationUrl: "https://login.acme.example/oauth/authorize",
+    providerRedirectUri: "yourapp://auth/callback",
+    provider: "acme",
+    providerLabel: "Acme",
+    scopes: ["openid", "email"]
+)
+
+let started = try await oms.wallet.startOidcRedirectAuth(provider: acmeProvider)
+```
 
 Pass `walletSelection` or `sessionLifetimeSeconds` to `startOidcRedirectAuth`
 to store completion preferences with the pending redirect state. Values passed
@@ -269,8 +299,6 @@ configs can use `.authCode` to omit PKCE parameters or `.authCodePkce` for PKCE.
 Providers with omitted or empty `scopes` omit the OAuth `scope` authorization
 parameter.
 
-Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. Only completed wallet session metadata is restored automatically, including wallet address, expiry, and auth metadata such as email or OIDC issuer/provider details when available. The SDK checks the cached session expiry before restoring a session. Expired sessions are not activated, and invalid session metadata is cleared; expired metadata may remain in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it. The private credential key remains owned by the Keychain and is not written into SDK session storage.
-
 On subsequent launches, an unexpired completed session is restored from secure storage automatically. To end the session:
 
 ```swift
@@ -278,6 +306,10 @@ try oms.wallet.signOut()
 ```
 
 ## Transaction Flow
+
+Transactions can move real funds on mainnet. Start on a testnet such as Polygon
+Amoy, fund the wallet from a faucet, and use a small value before switching to a
+production network.
 
 `sendTransaction` and `callContract` use a prepare/execute flow internally:
 
@@ -290,11 +322,13 @@ By default, the SDK uses the first required fee option, or no fee option when th
 transaction is sponsored. Transaction mode defaults to `.relayer`; pass
 `.native` when you want native mode.
 
+### First Testnet Transaction
+
 ```swift
-let value = try parseUnits(value: "1", decimals: 18)
+let value = try parseUnits(value: "0.001", decimals: 18)
 let txResult = try await oms.wallet.sendTransaction(
-    network: .polygon,
-    to: "0xRecipient",
+    network: .polygonAmoy,
+    to: "0x1111111111111111111111111111111111111111",
     value: value
 )
 print("Transaction ID:", txResult.txnId)
@@ -307,10 +341,10 @@ To return immediately after execute without status polling, pass
 returned `txnId`.
 
 ```swift
-let value = try parseUnits(value: "1", decimals: 18)
+let value = try parseUnits(value: "0.001", decimals: 18)
 let txResult = try await oms.wallet.sendTransaction(
-    network: .polygon,
-    to: "0xRecipient",
+    network: .polygonAmoy,
+    to: "0x1111111111111111111111111111111111111111",
     value: value,
     waitForStatus: false
 )
@@ -321,10 +355,10 @@ let status = try await oms.wallet.getTransactionStatus(txnId: txResult.txnId)
 To tune polling, pass `statusPolling`:
 
 ```swift
-let value = try parseUnits(value: "1", decimals: 18)
+let value = try parseUnits(value: "0.001", decimals: 18)
 let txResult = try await oms.wallet.sendTransaction(
-    network: .polygon,
-    to: "0xRecipient",
+    network: .polygonAmoy,
+    to: "0x1111111111111111111111111111111111111111",
     value: value,
     statusPolling: TransactionStatusPollingOptions(
         timeoutMs: 30_000,
@@ -337,10 +371,10 @@ Provide `selectFeeOption` on `sendTransaction` or `callContract` to choose
 from the returned fee options:
 
 ```swift
-let value = try parseUnits(value: "1", decimals: 18)
+let value = try parseUnits(value: "0.001", decimals: 18)
 let txResult = try await oms.wallet.sendTransaction(
-    network: .polygon,
-    to: "0xRecipient",
+    network: .polygonAmoy,
+    to: "0x1111111111111111111111111111111111111111",
     value: value,
     selectFeeOption: .custom { options in
         let selected = options[selectedIndex]
@@ -381,7 +415,7 @@ let usdcDisplay = try formatUnits(value: usdcRaw, decimals: 6)
 
 ```swift
 let signature = try await oms.wallet.signMessage(
-    network: .polygon,
+    network: .polygonAmoy,
     message: "Hello from OMS"
 )
 ```
@@ -392,7 +426,7 @@ let signature = try await oms.wallet.signMessage(
 guard let walletAddress = oms.wallet.walletAddress else { return }
 
 let isValid = try await oms.wallet.isValidMessageSignature(
-    network: .polygon,
+    network: .polygonAmoy,
     walletAddress: walletAddress,
     message: "Hello from OMS",
     signature: signature
@@ -406,7 +440,7 @@ let typedData: JSONValue = .object([
     "domain": .object([
         "name": .string("Example"),
         "version": .string("1"),
-        "chainId": .integer(137)
+        "chainId": .integer(80002)
     ]),
     "message": .object([
         "contents": .string("Hello from OMS")
@@ -423,13 +457,13 @@ let typedData: JSONValue = .object([
 ])
 
 let signature = try await oms.wallet.signTypedData(
-    network: .polygon,
+    network: .polygonAmoy,
     typedData: typedData
 )
 guard let walletAddress = oms.wallet.walletAddress else { return }
 
 let isValid = try await oms.wallet.isValidTypedDataSignature(
-    network: .polygon,
+    network: .polygonAmoy,
     walletAddress: walletAddress,
     typedData: typedData,
     signature: signature
@@ -439,11 +473,11 @@ let isValid = try await oms.wallet.isValidTypedDataSignature(
 ### Send a Transaction with Full Parameters
 
 ```swift
-let value = try parseUnits(value: "1", decimals: 18)
+let value = try parseUnits(value: "0.001", decimals: 18)
 let txResult = try await oms.wallet.sendTransaction(
-    network: .polygon,
+    network: .polygonAmoy,
     request: SendTransactionRequest(
-        to: "0xRecipient",
+        to: "0x1111111111111111111111111111111111111111",
         value: value,
         data: nil,
         mode: .relayer
@@ -454,13 +488,13 @@ let txResult = try await oms.wallet.sendTransaction(
 ### Call a Smart Contract
 
 ```swift
-let amount = try parseUnits(value: "1", decimals: 18)
+let amount = try parseUnits(value: "0.001", decimals: 18)
 let txResult = try await oms.wallet.callContract(
-    network: .polygon,
-    contract: "0xTokenContract",
+    network: .polygonAmoy,
+    contract: "0x3333333333333333333333333333333333333333",
     method: "transfer(address,uint256)",
     args: [
-        AbiArg(type: "address", value: .string("0xRecipient")),
+        AbiArg(type: "address", value: .string("0x1111111111111111111111111111111111111111")),
         AbiArg(type: "uint256", value: .string(amount)),
     ]
 )
@@ -482,11 +516,11 @@ polling failed, so retry status lookup with the returned `txnId`. `retryable`
 describes the failed SDK operation, not the whole user intent.
 
 ```swift
-let value = try parseUnits(value: "1", decimals: 18)
+let value = try parseUnits(value: "0.001", decimals: 18)
 do {
     let txResult = try await oms.wallet.sendTransaction(
-        network: .polygon,
-        to: "0xRecipient",
+        network: .polygonAmoy,
+        to: "0x1111111111111111111111111111111111111111",
         value: value
     )
     if txResult.status == .pending {
@@ -520,7 +554,7 @@ guard let walletAddress = oms.wallet.walletAddress else { return }
 let result = try await oms.indexer.getBalances(
     GetBalancesParams(
         walletAddress: walletAddress,
-        networks: [.polygon],
+        networks: [.polygonAmoy],
         includeMetadata: true,
         page: TokenBalancesPageRequest(page: 0, pageSize: 100)
     )
@@ -540,12 +574,12 @@ guard let walletAddress = oms.wallet.walletAddress else { return }
 let result = try await oms.indexer.getBalances(
     GetBalancesParams(
         walletAddress: walletAddress,
-        networks: [.polygon],
+        networks: [.polygonAmoy],
         includeMetadata: false
     )
 )
 
-let balance = result.nativeBalances.first { $0.chainId == Int64(Network.polygon.id) }
+let balance = result.nativeBalances.first { $0.chainId == Int64(Network.polygonAmoy.id) }
 print(balance?.balance ?? "0")
 ```
 
@@ -557,7 +591,7 @@ guard let walletAddress = oms.wallet.walletAddress else { return }
 let history = try await oms.indexer.getTransactionHistory(
     GetTransactionHistoryParams(
         walletAddress: walletAddress,
-        networks: [.polygon],
+        networks: [.polygonAmoy],
         includeMetadata: true
     )
 )
