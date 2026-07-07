@@ -1,6 +1,6 @@
 # OMS Wallet (Swift)
 
-A Swift SDK for the OMS (Open Money Stack) platform. Provides email, OIDC ID-token, and OIDC redirect wallet authentication, non-extractable Keychain request signing, keychain session persistence, wallet ID token retrieval with optional TTL and custom claims, on-chain transaction submission with fee selection, message and typed-data signing, signature verification, token balance queries, and base-unit formatting helpers.
+Build non-custodial OMS Wallet experiences in Swift with email and OIDC auth, secure session restore, message signing, transaction submission, and token balance queries.
 
 **Requirements:** iOS 15+ · macOS 12+
 
@@ -66,53 +66,9 @@ Pass your OMS publishable key when creating the client. The SDK derives the wall
 
 ## Security Model
 
-Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. The private credential key remains owned by the Keychain and is not written into SDK session storage.
+Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. The credential remains Keychain-managed and is not serialized into SDK session storage.
 
 Only completed wallet session metadata is restored automatically, including wallet address, expiry, and auth metadata such as email or OIDC issuer/provider details when available. The SDK checks the cached session expiry before restoring a session. Expired sessions are not activated, and invalid session metadata is cleared; expired metadata may remain in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it.
-
-Supported publishable key prefixes route to these API bases:
-
-| Prefix | API base |
-|---|---|
-| `pk_dev_sdbx_` | `https://sandbox-api.dev.polygon-dev.technology` |
-| `pk_dev_live_` | `https://api.dev.polygon-dev.technology` |
-| `pk_stg_sdbx_` | `https://sandbox-api.stg.polygon-dev.technology` |
-| `pk_stg_live_` | `https://api.stg.polygon-dev.technology` |
-| `pk_sdbx_` | `https://sandbox-api.polygon.technology` |
-| `pk_live_` | `https://api.polygon.technology` |
-
-## Supported Networks
-
-Use `Network.supportedNetworks`, `Network.findById(_:)`, and
-`Network.findByName(_:)` to bind numeric chain IDs and network names to SDK
-networks. `polygonamoy` is also accepted as a lookup alias for `.polygonAmoy`.
-
-```swift
-let networks = Network.supportedNetworks
-let polygon = Network.findById(137)
-let amoy = Network.findById(80002)
-let base = Network.findByName("base")
-let katana = Network.findByName("katana")
-```
-
-| Chain ID | Network | Swift case | Indexer value | Native token |
-|---|---|---|---|---|
-| `1` | Ethereum | `.mainnet` | `mainnet` | `ETH` |
-| `11155111` | Sepolia | `.sepolia` | `sepolia` | `ETH` |
-| `137` | Polygon | `.polygon` | `polygon` | `POL` |
-| `80002` | Polygon Amoy | `.polygonAmoy` | `amoy` | `POL` |
-| `42161` | Arbitrum | `.arbitrum` | `arbitrum` | `ETH` |
-| `421614` | Arbitrum Sepolia | `.arbitrumSepolia` | `arbitrum-sepolia` | `ETH` |
-| `10` | Optimism | `.optimism` | `optimism` | `ETH` |
-| `11155420` | Optimism Sepolia | `.optimismSepolia` | `optimism-sepolia` | `ETH` |
-| `8453` | Base | `.base` | `base` | `ETH` |
-| `84532` | Base Sepolia | `.baseSepolia` | `base-sepolia` | `ETH` |
-| `56` | BSC | `.bsc` | `bsc` | `BNB` |
-| `97` | BSC Testnet | `.bscTestnet` | `bsc-testnet` | `BNB` |
-| `42170` | Arbitrum Nova | `.arbitrumNova` | `arbitrum-nova` | `ETH` |
-| `43114` | Avalanche | `.avalanche` | `avalanche` | `AVAX` |
-| `43113` | Avalanche Testnet | `.avalancheTestnet` | `avalanche-testnet` | `AVAX` |
-| `747474` | Katana | `.katana` | `katana` | `ETH` |
 
 ## Authentication Flow
 
@@ -394,6 +350,48 @@ transactions require the selector to return a fee selection.
 The SDK derives API endpoints from the publishable key. Use the key prefix for
 the target environment rather than passing custom endpoint defaults in app code.
 
+| Prefix | API base |
+|---|---|
+| `pk_dev_sdbx_` | `https://sandbox-api.dev.polygon-dev.technology` |
+| `pk_dev_live_` | `https://api.dev.polygon-dev.technology` |
+| `pk_stg_sdbx_` | `https://sandbox-api.stg.polygon-dev.technology` |
+| `pk_stg_live_` | `https://api.stg.polygon-dev.technology` |
+| `pk_sdbx_` | `https://sandbox-api.polygon.technology` |
+| `pk_live_` | `https://api.polygon.technology` |
+
+## Supported Networks
+
+Use `Network.supportedNetworks`, `Network.findById(_:)`, and
+`Network.findByName(_:)` to bind numeric chain IDs and network names to SDK
+networks. `polygonamoy` is also accepted as a lookup alias for `.polygonAmoy`.
+
+```swift
+let networks = Network.supportedNetworks
+let polygon = Network.findById(137)
+let amoy = Network.findById(80002)
+let base = Network.findByName("base")
+let katana = Network.findByName("katana")
+```
+
+| Chain ID | Network | Swift case | Indexer value | Native token |
+|---|---|---|---|---|
+| `1` | Ethereum | `.mainnet` | `mainnet` | `ETH` |
+| `11155111` | Sepolia | `.sepolia` | `sepolia` | `ETH` |
+| `137` | Polygon | `.polygon` | `polygon` | `POL` |
+| `80002` | Polygon Amoy | `.polygonAmoy` | `amoy` | `POL` |
+| `42161` | Arbitrum | `.arbitrum` | `arbitrum` | `ETH` |
+| `421614` | Arbitrum Sepolia | `.arbitrumSepolia` | `arbitrum-sepolia` | `ETH` |
+| `10` | Optimism | `.optimism` | `optimism` | `ETH` |
+| `11155420` | Optimism Sepolia | `.optimismSepolia` | `optimism-sepolia` | `ETH` |
+| `8453` | Base | `.base` | `base` | `ETH` |
+| `84532` | Base Sepolia | `.baseSepolia` | `base-sepolia` | `ETH` |
+| `56` | BSC | `.bsc` | `bsc` | `BNB` |
+| `97` | BSC Testnet | `.bscTestnet` | `bsc-testnet` | `BNB` |
+| `42170` | Arbitrum Nova | `.arbitrumNova` | `arbitrum-nova` | `ETH` |
+| `43114` | Avalanche | `.avalanche` | `avalanche` | `AVAX` |
+| `43113` | Avalanche Testnet | `.avalancheTestnet` | `avalanche-testnet` | `AVAX` |
+| `747474` | Katana | `.katana` | `katana` | `ETH` |
+
 ## Unit Formatting
 
 Use the top-level helpers to convert between display amounts and base-unit integer strings without floating-point precision loss. Fractional precision beyond `decimals` is rounded to the nearest base unit.
@@ -505,7 +503,7 @@ let txResult = try await oms.wallet.callContract(
 Public methods throw `OMSWalletError` with stable fields such as `code`,
 `operation`, `status`, nullable `retryable`, and `txnId`. When a failure comes
 from a remote OMS service response or transport failure, `upstreamError`
-contains normalized WaaS or Indexer detail for logging. Application logic should
+contains normalized wallet API or indexer detail for logging. Application logic should
 usually branch on `code`.
 
 For transaction writes, `.transactionExecutionUnconfirmed` means the SDK has a
