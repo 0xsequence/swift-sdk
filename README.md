@@ -39,18 +39,24 @@ let oms = try OMSWallet(
 
 try await oms.wallet.startEmailAuth(email: "user@example.com")
 let auth = try await oms.wallet.completeEmailAuth(code: "123456")
-guard case .walletSelected(_, let wallet, _, _) = auth else {
-    fatalError("Expected automatic wallet selection")
+if case .walletSelected(_, let wallet, _, _) = auth {
+    print("Wallet address:", wallet.address)
+
+    let signature = try await oms.wallet.signMessage(
+        network: .polygonAmoy,
+        message: "hello from OMS Wallet"
+    )
+    print("Signature:", signature)
+
+    let balances = try await oms.indexer.getBalances(
+        GetBalancesParams(
+            walletAddress: wallet.address,
+            networks: [.polygon, .base, .arbitrum],
+            includeMetadata: true
+        )
+    )
+    print("Balances:", balances.nativeBalances)
 }
-
-print("Wallet address:", wallet.address)
-print("Session email:", oms.wallet.session.auth?.email ?? "unknown")
-
-let signature = try await oms.wallet.signMessage(
-    network: .polygonAmoy,
-    message: "hello from OMS Wallet"
-)
-print("Signature:", signature)
 ```
 
 ## Overview
@@ -90,55 +96,26 @@ let session = oms.wallet.session
 print(session.walletAddress ?? "signed out")
 if let expiresAt = session.expiresAt { print(expiresAt) }
 print(session.auth?.email ?? "unknown")
-
-let sessionExpiredObservation = oms.wallet.addSessionExpiredObserver { event in
-    print("Session expired:", event.expiredAt)
-    print("Reauth email:", event.session.auth?.email ?? "unknown")
-}
-
-// Later, when the observer is no longer needed:
-sessionExpiredObservation.cancel()
 ```
 
 Auth completion methods accept `sessionLifetimeSeconds` when you need a shorter
 or longer requested session; the default is one week. Custom values must be from
-1 through 2,592,000 seconds (30 days).
+1 through 2,592,000 seconds (30 days). Use `addSessionExpiredObserver` when your
+app needs to react to session expiry.
 
 To opt out of automatic activation and drive wallet selection yourself:
 
 ```swift
-enum WalletPickerChoice {
-    case existing(Wallet)
-    case createNew
-}
-
-func showWalletPicker(
-    wallets: [Wallet],
-    includeCreateNewWallet: Bool
-) async -> WalletPickerChoice {
-    // Present app UI and return the user's choice.
-}
-
 let result = try await oms.wallet.completeEmailAuth(
     code: "123456",
     walletSelection: .manual
 )
 
-switch result {
-case .walletSelection(let pendingSelection):
-    let choice = await showWalletPicker(
-        wallets: pendingSelection.wallets,
-        includeCreateNewWallet: true
-    )
-
-    switch choice {
-    case .existing(let wallet):
-        try await pendingSelection.selectWallet(walletId: wallet.id)
-    case .createNew:
-        try await pendingSelection.createAndSelectWallet()
-    }
-case .walletSelected:
-    break
+if case .walletSelection(let pendingSelection) = result {
+    // Show pendingSelection.wallets in your app UI.
+    try await pendingSelection.selectWallet(walletId: "wallet-id")
+    // or:
+    // try await pendingSelection.createAndSelectWallet()
 }
 ```
 
@@ -187,17 +164,10 @@ switch result {
 case .completed(let wallet):
     print(wallet.address)
 case .walletSelection(let pendingSelection):
-    let choice = await showWalletPicker(
-        wallets: pendingSelection.wallets,
-        includeCreateNewWallet: true
-    )
-
-    switch choice {
-    case .existing(let wallet):
-        try await pendingSelection.selectWallet(walletId: wallet.id)
-    case .createNew:
-        try await pendingSelection.createAndSelectWallet()
-    }
+    // Show pendingSelection.wallets in your app UI.
+    try await pendingSelection.selectWallet(walletId: "wallet-id")
+    // or:
+    // try await pendingSelection.createAndSelectWallet()
 case .notOidcRedirectCallback:
     break
 case .noPendingAuth:
@@ -261,7 +231,107 @@ On subsequent launches, an unexpired completed session is restored from secure s
 try oms.wallet.signOut()
 ```
 
-## Transaction Flow
+## Core Workflows
+
+### Sign and Verify Messages
+
+```swift
+let signature = try await oms.wallet.signMessage(
+    network: .polygonAmoy,
+    message: "Hello from OMS"
+)
+
+guard let walletAddress = oms.wallet.walletAddress else { return }
+
+let isValid = try await oms.wallet.isValidMessageSignature(
+    network: .polygonAmoy,
+    walletAddress: walletAddress,
+    message: "Hello from OMS",
+    signature: signature
+)
+```
+
+### Sign Typed Data
+
+```swift
+let typedData: JSONValue = .object([
+    "domain": .object([
+        "name": .string("Example"),
+        "version": .string("1"),
+        "chainId": .integer(80002)
+    ]),
+    "message": .object([
+        "contents": .string("Hello from OMS")
+    ]),
+    "primaryType": .string("Message"),
+    "types": .object([
+        "Message": .array([
+            .object([
+                "name": .string("contents"),
+                "type": .string("string")
+            ])
+        ])
+    ])
+])
+
+let signature = try await oms.wallet.signTypedData(
+    network: .polygonAmoy,
+    typedData: typedData
+)
+```
+
+### Query Balances
+
+```swift
+guard let walletAddress = oms.wallet.walletAddress else { return }
+
+let result = try await oms.indexer.getBalances(
+    GetBalancesParams(
+        walletAddress: walletAddress,
+        networks: [.polygon, .base, .arbitrum],
+        includeMetadata: true,
+        page: TokenBalancesPageRequest(page: 0, pageSize: 100)
+    )
+)
+
+for balance in result.balances {
+    print(balance.contractAddress ?? "", balance.balance ?? "")
+    print(balance.contractInfo?.symbol ?? "", balance.contractInfo?.decimals ?? 0)
+}
+```
+
+```swift
+let nativeBalances = try await oms.indexer.getBalances(
+    GetBalancesParams(
+        walletAddress: walletAddress,
+        networks: [.polygon, .base, .arbitrum],
+        includeMetadata: false
+    )
+)
+
+let balance = nativeBalances.nativeBalances.first { $0.chainId == Int64(Network.polygon.id) }
+print(balance?.balance ?? "0")
+```
+
+### Query Transaction History
+
+```swift
+guard let walletAddress = oms.wallet.walletAddress else { return }
+
+let history = try await oms.indexer.getTransactionHistory(
+    GetTransactionHistoryParams(
+        walletAddress: walletAddress,
+        networks: [.polygonAmoy],
+        includeMetadata: true
+    )
+)
+
+for transaction in history.transactions {
+    print(transaction.txnHash, transaction.timestamp)
+}
+```
+
+### Sending Transactions
 
 Transactions can move real funds on mainnet. Start on a testnet such as Polygon
 Amoy, fund the wallet from a faucet, and use a small value before switching to a
@@ -278,7 +348,7 @@ By default, the SDK uses the first required fee option, or no fee option when th
 transaction is sponsored. Transaction mode defaults to `.relayer`; pass
 `.native` when you want native mode.
 
-### First Testnet Transaction
+#### First Testnet Transaction
 
 ```swift
 let value = try parseUnits(value: "0.001", decimals: 18)
@@ -290,6 +360,36 @@ let txResult = try await oms.wallet.sendTransaction(
 print("Transaction ID:", txResult.txnId)
 print("Transaction status:", txResult.status)
 print("Transaction hash:", txResult.txnHash ?? "pending")
+```
+
+#### Send a Transaction with Full Parameters
+
+```swift
+let value = try parseUnits(value: "0.001", decimals: 18)
+let txResult = try await oms.wallet.sendTransaction(
+    network: .polygonAmoy,
+    request: SendTransactionRequest(
+        to: "0x1111111111111111111111111111111111111111",
+        value: value,
+        data: nil,
+        mode: .relayer
+    )
+)
+```
+
+#### Call a Smart Contract
+
+```swift
+let amount = try parseUnits(value: "0.001", decimals: 18)
+let txResult = try await oms.wallet.callContract(
+    network: .polygonAmoy,
+    contract: "0x3333333333333333333333333333333333333333",
+    method: "transfer(address,uint256)",
+    args: [
+        AbiArg(type: "address", value: .string("0x1111111111111111111111111111111111111111")),
+        AbiArg(type: "uint256", value: .string(amount)),
+    ]
+)
 ```
 
 To return immediately after execute without status polling, pass
@@ -345,7 +445,7 @@ with the token decimals, `availableRaw` is the raw integer balance, and
 `decimals` is the token decimal count used for formatting. Unsponsored
 transactions require the selector to return a fee selection.
 
-## Configuration
+## Advanced Configuration
 
 The SDK derives API endpoints from the publishable key. Use the key prefix for
 the target environment rather than passing custom endpoint defaults in app code.
@@ -407,96 +507,7 @@ let usdcDisplay = try formatUnits(value: usdcRaw, decimals: 6)
 // "12.34"
 ```
 
-## Examples
-
-### Sign a Message
-
-```swift
-let signature = try await oms.wallet.signMessage(
-    network: .polygonAmoy,
-    message: "Hello from OMS"
-)
-```
-
-### Verify a Message Signature
-
-```swift
-guard let walletAddress = oms.wallet.walletAddress else { return }
-
-let isValid = try await oms.wallet.isValidMessageSignature(
-    network: .polygonAmoy,
-    walletAddress: walletAddress,
-    message: "Hello from OMS",
-    signature: signature
-)
-```
-
-### Sign Typed Data
-
-```swift
-let typedData: JSONValue = .object([
-    "domain": .object([
-        "name": .string("Example"),
-        "version": .string("1"),
-        "chainId": .integer(80002)
-    ]),
-    "message": .object([
-        "contents": .string("Hello from OMS")
-    ]),
-    "primaryType": .string("Message"),
-    "types": .object([
-        "Message": .array([
-            .object([
-                "name": .string("contents"),
-                "type": .string("string")
-            ])
-        ])
-    ])
-])
-
-let signature = try await oms.wallet.signTypedData(
-    network: .polygonAmoy,
-    typedData: typedData
-)
-guard let walletAddress = oms.wallet.walletAddress else { return }
-
-let isValid = try await oms.wallet.isValidTypedDataSignature(
-    network: .polygonAmoy,
-    walletAddress: walletAddress,
-    typedData: typedData,
-    signature: signature
-)
-```
-
-### Send a Transaction with Full Parameters
-
-```swift
-let value = try parseUnits(value: "0.001", decimals: 18)
-let txResult = try await oms.wallet.sendTransaction(
-    network: .polygonAmoy,
-    request: SendTransactionRequest(
-        to: "0x1111111111111111111111111111111111111111",
-        value: value,
-        data: nil,
-        mode: .relayer
-    )
-)
-```
-
-### Call a Smart Contract
-
-```swift
-let amount = try parseUnits(value: "0.001", decimals: 18)
-let txResult = try await oms.wallet.callContract(
-    network: .polygonAmoy,
-    contract: "0x3333333333333333333333333333333333333333",
-    method: "transfer(address,uint256)",
-    args: [
-        AbiArg(type: "address", value: .string("0x1111111111111111111111111111111111111111")),
-        AbiArg(type: "uint256", value: .string(amount)),
-    ]
-)
-```
+## Reference
 
 ### Handle SDK Errors
 
@@ -543,61 +554,6 @@ do {
 ```
 
 See [Public Error Contracts](docs/error-contracts.md) for the full SDK matrix.
-
-### Query Token Balances
-
-```swift
-guard let walletAddress = oms.wallet.walletAddress else { return }
-
-let result = try await oms.indexer.getBalances(
-    GetBalancesParams(
-        walletAddress: walletAddress,
-        networks: [.polygonAmoy],
-        includeMetadata: true,
-        page: TokenBalancesPageRequest(page: 0, pageSize: 100)
-    )
-)
-
-for balance in result.balances {
-    print(balance.contractAddress ?? "", balance.balance ?? "")
-    print(balance.contractInfo?.symbol ?? "", balance.contractInfo?.decimals ?? 0)
-}
-```
-
-### Query Native Token Balance
-
-```swift
-guard let walletAddress = oms.wallet.walletAddress else { return }
-
-let result = try await oms.indexer.getBalances(
-    GetBalancesParams(
-        walletAddress: walletAddress,
-        networks: [.polygonAmoy],
-        includeMetadata: false
-    )
-)
-
-let balance = result.nativeBalances.first { $0.chainId == Int64(Network.polygonAmoy.id) }
-print(balance?.balance ?? "0")
-```
-
-### Query Transaction History
-
-```swift
-guard let walletAddress = oms.wallet.walletAddress else { return }
-
-let history = try await oms.indexer.getTransactionHistory(
-    GetTransactionHistoryParams(
-        walletAddress: walletAddress,
-        networks: [.polygonAmoy],
-        includeMetadata: true
-    )
-)
-
-for transaction in history.transactions {
-    print(transaction.txnHash, transaction.timestamp)
-}
-```
 
 ### Get a Wallet ID Token
 
