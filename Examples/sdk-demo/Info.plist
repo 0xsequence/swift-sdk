@@ -22,6 +22,16 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
+			<string>Google Sign-In</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.970987756660-remcfkci9g8bh1gjd4alg14elgtnsukt</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
 			<string>technology.polygon.omswallet.demo</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
@@ -31,6 +41,10 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>GIDClientID</key>
+	<string>970987756660-remcfkci9g8bh1gjd4alg14elgtnsukt.apps.googleusercontent.com</string>
+	<key>GIDServerClientID</key>
+	<string>970987756660-0dh5gubqfiugm452raf7mm39qaq639hn.apps.googleusercontent.com</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

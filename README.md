@@ -231,6 +231,15 @@ if let wallet = result.wallet {
 }
 ```
 
+The SDK demo app in `Examples/sdk-demo` includes separate buttons for Google
+ID-token auth and Google redirect auth. The ID-token button uses
+GoogleSignIn-iOS to mint an ID token for the configured web client ID, then
+passes that token to `signInWithOidcIdToken`. To run that path, configure a
+Google iOS OAuth client for the demo bundle ID
+`technology.polygon.omswallet.demo`, add its reversed client ID as an app URL
+scheme, and set `GIDServerClientID` to the web client ID that OMS accepts as the
+ID-token audience.
+
 Use `walletSelection: .manual` with `signInWithOidcIdToken` when you want the
 same app-driven wallet picker shown in the email example.
 Pass `provider` and `providerLabel` for custom ID-token providers when you want

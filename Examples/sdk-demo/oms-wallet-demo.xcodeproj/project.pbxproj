@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		3D2708222F98AE7300CD78D9 /* OMSWallet in Frameworks */ = {isa = PBXBuildFile; productRef = 3D2708212F98AE7300CD78D9 /* OMSWallet */; };
+		3D62E1012FA0000000000001 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 3D62E1002FA0000000000001 /* GoogleSignIn */; };
 		3D8F2A012F9A000100000001 /* styling.gen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D8F2A002F9A000100000001 /* styling.gen.swift */; };
 /* End PBXBuildFile section */
 
@@ -30,6 +31,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				3D2708222F98AE7300CD78D9 /* OMSWallet in Frameworks */,
+				3D62E1012FA0000000000001 /* GoogleSignIn in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -82,6 +84,7 @@
 			name = "oms-wallet-demo";
 			packageProductDependencies = (
 				3D2708212F98AE7300CD78D9 /* OMSWallet */,
+				3D62E1002FA0000000000001 /* GoogleSignIn */,
 			);
 			productName = "oms-wallet-demo";
 			productReference = 3D65FC962F86D5AC009476BA /* oms-wallet-demo.app */;
@@ -113,6 +116,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				3D34460D2F86D65D0088EAAB /* XCLocalSwiftPackageReference "../.." */,
+				3D62E1022FA0000000000001 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3D65FC972F86D5AC009476BA /* Products */;
@@ -394,11 +398,27 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		3D62E1022FA0000000000001 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		3D2708212F98AE7300CD78D9 /* OMSWallet */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 3D34460D2F86D65D0088EAAB /* XCLocalSwiftPackageReference "../.." */;
 			productName = OMSWallet;
+		};
+		3D62E1002FA0000000000001 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3D62E1022FA0000000000001 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -2,6 +2,7 @@ import SwiftUI
 import Combine
 import OMSWallet
 #if os(iOS)
+import GoogleSignIn
 import UIKit
 import SafariServices
 #elseif os(macOS)
@@ -26,6 +27,11 @@ enum Clipboard {
 
 private let supportedNetworks: [Network] = Network.supportedNetworks
 private let oidcRedirectUri = "omsclientswiftdemo://auth/callback"
+private let googleIssuer = "https://accounts.google.com"
+private let googleWebClientId = "970987756660-0dh5gubqfiugm452raf7mm39qaq639hn.apps.googleusercontent.com"
+#if os(iOS)
+private let googleIOSClientId = "970987756660-remcfkci9g8bh1gjd4alg14elgtnsukt.apps.googleusercontent.com"
+#endif
 
 struct SafariAuthSession: Identifiable {
     let url: URL
@@ -49,6 +55,10 @@ private let maxSessionLifetimeSeconds: UInt32 = 2_592_000
 private enum DemoAuthError: Error, LocalizedError {
     case invalidAuthorizationURL
     case invalidSessionLifetime
+    #if os(iOS)
+    case googlePresenterUnavailable
+    case missingGoogleIdToken
+    #endif
 
     var errorDescription: String? {
         switch self {
@@ -56,9 +66,44 @@ private enum DemoAuthError: Error, LocalizedError {
             return "The authorization URL could not be opened."
         case .invalidSessionLifetime:
             return "Enter a session length from 1 to 2,592,000 seconds."
+        #if os(iOS)
+        case .googlePresenterUnavailable:
+            return "Unable to present Google sign-in."
+        case .missingGoogleIdToken:
+            return "Google sign-in did not return an ID token."
+        #endif
         }
     }
 }
+
+#if os(iOS)
+@MainActor
+private func currentPresentingViewController() -> UIViewController? {
+    UIApplication.shared.connectedScenes
+        .compactMap { $0 as? UIWindowScene }
+        .flatMap(\.windows)
+        .first { $0.isKeyWindow }?
+        .rootViewController?
+        .topMostPresentedViewController
+}
+
+private extension UIViewController {
+    var topMostPresentedViewController: UIViewController {
+        if let presentedViewController {
+            return presentedViewController.topMostPresentedViewController
+        }
+        if let navigationController = self as? UINavigationController,
+           let visibleViewController = navigationController.visibleViewController {
+            return visibleViewController.topMostPresentedViewController
+        }
+        if let tabBarController = self as? UITabBarController,
+           let selectedViewController = tabBarController.selectedViewController {
+            return selectedViewController.topMostPresentedViewController
+        }
+        return self
+    }
+}
+#endif
 
 @MainActor
 fileprivate final class FeeOptionSelectionRequest: Identifiable {
@@ -246,6 +291,9 @@ final class AppViewModel: ObservableObject {
 
     func signOut() {
         do {
+            #if os(iOS)
+            GIDSignIn.sharedInstance.signOut()
+            #endif
             try oms.wallet.signOut()
             safariAuthSession = nil
             sessionExpiredPrompt = nil
@@ -277,6 +325,90 @@ final class AppViewModel: ObservableObject {
             present(error)
         }
     }
+
+    #if os(iOS)
+    func startGoogleIdTokenAuth() async {
+        guard let lifetimeSeconds = sessionLifetimeSeconds else {
+            present(DemoAuthError.invalidSessionLifetime)
+            return
+        }
+
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let idToken = try await requestGoogleIdToken()
+            let result = try await oms.wallet.signInWithOidcIdToken(
+                idToken: idToken,
+                issuer: googleIssuer,
+                audience: googleWebClientId,
+                walletSelection: walletSelectionBehavior,
+                sessionLifetimeSeconds: lifetimeSeconds,
+                provider: "google",
+                providerLabel: "Google"
+            )
+
+            switch result {
+            case .walletSelected:
+                screen = .wallet
+            case .walletSelection(let pendingSelection):
+                screen = .walletSelection(pendingSelection)
+            }
+        } catch {
+            present(error)
+        }
+    }
+
+    private func requestGoogleIdToken() async throws -> String {
+        guard let presentingViewController = currentPresentingViewController() else {
+            throw DemoAuthError.googlePresenterUnavailable
+        }
+
+        GIDSignIn.sharedInstance.configuration = GIDConfiguration(
+            clientID: googleIOSClientId,
+            serverClientID: googleWebClientId
+        )
+
+        let signInResult = try await signInWithGoogle(presentingViewController: presentingViewController)
+        let user = try await refreshGoogleTokens(for: signInResult.user)
+        guard let idToken = user.idToken?.tokenString else {
+            throw DemoAuthError.missingGoogleIdToken
+        }
+        return idToken
+    }
+
+    private func signInWithGoogle(presentingViewController: UIViewController) async throws -> GIDSignInResult {
+        try await withCheckedThrowingContinuation { continuation in
+            GIDSignIn.sharedInstance.signIn(withPresenting: presentingViewController) { result, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let result else {
+                    continuation.resume(throwing: DemoAuthError.missingGoogleIdToken)
+                    return
+                }
+                continuation.resume(returning: result)
+            }
+        }
+    }
+
+    private func refreshGoogleTokens(for user: GIDGoogleUser) async throws -> GIDGoogleUser {
+        try await withCheckedThrowingContinuation { continuation in
+            user.refreshTokensIfNeeded { refreshedUser, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let refreshedUser else {
+                    continuation.resume(throwing: DemoAuthError.missingGoogleIdToken)
+                    return
+                }
+                continuation.resume(returning: refreshedUser)
+            }
+        }
+    }
+    #endif
 
     func startGoogleRedirectAuth() async {
         await startOidcRedirectAuth(provider: OidcProviders.google())
@@ -414,6 +546,10 @@ final class AppViewModel: ObservableObject {
         }
 
         switch prompt.event.session.auth {
+        #if os(iOS)
+        case .oidc(let auth) where auth.provider == "google" && auth.flow == .idToken:
+            await startGoogleIdTokenAuth()
+        #endif
         case .oidc(let auth) where auth.provider == "google":
             await startGoogleRedirectAuth()
         case .oidc(let auth) where auth.provider == "apple":
@@ -512,6 +648,11 @@ struct ContentView: View {
             await vm.checkSession()
         }
         .onOpenURL { url in
+            #if os(iOS)
+            if GIDSignIn.sharedInstance.handle(url) {
+                return
+            }
+            #endif
             Task {
                 await vm.handleOpenURL(url)
             }
@@ -649,14 +790,25 @@ struct LoginWindow: View {
                 .buttonStyle(DesignButtonStyle(variant: .primary))
                 .disabled(vm.loginEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || vm.sessionLifetimeSeconds == nil || vm.isLoading)
 
+                #if os(iOS)
                 Button {
-                    Task { await vm.startGoogleRedirectAuth() }
+                    Task { await vm.startGoogleIdTokenAuth() }
                 } label: {
-                    label(for: "Continue with Google", systemImage: "globe", loading: vm.isLoading)
+                    label(for: "Continue with Google ID token", systemImage: "person.crop.circle.badge.checkmark", loading: vm.isLoading)
                 }
                 .buttonStyle(DesignButtonStyle(variant: .secondary))
                 .disabled(vm.isLoading)
                 .padding(.top, 12)
+                #endif
+
+                Button {
+                    Task { await vm.startGoogleRedirectAuth() }
+                } label: {
+                    label(for: "Continue with Google redirect", systemImage: "globe", loading: vm.isLoading)
+                }
+                .buttonStyle(DesignButtonStyle(variant: .secondary))
+                .disabled(vm.isLoading)
+                .padding(.top, 8)
 
                 Button {
                     Task { await vm.startAppleRedirectAuth() }
