@@ -1,4 +1,4 @@
-# OMS Wallet (Swift)
+# OMS Wallet Swift SDK
 
 Build non-custodial OMS Wallet experiences in Swift with email and OIDC auth, secure session restore, message signing, transaction submission, and token balance queries.
 
@@ -20,6 +20,8 @@ Add the package in Xcode with **File -> Add Package Dependencies** and enter the
 https://github.com/0xsequence/swift-sdk.git
 ```
 
+Use the dependency rule **Up to Next Major Version** with version `0.2.0`.
+
 ### CocoaPods
 
 Add the pod to your `Podfile`:
@@ -33,22 +35,22 @@ pod 'oms-wallet-swift-sdk', '0.2.0'
 ```swift
 import OMSWallet
 
-let oms = try OMSWallet(
-    publishableKey: "pk_dev_sdbx_yourproject_yourkey"
+let omsWallet = try OMSWallet(
+    publishableKey: "your-publishable-key"
 )
 
-try await oms.wallet.startEmailAuth(email: "user@example.com")
-let auth = try await oms.wallet.completeEmailAuth(code: "123456")
-if case .walletSelected(_, let wallet, _, _) = auth {
+try await omsWallet.wallet.startEmailAuth(email: "user@example.com")
+let auth = try await omsWallet.wallet.completeEmailAuth(code: "123456")
+if let wallet = auth.wallet {
     print("Wallet address:", wallet.address)
 
-    let signature = try await oms.wallet.signMessage(
+    let signature = try await omsWallet.wallet.signMessage(
         network: .polygonAmoy,
         message: "hello from OMS Wallet"
     )
     print("Signature:", signature)
 
-    let balances = try await oms.indexer.getBalances(
+    let balances = try await omsWallet.indexer.getBalances(
         GetBalancesParams(
             walletAddress: wallet.address,
             networks: [.polygon, .base, .arbitrum],
@@ -84,15 +86,15 @@ OMS supports email-based OTP, OIDC ID-token auth, and OIDC redirect auth. The em
 2. **`completeEmailAuth(code:walletSelection:walletType:sessionLifetimeSeconds:)`** verifies the code. In the default `.automatic` mode it selects the first matching wallet or creates one. The wallet address, wallet ID, and signer metadata are saved to the device keychain.
 
 ```swift
-try await oms.wallet.startEmailAuth(email: "user@example.com")
+try await omsWallet.wallet.startEmailAuth(email: "user@example.com")
 
 // Present your OTP entry UI.
-let result = try await oms.wallet.completeEmailAuth(code: "123456")
+let result = try await omsWallet.wallet.completeEmailAuth(code: "123456")
 
-if case .walletSelected(_, let wallet, _, _) = result {
+if let wallet = result.wallet {
     print(wallet.address)
 }
-let session = oms.wallet.session
+let session = omsWallet.wallet.session
 print(session.walletAddress ?? "signed out")
 if let expiresAt = session.expiresAt { print(expiresAt) }
 print(session.auth?.email ?? "unknown")
@@ -101,12 +103,21 @@ print(session.auth?.email ?? "unknown")
 Auth completion methods accept `sessionLifetimeSeconds` when you need a shorter
 or longer requested session; the default is one week. Custom values must be from
 1 through 2,592,000 seconds (30 days). Use `addSessionExpiredObserver` when your
-app needs to react to session expiry.
+app needs to react to session expiry:
+
+```swift
+let sessionExpiredObservation = omsWallet.wallet.addSessionExpiredObserver { event in
+    print("Session expired:", event.session.walletAddress ?? "unknown")
+}
+
+// Later, when the observer is no longer needed:
+sessionExpiredObservation.cancel()
+```
 
 To opt out of automatic activation and drive wallet selection yourself:
 
 ```swift
-let result = try await oms.wallet.completeEmailAuth(
+let result = try await omsWallet.wallet.completeEmailAuth(
     code: "123456",
     walletSelection: .manual
 )
@@ -124,32 +135,12 @@ wallet is selected or created, after sign-out, or after another auth completion.
 Using an invalidated pending selection throws `OMSWalletError` with
 `code == .walletSelectionStale`.
 
-For OIDC ID-token flows such as Google Sign-In, pass the provider token plus
-the issuer and audience used to mint it:
-
-```swift
-let result = try await oms.wallet.signInWithOidcIdToken(
-    idToken: googleIdToken,
-    issuer: "https://accounts.google.com",
-    audience: "YOUR_WEB_CLIENT_ID"
-)
-
-if case .walletSelected(_, let wallet, _, _) = result {
-    print(wallet.address)
-}
-```
-
-Use `walletSelection: .manual` with `signInWithOidcIdToken` when you want the
-same app-driven wallet picker shown in the email example.
-Pass `provider` and `providerLabel` for custom ID-token providers when you want
-those labels stored in `oms.wallet.session.auth`.
-
 For OIDC authorization-code redirect flows, start the redirect, open the
 returned URL with your browser UI, then safely handle incoming app links.
 Google and Apple provider helpers include SDK defaults:
 
 ```swift
-let started = try await oms.wallet.startOidcRedirectAuth(
+let started = try await omsWallet.wallet.startOidcRedirectAuth(
     provider: OidcProviders.google(),
     omsRelayReturnUri: "yourapp://auth/callback",
     walletSelection: .manual
@@ -157,7 +148,7 @@ let started = try await oms.wallet.startOidcRedirectAuth(
 
 // Open started.authorizationUrl.
 
-let result = try await oms.wallet.handleOidcRedirectCallback(
+let result = try await omsWallet.wallet.handleOidcRedirectCallback(
     callbackURLString
 )
 switch result {
@@ -213,7 +204,7 @@ let acmeProvider = OidcProviderConfig(
     scopes: ["openid", "email"]
 )
 
-let started = try await oms.wallet.startOidcRedirectAuth(provider: acmeProvider)
+let started = try await omsWallet.wallet.startOidcRedirectAuth(provider: acmeProvider)
 ```
 
 Pass `walletSelection` or `sessionLifetimeSeconds` to `startOidcRedirectAuth`
@@ -225,10 +216,30 @@ configs can use `.authCode` to omit PKCE parameters or `.authCodePkce` for PKCE.
 Providers with omitted or empty `scopes` omit the OAuth `scope` authorization
 parameter.
 
+For OIDC ID-token flows such as Google Sign-In, pass the provider token plus
+the issuer and audience used to mint it:
+
+```swift
+let result = try await omsWallet.wallet.signInWithOidcIdToken(
+    idToken: googleIdToken,
+    issuer: "https://accounts.google.com",
+    audience: "YOUR_WEB_CLIENT_ID"
+)
+
+if let wallet = result.wallet {
+    print(wallet.address)
+}
+```
+
+Use `walletSelection: .manual` with `signInWithOidcIdToken` when you want the
+same app-driven wallet picker shown in the email example.
+Pass `provider` and `providerLabel` for custom ID-token providers when you want
+those labels stored in `omsWallet.wallet.session.auth`.
+
 On subsequent launches, an unexpired completed session is restored from secure storage automatically. To end the session:
 
 ```swift
-try oms.wallet.signOut()
+try omsWallet.wallet.signOut()
 ```
 
 ## Core Workflows
@@ -236,17 +247,17 @@ try oms.wallet.signOut()
 ### Sign and Verify Messages
 
 ```swift
-let signature = try await oms.wallet.signMessage(
+let signature = try await omsWallet.wallet.signMessage(
     network: .polygonAmoy,
-    message: "Hello from OMS"
+    message: "hello from OMS Wallet"
 )
 
-guard let walletAddress = oms.wallet.walletAddress else { return }
+guard let walletAddress = omsWallet.wallet.walletAddress else { return }
 
-let isValid = try await oms.wallet.isValidMessageSignature(
+let isValid = try await omsWallet.wallet.isValidMessageSignature(
     network: .polygonAmoy,
     walletAddress: walletAddress,
-    message: "Hello from OMS",
+    message: "hello from OMS Wallet",
     signature: signature
 )
 ```
@@ -261,7 +272,7 @@ let typedData: JSONValue = .object([
         "chainId": .integer(80002)
     ]),
     "message": .object([
-        "contents": .string("Hello from OMS")
+        "contents": .string("hello from OMS Wallet")
     ]),
     "primaryType": .string("Message"),
     "types": .object([
@@ -274,18 +285,27 @@ let typedData: JSONValue = .object([
     ])
 ])
 
-let signature = try await oms.wallet.signTypedData(
+let signature = try await omsWallet.wallet.signTypedData(
     network: .polygonAmoy,
     typedData: typedData
+)
+
+guard let walletAddress = omsWallet.wallet.walletAddress else { return }
+
+let typedDataValid = try await omsWallet.wallet.isValidTypedDataSignature(
+    network: .polygonAmoy,
+    walletAddress: walletAddress,
+    typedData: typedData,
+    signature: signature
 )
 ```
 
 ### Query Balances
 
 ```swift
-guard let walletAddress = oms.wallet.walletAddress else { return }
+guard let walletAddress = omsWallet.wallet.walletAddress else { return }
 
-let result = try await oms.indexer.getBalances(
+let result = try await omsWallet.indexer.getBalances(
     GetBalancesParams(
         walletAddress: walletAddress,
         networks: [.polygon, .base, .arbitrum],
@@ -301,7 +321,7 @@ for balance in result.balances {
 ```
 
 ```swift
-let nativeBalances = try await oms.indexer.getBalances(
+let nativeBalances = try await omsWallet.indexer.getBalances(
     GetBalancesParams(
         walletAddress: walletAddress,
         networks: [.polygon, .base, .arbitrum],
@@ -316,9 +336,9 @@ print(balance?.balance ?? "0")
 ### Query Transaction History
 
 ```swift
-guard let walletAddress = oms.wallet.walletAddress else { return }
+guard let walletAddress = omsWallet.wallet.walletAddress else { return }
 
-let history = try await oms.indexer.getTransactionHistory(
+let history = try await omsWallet.indexer.getTransactionHistory(
     GetTransactionHistoryParams(
         walletAddress: walletAddress,
         networks: [.polygonAmoy],
@@ -352,7 +372,7 @@ transaction is sponsored. Transaction mode defaults to `.relayer`; pass
 
 ```swift
 let value = try parseUnits(value: "0.001", decimals: 18)
-let txResult = try await oms.wallet.sendTransaction(
+let txResult = try await omsWallet.wallet.sendTransaction(
     network: .polygonAmoy,
     to: "0x1111111111111111111111111111111111111111",
     value: value
@@ -366,7 +386,7 @@ print("Transaction hash:", txResult.txnHash ?? "pending")
 
 ```swift
 let value = try parseUnits(value: "0.001", decimals: 18)
-let txResult = try await oms.wallet.sendTransaction(
+let txResult = try await omsWallet.wallet.sendTransaction(
     network: .polygonAmoy,
     request: SendTransactionRequest(
         to: "0x1111111111111111111111111111111111111111",
@@ -381,7 +401,7 @@ let txResult = try await oms.wallet.sendTransaction(
 
 ```swift
 let amount = try parseUnits(value: "0.001", decimals: 18)
-let txResult = try await oms.wallet.callContract(
+let txResult = try await omsWallet.wallet.callContract(
     network: .polygonAmoy,
     contract: "0x3333333333333333333333333333333333333333",
     method: "transfer(address,uint256)",
@@ -398,21 +418,21 @@ returned `txnId`.
 
 ```swift
 let value = try parseUnits(value: "0.001", decimals: 18)
-let txResult = try await oms.wallet.sendTransaction(
+let txResult = try await omsWallet.wallet.sendTransaction(
     network: .polygonAmoy,
     to: "0x1111111111111111111111111111111111111111",
     value: value,
     waitForStatus: false
 )
 
-let status = try await oms.wallet.getTransactionStatus(txnId: txResult.txnId)
+let status = try await omsWallet.wallet.getTransactionStatus(txnId: txResult.txnId)
 ```
 
 To tune polling, pass `statusPolling`:
 
 ```swift
 let value = try parseUnits(value: "0.001", decimals: 18)
-let txResult = try await oms.wallet.sendTransaction(
+let txResult = try await omsWallet.wallet.sendTransaction(
     network: .polygonAmoy,
     to: "0x1111111111111111111111111111111111111111",
     value: value,
@@ -428,12 +448,12 @@ from the returned fee options:
 
 ```swift
 let value = try parseUnits(value: "0.001", decimals: 18)
-let txResult = try await oms.wallet.sendTransaction(
+let txResult = try await omsWallet.wallet.sendTransaction(
     network: .polygonAmoy,
     to: "0x1111111111111111111111111111111111111111",
     value: value,
     selectFeeOption: .custom { options in
-        let selected = options[selectedIndex]
+        guard let selected = options.first else { return nil }
         return selected.selection
     }
 )
@@ -527,7 +547,7 @@ describes the failed SDK operation, not the whole user intent.
 ```swift
 let value = try parseUnits(value: "0.001", decimals: 18)
 do {
-    let txResult = try await oms.wallet.sendTransaction(
+    let txResult = try await omsWallet.wallet.sendTransaction(
         network: .polygonAmoy,
         to: "0x1111111111111111111111111111111111111111",
         value: value
@@ -558,9 +578,9 @@ See [Public Error Contracts](docs/error-contracts.md) for the full SDK matrix.
 ### Get a Wallet ID Token
 
 ```swift
-let idToken = try await oms.wallet.getIdToken()
+let idToken = try await omsWallet.wallet.getIdToken()
 
-let scopedIdToken = try await oms.wallet.getIdToken(
+let scopedIdToken = try await omsWallet.wallet.getIdToken(
     ttlSeconds: 3_600,
     customClaims: [
         "role": .string("member"),
@@ -572,14 +592,14 @@ let scopedIdToken = try await oms.wallet.getIdToken(
 ### Manage Wallet Access
 
 ```swift
-let credentials = try await oms.wallet.listAccess()
+let credentials = try await omsWallet.wallet.listAccess()
 
-for try await page in oms.wallet.listAccessPages(pageSize: 25) {
+for try await page in omsWallet.wallet.listAccessPages(pageSize: 25) {
     print(page.credentials)
 }
 
 if let credential = credentials.first {
-    try await oms.wallet.revokeAccess(targetCredentialId: credential.credentialId)
+    try await omsWallet.wallet.revokeAccess(targetCredentialId: credential.credentialId)
 }
 ```
 
@@ -590,3 +610,7 @@ See [API.md](./API.md) for the full method and type reference.
 ## Publishing
 
 See [publishing.md](./publishing.md) for release PR, tag, Swift Package Manager, and CocoaPods publishing steps.
+
+## License
+
+Apache-2.0. See [LICENSE](./LICENSE).

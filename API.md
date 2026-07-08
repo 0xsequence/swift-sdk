@@ -1,4 +1,4 @@
-# OMS Wallet (Swift) — API Reference
+# OMS Wallet Swift SDK — API Reference
 
 ## Table of Contents
 
@@ -50,7 +50,7 @@
 The top-level entry point for the SDK. Requires iOS 15+ or macOS 12+.
 
 ```swift
-let oms = try OMSWallet(publishableKey: "pk_dev_sdbx_yourproject_yourkey")
+let omsWallet = try OMSWallet(publishableKey: "your-publishable-key")
 ```
 
 ### init
@@ -76,7 +76,7 @@ init(
 
 ## WalletClient
 
-Accessed via `oms.wallet`. Manages wallet authentication, session persistence,
+Accessed via `omsWallet.wallet`. Manages wallet authentication, session persistence,
 signing, signature verification, and transaction submission.
 
 ### init
@@ -463,9 +463,9 @@ func signMessage(network: Network, message: String) async throws -> String
 Signs an arbitrary message using the wallet's session key.
 
 ```swift
-let signature = try await oms.wallet.signMessage(
+let signature = try await omsWallet.wallet.signMessage(
     network: .polygon,
-    message: "Hello from OMS"
+    message: "hello from OMS Wallet"
 )
 ```
 
@@ -521,7 +521,7 @@ Sends a native token transfer.
 
 ```swift
 let value = try parseUnits(value: "1", decimals: 18)
-let txResult = try await oms.wallet.sendTransaction(
+let txResult = try await omsWallet.wallet.sendTransaction(
     network: .polygon,
     to: "0xRecipient",
     value: value
@@ -620,7 +620,7 @@ Revokes a credential's access to this wallet.
 
 ## IndexerClient
 
-Accessed via `oms.indexer`. Queries token balances and transaction history through the OMS IndexerGateway API.
+Accessed via `omsWallet.indexer`. Queries token balances and transaction history through the OMS IndexerGateway API.
 
 ### getBalances
 
@@ -631,9 +631,9 @@ func getBalances(_ params: GetBalancesParams) async throws -> BalancesResult
 Fetches token balances for a wallet across explicit `networks` or an `IndexerNetworkType`. Results include native balances separately from token contract balances.
 
 ```swift
-guard let walletAddress = oms.wallet.walletAddress else { return }
+guard let walletAddress = omsWallet.wallet.walletAddress else { return }
 
-let result = try await oms.indexer.getBalances(
+let result = try await omsWallet.indexer.getBalances(
     GetBalancesParams(
         walletAddress: walletAddress,
         networks: [.polygon],
@@ -653,9 +653,9 @@ func getTransactionHistory(_ params: GetTransactionHistoryParams) async throws -
 Fetches transaction history for a wallet across explicit `networks` or an `IndexerNetworkType`.
 
 ```swift
-guard let walletAddress = oms.wallet.walletAddress else { return }
+guard let walletAddress = omsWallet.wallet.walletAddress else { return }
 
-let history = try await oms.indexer.getTransactionHistory(
+let history = try await omsWallet.indexer.getTransactionHistory(
     GetTransactionHistoryParams(
         walletAddress: walletAddress,
         networks: [.polygon],
@@ -960,7 +960,7 @@ unavailable wallet IDs, also throw `OMSWalletError`.
 
 ```swift
 do {
-    _ = try await oms.wallet.signMessage(network: .polygon, message: "hello")
+    _ = try await omsWallet.wallet.signMessage(network: .polygon, message: "hello")
 } catch let error as OMSWalletError {
     switch error.code {
     case .sessionMissing, .sessionExpired:
