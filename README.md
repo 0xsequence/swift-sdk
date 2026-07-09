@@ -76,7 +76,7 @@ Pass your OMS publishable key when creating the client. The SDK derives the wall
 
 Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. The credential remains Keychain-managed and is not serialized into SDK session storage.
 
-Only completed wallet session metadata is restored automatically, including wallet address, expiry, and auth metadata such as email or OIDC issuer/provider details when available. The SDK checks the cached session expiry before restoring a session. Expired sessions are not activated, and invalid session metadata is cleared; expired metadata may remain in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it.
+Only completed wallet session metadata is restored automatically, including wallet address, expiry, and auth metadata such as email or OIDC issuer/provider details when available. The SDK checks the cached session expiry before restoring a session. Expired sessions are not activated, and invalid session metadata is cleared; expired session metadata remains in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it.
 
 ## Authentication Flow
 
@@ -543,8 +543,8 @@ let usdcDisplay = try formatUnits(value: usdcRaw, decimals: 6)
 Public methods throw `OMSWalletError` with stable fields such as `code`,
 `operation`, `status`, nullable `retryable`, and `txnId`. When a failure comes
 from a remote OMS service response or transport failure, `upstreamError`
-contains normalized wallet API or indexer detail for logging. Application logic should
-usually branch on `code`.
+contains normalized wallet API or indexer detail for logging. For `OMSWalletError`
+values, branch application logic on `code`.
 
 For transaction writes, `.transactionExecutionUnconfirmed` means the SDK has a
 `txnId` from preparation, but execute failed before the SDK could confirm

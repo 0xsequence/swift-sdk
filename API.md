@@ -1088,8 +1088,9 @@ enum TransactionError: Error {
 }
 ```
 
-Transaction-flow detail cases may be preserved under
-`OMSWalletError.underlyingError`. `noFeeOptionsAvailable` is used when an
+Transaction-flow detail cases are preserved under
+`OMSWalletError.underlyingError` when the SDK throws them as `OMSWalletError`.
+`noFeeOptionsAvailable` is used when an
 unsponsored transaction has no fee options, and `noFeeOptionSelected` is used
 when a custom selector does not return a selection for an unsponsored
 transaction. Non-submitted terminal statuses other than `.failed` use
