@@ -61,6 +61,7 @@ typed-data signing, signature verification, token balances, and unit formatting.
 ```sh
 swift build
 swift test
+scripts/verify.sh
 scripts/check-public-api-does-not-expose-generated-waas.sh
 xcodebuild -list -project Examples/sdk-demo/oms-wallet-demo.xcodeproj
 xcodebuild -project Examples/sdk-demo/oms-wallet-demo.xcodeproj -scheme oms-wallet-demo build CODE_SIGNING_ALLOWED=NO
@@ -111,9 +112,9 @@ execution commands.
 
 ## CI/CD
 
-CI runs on every PR and push to `master` via `.github/workflows/ci.yml`:
-`swift build`, `swift test`, `scripts/check-public-api-does-not-expose-generated-waas.sh`,
-and the demo app Xcode builds are required to pass.
+CI runs `scripts/verify.sh` on every PR and push to `master` via
+`.github/workflows/ci.yml`. It builds and tests the Swift package, checks the
+public API, validates the podspec, and builds both demo apps.
 Claude review automation is defined in `.github/workflows/claude-review.yml`; it runs once
 when a non-Dependabot PR is opened or marked ready for review, and can be
 requested later with `@claude review` in a PR comment.

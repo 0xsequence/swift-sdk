@@ -56,4 +56,4 @@ run \
         build \
         CODE_SIGNING_ALLOWED=NO
 
-printf '\nVerified Swift SDK release %s.\n' "$version"
+printf '\nVerified Swift SDK %s.\n' "$version"

@@ -31,7 +31,7 @@ such as `0.2.0`, not `v0.2.0`, because the podspec source tag is
 3. Validate the release branch.
 
 ```sh
-scripts/verify-release.sh
+scripts/verify.sh
 ```
 
 This is the same command CI runs. It checks release version alignment, builds
