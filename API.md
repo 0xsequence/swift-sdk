@@ -1,4 +1,4 @@
-# OMS Wallet Swift SDK — API Reference
+# OMS Wallet Swift SDK: API Reference
 
 ## Table of Contents
 
@@ -11,15 +11,14 @@
   - [OMSWalletSessionState](#omswalletsessionstate)
   - [OMSWalletSessionExpiredEvent](#omswalletsessionexpiredevent)
   - [OMSWalletSessionExpiredObservation](#omswalletsessionexpiredobservation)
-  - [OMSWalletEnvironment](#omswalletenvironment)
   - [FeeOptionSelector](#feeoptionselector)
   - [OMSWalletError](#omswalleterror)
   - [OMSWalletErrorCode](#omswalleterrorcode)
   - [OMSWalletOperation](#omswalletoperation)
   - [OMSWalletUpstreamService](#omswalletupstreamservice)
   - [OMSWalletUpstreamError](#omswalletupstreamerror)
-  - [TransactionError](#transactionerror)
   - [SendTransactionResponse](#sendtransactionresponse)
+  - [TransactionStatusResolution](#transactionstatusresolution)
   - [TransactionMode](#transactionmode)
   - [UnitConversionError](#unitconversionerror)
   - [SendTransactionRequest](#sendtransactionrequest)
@@ -47,7 +46,8 @@
 
 ## OMSWallet
 
-The top-level entry point for the SDK. Requires iOS 15+ or macOS 12+.
+The top-level and only public composition root for the SDK. Requires Swift 6.2+,
+iOS 15+, or macOS 12+.
 
 ```swift
 let omsWallet = try OMSWallet(publishableKey: "your-publishable-key")
@@ -72,23 +72,16 @@ init(
 | `wallet` | `WalletClient` | Authentication, signing, access, and transaction helper. |
 | `indexer` | `IndexerClient` | Token balance query helper. |
 
+`OMSWallet` is immutable and conforms to `Sendable`.
+
 ---
 
 ## WalletClient
 
 Accessed via `omsWallet.wallet`. Manages wallet authentication, session persistence,
 signing, signature verification, and transaction submission.
-
-### init
-
-```swift
-init(
-    publishableKey: String
-) throws
-```
-
-Most apps create a wallet client through `OMSWallet`. Use these initializers only
-when constructing `WalletClient` directly.
+`WalletClient` has no public initializer; create `OMSWallet` and access
+`omsWallet.wallet`.
 
 ### walletAddress
 
@@ -118,7 +111,7 @@ Snapshot of the currently completed wallet session for this wallet client.
 
 ```swift
 func addSessionExpiredObserver(
-    _ observer: @escaping (OMSWalletSessionExpiredEvent) -> Void
+    _ observer: @escaping @MainActor @Sendable (OMSWalletSessionExpiredEvent) -> Void
 ) -> OMSWalletSessionExpiredObservation
 ```
 
@@ -126,14 +119,7 @@ Registers an observer called when the active wallet session expires. Multiple
 observers are supported. The latest expired event is replayed to new observers
 until a new auth flow, new session, or `signOut()` clears it. Retain the returned
 observation token and call `cancel()` when the observer is no longer needed.
-
-### canResumeOidcRedirectAuth
-
-```swift
-var canResumeOidcRedirectAuth: Bool
-```
-
-Whether there is an OIDC redirect flow waiting for its callback URL.
+Observers are delivered consistently on `MainActor`.
 
 ### startEmailAuth
 
@@ -204,8 +190,8 @@ final class PendingWalletSelection {
     let wallets: [Wallet]
     let credential: CredentialInfo
 
-    func selectWallet(walletId: String) async throws -> WalletActivationResult
-    func createAndSelectWallet(reference: String? = nil) async throws -> WalletActivationResult
+    func selectWallet(walletId: String) async throws -> WalletSelectionResult
+    func createAndSelectWallet(reference: String? = nil) async throws -> WalletSelectionResult
 }
 ```
 
@@ -238,132 +224,131 @@ Convenience properties:
 
 | Property | Type | Description |
 |---|---|---|
-| `wallets` | `[Wallet]` | Wallets available to the authenticated credential. |
 | `credential` | `CredentialInfo` | Credential returned by the completed auth flow. |
 | `walletAddress` | `String?` | Selected wallet address, or `nil` when manual wallet selection is pending. |
 | `wallet` | `Wallet?` | Selected wallet, or `nil` when manual wallet selection is pending. |
 
+The `.walletSelected` case carries `wallets`, the complete wallet list
+available to the authenticated credential. The `.walletSelection` case carries
+`PendingWalletSelection.wallets`, filtered to the requested wallet type.
+There is no shared collection property with different meanings across cases.
+
 ### OIDC Redirect Auth
 
 ```swift
-enum OidcAuthMode {
+enum OIDCAuthMode {
     case authCode
-    case authCodePkce
+    case authCodePKCE
 }
 ```
 
 ```swift
-struct OidcProviderConfig {
+struct CustomOIDCProviderConfiguration {
     let issuer: String
-    let clientId: String
-    let authorizationUrl: String
+    let clientID: String
+    let authorizationURL: String
     let provider: String?
     let providerLabel: String?
     let scopes: [String]
-    let providerRedirectUri: String?
+    let providerRedirectURI: String
     let authorizeParams: [String: String]
-    let authMode: OidcAuthMode
+    let authMode: OIDCAuthMode
 }
 ```
 
 ```swift
 init(
     issuer: String,
-    clientId: String,
-    authorizationUrl: String,
-    providerRedirectUri: String,
+    clientID: String,
+    authorizationURL: String,
+    providerRedirectURI: String,
     provider: String? = nil,
     providerLabel: String? = nil,
     scopes: [String] = [],
     authorizeParams: [String: String] = [:],
-    authMode: OidcAuthMode = .authCodePkce
+    authMode: OIDCAuthMode = .authCodePKCE
 )
 ```
 
-Manual provider configs require `providerRedirectUri`. The SDK sends it as the
+Custom provider configurations require `providerRedirectURI`. The SDK sends it as the
 OAuth `redirect_uri` and expects the eventual callback URL to match it. `authMode`
-defaults to `.authCodePkce`. Use `.authCode` only for providers that do not
+defaults to `.authCodePKCE`. Use `.authCode` only for providers that do not
 support PKCE for the redirect flow.
 
 ```swift
-enum OidcProviders {
-    static let defaultGoogleClientId: String
-    static let defaultAppleClientId: String
+struct OMSRelayOIDCProvider: Equatable, Hashable, Sendable
 
-    static func google(
-        clientId: String = OidcProviders.defaultGoogleClientId,
-        scopes: [String] = ["openid", "email", "profile"],
-        authorizeParams: [String: String] = [:],
-        authMode: OidcAuthMode = .authCodePkce
-    ) -> OidcProviderConfig
-
-    static func apple(
-        clientId: String = OidcProviders.defaultAppleClientId,
-        scopes: [String] = ["openid", "email"],
-        authorizeParams: [String: String] = [:],
-        authMode: OidcAuthMode = .authCodePkce
-    ) -> OidcProviderConfig
+enum OMSRelayOIDCProviders {
+    static let google: OMSRelayOIDCProvider
+    static let apple: OMSRelayOIDCProvider
 }
 ```
 
-Google defaults to issuer `https://accounts.google.com`, authorization URL
+`OMSRelayOIDCProvider` is an opaque fixed value. It exposes no client ID,
+redirect URI, scopes, authorization parameters, initializer, or editable
+configuration.
+
+Google uses the fixed SDK default issuer `https://accounts.google.com`, authorization URL
 `https://accounts.google.com/o/oauth2/v2/auth`, scopes `openid email profile`,
 the SDK default Google client ID, `access_type=offline`, `prompt=consent`,
 provider key `google`, provider label
 `Google`, and PKCE auth-code mode.
 
-Apple defaults to issuer `https://appleid.apple.com`, authorization URL
+Apple uses the fixed SDK default issuer `https://appleid.apple.com`, authorization URL
 `https://appleid.apple.com/auth/authorize`, scopes `openid email`, the SDK
 default Apple Services ID, `response_mode=form_post`, provider key `apple`,
-provider label `Apple`, and PKCE auth-code mode. Helper-created Google and Apple
-configs are the SDK default OMS-relayed providers:
-`startOidcRedirectAuth(provider:omsRelayReturnUri:...)` derives the OMS relay URL
-from the publishable-key environment as
-`{walletApiUrl}/auth/waas/callback/{google|apple}`. Apple `form_post` is intended
+provider label `Apple`, and PKCE auth-code mode. These are the SDK default
+OMS-relayed providers. `startOIDCRedirectAuth(provider:omsRelayReturnURI:...)`
+derives the OMS relay URL from the publishable-key environment as
+`{wallet API base URL}/auth/waas/callback/{google|apple}`. Apple `form_post` is intended
 to work through that relay before returning to your app callback. To use Google
 or Apple without the SDK relay, configure that provider as a custom
-`OidcProviderConfig` with `providerRedirectUri`.
+`CustomOIDCProviderConfiguration` with `providerRedirectURI`.
 
 Provider configs are the source of truth for authorization scopes and optional
 provider display metadata. Omitted or empty `scopes` omits the OAuth `scope`
-authorization parameter. `.authCodePkce` adds `code_challenge` and
+authorization parameter. `.authCodePKCE` adds `code_challenge` and
 `code_challenge_method=S256`; `.authCode` omits PKCE authorization parameters.
 
 ```swift
-func startOidcRedirectAuth(
-    provider: OidcProviderConfig,
+func startOIDCRedirectAuth(
+    provider: CustomOIDCProviderConfiguration,
     walletType: WalletType = .ethereum,
     loginHint: String? = nil,
     authorizeParams: [String: String] = [:],
     walletSelection: WalletSelectionBehavior? = nil,
     sessionLifetimeSeconds: UInt32? = nil
-) async throws -> StartOidcRedirectAuthResult
+) async throws -> StartOIDCRedirectAuthResult
 ```
 
-Starts a direct custom-provider redirect flow. `provider.providerRedirectUri`
+Starts a direct custom-provider redirect flow. `provider.providerRedirectURI`
 is required and is used both as OAuth `redirect_uri` and the expected callback
 URL.
 
 ```swift
-func startOidcRedirectAuth(
-    provider: OidcProviderConfig,
-    omsRelayReturnUri: String,
+func startOIDCRedirectAuth(
+    provider: OMSRelayOIDCProvider,
+    omsRelayReturnURI: String,
     walletType: WalletType = .ethereum,
     loginHint: String? = nil,
-    authorizeParams: [String: String] = [:],
     walletSelection: WalletSelectionBehavior? = nil,
     sessionLifetimeSeconds: UInt32? = nil
-) async throws -> StartOidcRedirectAuthResult
+) async throws -> StartOIDCRedirectAuthResult
 ```
 
-Starts the relayed helper flow for `OidcProviders.google()` or
-`OidcProviders.apple()`. The SDK sends the derived OMS relay URL as OAuth
-`redirect_uri`. The `omsRelayReturnUri` is stored in OAuth state and used as the
-expected callback URL after the relay returns to the app. Manual configs, even
-when their issuer or provider values look like Google or Apple, do not support
-this overload.
+Starts the relayed flow for `OMSRelayOIDCProviders.google` or
+`OMSRelayOIDCProviders.apple`. The SDK sends the derived OMS relay URL as OAuth
+`redirect_uri`. The `omsRelayReturnURI` is stored in OAuth state and used as the
+expected callback URL after the relay returns to the app. Relay client IDs,
+scopes, auth mode, and authorization parameters are fixed by the SDK.
 
-For `OidcProviders.google()` or other providers using issuer `https://accounts.google.com`, `loginHint` is sent as the OAuth `login_hint` parameter. If omitted, the SDK uses the previous session email when available. Non-Google issuers do not receive `login_hint`.
+The overload types enforce valid combinations: relay providers require
+`omsRelayReturnURI`, while custom configurations do not accept that argument.
+
+For `OMSRelayOIDCProviders.google` or custom providers using issuer
+`https://accounts.google.com`, `loginHint` is sent as the OAuth `login_hint`
+parameter. If omitted, the SDK uses the previous session email when available.
+Non-Google issuers do not receive `login_hint`.
 
 `walletSelection` and `sessionLifetimeSeconds` passed at start are persisted in
 pending redirect state and used when the callback is handled unless callback
@@ -371,19 +356,17 @@ arguments override them. Custom session lifetime values must be from 1 through
 2,592,000 seconds (30 days).
 
 ```swift
-struct StartOidcRedirectAuthResult {
-    let authorizationUrl: String
-    let state: String
-    let challenge: String
+struct StartOIDCRedirectAuthResult {
+    let authorizationURL: String
 }
 ```
 
 ```swift
-func handleOidcRedirectCallback(
-    _ callbackUrl: String?,
+func handleOIDCRedirectCallback(
+    _ callbackURL: String?,
     walletSelection: WalletSelectionBehavior? = nil,
     sessionLifetimeSeconds: UInt32? = nil
-) async throws -> OidcRedirectAuthResult
+) async throws -> OIDCRedirectAuthResult
 ```
 
 Callback `walletSelection` and `sessionLifetimeSeconds` override values stored
@@ -391,38 +374,28 @@ when starting the redirect. If neither start nor callback provides values, the
 SDK uses automatic wallet selection and a one-week session lifetime.
 
 ```swift
-enum OidcRedirectAuthResult {
-    case completed(wallet: Wallet)
-    case walletSelection(PendingWalletSelection)
-    case notOidcRedirectCallback
+enum OIDCRedirectAuthResult {
+    case completed(CompleteAuthResult)
+    case notOIDCRedirectCallback
     case noPendingAuth
-    case failed(Error)
-}
-```
-
-```swift
-enum OidcRedirectAuthError {
-    case invalidAuthorizationURL(String)
-    case randomBytesUnavailable
-    case invalidState
-    case stateNonceMismatch
-    case stateScopeMismatch
-    case stateRedirectUriMismatch
-    case providerError(String)
-    case missingCode
-    case signerMismatch
 }
 ```
 
 The callback handler is safe to call for every incoming app link: unrelated
-links return `.notOidcRedirectCallback`, stale links return `.noPendingAuth`, and
-provider or completion failures return `.failed`. Cancellation rethrows
-`CancellationError`.
+links return `.notOIDCRedirectCallback`, and callbacks with no stored auth state
+or an already consumed flow return `.noPendingAuth`. Successful callbacks return
+`.completed` with the full `CompleteAuthResult`, including wallet and credential
+information. Pending-state load or consumption failures, provider errors,
+validation errors, stale-flow ownership, and backend failures throw normalized
+`OMSWalletError`. Post-result pending-state deletion is best-effort and does not
+replace a successful result or the primary failure. Cancellation rethrows
+`CancellationError`, consumes the callback, and requires starting a new redirect
+flow.
 
 ### useWallet
 
 ```swift
-func useWallet(walletId: String) async throws -> WalletActivationResult
+func useWallet(walletId: String) async throws -> WalletSelectionResult
 ```
 
 Activates an existing wallet after auth completion.
@@ -433,7 +406,7 @@ Activates an existing wallet after auth completion.
 func createWallet(
     walletType: WalletType = .ethereum,
     reference: String? = nil
-) async throws -> WalletActivationResult
+) async throws -> WalletSelectionResult
 ```
 
 Creates and activates a new wallet after auth completion.
@@ -517,7 +490,8 @@ func sendTransaction(
 ) async throws -> SendTransactionResponse
 ```
 
-Sends a native token transfer.
+Sends a native token transfer. Automatic status polling is enabled by default.
+Set `waitForStatus` to `false` to return immediately after execute.
 
 ```swift
 let value = try parseUnits(value: "1", decimals: 18)
@@ -556,7 +530,9 @@ func callContract(
 ) async throws -> SendTransactionResponse
 ```
 
-Calls a state-changing smart contract function.
+Calls a state-changing smart contract function. Automatic status polling is
+enabled by default. Set `waitForStatus` to `false` to return immediately after
+execute.
 
 ### getTransactionStatus
 
@@ -620,7 +596,9 @@ Revokes a credential's access to this wallet.
 
 ## IndexerClient
 
-Accessed via `omsWallet.indexer`. Queries token balances and transaction history through the OMS IndexerGateway API.
+Accessed via `omsWallet.indexer`. Queries token balances and transaction history
+through the OMS IndexerGateway API. `IndexerClient` is immutable, conforms to
+`Sendable`, and has no public initializer.
 
 ### getBalances
 
@@ -841,29 +819,6 @@ final class OMSWalletSessionExpiredObservation {
 Cancelable token returned by `wallet.addSessionExpiredObserver`. Keep it alive
 for as long as the observer should remain registered.
 
-### OMSWalletEnvironment
-
-```swift
-struct OMSWalletEnvironment: Equatable, Sendable {
-    let walletApiUrl: String
-    let indexerGatewayUrl: String
-
-    init(
-        walletApiUrl: String,
-        indexerGatewayUrl: String
-    )
-}
-```
-
-| Field | Type | Description |
-|---|---|---|
-| `walletApiUrl` | `String` | Base URL of the OMS Wallet API. |
-| `indexerGatewayUrl` | `String` | Base URL of the IndexerGateway API. |
-
-`OMSWallet(publishableKey:)` and `WalletClient(publishableKey:)` derive the
-environment from the publishable key. Use `OMSWalletEnvironment` for lower-level
-internal/test construction.
-
 ### FeeOptionSelector
 
 ```swift
@@ -946,12 +901,15 @@ Branch application behavior on SDK-level `code`; use `upstreamError` for logs
 and service-specific troubleshooting.
 
 `underlyingError` is Swift-local diagnostic context. It is present when the SDK
-wraps a lower-level Swift error such as `TransactionError`, HTTP transport
+wraps a lower-level Swift error such as an internal transaction-flow error, HTTP transport
 failures, `URLError`, generated service-client failures, or a decoding error. It
 can be absent for deliberate local SDK errors such as missing session and stale
-wallet selection, and for manually constructed `OMSWalletError` values unless the
-caller supplies it. Do not serialize or depend on `underlyingError` for
-cross-SDK behavior.
+wallet selection. Do not serialize or depend on `underlyingError` for cross-SDK
+behavior.
+
+`OMSWalletError` and `OMSWalletUpstreamError` expose no public initializers.
+Applications receive normalized values from SDK operations and inspect their
+public fields.
 
 `PendingWalletSelection` validation failures, such as stale selections or
 unavailable wallet IDs, also throw `OMSWalletError`.
@@ -1024,8 +982,8 @@ enum OMSWalletOperation: String, Sendable {
     case walletStartEmailAuth = "wallet.startEmailAuth"
     case walletCompleteEmailAuth = "wallet.completeEmailAuth"
     case walletSignInWithOidcIdToken = "wallet.signInWithOidcIdToken"
-    case walletStartOidcRedirectAuth = "wallet.startOidcRedirectAuth"
-    case walletHandleOidcRedirectCallback = "wallet.handleOidcRedirectCallback"
+    case walletStartOIDCRedirectAuth = "wallet.startOIDCRedirectAuth"
+    case walletHandleOIDCRedirectCallback = "wallet.handleOIDCRedirectCallback"
     case walletUseWallet = "wallet.useWallet"
     case walletCreateWallet = "wallet.createWallet"
     case walletListWallets = "wallet.listWallets"
@@ -1076,28 +1034,6 @@ struct OMSWalletUpstreamError: Equatable, Sendable {
 sanitized fallback message instead of exposing raw HTML or text response bodies.
 WaaS non-JSON failures are normalized as `WebrpcBadResponse`.
 
-### TransactionError
-
-```swift
-enum TransactionError: Error {
-    case noFeeOptionsAvailable
-    case noFeeOptionSelected
-    case missingTransactionHash
-    case transactionFailed(status: TransactionStatus)
-    case pollingTimedOut
-}
-```
-
-Transaction-flow detail cases are preserved under
-`OMSWalletError.underlyingError` when the SDK throws them as `OMSWalletError`.
-`noFeeOptionsAvailable` is used when an
-unsponsored transaction has no fee options, and `noFeeOptionSelected` is used
-when a custom selector does not return a selection for an unsponsored
-transaction. Non-submitted terminal statuses other than `.failed` use
-`transactionFailed`; `.pending` and `.failed` return a normal
-`SendTransactionResponse`. A normal pending polling timeout returns
-`SendTransactionResponse(status: .pending, txnHash: nil)` instead of throwing.
-
 ### SendTransactionResponse
 
 ```swift
@@ -1105,13 +1041,30 @@ struct SendTransactionResponse {
     let txnId: String
     let status: TransactionStatus
     let txnHash: String?
+    let statusResolution: TransactionStatusResolution
 }
 ```
 
 Returned by `sendTransaction` and `callContract`. `txnId` and `status` are always
 available; `txnHash` is present when the service has a chain transaction hash.
-The transaction flow returns as soon as status is `.executed` or a non-empty
-`txnHash` is available.
+`statusResolution` is required and describes whether automatic status polling
+was requested and how it ended.
+
+### TransactionStatusResolution
+
+```swift
+enum TransactionStatusResolution: String, Codable, Sendable, Equatable {
+    case notRequested
+    case resolved
+    case timedOut
+}
+```
+
+| Value | Meaning |
+|---|---|
+| `.notRequested` | `waitForStatus` was `false`; the response returns immediately after execute. |
+| `.resolved` | Polling observed a terminal status or a non-empty transaction hash. |
+| `.timedOut` | The polling deadline expired before a terminal status or transaction hash appeared. |
 
 ### TransactionStatusPollingOptions
 
@@ -1126,7 +1079,10 @@ struct TransactionStatusPollingOptions {
 
 Controls how `sendTransaction` and `callContract` poll transaction status
 after execute when `waitForStatus` is `true`. Defaults are a 60 second timeout,
-400 ms fast polling for the first status checks, then 2 second polling.
+400 ms fast polling for the first status checks, then 2 second polling. Explicit
+`intervalMs` and `fastIntervalMs` values must be greater than zero;
+`fastPollCount` must not be negative. A zero `timeoutMs` performs one status
+lookup and returns it with `.timedOut` when it is still nonterminal.
 
 ### TransactionMode
 

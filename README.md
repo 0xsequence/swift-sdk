@@ -2,7 +2,7 @@
 
 Build non-custodial OMS Wallet experiences in Swift with email and OIDC auth, secure session restore, message signing, transaction submission, and token balance queries.
 
-**Requirements:** iOS 15+ · macOS 12+
+**Requirements:** Swift 6.2+ · iOS 15+ · macOS 12+
 
 ## Before You Start
 
@@ -65,6 +65,10 @@ if let wallet = auth.wallet {
 
 `OMSWallet` is the root object for the SDK. Create a single instance at app startup and keep it alive for the session. It constructs the SDK sub-clients and restores any saved secure session automatically.
 
+`OMSWallet` is the only public composition root. Access `WalletClient` and
+`IndexerClient` through `omsWallet.wallet` and `omsWallet.indexer`; their
+initialization and endpoint environment are SDK-managed.
+
 Pass your OMS publishable key when creating the client. The SDK derives the wallet API URL and indexer URL from the publishable key prefix and project segment.
 
 | Property | Type | Description |
@@ -114,6 +118,8 @@ let sessionExpiredObservation = omsWallet.wallet.addSessionExpiredObserver { eve
 sessionExpiredObservation.cancel()
 ```
 
+Session-expiry observers are `@Sendable` and always run on `MainActor`.
+
 To opt out of automatic activation and drive wallet selection yourself:
 
 ```swift
@@ -135,89 +141,9 @@ wallet is selected or created, after sign-out, or after another auth completion.
 Using an invalidated pending selection throws `OMSWalletError` with
 `code == .walletSelectionStale`.
 
-For OIDC authorization-code redirect flows, start the redirect, open the
-returned URL with your browser UI, then safely handle incoming app links.
-Google and Apple provider helpers include SDK defaults:
-
-```swift
-let started = try await omsWallet.wallet.startOidcRedirectAuth(
-    provider: OidcProviders.google(),
-    omsRelayReturnUri: "yourapp://auth/callback",
-    walletSelection: .manual
-)
-
-// Open started.authorizationUrl.
-
-let result = try await omsWallet.wallet.handleOidcRedirectCallback(
-    callbackURLString
-)
-switch result {
-case .completed(let wallet):
-    print(wallet.address)
-case .walletSelection(let pendingSelection):
-    // Show pendingSelection.wallets in your app UI.
-    try await pendingSelection.selectWallet(walletId: "wallet-id")
-    // or:
-    // try await pendingSelection.createAndSelectWallet()
-case .notOidcRedirectCallback:
-    break
-case .noPendingAuth:
-    break
-case .failed(let error):
-    print(error.localizedDescription)
-}
-```
-
-`OidcProviders.google()` uses the SDK default Google client ID, `openid email
-profile` scopes, Google offline/consent authorization parameters, and PKCE
-auth-code mode. `OidcProviders.apple()` uses the SDK default Apple Services ID,
-`openid email` scopes, `response_mode=form_post`, and PKCE auth-code mode. These
-helpers are the SDK default OMS-relayed providers:
-`startOidcRedirectAuth(provider:omsRelayReturnUri:...)` derives the OMS relay URL
-from the publishable-key environment and stores `omsRelayReturnUri` in the OAuth
-state so the relay can return to your app callback. Apple `form_post` works
-through that relay before returning to your app callback.
-
-To use Google or Apple without the SDK relay, configure that provider as a custom
-`OidcProviderConfig` with `providerRedirectUri`; custom providers do not use
-`omsRelayReturnUri`.
-
-| Flow | Provider config | App return URL | Provider OAuth callback |
-|---|---|---|---|
-| SDK default Google/Apple | `OidcProviders.google()` / `OidcProviders.apple()` | `omsRelayReturnUri` | OMS relay callback derived as `{walletApiUrl}/auth/waas/callback/{google|apple}` |
-| Custom OIDC provider | Custom `OidcProviderConfig` | `providerRedirectUri` | `providerRedirectUri` |
-| Google/Apple without SDK relay | Custom `OidcProviderConfig` for Google or Apple | `providerRedirectUri` | `providerRedirectUri` |
-
-For custom providers, create `OidcProviderConfig` with a required
-`providerRedirectUri` and call `startOidcRedirectAuth(provider:...)` without
-`omsRelayReturnUri`. The SDK sends `providerRedirectUri` as OAuth `redirect_uri`
-and expects the callback URL to match that same URI.
-
-```swift
-let acmeProvider = OidcProviderConfig(
-    issuer: "https://login.acme.example",
-    clientId: "acme-client-id",
-    authorizationUrl: "https://login.acme.example/oauth/authorize",
-    providerRedirectUri: "yourapp://auth/callback",
-    provider: "acme",
-    providerLabel: "Acme",
-    scopes: ["openid", "email"]
-)
-
-let started = try await omsWallet.wallet.startOidcRedirectAuth(provider: acmeProvider)
-```
-
-Pass `walletSelection` or `sessionLifetimeSeconds` to `startOidcRedirectAuth`
-to store completion preferences with the pending redirect state. Values passed
-to `handleOidcRedirectCallback` override pending values; otherwise the SDK uses
-automatic wallet selection and a one-week session lifetime. Custom session
-lifetime values must be from 1 through 2,592,000 seconds (30 days). Provider
-configs can use `.authCode` to omit PKCE parameters or `.authCodePkce` for PKCE.
-Providers with omitted or empty `scopes` omit the OAuth `scope` authorization
-parameter.
-
-For OIDC ID-token flows such as Google Sign-In, pass the provider token plus
-the issuer and audience used to mint it:
+For native iOS sign-in, prefer an OIDC ID-token flow when the provider SDK can
+supply a token. For example, pass a Google Sign-In ID token to OMS with the
+issuer and audience used to mint it:
 
 ```swift
 let result = try await omsWallet.wallet.signInWithOidcIdToken(
@@ -231,6 +157,89 @@ if let wallet = result.wallet {
 }
 ```
 
+Use `walletSelection: .manual` when the app should present its own wallet
+picker. Pass `provider` and `providerLabel` for custom ID-token providers when
+those labels should be stored in `omsWallet.wallet.session.auth`.
+
+For OIDC authorization-code redirect flows, start the redirect, open the
+returned URL with your browser UI, then safely handle incoming app links.
+Google and Apple use fixed SDK-owned relay provider values:
+
+```swift
+let started = try await omsWallet.wallet.startOIDCRedirectAuth(
+    provider: OMSRelayOIDCProviders.google,
+    omsRelayReturnURI: "yourapp://auth/callback",
+    walletSelection: .manual
+)
+
+// Open started.authorizationURL.
+
+do {
+    let result = try await omsWallet.wallet.handleOIDCRedirectCallback(
+        callbackURLString
+    )
+    switch result {
+    case .completed(.walletSelected(_, let wallet, let wallets, let credential)):
+        print(wallet.address, wallets.count, credential.credentialId)
+    case .completed(.walletSelection(let pendingSelection)):
+        // Show pendingSelection.wallets in your app UI.
+        try await pendingSelection.selectWallet(walletId: "wallet-id")
+    case .notOIDCRedirectCallback, .noPendingAuth:
+        break
+    }
+} catch let error as OMSWalletError {
+    print(error.code, error.localizedDescription)
+}
+```
+
+`OMSRelayOIDCProviders.google` uses the fixed SDK default Google client ID, `openid email
+profile` scopes, Google offline/consent authorization parameters, and PKCE
+auth-code mode. `OMSRelayOIDCProviders.apple` uses the fixed SDK default Apple Services ID,
+`openid email` scopes, `response_mode=form_post`, and PKCE auth-code mode. These
+values contain no caller-editable client ID or provider configuration.
+`startOIDCRedirectAuth(provider:omsRelayReturnURI:...)` derives the OMS relay URL
+from the publishable-key environment and stores `omsRelayReturnURI` in the OAuth
+state so the relay can return to your app callback. Apple `form_post` works
+through that relay before returning to your app callback.
+
+To use Google or Apple without the SDK relay, configure that provider as a custom
+`CustomOIDCProviderConfiguration` with `providerRedirectURI`; custom providers do
+not accept `omsRelayReturnURI`.
+
+| Flow | Provider config | App return URL | Provider OAuth callback |
+|---|---|---|---|
+| SDK default Google/Apple | `OMSRelayOIDCProviders.google` / `.apple` | `omsRelayReturnURI` | OMS relay callback derived from the wallet API base URL as `/auth/waas/callback/{google|apple}` |
+| Custom OIDC provider | `CustomOIDCProviderConfiguration` | `providerRedirectURI` | `providerRedirectURI` |
+| Google/Apple without SDK relay | Custom configuration for Google or Apple | `providerRedirectURI` | `providerRedirectURI` |
+
+For custom providers, create `CustomOIDCProviderConfiguration` with a required
+`providerRedirectURI` and call `startOIDCRedirectAuth(provider:...)`. The SDK
+sends `providerRedirectURI` as OAuth `redirect_uri`
+and expects the callback URL to match that same URI.
+
+```swift
+let acmeProvider = CustomOIDCProviderConfiguration(
+    issuer: "https://login.acme.example",
+    clientID: "acme-client-id",
+    authorizationURL: "https://login.acme.example/oauth/authorize",
+    providerRedirectURI: "yourapp://auth/callback",
+    provider: "acme",
+    providerLabel: "Acme",
+    scopes: ["openid", "email"]
+)
+
+let started = try await omsWallet.wallet.startOIDCRedirectAuth(provider: acmeProvider)
+```
+
+Pass `walletSelection` or `sessionLifetimeSeconds` to `startOIDCRedirectAuth`
+to store completion preferences with the pending redirect state. Values passed
+to `handleOIDCRedirectCallback` override pending values; otherwise the SDK uses
+automatic wallet selection and a one-week session lifetime. Custom session
+lifetime values must be from 1 through 2,592,000 seconds (30 days). Provider
+configs can use `.authCode` to omit PKCE parameters or `.authCodePKCE` for PKCE.
+Providers with omitted or empty `scopes` omit the OAuth `scope` authorization
+parameter.
+
 The SDK demo app in `Examples/sdk-demo` includes separate buttons for Google
 ID-token auth and Google redirect auth. The ID-token button uses
 GoogleSignIn-iOS to mint an ID token for the configured web client ID, then
@@ -240,10 +249,9 @@ Google iOS OAuth client for the demo bundle ID
 scheme, and set `GIDServerClientID` to the web client ID that OMS accepts as the
 ID-token audience.
 
-Use `walletSelection: .manual` with `signInWithOidcIdToken` when you want the
-same app-driven wallet picker shown in the email example.
-Pass `provider` and `providerLabel` for custom ID-token providers when you want
-those labels stored in `omsWallet.wallet.session.auth`.
+On iOS, prefer `signInWithOidcIdToken` over defining a custom Google or Apple
+redirect configuration when the native provider SDK can supply an ID token.
+Use custom redirect auth for caller-owned or browser-only provider flows.
 
 On subsequent launches, an unexpired completed session is restored from secure storage automatically. To end the session:
 
@@ -371,7 +379,7 @@ production network.
 1. **Prepare** - the server calculates fee options for the transaction.
 2. **Select fee** - the SDK picks the default fee option, or your `FeeOptionSelector` picks one.
 3. **Execute** - the transaction is submitted.
-4. **Poll** - the SDK polls for about 60 seconds and returns once the status is `.executed` or a transaction hash is available.
+4. **Poll** - by default, the SDK polls for about 60 seconds and returns when it sees a terminal status, a transaction hash, or the polling deadline.
 
 By default, the SDK uses the first required fee option, or no fee option when the
 transaction is sponsored. Transaction mode defaults to `.relayer`; pass
@@ -389,7 +397,12 @@ let txResult = try await omsWallet.wallet.sendTransaction(
 print("Transaction ID:", txResult.txnId)
 print("Transaction status:", txResult.status)
 print("Transaction hash:", txResult.txnHash ?? "pending")
+print("Status resolution:", txResult.statusResolution)
 ```
+
+`statusResolution` is `.resolved` when polling observes a terminal status or
+transaction hash, `.timedOut` when the polling deadline expires first, and
+`.notRequested` when `waitForStatus` is `false`.
 
 #### Send a Transaction with Full Parameters
 
@@ -423,7 +436,7 @@ let txResult = try await omsWallet.wallet.callContract(
 
 To return immediately after execute without status polling, pass
 `waitForStatus: false`. You can then call `getTransactionStatus` with the
-returned `txnId`.
+returned `txnId`. The immediate response has `statusResolution == .notRequested`.
 
 ```swift
 let value = try parseUnits(value: "0.001", decimals: 18)
