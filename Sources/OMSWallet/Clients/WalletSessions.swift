@@ -2,12 +2,6 @@ import Foundation
 
 @available(macOS 12.0, iOS 15.0, *)
 extension WalletClient {
-    /// Whether there is a persisted OIDC redirect flow that can still be completed by
-    /// passing the app callback URL to `handleOidcRedirectCallback`.
-    public var canResumeOidcRedirectAuth: Bool {
-        (try? oidcRedirectAuthStore.load()) != nil
-    }
-
     /// Snapshot of the current durable wallet-session state.
     public var session: OMSWalletSessionState {
         withSessionLock {
@@ -117,8 +111,14 @@ extension WalletClient {
         guard let notification else {
             return
         }
-        for observer in notification.observers {
-            observer(notification.event)
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            for registration in notification.observers
+            where self.isSessionExpiredObserverRegistered(registration.id) {
+                registration.observer(notification.event)
+            }
         }
     }
 
@@ -217,29 +217,75 @@ extension WalletClient {
     /// sign-in screen after calling this.
     public func signOut() throws {
         try runOMSWalletOperation(.walletSignOut) {
-            try clearSession(clearOidcRedirectAuth: true)
+            _ = try clearSession(clearOidcRedirectAuth: true)
         }
     }
 
-    func clearSession(clearOidcRedirectAuth: Bool) throws {
-        try withSessionLock {
-            _sessionRevision += 1
-            latestSessionExpiredEvent = nil
-            sessionExpiryTask?.cancel()
-            sessionExpiryTask = nil
-            activePendingWalletSelection = nil
-            try credentialSession.clear()
-            walletAddress = nil
-            walletId = ""
-            verifier = ""
-            challenge = ""
-            sessionExpiresAt = nil
-            sessionAuth = nil
-            signedClient = signedClientFactory(credentialSession.signer)
+    @discardableResult
+    func clearSession(
+        clearOidcRedirectAuth: Bool,
+        requiredSessionRevision: UInt64? = nil
+    ) throws -> Bool {
+        let clearState = {
+            try self.withSessionLock {
+                if let requiredSessionRevision,
+                   self._sessionRevision != requiredSessionRevision {
+                    return false
+                }
+                self._sessionRevision += 1
+                self.latestSessionExpiredEvent = nil
+                self.sessionExpiryTask?.cancel()
+                self.sessionExpiryTask = nil
+                self.activePendingWalletSelection = nil
+                try self.credentialSession.clear()
+                self.walletAddress = nil
+                self.walletId = ""
+                self.verifier = ""
+                self.challenge = ""
+                self.sessionExpiresAt = nil
+                self.sessionAuth = nil
+                self.signedClient = self.signedClientFactory(self.credentialSession.signer)
+                return true
+            }
         }
         if clearOidcRedirectAuth {
-            try oidcRedirectAuthStore.clear()
+            return try withOIDCRedirectAuthProjectLock {
+                let cleared: Bool
+                do {
+                    cleared = try clearState()
+                } catch {
+                    throw OMSWalletError.storageError(
+                        message: "Wallet session cleanup failed.",
+                        underlyingError: error
+                    )
+                }
+                guard cleared else {
+                    return false
+                }
+                do {
+                    try oidcRedirectAuthStore.clear()
+                } catch {
+                    throw OMSWalletError.storageError(
+                        message: "OIDC redirect auth state cleanup failed.",
+                        underlyingError: error
+                    )
+                }
+                return true
+            }
         }
+        let cleared: Bool
+        do {
+            cleared = try clearState()
+        } catch {
+            throw OMSWalletError.storageError(
+                message: "Wallet session cleanup failed.",
+                underlyingError: error
+            )
+        }
+        guard cleared else {
+            return false
+        }
+        return true
     }
 
     /// Returns a list of credentials that currently have access to this wallet.

@@ -130,55 +130,21 @@ import Testing
     #expect(restored.auth == .email(OMSWalletEmailSessionAuth(email: "user@example.com")))
 }
 
-@Test func TestPendingOidcRedirectAuthRoundTripStoresRedirectAuthMode() throws {
-    let pending = PendingOidcRedirectAuth(
-        verifier: "verifier",
-        challenge: "challenge",
-        nonce: "nonce-123",
-        authMode: .authCode,
-        redirectUri: "omsclientswiftdemo://auth/callback",
-        issuer: "https://issuer.example",
-        provider: "custom",
-        providerLabel: "Custom",
-        authorizationScope: "proj_1",
-        walletType: .ethereum,
-        walletSelection: .manual,
-        sessionLifetimeSeconds: 120,
-        signerCredentialId: "0xcredential",
-        signerKeyType: .ecdsaP256Sha256
-    )
-
-    let json = try pending.jsonString()
-    let object = try #require(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
-    let restored = try PendingOidcRedirectAuth.from(jsonString: json)
-
-    #expect(object["authMode"] as? String == "auth-code")
-    #expect(object["provider"] as? String == "custom")
-    #expect(object["providerLabel"] as? String == "Custom")
-    #expect(object["walletSelection"] as? String == "manual")
-    #expect(object["sessionLifetimeSeconds"] as? Int == 120)
-    #expect(restored.authMode == .authCode)
-    #expect(restored.provider == "custom")
-    #expect(restored.providerLabel == "Custom")
-    #expect(restored.walletSelection == .manual)
-    #expect(restored.sessionLifetimeSeconds == 120)
-}
-
 @Test func TestOidcRedirectAuthMatchesCustomSchemesWithoutAuthority() throws {
     #expect(
-        OidcRedirectAuth.matchesRedirectUri(
-            callbackUrl: "omsclientswiftdemo:/callback?code=auth-code&state=state-123",
-            redirectUri: "omsclientswiftdemo:/callback"
+        OIDCRedirectAuth.matchesRedirectURI(
+            callbackURL: "omsclientswiftdemo:/callback?code=auth-code&state=state-123",
+            redirectURI: "omsclientswiftdemo:/callback"
         )
     )
 }
 
 @Test func TestOidcRedirectAuthRejectsInvalidStateWithoutClearingPendingAuth() throws {
-    let pending = PendingOidcRedirectAuth(
+    let pending = PendingOIDCRedirectAuth(
         verifier: "verifier",
         challenge: "challenge",
         nonce: "nonce-123",
-        authMode: .authCodePkce,
+        authMode: .authCodePKCE,
         redirectUri: "omsclientswiftdemo://auth/callback",
         issuer: "https://issuer.example",
         provider: nil,
@@ -192,9 +158,9 @@ import Testing
     )
 
     do {
-        try OidcRedirectAuth.validateState("not-base64", pending: pending)
+        try OIDCRedirectAuth.validateState("not-base64", pending: pending)
         #expect(Bool(false))
-    } catch let error as OidcRedirectAuthError {
+    } catch let error as OIDCRedirectAuthError {
         #expect(error == .invalidState)
     } catch {
         #expect(Bool(false))

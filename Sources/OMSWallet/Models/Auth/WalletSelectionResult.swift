@@ -1,7 +1,7 @@
 import Foundation
 
 @available(macOS 12.0, iOS 15.0, *)
-public struct WalletActivationResult: Sendable {
+public struct WalletSelectionResult: Sendable {
     public let walletAddress: String
     public let wallet: Wallet
 

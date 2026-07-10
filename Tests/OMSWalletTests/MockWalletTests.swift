@@ -108,6 +108,50 @@ private func isOidcAuth(
     #expect(isEmailAuth(storedCredentials?.auth))
 }
 
+@Test func TestWalletAuthBindsSessionToLocalSignerAcrossProtectedCallsAndRestore() async throws {
+    let fixture = makeMockWalletClient()
+    let wallet = testWallet(id: "wallet-local-signer", address: "0x1111111111111111111111111111111111111111")
+    let serverCredential = WaasCredentialInfo(
+        credentialId: "server-credential-id",
+        expiresAt: "2099-01-01T00:00:00Z",
+        isCaller: true
+    )
+    let localSignerCredentialId = try fixture.signer.credentialId()
+    #expect(serverCredential.credentialId != localSignerCredentialId)
+
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: [wallet], credential: serverCredential),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: wallet),
+        for: WaasAPI.UseWallet.urlPath
+    )
+    try fixture.transport.enqueue(
+        ListWalletsResponse(wallets: [wallet], page: nil),
+        for: WaasAPI.ListWallets.urlPath
+    )
+
+    _ = try await fixture.client.completeEmailAuth(code: "123456")
+    let activeWallets = try await fixture.client.listWallets()
+
+    let restoredFixture = makeMockWalletClient(
+        environment: fixture.environment,
+        projectId: fixture.projectId,
+        keychain: fixture.keychain,
+        signer: fixture.signer
+    )
+    try restoredFixture.transport.enqueue(
+        ListWalletsResponse(wallets: [wallet], page: nil),
+        for: WaasAPI.ListWallets.urlPath
+    )
+    let restoredWallets = try await restoredFixture.client.listWallets()
+
+    #expect(activeWallets.map(\.id) == [wallet.id])
+    #expect(restoredFixture.client.session.walletAddress == wallet.address)
+    #expect(restoredWallets.map(\.id) == [wallet.id])
+}
+
 @Test func TestWalletCompleteEmailAuthUsesCustomSessionLifetime() async throws {
     let fixture = makeMockWalletClient()
     let wallet = testWallet(id: "wallet-custom-lifetime", address: "0x1111111111111111111111111111111111111111")
@@ -152,7 +196,7 @@ private func isOidcAuth(
     #expect(fixture.transport.requestCount(for: WaasAPI.CompleteAuth.urlPath) == 0)
 }
 
-@Test func TestWalletOperationExpiresSessionRetainsMetadataAndNotifiesObservers() async throws {
+@Test @MainActor func TestWalletOperationExpiresSessionRetainsMetadataAndNotifiesObservers() async throws {
     let expiresAt = "2026-01-01T00:00:00Z"
     var now = Date(timeIntervalSince1970: 1_767_225_599)
     let fixture = makeMockWalletClient(currentDate: { now })
@@ -176,6 +220,7 @@ private func isOidcAuth(
     var secondExpiredEvent: OMSWalletSessionExpiredEvent?
     var canceledExpiredEvent: OMSWalletSessionExpiredEvent?
     let observation = fixture.client.addSessionExpiredObserver { event in
+        #expect(Thread.isMainThread)
         expiredEvent = event
     }
     defer { observation.cancel() }
@@ -189,9 +234,15 @@ private func isOidcAuth(
     canceledObservation.cancel()
 
     now = Date(timeIntervalSince1970: 1_767_225_601)
-    await expectNoAuthenticatedWalletSession(expectedCode: .sessionExpired) {
-        try await fixture.client.signMessage(network: .polygon, message: "hello")
+    do {
+        _ = try await fixture.client.signMessage(network: .polygon, message: "hello")
+        Issue.record("Expected expired wallet session error")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .sessionExpired)
+        #expect(error.operation == .walletSignMessage)
     }
+    _ = try await waitForSessionExpiredEvent { expiredEvent }
+    _ = try await waitForSessionExpiredEvent { secondExpiredEvent }
 
     let storedCredentials = try fixture.storedCredentials()
     #expect(expiredEvent?.session.walletAddress == wallet.address)
@@ -209,7 +260,7 @@ private func isOidcAuth(
     #expect(fixture.transport.requestCount(for: WaasAPI.SignMessage.urlPath) == 0)
 }
 
-@Test func TestWalletRestoredExpiredSessionIsInactiveAndReplaysObserver() throws {
+@Test @MainActor func TestWalletRestoredExpiredSessionIsInactiveAndReplaysObserver() async throws {
     let storedCredentials = StorableCredentials(
         walletId: "wallet-expired",
         walletAddress: "0x1111111111111111111111111111111111111111",
@@ -228,16 +279,17 @@ private func isOidcAuth(
         expiredEvent = event
     }
     defer { observation.cancel() }
+    let replayedEvent = try await waitForSessionExpiredEvent { expiredEvent }
 
     #expect(fixture.client.session == OMSWalletSessionState(walletAddress: nil))
-    #expect(expiredEvent?.session.walletAddress == storedCredentials.walletAddress)
-    #expect(isEmailAuth(expiredEvent?.session.auth))
-    #expect(expiredEvent?.expiredAt == Date(timeIntervalSince1970: 1_767_225_600))
+    #expect(replayedEvent?.session.walletAddress == storedCredentials.walletAddress)
+    #expect(isEmailAuth(replayedEvent?.session.auth))
+    #expect(replayedEvent?.expiredAt == Date(timeIntervalSince1970: 1_767_225_600))
     #expect(try fixture.storedCredentials()?.walletId == storedCredentials.walletId)
     #expect(fixture.signer.clearCallCount == 1)
 }
 
-@Test func TestWalletSessionExpiredReplayClearsOnNewAuthFlow() async throws {
+@Test @MainActor func TestWalletSessionExpiredReplayClearsOnNewAuthFlow() async throws {
     let storedCredentials = StorableCredentials(
         walletId: "wallet-expired",
         walletAddress: "0x1111111111111111111111111111111111111111",
@@ -254,8 +306,9 @@ private func isOidcAuth(
     let expiredObservation = fixture.client.addSessionExpiredObserver { event in
         expiredEvent = event
     }
+    let initialReplay = try await waitForSessionExpiredEvent { expiredEvent }
     expiredObservation.cancel()
-    #expect(expiredEvent?.session.walletAddress == storedCredentials.walletAddress)
+    #expect(initialReplay?.session.walletAddress == storedCredentials.walletAddress)
 
     try fixture.transport.enqueue(
         CommitVerifierResponse(
@@ -272,36 +325,11 @@ private func isOidcAuth(
         replayedEvent = event
     }
     defer { replayObservation.cancel() }
+    await Task.yield()
     #expect(replayedEvent == nil)
 }
 
-@Test func TestWalletRestoredActiveSessionSchedulesExpiryTimer() async throws {
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    let expiresAt = Date().addingTimeInterval(0.05)
-    let storedCredentials = StorableCredentials(
-        walletId: "wallet-restored-expiring",
-        walletAddress: "0x1111111111111111111111111111111111111111",
-        signerCredentialId: "0xmock-credential",
-        alg: .ecdsaP256Sha256,
-        expiresAt: formatter.string(from: expiresAt),
-        auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
-    )
-    let fixture = makeMockWalletClient(storedCredentials: storedCredentials)
-    var expiredEvent: OMSWalletSessionExpiredEvent?
-
-    let observation = fixture.client.addSessionExpiredObserver { event in
-        expiredEvent = event
-    }
-    defer { observation.cancel() }
-    let event = try await waitForSessionExpiredEvent { expiredEvent }
-
-    #expect(event?.session.walletAddress == storedCredentials.walletAddress)
-    #expect(isEmailAuth(event?.session.auth))
-    #expect(fixture.client.session == OMSWalletSessionState(walletAddress: nil))
-    #expect(try fixture.storedCredentials()?.walletId == storedCredentials.walletId)
-}
-
+@MainActor
 private func waitForSessionExpiredEvent(
     _ event: () -> OMSWalletSessionExpiredEvent?,
     attempts: Int = 40
@@ -315,7 +343,7 @@ private func waitForSessionExpiredEvent(
     return event()
 }
 
-@Test func TestWalletSessionExpiryTimerReplaysObserver() async throws {
+@Test @MainActor func TestWalletSessionExpiryTimerReplaysObserver() async throws {
     let fixture = makeMockWalletClient(
         currentDate: { Date(timeIntervalSince1970: 1_767_225_601) }
     )
@@ -342,9 +370,10 @@ private func waitForSessionExpiredEvent(
         expiredEvent = event
     }
     defer { observation.cancel() }
+    let replayedEvent = try await waitForSessionExpiredEvent { expiredEvent }
 
-    #expect(expiredEvent?.session.walletAddress == wallet.address)
-    #expect(isEmailAuth(expiredEvent?.session.auth))
+    #expect(replayedEvent?.session.walletAddress == wallet.address)
+    #expect(isEmailAuth(replayedEvent?.session.auth))
     #expect(fixture.client.session == OMSWalletSessionState(walletAddress: nil))
     #expect(try fixture.storedCredentials()?.walletId == wallet.id)
 }
@@ -376,7 +405,11 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.ListWallets.urlPath
     )
 
-    #expect(result.wallets.map(\.id) == [firstWallet.id, secondWallet.id, thirdWallet.id])
+    guard case .walletSelection(let pendingSelection) = result else {
+        Issue.record("Expected pending wallet selection")
+        return
+    }
+    #expect(pendingSelection.wallets.map(\.id) == [firstWallet.id, secondWallet.id, thirdWallet.id])
     #expect(listWalletsRequests.count == 2)
     #expect(listWalletsRequests[0].page?.cursor == "cursor-1")
     #expect(listWalletsRequests[1].page?.cursor == "cursor-2")
@@ -815,11 +848,11 @@ private func waitForSessionExpiredEvent(
 @Test func TestWalletSignInWithOidcIdTokenClearsPendingRedirectAuth() async throws {
     let fixture = makeMockWalletClient()
     try fixture.oidcRedirectAuthStore.save(
-        PendingOidcRedirectAuth(
+        PendingOIDCRedirectAuth(
             verifier: "stale-verifier",
             challenge: "stale-challenge",
             nonce: "stale-nonce",
-            authMode: .authCodePkce,
+            authMode: .authCodePKCE,
             redirectUri: "omsclientswiftdemo://auth/callback",
             issuer: "https://issuer.example",
             provider: nil,
@@ -859,7 +892,6 @@ private func waitForSessionExpiredEvent(
         audience: "demo-web-client-id"
     )
 
-    #expect(fixture.client.canResumeOidcRedirectAuth == false)
     #expect(fixture.oidcRedirectAuthStore.pending == nil)
 }
 
@@ -904,50 +936,19 @@ private func waitForSessionExpiredEvent(
     #expect(try fixture.storedCredentials() == nil)
 }
 
-@Test func TestOidcProvidersUseGoogleDefaults() {
-    let provider = OidcProviders.google()
-
-    #expect(provider.clientId == "913882656162-7l4ofa0ou2hqo90umlkenhdop1f5inba.apps.googleusercontent.com")
-    #expect(provider.providerRedirectUri == nil)
-    #expect(provider.issuer == "https://accounts.google.com")
-    #expect(provider.authorizationUrl == "https://accounts.google.com/o/oauth2/v2/auth")
-    #expect(provider.provider == "google")
-    #expect(provider.providerLabel == "Google")
-    #expect(provider.scopes == ["openid", "email", "profile"])
-    #expect(provider.authMode == .authCodePkce)
-    #expect(provider.defaultRelayProvider == "google")
-    #expect(provider.authorizeParams["access_type"] == "offline")
-    #expect(provider.authorizeParams["prompt"] == "consent")
-}
-
-@Test func TestOidcProvidersUseAppleDefaults() {
-    let provider = OidcProviders.apple()
-
-    #expect(provider.clientId == "service.oms.polygon.technology")
-    #expect(provider.providerRedirectUri == nil)
-    #expect(provider.issuer == "https://appleid.apple.com")
-    #expect(provider.authorizationUrl == "https://appleid.apple.com/auth/authorize")
-    #expect(provider.provider == "apple")
-    #expect(provider.providerLabel == "Apple")
-    #expect(provider.scopes == ["openid", "email"])
-    #expect(provider.authMode == .authCodePkce)
-    #expect(provider.defaultRelayProvider == "apple")
-    #expect(provider.authorizeParams["response_mode"] == "form_post")
-}
-
-@Test func TestOidcProviderConfigDefaultsToNoScopesForCustomProviders() {
-    let provider = OidcProviderConfig(
+@Test func TestCustomOIDCProviderConfigurationDefaultsToNoScopesForCustomProviders() {
+    let provider = CustomOIDCProviderConfiguration(
         issuer: "https://issuer.example",
-        clientId: "client-123",
-        authorizationUrl: "https://issuer.example/oauth/authorize",
-        providerRedirectUri: "https://issuer.example/oauth/callback"
+        clientID: "client-123",
+        authorizationURL: "https://issuer.example/oauth/authorize",
+        providerRedirectURI: "https://issuer.example/oauth/callback"
     )
 
     #expect(provider.scopes == [])
-    #expect(provider.defaultRelayProvider == nil)
+    #expect(provider.authMode == .authCodePKCE)
 }
 
-@Test func TestWalletStartOidcRedirectAuthManualGoogleLookingProviderUsesProviderRedirectUri() async throws {
+@Test func TestWalletStartOIDCRedirectAuthCustomGoogleProviderUsesProviderRedirectURI() async throws {
     let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
     try fixture.transport.enqueue(
         CommitVerifierResponse(
@@ -956,17 +957,17 @@ private func waitForSessionExpiredEvent(
         ),
         for: WaasAPI.CommitVerifier.urlPath
     )
-    let provider = OidcProviderConfig(
+    let provider = CustomOIDCProviderConfiguration(
         issuer: "https://accounts.google.com",
-        clientId: OidcProviders.defaultGoogleClientId,
-        authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-        providerRedirectUri: "myapp://google/callback",
+        clientID: "913882656162-7l4ofa0ou2hqo90umlkenhdop1f5inba.apps.googleusercontent.com",
+        authorizationURL: "https://accounts.google.com/o/oauth2/v2/auth",
+        providerRedirectURI: "myapp://google/callback",
         provider: "google",
         providerLabel: "Google",
         scopes: ["openid", "email"]
     )
 
-    let result = try await fixture.client.startOidcRedirectAuth(
+    let result = try await fixture.client.startOIDCRedirectAuth(
         provider: provider,
         loginHint: "user@example.com"
     )
@@ -974,10 +975,9 @@ private func waitForSessionExpiredEvent(
         CommitVerifierRequest.self,
         for: WaasAPI.CommitVerifier.urlPath
     )
-    let query = queryParams(result.authorizationUrl)
-    let decodedState = try decodedOidcState(result.state)
+    let query = queryParams(result.authorizationURL)
+    let decodedState = try decodedOidcState(#require(query["state"]))
 
-    #expect(provider.defaultRelayProvider == nil)
     #expect(request.metadata["redirect_uri"] == "myapp://google/callback")
     #expect(query["redirect_uri"] == "myapp://google/callback")
     #expect(query["login_hint"] == "user@example.com")
@@ -985,34 +985,7 @@ private func waitForSessionExpiredEvent(
     #expect(fixture.oidcRedirectAuthStore.pending?.redirectUri == "myapp://google/callback")
 }
 
-@Test func TestWalletStartOidcRedirectAuthRejectsRelayReturnUriForManualProviders() async throws {
-    let fixture = makeMockWalletClient()
-    let provider = OidcProviderConfig(
-        issuer: "https://issuer.example",
-        clientId: "client-123",
-        authorizationUrl: "https://issuer.example/oauth/authorize",
-        providerRedirectUri: "myapp://auth/callback"
-    )
-
-    do {
-        _ = try await fixture.client.startOidcRedirectAuth(
-            provider: provider,
-            omsRelayReturnUri: "omsclientswiftdemo://auth/callback"
-        )
-        #expect(Bool(false))
-    } catch let error as OMSWalletError {
-        #expect(error.code == .validationError)
-        #expect(error.operation == .walletStartOidcRedirectAuth)
-        #expect(error.underlyingError as? OidcRedirectAuthError == .unsupportedRelayProvider)
-    } catch {
-        #expect(Bool(false))
-    }
-
-    #expect(fixture.transport.requestCount(for: WaasAPI.CommitVerifier.urlPath) == 0)
-    #expect(fixture.oidcRedirectAuthStore.pending == nil)
-}
-
-@Test func TestWalletStartOidcRedirectAuthCommitsVerifierBuildsAuthorizationUrlAndStoresPendingAuth() async throws {
+@Test func TestWalletStartOIDCRedirectAuthCommitsVerifierBuildsAuthorizationURLAndStoresPendingAuth() async throws {
     let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
     try fixture.transport.enqueue(
         CommitVerifierResponse(
@@ -1022,15 +995,15 @@ private func waitForSessionExpiredEvent(
         ),
         for: WaasAPI.CommitVerifier.urlPath
     )
-    let provider = OidcProviderConfig(
+    let provider = CustomOIDCProviderConfiguration(
         issuer: "https://issuer.example",
-        clientId: "client-123",
-        authorizationUrl: "https://issuer.example/oauth/authorize",
-        providerRedirectUri: "https://provider.example/callback",
+        clientID: "client-123",
+        authorizationURL: "https://issuer.example/oauth/authorize",
+        providerRedirectURI: "https://provider.example/callback",
         authorizeParams: ["prompt": "consent"]
     )
 
-    let result = try await fixture.client.startOidcRedirectAuth(
+    let result = try await fixture.client.startOIDCRedirectAuth(
         provider: provider,
         authorizeParams: ["prompt": "select_account", "audience": "wallet"]
     )
@@ -1038,20 +1011,21 @@ private func waitForSessionExpiredEvent(
         CommitVerifierRequest.self,
         for: WaasAPI.CommitVerifier.urlPath
     )
-    let query = queryParams(result.authorizationUrl)
-    let decodedState = try decodedOidcState(result.state)
+    let query = queryParams(result.authorizationURL)
+    let state = try #require(query["state"])
+    let decodedState = try decodedOidcState(state)
 
     #expect(request.identityType == .oidc)
     #expect(request.authMode == .authCodePkce)
     #expect(request.metadata["iss"] == "https://issuer.example")
     #expect(request.metadata["aud"] == "client-123")
     #expect(request.metadata["redirect_uri"] == "https://provider.example/callback")
-    #expect(uriOriginAndPath(result.authorizationUrl) == "https://issuer.example/oauth/authorize")
+    #expect(uriOriginAndPath(result.authorizationURL) == "https://issuer.example/oauth/authorize")
     #expect(query["client_id"] == "client-123")
     #expect(query["redirect_uri"] == "https://provider.example/callback")
     #expect(query["response_type"] == "code")
     #expect(query["scope"] == nil)
-    #expect(query["state"] == result.state)
+    #expect(!state.isEmpty)
     #expect(query["code_challenge"] == "pkce-challenge")
     #expect(query["code_challenge_method"] == "S256")
     #expect(query["login_hint"] == nil)
@@ -1060,18 +1034,16 @@ private func waitForSessionExpiredEvent(
     #expect(decodedState["nonce"] as? String == "nonce-123")
     #expect(decodedState["scope"] as? String == fixture.projectId)
     #expect(decodedState["redirect_uri"] == nil)
-    #expect(result.challenge == "pkce-challenge")
     #expect(fixture.oidcRedirectAuthStore.pending?.verifier == "oidc-verifier-123")
     #expect(fixture.oidcRedirectAuthStore.pending?.challenge == "pkce-challenge")
     #expect(fixture.oidcRedirectAuthStore.pending?.nonce == "nonce-123")
-    #expect(fixture.oidcRedirectAuthStore.pending?.authMode == .authCodePkce)
+    #expect(fixture.oidcRedirectAuthStore.pending?.authMode == .authCodePKCE)
     #expect(fixture.oidcRedirectAuthStore.pending?.redirectUri == "https://provider.example/callback")
     #expect(fixture.oidcRedirectAuthStore.pending?.walletType == .ethereum)
     #expect(fixture.oidcRedirectAuthStore.pending?.walletSelection == nil)
     #expect(fixture.oidcRedirectAuthStore.pending?.sessionLifetimeSeconds == nil)
     #expect(fixture.oidcRedirectAuthStore.pending?.signerCredentialId == "0xmock-credential")
     #expect(fixture.oidcRedirectAuthStore.pending?.signerKeyType == .ecdsaP256Sha256)
-    #expect(fixture.client.canResumeOidcRedirectAuth)
     #expect(fixture.client.verifier == "oidc-verifier-123")
 }
 
@@ -1079,19 +1051,19 @@ private func waitForSessionExpiredEvent(
     let fixture = makeMockWalletClient()
 
     do {
-        _ = try await fixture.client.startOidcRedirectAuth(
-            provider: OidcProviderConfig(
+        _ = try await fixture.client.startOIDCRedirectAuth(
+            provider: CustomOIDCProviderConfiguration(
                 issuer: "https://issuer.example",
-                clientId: "client-123",
-                authorizationUrl: "https://issuer.example/oauth/authorize",
-                providerRedirectUri: "omsclientswiftdemo://auth/callback"
+                clientID: "client-123",
+                authorizationURL: "https://issuer.example/oauth/authorize",
+                providerRedirectURI: "omsclientswiftdemo://auth/callback"
             ),
             sessionLifetimeSeconds: 2_592_001
         )
         #expect(Bool(false))
     } catch let error as OMSWalletError {
         #expect(error.code == .validationError)
-        #expect(error.operation == .walletStartOidcRedirectAuth)
+        #expect(error.operation == .walletStartOIDCRedirectAuth)
         #expect(error.localizedDescription == "sessionLifetimeSeconds must be an integer between 1 and 2592000")
     } catch {
         #expect(Bool(false))
@@ -1111,24 +1083,24 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.CommitVerifier.urlPath
     )
 
-    let result = try await fixture.client.startOidcRedirectAuth(
-        provider: OidcProviders.apple(),
-        omsRelayReturnUri: "omsclientswiftdemo://auth/callback",
+    let result = try await fixture.client.startOIDCRedirectAuth(
+        provider: OMSRelayOIDCProviders.apple,
+        omsRelayReturnURI: "omsclientswiftdemo://auth/callback",
         loginHint: "ignored@example.com"
     )
     let request = try fixture.transport.decodedRequest(
         CommitVerifierRequest.self,
         for: WaasAPI.CommitVerifier.urlPath
     )
-    let query = queryParams(result.authorizationUrl)
-    let decodedState = try decodedOidcState(result.state)
+    let query = queryParams(result.authorizationURL)
+    let decodedState = try decodedOidcState(#require(query["state"]))
 
     #expect(request.identityType == .oidc)
     #expect(request.authMode == .authCodePkce)
     #expect(request.metadata["iss"] == "https://appleid.apple.com")
     #expect(request.metadata["aud"] == "service.oms.polygon.technology")
     #expect(request.metadata["redirect_uri"] == "https://wallet.example.test/auth/waas/callback/apple")
-    #expect(uriOriginAndPath(result.authorizationUrl) == "https://appleid.apple.com/auth/authorize")
+    #expect(uriOriginAndPath(result.authorizationURL) == "https://appleid.apple.com/auth/authorize")
     #expect(query["client_id"] == "service.oms.polygon.technology")
     #expect(query["redirect_uri"] == "https://wallet.example.test/auth/waas/callback/apple")
     #expect(query["response_type"] == "code")
@@ -1138,7 +1110,7 @@ private func waitForSessionExpiredEvent(
     #expect(query["code_challenge_method"] == "S256")
     #expect(query["login_hint"] == nil)
     #expect(decodedState["redirect_uri"] as? String == "omsclientswiftdemo://auth/callback")
-    #expect(fixture.oidcRedirectAuthStore.pending?.authMode == .authCodePkce)
+    #expect(fixture.oidcRedirectAuthStore.pending?.authMode == .authCodePKCE)
     #expect(fixture.oidcRedirectAuthStore.pending?.redirectUri == "omsclientswiftdemo://auth/callback")
 }
 
@@ -1152,21 +1124,21 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.CommitVerifier.urlPath
     )
 
-    let result = try await fixture.client.startOidcRedirectAuth(
-        provider: OidcProviders.google(),
-        omsRelayReturnUri: "omsclientswiftdemo://auth/callback"
+    let result = try await fixture.client.startOIDCRedirectAuth(
+        provider: OMSRelayOIDCProviders.google,
+        omsRelayReturnURI: "omsclientswiftdemo://auth/callback"
     )
     let request = try fixture.transport.decodedRequest(
         CommitVerifierRequest.self,
         for: WaasAPI.CommitVerifier.urlPath
     )
-    let query = queryParams(result.authorizationUrl)
-    let decodedState = try decodedOidcState(result.state)
+    let query = queryParams(result.authorizationURL)
+    let decodedState = try decodedOidcState(#require(query["state"]))
 
     #expect(request.identityType == .oidc)
     #expect(request.authMode == .authCodePkce)
     #expect(request.metadata["iss"] == "https://accounts.google.com")
-    #expect(request.metadata["aud"] == OidcProviders.defaultGoogleClientId)
+    #expect(request.metadata["aud"] == "913882656162-7l4ofa0ou2hqo90umlkenhdop1f5inba.apps.googleusercontent.com")
     #expect(request.metadata["redirect_uri"] == "https://wallet.example.test/auth/waas/callback/google")
     #expect(query["redirect_uri"] == "https://wallet.example.test/auth/waas/callback/google")
     #expect(decodedState["redirect_uri"] as? String == "omsclientswiftdemo://auth/callback")
@@ -1203,12 +1175,12 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.CommitVerifier.urlPath
     )
 
-    let result = try await fixture.client.startOidcRedirectAuth(
-        provider: OidcProviders.google(),
-        omsRelayReturnUri: "omsclientswiftdemo://auth/callback"
+    let result = try await fixture.client.startOIDCRedirectAuth(
+        provider: OMSRelayOIDCProviders.google,
+        omsRelayReturnURI: "omsclientswiftdemo://auth/callback"
     )
-    let query = queryParams(result.authorizationUrl)
-    let decodedState = try decodedOidcState(result.state)
+    let query = queryParams(result.authorizationURL)
+    let decodedState = try decodedOidcState(#require(query["state"]))
 
     #expect(query["redirect_uri"] == "https://wallet.example.test/auth/waas/callback/google")
     #expect(decodedState["redirect_uri"] as? String == "omsclientswiftdemo://auth/callback")
@@ -1237,11 +1209,11 @@ private func waitForSessionExpiredEvent(
         UseWalletResponse(wallet: selectedWallet),
         for: WaasAPI.UseWallet.urlPath
     )
-    let provider = OidcProviderConfig(
+    let provider = CustomOIDCProviderConfiguration(
         issuer: "https://issuer.example",
-        clientId: "client-123",
-        authorizationUrl: "https://issuer.example/oauth/authorize",
-        providerRedirectUri: "omsclientswiftdemo://auth/callback",
+        clientID: "client-123",
+        authorizationURL: "https://issuer.example/oauth/authorize",
+        providerRedirectURI: "omsclientswiftdemo://auth/callback",
         scopes: [],
         authorizeParams: [
             "scope": "openid email",
@@ -1251,10 +1223,10 @@ private func waitForSessionExpiredEvent(
         authMode: .authCode
     )
 
-    let started = try await fixture.client.startOidcRedirectAuth(
+    let started = try await fixture.client.startOIDCRedirectAuth(
         provider: provider
     )
-    let query = queryParams(started.authorizationUrl)
+    let query = queryParams(started.authorizationURL)
     let commitRequest = try fixture.transport.decodedRequest(
         CommitVerifierRequest.self,
         for: WaasAPI.CommitVerifier.urlPath
@@ -1266,10 +1238,10 @@ private func waitForSessionExpiredEvent(
     #expect(query["code_challenge_method"] == nil)
     #expect(fixture.oidcRedirectAuthStore.pending?.authMode == .authCode)
 
-    let result = try await fixture.client.handleOidcRedirectCallback(
-        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(started.state)"
+    let result = try await fixture.client.handleOIDCRedirectCallback(
+        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))"
     )
-    guard case .completed(let wallet) = result else {
+    guard case .completed(.walletSelected(_, let wallet, _, _)) = result else {
         #expect(Bool(false))
         return
     }
@@ -1306,19 +1278,19 @@ private func waitForSessionExpiredEvent(
         UseWalletResponse(wallet: selectedWallet),
         for: WaasAPI.UseWallet.urlPath
     )
-    let started = try await fixture.client.startOidcRedirectAuth(
-        provider: OidcProviderConfig(
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
             issuer: "https://issuer.example",
-            clientId: "client-123",
-            authorizationUrl: "https://issuer.example/oauth/authorize",
-            providerRedirectUri: "omsclientswiftdemo://auth/callback"
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
         )
     )
 
-    let result = try await fixture.client.handleOidcRedirectCallback(
-        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(started.state)&scope=openid"
+    let result = try await fixture.client.handleOIDCRedirectCallback(
+        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))&scope=openid"
     )
-    guard case .completed(let wallet) = result else {
+    guard case .completed(.walletSelected(_, let wallet, let wallets, let credential)) = result else {
         #expect(Bool(false))
         return
     }
@@ -1339,9 +1311,10 @@ private func waitForSessionExpiredEvent(
     #expect(completeAuthRequest.lifetime == 604_800)
     #expect(useWalletRequest.walletId == selectedWallet.id)
     #expect(wallet.address == "0xdef")
+    #expect(wallets.map(\.id) == [selectedWallet.id, secondWallet.id])
+    #expect(credential.credentialId == testCredential.credentialId)
     #expect(fixture.client.walletAddress == "0xdef")
     #expect(fixture.client.walletId == "wallet-def")
-    #expect(fixture.client.canResumeOidcRedirectAuth == false)
     #expect(fixture.oidcRedirectAuthStore.pending == nil)
     #expect(storedCredentials?.walletId == "wallet-def")
     #expect(storedCredentials?.walletAddress == "0xdef")
@@ -1378,21 +1351,21 @@ private func waitForSessionExpiredEvent(
         UseWalletResponse(wallet: selectedWallet),
         for: WaasAPI.UseWallet.urlPath
     )
-    let started = try await fixture.client.startOidcRedirectAuth(
-        provider: OidcProviderConfig(
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
             issuer: "https://issuer.example",
-            clientId: "client-123",
-            authorizationUrl: "https://issuer.example/oauth/authorize",
-            providerRedirectUri: "omsclientswiftdemo://auth/callback"
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
         ),
         authorizeParams: ["response_mode": "fragment"]
     )
 
-    #expect(queryParams(started.authorizationUrl)["response_mode"] == "fragment")
-    let result = try await fixture.client.handleOidcRedirectCallback(
-        "omsclientswiftdemo://auth/callback#code=fragment-code&state=\(started.state)&scope=openid"
+    #expect(queryParams(started.authorizationURL)["response_mode"] == "fragment")
+    let result = try await fixture.client.handleOIDCRedirectCallback(
+        "omsclientswiftdemo://auth/callback#code=fragment-code&state=\(try oidcState(started))&scope=openid"
     )
-    guard case .completed(let wallet) = result else {
+    guard case .completed(.walletSelected(_, let wallet, _, _)) = result else {
         #expect(Bool(false))
         return
     }
@@ -1404,7 +1377,6 @@ private func waitForSessionExpiredEvent(
     #expect(completeAuthRequest.answer == "fragment-code")
     #expect(wallet.id == selectedWallet.id)
     #expect(fixture.client.walletId == selectedWallet.id)
-    #expect(fixture.client.canResumeOidcRedirectAuth == false)
     #expect(fixture.oidcRedirectAuthStore.pending == nil)
 }
 
@@ -1431,21 +1403,21 @@ private func waitForSessionExpiredEvent(
         ),
         for: WaasAPI.CompleteAuth.urlPath
     )
-    let started = try await fixture.client.startOidcRedirectAuth(
-        provider: OidcProviderConfig(
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
             issuer: "https://issuer.example",
-            clientId: "client-123",
-            authorizationUrl: "https://issuer.example/oauth/authorize",
-            providerRedirectUri: "omsclientswiftdemo://auth/callback"
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
         )
     )
 
-    let result = try await fixture.client.handleOidcRedirectCallback(
-        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(started.state)",
+    let result = try await fixture.client.handleOIDCRedirectCallback(
+        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))",
         walletSelection: .manual
     )
 
-    guard case .walletSelection(let pendingSelection) = result else {
+    guard case .completed(.walletSelection(let pendingSelection)) = result else {
         #expect(Bool(false))
         return
     }
@@ -1455,7 +1427,6 @@ private func waitForSessionExpiredEvent(
     #expect(fixture.client.walletId == "")
     #expect(fixture.client.walletAddress == nil)
     #expect(fixture.client.session.walletAddress == nil)
-    #expect(fixture.client.canResumeOidcRedirectAuth == false)
     #expect(fixture.oidcRedirectAuthStore.pending == nil)
     #expect(fixture.transport.requestCount(for: WaasAPI.UseWallet.urlPath) == 0)
     #expect(try fixture.storedCredentials() == nil)
@@ -1484,12 +1455,12 @@ private func waitForSessionExpiredEvent(
         ),
         for: WaasAPI.CompleteAuth.urlPath
     )
-    let started = try await fixture.client.startOidcRedirectAuth(
-        provider: OidcProviderConfig(
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
             issuer: "https://issuer.example",
-            clientId: "client-123",
-            authorizationUrl: "https://issuer.example/oauth/authorize",
-            providerRedirectUri: "omsclientswiftdemo://auth/callback"
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
         ),
         walletSelection: .manual,
         sessionLifetimeSeconds: 120
@@ -1497,11 +1468,11 @@ private func waitForSessionExpiredEvent(
 
     #expect(fixture.oidcRedirectAuthStore.pending?.walletSelection == .manual)
     #expect(fixture.oidcRedirectAuthStore.pending?.sessionLifetimeSeconds == 120)
-    let result = try await fixture.client.handleOidcRedirectCallback(
-        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(started.state)"
+    let result = try await fixture.client.handleOIDCRedirectCallback(
+        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))"
     )
 
-    guard case .walletSelection(let pendingSelection) = result else {
+    guard case .completed(.walletSelection(let pendingSelection)) = result else {
         #expect(Bool(false))
         return
     }
@@ -1538,23 +1509,23 @@ private func waitForSessionExpiredEvent(
         UseWalletResponse(wallet: selectedWallet),
         for: WaasAPI.UseWallet.urlPath
     )
-    let started = try await fixture.client.startOidcRedirectAuth(
-        provider: OidcProviderConfig(
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
             issuer: "https://issuer.example",
-            clientId: "client-123",
-            authorizationUrl: "https://issuer.example/oauth/authorize",
-            providerRedirectUri: "omsclientswiftdemo://auth/callback"
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
         ),
         walletSelection: .manual,
         sessionLifetimeSeconds: 120
     )
 
-    let result = try await fixture.client.handleOidcRedirectCallback(
-        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(started.state)",
+    let result = try await fixture.client.handleOIDCRedirectCallback(
+        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))",
         walletSelection: .automatic,
         sessionLifetimeSeconds: 300
     )
-    guard case .completed(let wallet) = result else {
+    guard case .completed(.walletSelected(_, let wallet, _, _)) = result else {
         #expect(Bool(false))
         return
     }
@@ -1579,27 +1550,26 @@ private func waitForSessionExpiredEvent(
         ),
         for: WaasAPI.CommitVerifier.urlPath
     )
-    let started = try await fixture.client.startOidcRedirectAuth(
-        provider: OidcProviderConfig(
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
             issuer: "https://issuer.example",
-            clientId: "client-123",
-            authorizationUrl: "https://issuer.example/oauth/authorize",
-            providerRedirectUri: "omsclientswiftdemo://auth/callback"
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
         )
     )
 
-    let result = try await fixture.client.handleOidcRedirectCallback(
-        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(started.state)",
-        sessionLifetimeSeconds: 0
-    )
-    guard case .failed(let error as OMSWalletError) = result else {
-        #expect(Bool(false))
-        return
+    do {
+        _ = try await fixture.client.handleOIDCRedirectCallback(
+            "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))",
+            sessionLifetimeSeconds: 0
+        )
+        Issue.record("Expected invalid session lifetime error")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .validationError)
+        #expect(error.operation == .walletHandleOIDCRedirectCallback)
+        #expect(error.localizedDescription == "sessionLifetimeSeconds must be an integer between 1 and 2592000")
     }
-
-    #expect(error.code == .validationError)
-    #expect(error.operation == .walletHandleOidcRedirectCallback)
-    #expect(error.localizedDescription == "sessionLifetimeSeconds must be an integer between 1 and 2592000")
     #expect(fixture.transport.requestCount(for: WaasAPI.CompleteAuth.urlPath) == 0)
 }
 
@@ -1613,24 +1583,23 @@ private func waitForSessionExpiredEvent(
         ),
         for: WaasAPI.CommitVerifier.urlPath
     )
-    let started = try await fixture.client.startOidcRedirectAuth(
-        provider: OidcProviderConfig(
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
             issuer: "https://issuer.example",
-            clientId: "client-123",
-            authorizationUrl: "https://issuer.example/oauth/authorize",
-            providerRedirectUri: "omsclientswiftdemo://auth/callback"
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
         )
     )
 
-    let result = try await fixture.client.handleOidcRedirectCallback(
-        "otherapp://auth/callback?code=auth-code&state=\(started.state)"
+    let result = try await fixture.client.handleOIDCRedirectCallback(
+        "otherapp://auth/callback?code=auth-code&state=\(try oidcState(started))"
     )
 
-    guard case .notOidcRedirectCallback = result else {
+    guard case .notOIDCRedirectCallback = result else {
         #expect(Bool(false))
         return
     }
-    #expect(fixture.client.canResumeOidcRedirectAuth)
     #expect(fixture.oidcRedirectAuthStore.pending?.verifier == "oidc-verifier-123")
     #expect(fixture.transport.requestCount(for: WaasAPI.CompleteAuth.urlPath) == 0)
 }
@@ -1645,29 +1614,41 @@ private func waitForSessionExpiredEvent(
         ),
         for: WaasAPI.CommitVerifier.urlPath
     )
-    _ = try await fixture.client.startOidcRedirectAuth(
-        provider: OidcProviderConfig(
+    _ = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
             issuer: "https://issuer.example",
-            clientId: "client-123",
-            authorizationUrl: "https://issuer.example/oauth/authorize",
-            providerRedirectUri: "omsclientswiftdemo://auth/callback"
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
         )
     )
 
-    let result = try await fixture.client.handleOidcRedirectCallback(
+    let result = try await fixture.client.handleOIDCRedirectCallback(
         "omsclientswiftdemo://auth/callback?code=auth-code&state=not-base64"
     )
 
-    guard case .notOidcRedirectCallback = result else {
+    guard case .notOIDCRedirectCallback = result else {
         #expect(Bool(false))
         return
     }
-    #expect(fixture.client.canResumeOidcRedirectAuth)
     #expect(fixture.oidcRedirectAuthStore.pending?.verifier == "oidc-verifier-123")
     #expect(fixture.transport.requestCount(for: WaasAPI.CompleteAuth.urlPath) == 0)
 }
 
-@Test func TestWalletHandleOidcRedirectCallbackKeepsPendingAuthWhenCancelled() async throws {
+@Test func TestWalletHandleOIDCRedirectCallbackReturnsNoPendingAuth() async throws {
+    let fixture = makeMockWalletClient()
+
+    let result = try await fixture.client.handleOIDCRedirectCallback(
+        "omsclientswiftdemo://auth/callback?code=auth-code&state=state"
+    )
+
+    guard case .noPendingAuth = result else {
+        Issue.record("Expected no pending OIDC auth")
+        return
+    }
+}
+
+@Test func TestWalletHandleOidcRedirectCallbackConsumesPendingAuthWhenCancelled() async throws {
     let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
     let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
     try fixture.transport.enqueue(
@@ -1686,18 +1667,18 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.CompleteAuth.urlPath
     )
     fixture.transport.enqueueCancellation(for: WaasAPI.UseWallet.urlPath)
-    let started = try await fixture.client.startOidcRedirectAuth(
-        provider: OidcProviderConfig(
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
             issuer: "https://issuer.example",
-            clientId: "client-123",
-            authorizationUrl: "https://issuer.example/oauth/authorize",
-            providerRedirectUri: "omsclientswiftdemo://auth/callback"
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
         )
     )
 
     do {
-        _ = try await fixture.client.handleOidcRedirectCallback(
-            "omsclientswiftdemo://auth/callback?code=auth-code&state=\(started.state)"
+        _ = try await fixture.client.handleOIDCRedirectCallback(
+            "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))"
         )
         #expect(Bool(false))
         return
@@ -1705,15 +1686,14 @@ private func waitForSessionExpiredEvent(
     } catch {
         #expect(Bool(false))
     }
-    #expect(fixture.client.canResumeOidcRedirectAuth)
-    #expect(fixture.oidcRedirectAuthStore.pending?.verifier == "oidc-verifier-123")
+    #expect(fixture.oidcRedirectAuthStore.pending == nil)
     #expect(fixture.client.walletId == "")
     #expect(fixture.client.walletAddress == nil)
-    #expect(fixture.signer.clearCallCount == 1)
-    #expect(fixture.signer.hasStoredCredential)
+    #expect(fixture.signer.clearCallCount == 2)
+    #expect(fixture.signer.hasStoredCredential == false)
 }
 
-@Test func TestWalletHandleOidcRedirectCallbackReturnsFailedAndClearsPendingAuthForProviderError() async throws {
+@Test func TestWalletHandleOIDCRedirectCallbackThrowsAndClearsPendingAuthForProviderError() async throws {
     let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
     try fixture.transport.enqueue(
         CommitVerifierResponse(
@@ -1723,29 +1703,66 @@ private func waitForSessionExpiredEvent(
         ),
         for: WaasAPI.CommitVerifier.urlPath
     )
-    let started = try await fixture.client.startOidcRedirectAuth(
-        provider: OidcProviderConfig(
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
             issuer: "https://issuer.example",
-            clientId: "client-123",
-            authorizationUrl: "https://issuer.example/oauth/authorize",
-            providerRedirectUri: "omsclientswiftdemo://auth/callback"
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
         )
     )
 
-    let result = try await fixture.client.handleOidcRedirectCallback(
-        "omsclientswiftdemo://auth/callback?error=access_denied&error_description=User%20cancelled&state=\(started.state)"
-    )
-
-    guard case .failed(let error as OMSWalletError) = result else {
-        #expect(Bool(false))
-        return
+    do {
+        _ = try await fixture.client.handleOIDCRedirectCallback(
+            "omsclientswiftdemo://auth/callback?error=access_denied&error_description=User%20cancelled&state=\(try oidcState(started))"
+        )
+        Issue.record("Expected provider error")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .validationError)
+        #expect(error.operation == .walletHandleOIDCRedirectCallback)
+        #expect(error.underlyingError as? OIDCRedirectAuthError == .providerError("User cancelled"))
     }
-    #expect(error.code == .validationError)
-    #expect(error.operation == .walletHandleOidcRedirectCallback)
-    #expect(error.underlyingError as? OidcRedirectAuthError == .providerError("User cancelled"))
     #expect(fixture.client.walletId == "")
     #expect(fixture.client.walletAddress == nil)
-    #expect(fixture.client.canResumeOidcRedirectAuth == false)
+    #expect(fixture.oidcRedirectAuthStore.pending == nil)
+}
+
+@Test func TestWalletHandleOIDCRedirectCallbackThrowsNormalizedBackendError() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    fixture.transport.enqueueHTTPError(
+        statusCode: 500,
+        errorCode: WebRPCErrorKind.identityProviderError.code,
+        message: "identity provider error",
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
+            issuer: "https://issuer.example",
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
+        )
+    )
+
+    do {
+        _ = try await fixture.client.handleOIDCRedirectCallback(
+            "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))"
+        )
+        Issue.record("Expected backend error")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .requestFailed)
+        #expect(error.operation == .walletHandleOIDCRedirectCallback)
+        #expect(error.status == 500)
+        #expect(error.upstreamError?.service == .waas)
+    }
+
     #expect(fixture.oidcRedirectAuthStore.pending == nil)
 }
 
@@ -2401,6 +2418,7 @@ private func waitForSessionExpiredEvent(
     #expect(txResult.txnId == "txn-contract-1")
     #expect(txResult.status == .executed)
     #expect(txResult.txnHash == "0xcontractdeadbeef")
+    #expect(txResult.statusResolution == .resolved)
     #expect(prepareRequest.mode == .native)
     #expect(executeRequest.txnId == "txn-contract-1")
     #expect(executeRequest.feeOption?.token == "POL")
@@ -2434,6 +2452,7 @@ private func waitForSessionExpiredEvent(
     #expect(txResult.txnId == "txn-no-poll-1")
     #expect(txResult.status == .pending)
     #expect(txResult.txnHash == nil)
+    #expect(txResult.statusResolution == .notRequested)
     #expect(fixture.transport.requestCount(for: WaasAPI.TransactionStatusMethod.urlPath) == 0)
 }
 
@@ -2467,10 +2486,11 @@ private func waitForSessionExpiredEvent(
     #expect(txResult.txnId == "txn-contract-no-poll-1")
     #expect(txResult.status == .pending)
     #expect(txResult.txnHash == nil)
+    #expect(txResult.statusResolution == .notRequested)
     #expect(fixture.transport.requestCount(for: WaasAPI.TransactionStatusMethod.urlPath) == 0)
 }
 
-@Test func TestWalletSendTransactionReturnsPendingResponseWhenPollingDelayIsZero() async throws {
+@Test func TestWalletSendTransactionMarksTimedOutWhenPollingDeadlineExpires() async throws {
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"
 
@@ -2497,16 +2517,89 @@ private func waitForSessionExpiredEvent(
         network: .polygonAmoy,
         request: SendTransactionRequest(to: "0xabc", value: "0"),
         statusPolling: TransactionStatusPollingOptions(
-            intervalMs: 0,
-            fastIntervalMs: 0,
-            fastPollCount: 0
+            timeoutMs: 0
         )
     )
 
     #expect(txResult.txnId == "txn-pending-1")
     #expect(txResult.status == .pending)
     #expect(txResult.txnHash == nil)
+    #expect(txResult.statusResolution == .timedOut)
     #expect(fixture.transport.requestCount(for: WaasAPI.TransactionStatusMethod.urlPath) == 1)
+}
+
+@Test func TestWalletSendTransactionReturnsTimedOutNonterminalStatuses() async throws {
+    let statuses: [WaasGenerated.TransactionStatus] = [.quoted, .unknown("future-status")]
+
+    for (index, status) in statuses.enumerated() {
+        let fixture = makeMockWalletClient()
+        fixture.client.walletId = "wallet-main"
+        try fixture.transport.enqueue(
+            PrepareResponse(
+                txnId: "txn-timeout-\(index)",
+                status: .quoted,
+                feeOptions: [],
+                sponsored: true,
+                expiresAt: "2026-04-27T00:00:00Z"
+            ),
+            for: WaasAPI.PrepareEthereumTransaction.urlPath
+        )
+        try fixture.transport.enqueue(
+            ExecuteResponse(status: .pending),
+            for: WaasAPI.Execute.urlPath
+        )
+        try fixture.transport.enqueue(
+            WaasTransactionStatusResponse(status: status),
+            for: WaasAPI.TransactionStatusMethod.urlPath
+        )
+
+        let result = try await fixture.client.sendTransaction(
+            network: .polygonAmoy,
+            request: SendTransactionRequest(to: "0xabc", value: "0"),
+            statusPolling: TransactionStatusPollingOptions(timeoutMs: 0)
+        )
+
+        #expect(result.txnId == "txn-timeout-\(index)")
+        #expect(result.status == status.sdkValue)
+        #expect(result.statusResolution == .timedOut)
+    }
+}
+
+@Test func TestWalletSendTransactionRejectsInvalidPollingOptionsBeforeExecute() async throws {
+    let invalidOptions = [
+        TransactionStatusPollingOptions(intervalMs: 0),
+        TransactionStatusPollingOptions(fastIntervalMs: 0),
+        TransactionStatusPollingOptions(fastPollCount: -1)
+    ]
+
+    for (index, options) in invalidOptions.enumerated() {
+        let fixture = makeMockWalletClient()
+        fixture.client.walletId = "wallet-main"
+        try fixture.transport.enqueue(
+            PrepareResponse(
+                txnId: "txn-invalid-polling-\(index)",
+                status: .quoted,
+                feeOptions: [],
+                sponsored: true,
+                expiresAt: "2026-04-27T00:00:00Z"
+            ),
+            for: WaasAPI.PrepareEthereumTransaction.urlPath
+        )
+
+        do {
+            _ = try await fixture.client.sendTransaction(
+                network: .polygonAmoy,
+                request: SendTransactionRequest(to: "0xabc", value: "0"),
+                statusPolling: options
+            )
+            Issue.record("Expected polling option validation error")
+        } catch let error as OMSWalletError {
+            #expect(error.code == .validationError)
+            #expect(error.operation == .walletSendTransaction)
+        }
+
+        #expect(fixture.transport.requestCount(for: WaasAPI.Execute.urlPath) == 0)
+    }
 }
 
 @Test func TestWalletSendTransactionReturnsWhenPollingFindsHashBeforeExecuted() async throws {
@@ -2540,6 +2633,7 @@ private func waitForSessionExpiredEvent(
     #expect(txResult.txnId == "txn-hash-1")
     #expect(txResult.status == .pending)
     #expect(txResult.txnHash == "0xsubmitted")
+    #expect(txResult.statusResolution == .resolved)
     #expect(fixture.transport.requestCount(for: WaasAPI.TransactionStatusMethod.urlPath) == 1)
 }
 
@@ -2574,6 +2668,7 @@ private func waitForSessionExpiredEvent(
     #expect(txResult.txnId == "txn-failed")
     #expect(txResult.status == .failed)
     #expect(txResult.txnHash == nil)
+    #expect(txResult.statusResolution == .resolved)
     #expect(fixture.transport.requestCount(for: WaasAPI.TransactionStatusMethod.urlPath) == 1)
 }
 
@@ -2608,6 +2703,7 @@ private func waitForSessionExpiredEvent(
     #expect(txResult.txnId == "txn-fast-hash-1")
     #expect(txResult.status == .pending)
     #expect(txResult.txnHash == "0xfastsubmitted")
+    #expect(txResult.statusResolution == .resolved)
     #expect(fixture.transport.requestCount(for: WaasAPI.TransactionStatusMethod.urlPath) == 1)
 }
 
@@ -2690,7 +2786,7 @@ struct MockWalletClientFixture {
     let keychain: InMemoryKeychain
     let environment: OMSWalletEnvironment
     let projectId: String
-    let oidcRedirectAuthStore: InMemoryOidcRedirectAuthStore
+    let oidcRedirectAuthStore: InMemoryOIDCRedirectAuthStore
     let indexerBackend: MockIndexerBackend
 
     func storedCredentials() throws -> StorableCredentials? {
@@ -2711,8 +2807,8 @@ func makeMockWalletClient(
     projectId: String = "proj_\(UUID().uuidString)",
     keychain: InMemoryKeychain = InMemoryKeychain(),
     signer: MockCredentialSigner = MockCredentialSigner(),
-    oidcRedirectAuthStoreOverride: (any OidcRedirectAuthStore)? = nil,
-    oidcNonceGenerator: @escaping () throws -> String = OidcRedirectAuth.generateNonce,
+    oidcRedirectAuthStoreOverride: (any OIDCRedirectAuthStore)? = nil,
+    oidcNonceGenerator: @escaping () throws -> String = OIDCRedirectAuth.generateNonce,
     currentDate: @escaping () -> Date = Date.init,
     storedCredentials: StorableCredentials? = nil
 ) -> MockWalletClientFixture {
@@ -2722,7 +2818,7 @@ func makeMockWalletClient(
         publishableKey: "test-publishable-key",
         environment: environment
     )
-    let oidcRedirectAuthStore = InMemoryOidcRedirectAuthStore()
+    let oidcRedirectAuthStore = InMemoryOIDCRedirectAuthStore()
     if let storedCredentials {
         _ = try? keychain.set(
             storedCredentials.jsonString(),
@@ -3065,6 +3161,10 @@ private func queryParams(_ url: String) -> [String: String] {
         }
 }
 
+func oidcState(_ result: StartOIDCRedirectAuthResult) throws -> String {
+    try #require(queryParams(result.authorizationURL)["state"])
+}
+
 private func decodedOidcState(_ value: String) throws -> [String: Any] {
     var base64 = value
         .replacingOccurrences(of: "-", with: "+")
@@ -3112,17 +3212,17 @@ final class InMemoryKeychain: KeychainManaging {
     }
 }
 
-final class InMemoryOidcRedirectAuthStore: OidcRedirectAuthStore, @unchecked Sendable {
+final class InMemoryOIDCRedirectAuthStore: OIDCRedirectAuthStore, @unchecked Sendable {
     private let lock = NSLock()
-    private(set) var pending: PendingOidcRedirectAuth?
+    private(set) var pending: PendingOIDCRedirectAuth?
 
-    func load() throws -> PendingOidcRedirectAuth? {
+    func load() throws -> PendingOIDCRedirectAuth? {
         lock.lock()
         defer { lock.unlock() }
         return pending
     }
 
-    func save(_ pending: PendingOidcRedirectAuth) throws {
+    func save(_ pending: PendingOIDCRedirectAuth) throws {
         lock.lock()
         defer { lock.unlock() }
         self.pending = pending

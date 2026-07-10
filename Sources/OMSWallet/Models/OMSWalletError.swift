@@ -23,8 +23,8 @@ public enum OMSWalletOperation: String, Sendable {
     case walletStartEmailAuth = "wallet.startEmailAuth"
     case walletCompleteEmailAuth = "wallet.completeEmailAuth"
     case walletSignInWithOidcIdToken = "wallet.signInWithOidcIdToken"
-    case walletStartOidcRedirectAuth = "wallet.startOidcRedirectAuth"
-    case walletHandleOidcRedirectCallback = "wallet.handleOidcRedirectCallback"
+    case walletStartOIDCRedirectAuth = "wallet.startOIDCRedirectAuth"
+    case walletHandleOIDCRedirectCallback = "wallet.handleOIDCRedirectCallback"
     case walletUseWallet = "wallet.useWallet"
     case walletCreateWallet = "wallet.createWallet"
     case walletListWallets = "wallet.listWallets"
@@ -59,7 +59,7 @@ public struct OMSWalletUpstreamError: Equatable, Sendable {
     public let message: String?
     public let status: Int?
 
-    public init(
+    init(
         service: OMSWalletUpstreamService,
         name: String? = nil,
         code: String? = nil,
@@ -84,7 +84,7 @@ public struct OMSWalletError: Error, LocalizedError, @unchecked Sendable {
     public let underlyingError: (any Error)?
     private let message: String
 
-    public init(
+    init(
         code: OMSWalletErrorCode,
         message: String,
         operation: OMSWalletOperation? = nil,
@@ -109,7 +109,7 @@ public struct OMSWalletError: Error, LocalizedError, @unchecked Sendable {
     }
 }
 
-public extension OMSWalletError {
+extension OMSWalletError {
     static func walletSelectionUnavailable(
         operation: OMSWalletOperation? = nil
     ) -> OMSWalletError {
@@ -380,7 +380,7 @@ private extension TransactionError {
                 retryable: true,
                 underlyingError: self
             )
-        case .noFeeOptionsAvailable, .noFeeOptionSelected, .missingTransactionHash:
+        case .noFeeOptionsAvailable, .noFeeOptionSelected, .missingTransactionHash, .invalidPollingOption:
             return OMSWalletError(
                 code: .validationError,
                 message: localizedDescription,

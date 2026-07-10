@@ -257,16 +257,14 @@ final class AppViewModel: ObservableObject {
     @Published var useManualWalletSelection: Bool = false
     @Published var loginEmail: String = ""
     @Published var sessionLifetimeText: String = "604800"
-    @Published var oms: OMSWallet = try! OMSWallet(
-        publishableKey: "pk_sdbx_01kqfw9zaykks_01kwetq606fv699qb9bhfmb45s"
+    @Published var omsWallet: OMSWallet = try! OMSWallet(
+        publishableKey: "pk_dev_sdbx_01kqa06hyyetj_01kv5zt5s3eke9038q8y67jdvj"
     )
     private var sessionExpiredObservation: OMSWalletSessionExpiredObservation?
 
     init() {
-        sessionExpiredObservation = oms.wallet.addSessionExpiredObserver { [weak self] event in
-            Task { @MainActor [weak self] in
-                self?.handleSessionExpired(event)
-            }
+        sessionExpiredObservation = omsWallet.wallet.addSessionExpiredObserver { [weak self] event in
+            self?.handleSessionExpired(event)
         }
     }
 
@@ -285,7 +283,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func checkSession() async {
-        let hasSession = oms.wallet.walletAddress != nil
+        let hasSession = omsWallet.wallet.walletAddress != nil
         screen = hasSession ? .wallet : .introduction
     }
 
@@ -294,7 +292,7 @@ final class AppViewModel: ObservableObject {
             #if os(iOS)
             GIDSignIn.sharedInstance.signOut()
             #endif
-            try oms.wallet.signOut()
+            try omsWallet.wallet.signOut()
             safariAuthSession = nil
             sessionExpiredPrompt = nil
             screen = .introduction
@@ -319,7 +317,7 @@ final class AppViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            try await oms.wallet.startEmailAuth(email: input)
+            try await omsWallet.wallet.startEmailAuth(email: input)
             screen = .confirmCode
         } catch {
             present(error)
@@ -338,7 +336,7 @@ final class AppViewModel: ObservableObject {
 
         do {
             let idToken = try await requestGoogleIdToken()
-            let result = try await oms.wallet.signInWithOidcIdToken(
+            let result = try await omsWallet.wallet.signInWithOidcIdToken(
                 idToken: idToken,
                 issuer: googleIssuer,
                 audience: googleWebClientId,
@@ -411,14 +409,14 @@ final class AppViewModel: ObservableObject {
     #endif
 
     func startGoogleRedirectAuth() async {
-        await startOidcRedirectAuth(provider: OidcProviders.google())
+        await startOIDCRedirectAuth(provider: OMSRelayOIDCProviders.google)
     }
 
     func startAppleRedirectAuth() async {
-        await startOidcRedirectAuth(provider: OidcProviders.apple())
+        await startOIDCRedirectAuth(provider: OMSRelayOIDCProviders.apple)
     }
 
-    private func startOidcRedirectAuth(provider: OidcProviderConfig) async {
+    private func startOIDCRedirectAuth(provider: OMSRelayOIDCProvider) async {
         guard let lifetimeSeconds = sessionLifetimeSeconds else {
             present(DemoAuthError.invalidSessionLifetime)
             return
@@ -428,20 +426,20 @@ final class AppViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            let started = try await oms.wallet.startOidcRedirectAuth(
+            let started = try await omsWallet.wallet.startOIDCRedirectAuth(
                 provider: provider,
-                omsRelayReturnUri: oidcRedirectUri,
+                omsRelayReturnURI: oidcRedirectUri,
                 walletSelection: walletSelectionBehavior,
                 sessionLifetimeSeconds: lifetimeSeconds
             )
-            guard let authorizationUrl = URL(string: started.authorizationUrl) else {
+            guard let authorizationURL = URL(string: started.authorizationURL) else {
                 throw DemoAuthError.invalidAuthorizationURL
             }
 
             #if os(iOS)
-            safariAuthSession = SafariAuthSession(url: authorizationUrl)
+            safariAuthSession = SafariAuthSession(url: authorizationURL)
             #elseif os(macOS)
-            NSWorkspace.shared.open(authorizationUrl)
+            NSWorkspace.shared.open(authorizationURL)
             #endif
         } catch {
             present(error)
@@ -450,22 +448,19 @@ final class AppViewModel: ObservableObject {
 
     func handleOpenURL(_ url: URL) async {
         do {
-            let result = try await oms.wallet.handleOidcRedirectCallback(
+            let result = try await omsWallet.wallet.handleOIDCRedirectCallback(
                 url.absoluteString
             )
 
             switch result {
-            case .completed:
+            case .completed(.walletSelected):
                 safariAuthSession = nil
                 screen = .wallet
-            case .walletSelection(let pendingSelection):
+            case .completed(.walletSelection(let pendingSelection)):
                 safariAuthSession = nil
                 screen = .walletSelection(pendingSelection)
-            case .notOidcRedirectCallback, .noPendingAuth:
+            case .notOIDCRedirectCallback, .noPendingAuth:
                 break
-            case .failed(let error):
-                safariAuthSession = nil
-                present(error)
             }
         } catch {
             safariAuthSession = nil
@@ -485,7 +480,7 @@ final class AppViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            let result = try await oms.wallet.completeEmailAuth(
+            let result = try await omsWallet.wallet.completeEmailAuth(
                 code: code,
                 walletSelection: walletSelectionBehavior,
                 sessionLifetimeSeconds: lifetimeSeconds
@@ -517,7 +512,7 @@ final class AppViewModel: ObservableObject {
         isLoading = false
         safariAuthSession = nil
         do {
-            try oms.wallet.signOut()
+            try omsWallet.wallet.signOut()
         } catch {
             present(error)
         }
@@ -525,7 +520,7 @@ final class AppViewModel: ObservableObject {
     }
 
     private func completeWalletSelection(
-        _ operation: () async throws -> WalletActivationResult
+        _ operation: () async throws -> WalletSelectionResult
     ) async {
         isLoading = true
         defer { isLoading = false }
@@ -1074,13 +1069,13 @@ struct WalletWindow: View {
     }
 
     private func refreshBalance() async {
-        guard let walletAddress = vm.oms.wallet.walletAddress else { return }
+        guard let walletAddress = vm.omsWallet.wallet.walletAddress else { return }
         isFetchingBalance = true
         clearBalance()
         defer { isFetchingBalance = false }
 
         do {
-            let balances = try await vm.oms.indexer.getBalances(
+            let balances = try await vm.omsWallet.indexer.getBalances(
                 GetBalancesParams(
                     walletAddress: walletAddress,
                     networks: [selectedNetwork],
@@ -1191,7 +1186,7 @@ struct WalletWindow: View {
     private var walletAddressBar: some View {
         VStack(spacing: 8) {
             HStack(spacing: 6) {
-                Text(collapsedAddress(vm.oms.wallet.walletAddress ?? ""))
+                Text(collapsedAddress(vm.omsWallet.wallet.walletAddress ?? ""))
                     .font(.system(size: 22, weight: .semibold, design: .monospaced))
                     .foregroundStyle(DesignTokens.Color.primaryText)
                     .lineLimit(1)
@@ -1199,7 +1194,7 @@ struct WalletWindow: View {
                     .textSelection(.enabled)
 
                 Button {
-                    guard let walletAddress = vm.oms.wallet.walletAddress else { return }
+                    guard let walletAddress = vm.omsWallet.wallet.walletAddress else { return }
                     Clipboard.copy(walletAddress)
                     didCopy = true
                     Task {
@@ -1212,7 +1207,7 @@ struct WalletWindow: View {
                         .foregroundStyle(didCopy ? DesignTokens.Color.success : DesignTokens.Color.info)
                 }
                 .buttonStyle(.plain)
-                .disabled(vm.oms.wallet.walletAddress == nil)
+                .disabled(vm.omsWallet.wallet.walletAddress == nil)
                 .help(didCopy ? "Copied" : "Copy address")
             }
 
@@ -1360,7 +1355,7 @@ struct WalletWindow: View {
     }
 
     private var sessionSubtitle: String {
-        sessionAuthLabel(vm.oms.wallet.session.auth)
+        sessionAuthLabel(vm.omsWallet.wallet.session.auth)
     }
 
 }
@@ -1421,7 +1416,7 @@ struct SignMessageWindow: View {
                     defer { isSigning = false }
 
                     do {
-                        let result = try await vm.oms.wallet.signMessage(
+                        let result = try await vm.omsWallet.wallet.signMessage(
                             network: network,
                             message: messageText
                         )
@@ -1498,7 +1493,7 @@ struct SendTransactionWindow: View {
                     defer { isSending = false }
 
                     do {
-                        let txResult = try await vm.oms.wallet.sendTransaction(
+                        let txResult = try await vm.omsWallet.wallet.sendTransaction(
                             network: network,
                             to: toText,
                             value: amountText,
@@ -1527,7 +1522,7 @@ struct SendTransactionWindow: View {
                 .environmentObject(vm)
         }
         .onAppear {
-            if toText.isEmpty, let walletAddress = vm.oms.wallet.walletAddress {
+            if toText.isEmpty, let walletAddress = vm.omsWallet.wallet.walletAddress {
                 toText = walletAddress
             }
         }
@@ -1659,7 +1654,7 @@ struct CallContractWindow: View {
                         let abiArgs: [AbiArg] = args
                             .filter { !$0.type.isEmpty || !$0.value.isEmpty }
                             .map { AbiArg(type: $0.type, value: parseAbiValue($0.value)) }
-                        let txResult = try await vm.oms.wallet.callContract(
+                        let txResult = try await vm.omsWallet.wallet.callContract(
                             network: network,
                             contract: contractText,
                             method: methodText,

@@ -40,7 +40,7 @@ private struct GetTransactionHistoryResponse: Decodable {
 }
 
 @available(macOS 12.0, iOS 15.0, *)
-public final class IndexerClient {
+public final class IndexerClient: Sendable {
     private let publishableKey: String
     private let environment: OMSWalletEnvironment
     private let client: HttpClient

@@ -223,6 +223,9 @@ extension WalletClient {
         statusPolling: TransactionStatusPollingOptions,
         walletAddress: String?
     ) async throws -> SendTransactionResponse {
+        if waitForStatus {
+            try validateTransactionStatusPollingOptions(statusPolling)
+        }
         let feeOptionSelection = try await selectFeeOption(
             network: network,
             prepareResponse: prepareResponse,
@@ -256,20 +259,26 @@ extension WalletClient {
         if !waitForStatus {
             return SendTransactionResponse(
                 txnId: prepareResponse.txnId,
-                status: executeResponse.status.sdkValue
+                status: executeResponse.status.sdkValue,
+                statusResolution: .notRequested
             )
         }
 
-        let statusResponse = try await waitForTransactionStatus(
+        let statusResult = try await waitForTransactionStatus(
             txnId: prepareResponse.txnId,
             fallbackStatus: executeResponse.status.sdkValue,
             options: statusPolling
         )
         let response = SendTransactionResponse(
             txnId: prepareResponse.txnId,
-            status: statusResponse.status,
-            txnHash: statusResponse.txnHash
+            status: statusResult.response.status,
+            txnHash: statusResult.response.txnHash,
+            statusResolution: statusResult.resolution
         )
+
+        if response.statusResolution == .timedOut {
+            return response
+        }
 
         if isSubmittedTransactionResult(response) {
             return response
@@ -391,7 +400,10 @@ extension WalletClient {
         txnId: String,
         fallbackStatus: TransactionStatus,
         options: TransactionStatusPollingOptions
-    ) async throws -> TransactionStatusResponse {
+    ) async throws -> (
+        response: TransactionStatusResponse,
+        resolution: TransactionStatusResolution
+    ) {
         let timeoutMs = options.timeoutMs ?? Self.defaultTransactionStatusPollTimeoutMs
         let deadlineMs = currentTimeMs() + Double(timeoutMs)
         var lastStatus = TransactionStatusResponse(status: fallbackStatus)
@@ -422,20 +434,16 @@ extension WalletClient {
             if lastStatus.status == .executed
                 || lastStatus.status == .failed
                 || hasTransactionHash(lastStatus.txnHash) {
-                return lastStatus
+                return (lastStatus, .resolved)
             }
 
             let pollDelayMs = transactionStatusPollDelayMs(
                 completedPolls: completedPolls,
                 options: options
             )
-            if pollDelayMs == 0 {
-                return lastStatus
-            }
-
             let remainingMs = deadlineMs - currentTimeMs()
             if remainingMs <= 0 {
-                return lastStatus
+                return (lastStatus, .timedOut)
             }
 
             let sleepMs = min(Double(pollDelayMs), remainingMs)
@@ -456,6 +464,20 @@ extension WalletClient {
 
     private func currentTimeMs() -> Double {
         currentDate().timeIntervalSince1970 * 1_000
+    }
+
+    private func validateTransactionStatusPollingOptions(
+        _ options: TransactionStatusPollingOptions
+    ) throws {
+        if options.intervalMs == 0 {
+            throw TransactionError.invalidPollingOption("intervalMs must be greater than zero")
+        }
+        if options.fastIntervalMs == 0 {
+            throw TransactionError.invalidPollingOption("fastIntervalMs must be greater than zero")
+        }
+        if let fastPollCount = options.fastPollCount, fastPollCount < 0 {
+            throw TransactionError.invalidPollingOption("fastPollCount must not be negative")
+        }
     }
 
     private func isSubmittedTransactionResult(_ response: SendTransactionResponse) -> Bool {

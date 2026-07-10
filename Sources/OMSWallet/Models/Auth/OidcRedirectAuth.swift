@@ -2,175 +2,178 @@ import Foundation
 import Security
 
 /// OIDC redirect auth-code mode.
-public enum OidcAuthMode: String, Codable, Equatable, Sendable {
+public enum OIDCAuthMode: String, Codable, Equatable, Sendable {
     case authCode = "auth-code"
-    case authCodePkce = "auth-code-pkce"
+    case authCodePKCE = "auth-code-pkce"
 
     var waasAuthMode: AuthMode {
         switch self {
         case .authCode:
             return .authCode
-        case .authCodePkce:
+        case .authCodePKCE:
             return .authCodePkce
         }
     }
 }
 
-/// OIDC provider configuration for authorization-code redirect auth.
-public struct OidcProviderConfig: Sendable {
+/// A caller-owned OIDC provider configuration for authorization-code redirect auth.
+public struct CustomOIDCProviderConfiguration: Sendable {
     public let issuer: String
-    public let clientId: String
-    public let authorizationUrl: String
+    public let clientID: String
+    public let authorizationURL: String
     public let provider: String?
     public let providerLabel: String?
     public let scopes: [String]
-    public let providerRedirectUri: String?
+    public let providerRedirectURI: String
     public let authorizeParams: [String: String]
-    public let authMode: OidcAuthMode
-    let defaultRelayProvider: String?
+    public let authMode: OIDCAuthMode
 
     public init(
         issuer: String,
-        clientId: String,
-        authorizationUrl: String,
-        providerRedirectUri: String,
+        clientID: String,
+        authorizationURL: String,
+        providerRedirectURI: String,
         provider: String? = nil,
         providerLabel: String? = nil,
         scopes: [String] = [],
         authorizeParams: [String: String] = [:],
-        authMode: OidcAuthMode = .authCodePkce
+        authMode: OIDCAuthMode = .authCodePKCE
     ) {
-        self.init(
+        self.issuer = issuer
+        self.clientID = clientID
+        self.authorizationURL = authorizationURL
+        self.provider = provider
+        self.providerLabel = providerLabel
+        self.scopes = scopes
+        self.providerRedirectURI = providerRedirectURI
+        self.authorizeParams = authorizeParams
+        self.authMode = authMode
+    }
+}
+
+/// A fixed OIDC provider whose OAuth callback is owned by the OMS relay.
+public struct OMSRelayOIDCProvider: Equatable, Hashable, Sendable {
+    fileprivate enum Kind: Equatable, Hashable, Sendable {
+        case google
+        case apple
+    }
+
+    fileprivate let kind: Kind
+
+    fileprivate init(kind: Kind) {
+        self.kind = kind
+    }
+}
+
+/// SDK-owned OMS relay provider values.
+public enum OMSRelayOIDCProviders {
+    public static let google = OMSRelayOIDCProvider(kind: .google)
+    public static let apple = OMSRelayOIDCProvider(kind: .apple)
+}
+
+struct ResolvedOIDCProviderConfiguration: Sendable {
+    let issuer: String
+    let clientID: String
+    let authorizationURL: String
+    let provider: String?
+    let providerLabel: String?
+    let scopes: [String]
+    let authorizeParams: [String: String]
+    let authMode: OIDCAuthMode
+}
+
+extension OMSRelayOIDCProvider {
+    var resolvedConfiguration: ResolvedOIDCProviderConfiguration {
+        switch kind {
+        case .google:
+            return ResolvedOIDCProviderConfiguration(
+                issuer: "https://accounts.google.com",
+                clientID: "913882656162-7l4ofa0ou2hqo90umlkenhdop1f5inba.apps.googleusercontent.com",
+                authorizationURL: "https://accounts.google.com/o/oauth2/v2/auth",
+                provider: "google",
+                providerLabel: "Google",
+                scopes: ["openid", "email", "profile"],
+                authorizeParams: [
+                    "access_type": "offline",
+                    "prompt": "consent"
+                ],
+                authMode: .authCodePKCE
+            )
+        case .apple:
+            return ResolvedOIDCProviderConfiguration(
+                issuer: "https://appleid.apple.com",
+                clientID: "service.oms.polygon.technology",
+                authorizationURL: "https://appleid.apple.com/auth/authorize",
+                provider: "apple",
+                providerLabel: "Apple",
+                scopes: ["openid", "email"],
+                authorizeParams: ["response_mode": "form_post"],
+                authMode: .authCodePKCE
+            )
+        }
+    }
+
+    var relayPathComponent: String {
+        switch kind {
+        case .google:
+            return "google"
+        case .apple:
+            return "apple"
+        }
+    }
+}
+
+extension CustomOIDCProviderConfiguration {
+    var resolvedConfiguration: ResolvedOIDCProviderConfiguration {
+        ResolvedOIDCProviderConfiguration(
             issuer: issuer,
-            clientId: clientId,
-            authorizationUrl: authorizationUrl,
-            providerRedirectUri: providerRedirectUri,
+            clientID: clientID,
+            authorizationURL: authorizationURL,
             provider: provider,
             providerLabel: providerLabel,
             scopes: scopes,
             authorizeParams: authorizeParams,
-            authMode: authMode,
-            defaultRelayProvider: nil
-        )
-    }
-
-    fileprivate init(
-        issuer: String,
-        clientId: String,
-        authorizationUrl: String,
-        providerRedirectUri: String?,
-        provider: String? = nil,
-        providerLabel: String? = nil,
-        scopes: [String] = [],
-        authorizeParams: [String: String] = [:],
-        authMode: OidcAuthMode = .authCodePkce,
-        defaultRelayProvider: String?
-    ) {
-        self.issuer = issuer
-        self.clientId = clientId
-        self.authorizationUrl = authorizationUrl
-        self.provider = provider
-        self.providerLabel = providerLabel
-        self.scopes = scopes
-        self.providerRedirectUri = providerRedirectUri
-        self.authorizeParams = authorizeParams
-        self.authMode = authMode
-        self.defaultRelayProvider = defaultRelayProvider
-    }
-}
-
-/// Built-in OIDC provider configurations.
-public enum OidcProviders {
-    public static let defaultGoogleClientId = "913882656162-7l4ofa0ou2hqo90umlkenhdop1f5inba.apps.googleusercontent.com"
-    public static let defaultAppleClientId = "service.oms.polygon.technology"
-
-    public static func google(
-        clientId: String = Self.defaultGoogleClientId,
-        scopes: [String] = ["openid", "email", "profile"],
-        authorizeParams: [String: String] = [:],
-        authMode: OidcAuthMode = .authCodePkce
-    ) -> OidcProviderConfig {
-        OidcProviderConfig(
-            issuer: "https://accounts.google.com",
-            clientId: clientId,
-            authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-            providerRedirectUri: nil,
-            provider: "google",
-            providerLabel: "Google",
-            scopes: scopes,
-            authorizeParams: [
-                "access_type": "offline",
-                "prompt": "consent"
-            ].merging(authorizeParams) { _, new in new },
-            authMode: authMode,
-            defaultRelayProvider: "google"
-        )
-    }
-
-    public static func apple(
-        clientId: String = Self.defaultAppleClientId,
-        scopes: [String] = ["openid", "email"],
-        authorizeParams: [String: String] = [:],
-        authMode: OidcAuthMode = .authCodePkce
-    ) -> OidcProviderConfig {
-        OidcProviderConfig(
-            issuer: "https://appleid.apple.com",
-            clientId: clientId,
-            authorizationUrl: "https://appleid.apple.com/auth/authorize",
-            providerRedirectUri: nil,
-            provider: "apple",
-            providerLabel: "Apple",
-            scopes: scopes,
-            authorizeParams: [
-                "response_mode": "form_post"
-            ].merging(authorizeParams) { _, new in new },
-            authMode: authMode,
-            defaultRelayProvider: "apple"
+            authMode: authMode
         )
     }
 }
 
 /// Result returned after starting an OIDC authorization-code redirect flow.
 ///
-/// Open `authorizationUrl` in a browser or ASWebAuthenticationSession, then pass
-/// the resulting callback URL to `handleOidcRedirectCallback`.
-public struct StartOidcRedirectAuthResult: Sendable {
-    public let authorizationUrl: String
-    public let state: String
-    public let challenge: String
+/// Open `authorizationURL` in a browser or ASWebAuthenticationSession, then pass
+/// the resulting callback URL to `handleOIDCRedirectCallback`.
+public struct StartOIDCRedirectAuthResult: Sendable {
+    public let authorizationURL: String
 
-    public init(authorizationUrl: String, state: String, challenge: String) {
-        self.authorizationUrl = authorizationUrl
-        self.state = state
-        self.challenge = challenge
+    public init(authorizationURL: String) {
+        self.authorizationURL = authorizationURL
     }
 }
 
 /// Result of handling an incoming OIDC authorization-code redirect callback.
-public enum OidcRedirectAuthResult: Sendable {
-    case completed(wallet: Wallet)
-    case walletSelection(PendingWalletSelection)
-    case notOidcRedirectCallback
+public enum OIDCRedirectAuthResult: Sendable {
+    case completed(CompleteAuthResult)
+    case notOIDCRedirectCallback
     case noPendingAuth
-    case failed(Error)
 }
 
-public enum OidcRedirectAuthError: Error, Equatable, Sendable {
+enum OIDCRedirectAuthError: Error, Equatable, Sendable {
     case invalidAuthorizationURL(String)
     case randomBytesUnavailable
     case invalidState
     case stateNonceMismatch
     case stateScopeMismatch
     case stateRedirectUriMismatch
-    case missingProviderRedirectUri
-    case unsupportedRelayProvider
+    case missingProviderRedirectURI
+    case missingOMSRelayReturnURI
     case providerError(String)
     case missingCode
     case signerMismatch
+    case staleFlow
 }
 
-extension OidcRedirectAuthError: LocalizedError {
-    public var errorDescription: String? {
+extension OIDCRedirectAuthError: LocalizedError {
+    var errorDescription: String? {
         switch self {
         case .invalidAuthorizationURL(let url):
             return "Invalid OIDC authorization URL: \(url)"
@@ -184,25 +187,27 @@ extension OidcRedirectAuthError: LocalizedError {
             return "OIDC state scope mismatch."
         case .stateRedirectUriMismatch:
             return "OIDC state redirect URI mismatch."
-        case .missingProviderRedirectUri:
+        case .missingProviderRedirectURI:
             return "OIDC provider redirect URI is required."
-        case .unsupportedRelayProvider:
-            return "OIDC relay return URI can only be used with built-in relayed providers."
+        case .missingOMSRelayReturnURI:
+            return "OMS relay return URI is required."
         case .providerError(let message):
             return message
         case .missingCode:
             return "OIDC callback URL is missing code."
         case .signerMismatch:
             return "OIDC redirect auth signer mismatch."
+        case .staleFlow:
+            return "OIDC redirect auth flow is stale."
         }
     }
 }
 
-struct PendingOidcRedirectAuth: Codable, Sendable {
+struct PendingOIDCRedirectAuth: Codable, Sendable {
     let verifier: String
     let challenge: String
     let nonce: String
-    let authMode: OidcAuthMode
+    let authMode: OIDCAuthMode
     let redirectUri: String
     let issuer: String
     let provider: String?
@@ -213,16 +218,47 @@ struct PendingOidcRedirectAuth: Codable, Sendable {
     let sessionLifetimeSeconds: UInt32?
     let signerCredentialId: String
     let signerKeyType: SigningAlgorithm
+    var consumed: Bool? = nil
+
+    var isConsumed: Bool {
+        consumed == true
+    }
+
+    var flowIdentifier: String {
+        "\(nonce):\(verifier)"
+    }
+
+    func markingConsumed() -> PendingOIDCRedirectAuth {
+        var pending = self
+        pending.consumed = true
+        return pending
+    }
 }
 
-protocol OidcRedirectAuthStore: Sendable {
-    func load() throws -> PendingOidcRedirectAuth?
-    func save(_ pending: PendingOidcRedirectAuth) throws
+protocol OIDCRedirectAuthStore: Sendable {
+    func load() throws -> PendingOIDCRedirectAuth?
+    func save(_ pending: PendingOIDCRedirectAuth) throws
     func clear() throws
 }
 
+enum OIDCRedirectAuthLockRegistry {
+    private static let registryLock = NSLock()
+    nonisolated(unsafe) private static var locks: [String: NSRecursiveLock] = [:]
+
+    static func lock(for key: String) -> NSRecursiveLock {
+        registryLock.lock()
+        defer { registryLock.unlock() }
+        if let existing = locks[key] {
+            return existing
+        }
+        let lock = NSRecursiveLock()
+        locks[key] = lock
+        return lock
+    }
+}
+
 @available(macOS 12.0, iOS 15.0, *)
-final class KeychainOidcRedirectAuthStore: OidcRedirectAuthStore, @unchecked Sendable {
+final class KeychainOIDCRedirectAuthStore: OIDCRedirectAuthStore, @unchecked Sendable {
     private let keychain: any KeychainManaging
     private let storageKey: String
 
@@ -235,14 +271,14 @@ final class KeychainOidcRedirectAuthStore: OidcRedirectAuthStore, @unchecked Sen
         self.storageKey = Constants.oidcRedirectAuthStorageKey(environment: environment, scope: projectId)
     }
 
-    func load() throws -> PendingOidcRedirectAuth? {
+    func load() throws -> PendingOIDCRedirectAuth? {
         guard let json = try keychain.string(forKey: storageKey) else {
             return nil
         }
-        return try PendingOidcRedirectAuth.from(jsonString: json)
+        return try PendingOIDCRedirectAuth.from(jsonString: json)
     }
 
-    func save(_ pending: PendingOidcRedirectAuth) throws {
+    func save(_ pending: PendingOIDCRedirectAuth) throws {
         try keychain.set(pending.jsonString(), forKey: storageKey)
     }
 
@@ -251,7 +287,7 @@ final class KeychainOidcRedirectAuthStore: OidcRedirectAuthStore, @unchecked Sen
     }
 }
 
-struct OidcCallbackParams: Sendable {
+struct OIDCCallbackParams: Sendable {
     let code: String?
     let state: String?
     let error: String?
@@ -262,7 +298,7 @@ struct OidcCallbackParams: Sendable {
     }
 }
 
-private struct OidcStatePayload: Codable {
+private struct OIDCStatePayload: Codable {
     let nonce: String
     let scope: String
     let redirectUri: String?
@@ -274,12 +310,12 @@ private struct OidcStatePayload: Codable {
     }
 }
 
-enum OidcRedirectAuth {
+enum OIDCRedirectAuth {
     static func generateNonce() throws -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
         let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         guard status == errSecSuccess else {
-            throw OidcRedirectAuthError.randomBytesUnavailable
+            throw OIDCRedirectAuthError.randomBytesUnavailable
         }
         return base64UrlEncode(Data(bytes))
     }
@@ -289,7 +325,7 @@ enum OidcRedirectAuth {
         scope: String,
         redirectUri: String? = nil
     ) throws -> String {
-        let payload = OidcStatePayload(
+        let payload = OIDCStatePayload(
             nonce: nonce,
             scope: scope,
             redirectUri: redirectUri
@@ -297,17 +333,17 @@ enum OidcRedirectAuth {
         return base64UrlEncode(try WebRPCJSON.makeEncoder().encode(payload))
     }
 
-    static func buildAuthorizationUrl(
-        provider: OidcProviderConfig,
-        redirectUri: String,
+    static func buildAuthorizationURL(
+        provider: ResolvedOIDCProviderConfiguration,
+        redirectURI: String,
         state: String,
         challenge: String,
         loginHint: String?,
-        authMode: OidcAuthMode,
+        authMode: OIDCAuthMode,
         authorizeParams: [String: String]
     ) throws -> String {
-        guard var components = URLComponents(string: provider.authorizationUrl) else {
-            throw OidcRedirectAuthError.invalidAuthorizationURL(provider.authorizationUrl)
+        guard var components = URLComponents(string: provider.authorizationURL) else {
+            throw OIDCRedirectAuthError.invalidAuthorizationURL(provider.authorizationURL)
         }
 
         var queryItems = components.queryItems ?? []
@@ -326,8 +362,8 @@ enum OidcRedirectAuth {
             setQueryParameter("login_hint", loginHint)
         }
 
-        setQueryParameter("client_id", provider.clientId)
-        setQueryParameter("redirect_uri", redirectUri)
+        setQueryParameter("client_id", provider.clientID)
+        setQueryParameter("redirect_uri", redirectURI)
         setQueryParameter("response_type", "code")
         if provider.scopes.isEmpty {
             removeQueryParameter("scope")
@@ -335,7 +371,7 @@ enum OidcRedirectAuth {
             setQueryParameter("scope", provider.scopes.joined(separator: " "))
         }
         setQueryParameter("state", state)
-        if authMode == .authCodePkce {
+        if authMode == .authCodePKCE {
             setQueryParameter("code_challenge", challenge)
             setQueryParameter("code_challenge_method", "S256")
         } else {
@@ -345,19 +381,19 @@ enum OidcRedirectAuth {
 
         components.queryItems = queryItems
         guard let url = components.url?.absoluteString else {
-            throw OidcRedirectAuthError.invalidAuthorizationURL(provider.authorizationUrl)
+            throw OIDCRedirectAuthError.invalidAuthorizationURL(provider.authorizationURL)
         }
         return url
     }
 
-    static func parseCallbackUrl(_ callbackUrl: String) -> OidcCallbackParams {
-        let query = callbackUrl
+    static func parseCallbackURL(_ callbackURL: String) -> OIDCCallbackParams {
+        let query = callbackURL
             .substring(after: "?")
             .substring(before: "#")
-        let fragment = callbackUrl.substring(after: "#")
+        let fragment = callbackURL.substring(after: "#")
         let params = parseQuery(query).merging(parseQuery(fragment)) { queryValue, _ in queryValue }
 
-        return OidcCallbackParams(
+        return OIDCCallbackParams(
             code: params["code"],
             state: params["state"],
             error: params["error"],
@@ -367,23 +403,23 @@ enum OidcRedirectAuth {
 
     static func validateState(
         _ encodedState: String,
-        pending: PendingOidcRedirectAuth
+        pending: PendingOIDCRedirectAuth
     ) throws {
         let state = try decodeState(encodedState)
         guard state.nonce == pending.nonce else {
-            throw OidcRedirectAuthError.stateNonceMismatch
+            throw OIDCRedirectAuthError.stateNonceMismatch
         }
         guard state.scope == pending.authorizationScope else {
-            throw OidcRedirectAuthError.stateScopeMismatch
+            throw OIDCRedirectAuthError.stateScopeMismatch
         }
         guard state.redirectUri == nil || state.redirectUri == pending.redirectUri else {
-            throw OidcRedirectAuthError.stateRedirectUriMismatch
+            throw OIDCRedirectAuthError.stateRedirectUriMismatch
         }
     }
 
-    static func matchesRedirectUri(callbackUrl: String, redirectUri: String) -> Bool {
-        guard let callback = URLComponents(string: callbackUrl),
-              let expected = URLComponents(string: redirectUri) else {
+    static func matchesRedirectURI(callbackURL: String, redirectURI: String) -> Bool {
+        guard let callback = URLComponents(string: callbackURL),
+              let expected = URLComponents(string: redirectURI) else {
             return false
         }
 
@@ -417,14 +453,14 @@ enum OidcRedirectAuth {
         return value.isEmpty ? nil : value
     }
 
-    private static func decodeState(_ encodedState: String) throws -> OidcStatePayload {
+    private static func decodeState(_ encodedState: String) throws -> OIDCStatePayload {
         guard let data = base64UrlDecode(encodedState) else {
-            throw OidcRedirectAuthError.invalidState
+            throw OIDCRedirectAuthError.invalidState
         }
         do {
-            return try WebRPCJSON.makeDecoder().decode(OidcStatePayload.self, from: data)
+            return try WebRPCJSON.makeDecoder().decode(OIDCStatePayload.self, from: data)
         } catch {
-            throw OidcRedirectAuthError.invalidState
+            throw OIDCRedirectAuthError.invalidState
         }
     }
 

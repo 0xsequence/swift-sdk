@@ -1,15 +1,16 @@
 import Foundation
 
-public enum TransactionError: Error {
+enum TransactionError: Error {
     case noFeeOptionsAvailable
     case noFeeOptionSelected
     case missingTransactionHash
     case transactionFailed(status: TransactionStatus)
     case pollingTimedOut
+    case invalidPollingOption(String)
 }
 
 extension TransactionError: LocalizedError {
-    public var errorDescription: String? {
+    var errorDescription: String? {
         switch self {
         case .noFeeOptionsAvailable:
             return "No fee options are available for this transaction."
@@ -21,6 +22,8 @@ extension TransactionError: LocalizedError {
             return "Transaction failed with status: \(status)."
         case .pollingTimedOut:
             return "Transaction polling timed out."
+        case .invalidPollingOption(let message):
+            return message
         }
     }
 }

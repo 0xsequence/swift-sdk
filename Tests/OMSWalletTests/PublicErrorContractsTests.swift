@@ -317,32 +317,25 @@ import Testing
         for: WaasAPI.CommitVerifier.urlPath
     )
 
-    let started = try await fixture.client.startOidcRedirectAuth(
-        provider: OidcProviderConfig(
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
             issuer: "https://issuer.example.test",
-            clientId: "client-123",
-            authorizationUrl: "https://issuer.example.test/authorize",
-            providerRedirectUri: "omsclientswiftdemo://auth/callback"
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example.test/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
         )
     )
 
-    let result = try await fixture.client.handleOidcRedirectCallback(
-        "omsclientswiftdemo://auth/callback?error=access_denied&error_description=User%20cancelled&state=\(started.state)"
+    await expectPublicError(
+        try await fixture.client.handleOIDCRedirectCallback(
+            "omsclientswiftdemo://auth/callback?error=access_denied&error_description=User%20cancelled&state=\(try oidcState(started))"
+        ),
+        equals: error(
+            code: .validationError,
+            operation: .walletHandleOIDCRedirectCallback,
+            message: "User cancelled"
+        )
     )
-
-    guard case .failed(let oidcError as OMSWalletError) = result else {
-        Issue.record("Expected OIDC failure")
-        return
-    }
-    #expect(serialize(oidcError) == PublicErrorContract(
-        code: .validationError,
-        operation: .walletHandleOidcRedirectCallback,
-        message: "User cancelled",
-        status: nil,
-        retryable: nil,
-        txnId: nil,
-        upstreamError: nil
-    ))
 
     let invalidLifetimeFixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-789" })
     try invalidLifetimeFixture.transport.enqueue(
@@ -353,34 +346,28 @@ import Testing
         ),
         for: WaasAPI.CommitVerifier.urlPath
     )
-    let invalidLifetimeStart = try await invalidLifetimeFixture.client.startOidcRedirectAuth(
-        provider: OidcProviderConfig(
+    let invalidLifetimeStart = try await invalidLifetimeFixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
             issuer: "https://issuer.example.test",
-            clientId: "client-123",
-            authorizationUrl: "https://issuer.example.test/authorize",
-            providerRedirectUri: "omsclientswiftdemo://auth/callback"
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example.test/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
         )
     )
-    let invalidLifetimeResult = try await invalidLifetimeFixture.client.handleOidcRedirectCallback(
-        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(invalidLifetimeStart.state)",
-        sessionLifetimeSeconds: 0
+    await expectPublicError(
+        try await invalidLifetimeFixture.client.handleOIDCRedirectCallback(
+            "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(invalidLifetimeStart))",
+            sessionLifetimeSeconds: 0
+        ),
+        equals: error(
+            code: .validationError,
+            operation: .walletHandleOIDCRedirectCallback,
+            message: "sessionLifetimeSeconds must be an integer between 1 and 2592000"
+        )
     )
-    guard case .failed(let invalidLifetimeError as OMSWalletError) = invalidLifetimeResult else {
-        Issue.record("Expected invalid lifetime failure")
-        return
-    }
-    #expect(serialize(invalidLifetimeError) == PublicErrorContract(
-        code: .validationError,
-        operation: .walletHandleOidcRedirectCallback,
-        message: "sessionLifetimeSeconds must be an integer between 1 and 2592000",
-        status: nil,
-        retryable: nil,
-        txnId: nil,
-        upstreamError: nil
-    ))
 
     let storageFixture = makeMockWalletClient(
-        oidcRedirectAuthStoreOverride: ThrowingOidcRedirectAuthStore(),
+        oidcRedirectAuthStoreOverride: ThrowingOIDCRedirectAuthStore(),
         oidcNonceGenerator: { "nonce-456" }
     )
     try storageFixture.transport.enqueue(
@@ -393,18 +380,32 @@ import Testing
     )
 
     await expectPublicError(
-        try await storageFixture.client.startOidcRedirectAuth(
-            provider: OidcProviderConfig(
+        try await storageFixture.client.startOIDCRedirectAuth(
+            provider: CustomOIDCProviderConfiguration(
                 issuer: "https://issuer.example.test",
-                clientId: "client-123",
-                authorizationUrl: "https://issuer.example.test/authorize",
-                providerRedirectUri: "omsclientswiftdemo://auth/callback"
+                clientID: "client-123",
+                authorizationURL: "https://issuer.example.test/authorize",
+                providerRedirectURI: "omsclientswiftdemo://auth/callback"
             )
         ),
         equals: error(
             code: .storageError,
-            operation: .walletStartOidcRedirectAuth,
+            operation: .walletStartOIDCRedirectAuth,
             message: "OIDC redirect auth state persistence failed."
+        )
+    )
+
+    let restoreFixture = makeMockWalletClient(
+        oidcRedirectAuthStoreOverride: LoadThrowingOIDCRedirectAuthStore()
+    )
+    await expectPublicError(
+        try await restoreFixture.client.handleOIDCRedirectCallback(
+            "omsclientswiftdemo://auth/callback?code=auth-code&state=state"
+        ),
+        equals: error(
+            code: .storageError,
+            operation: .walletHandleOIDCRedirectCallback,
+            message: "OIDC redirect auth state restore failed."
         )
     )
 }
@@ -924,22 +925,38 @@ private struct SerializedUpstreamError: Equatable {
     let status: Int?
 }
 
-private final class ThrowingOidcRedirectAuthStore: OidcRedirectAuthStore, @unchecked Sendable {
-    func load() throws -> PendingOidcRedirectAuth? {
+private final class ThrowingOIDCRedirectAuthStore: OIDCRedirectAuthStore, @unchecked Sendable {
+    func load() throws -> PendingOIDCRedirectAuth? {
         nil
     }
 
-    func save(_ pending: PendingOidcRedirectAuth) throws {
+    func save(_ pending: PendingOIDCRedirectAuth) throws {
         throw TestStorageError.saveFailed
     }
 
     func clear() throws {}
 }
 
+private final class LoadThrowingOIDCRedirectAuthStore: OIDCRedirectAuthStore, @unchecked Sendable {
+    func load() throws -> PendingOIDCRedirectAuth? {
+        throw TestStorageError.loadFailed
+    }
+
+    func save(_ pending: PendingOIDCRedirectAuth) throws {}
+
+    func clear() throws {}
+}
+
 private enum TestStorageError: LocalizedError {
+    case loadFailed
     case saveFailed
 
     var errorDescription: String? {
-        "OIDC redirect state save failed"
+        switch self {
+        case .loadFailed:
+            return "OIDC redirect state load failed"
+        case .saveFailed:
+            return "OIDC redirect state save failed"
+        }
     }
 }

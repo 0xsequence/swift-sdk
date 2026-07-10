@@ -10,15 +10,6 @@ public enum CompleteAuthResult: Sendable {
     )
     case walletSelection(PendingWalletSelection)
 
-    public var wallets: [Wallet] {
-        switch self {
-        case .walletSelected(_, _, let wallets, _):
-            return wallets
-        case .walletSelection(let pendingSelection):
-            return pendingSelection.wallets
-        }
-    }
-
     public var credential: CredentialInfo {
         switch self {
         case .walletSelected(_, _, _, let credential):

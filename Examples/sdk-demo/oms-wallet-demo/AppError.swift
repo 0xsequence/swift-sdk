@@ -25,21 +25,6 @@ private func errorMessage(for error: Error) -> String {
         return errorMessage(for: error)
     }
 
-    if let error = error as? TransactionError {
-        switch error {
-        case .noFeeOptionsAvailable:
-            return "No fee options are available for this transaction."
-        case .noFeeOptionSelected:
-            return "Select a fee option to continue."
-        case .missingTransactionHash:
-            return "The transaction was submitted, but no transaction hash was returned."
-        case .transactionFailed(let status):
-            return "The transaction failed with status \(status)."
-        case .pollingTimedOut:
-            return "The transaction is taking longer than expected. Check the wallet activity and try again."
-        }
-    }
-
     if let localizedError = error as? LocalizedError,
        let description = localizedError.errorDescription,
        !description.isEmpty {

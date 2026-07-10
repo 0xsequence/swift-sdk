@@ -127,26 +127,26 @@ extension WalletClient {
 
     /// Starts OIDC authorization-code redirect authentication.
     ///
-    /// Open the returned `authorizationUrl` in a browser or `ASWebAuthenticationSession`.
+    /// Open the returned `authorizationURL` in a browser or `ASWebAuthenticationSession`.
     /// After the provider redirects back to the configured provider redirect URI, pass the callback URL to
-    /// `handleOidcRedirectCallback(_:walletSelection:sessionLifetimeSeconds:)`.
-    public func startOidcRedirectAuth(
-        provider: OidcProviderConfig,
+    /// `handleOIDCRedirectCallback(_:walletSelection:sessionLifetimeSeconds:)`.
+    public func startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration,
         walletType: WalletType = WalletType.ethereum,
         loginHint: String? = nil,
         authorizeParams: [String: String] = [:],
         walletSelection: WalletSelectionBehavior? = nil,
         sessionLifetimeSeconds: UInt32? = nil
-    ) async throws -> StartOidcRedirectAuthResult {
-        try await runOMSWalletOperation(.walletStartOidcRedirectAuth) {
-            guard let providerRedirectUri = provider.providerRedirectUri else {
-                throw OidcRedirectAuthError.missingProviderRedirectUri
+    ) async throws -> StartOIDCRedirectAuthResult {
+        try await runOMSWalletOperation(.walletStartOIDCRedirectAuth) {
+            guard !provider.providerRedirectURI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw OIDCRedirectAuthError.missingProviderRedirectURI
             }
-            return try await startOidcRedirectAuth(
-                provider: provider,
-                providerRedirectUri: providerRedirectUri,
-                expectedCallbackUri: providerRedirectUri,
-                stateRedirectUri: nil,
+            return try await startOIDCRedirectAuth(
+                provider: provider.resolvedConfiguration,
+                providerRedirectURI: provider.providerRedirectURI,
+                expectedCallbackURI: provider.providerRedirectURI,
+                stateRedirectURI: nil,
                 walletType: walletType,
                 loginHint: loginHint,
                 authorizeParams: authorizeParams,
@@ -157,50 +157,50 @@ extension WalletClient {
     }
 
     /// Starts OIDC authorization-code redirect authentication through the built-in
-    /// OMS relay for helper-created Google and Apple provider configurations.
-    public func startOidcRedirectAuth(
-        provider: OidcProviderConfig,
-        omsRelayReturnUri: String,
+    /// OMS relay for the fixed Google and Apple provider values.
+    public func startOIDCRedirectAuth(
+        provider: OMSRelayOIDCProvider,
+        omsRelayReturnURI: String,
         walletType: WalletType = WalletType.ethereum,
         loginHint: String? = nil,
-        authorizeParams: [String: String] = [:],
         walletSelection: WalletSelectionBehavior? = nil,
         sessionLifetimeSeconds: UInt32? = nil
-    ) async throws -> StartOidcRedirectAuthResult {
-        try await runOMSWalletOperation(.walletStartOidcRedirectAuth) {
-            guard let relayProvider = provider.defaultRelayProvider else {
-                throw OidcRedirectAuthError.unsupportedRelayProvider
+    ) async throws -> StartOIDCRedirectAuthResult {
+        try await runOMSWalletOperation(.walletStartOIDCRedirectAuth) {
+            guard !omsRelayReturnURI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw OIDCRedirectAuthError.missingOMSRelayReturnURI
             }
-            let providerRedirectUri = derivedRelayRedirectUri(for: relayProvider)
-            return try await startOidcRedirectAuth(
-                provider: provider,
-                providerRedirectUri: providerRedirectUri,
-                expectedCallbackUri: omsRelayReturnUri,
-                stateRedirectUri: omsRelayReturnUri,
+            let providerRedirectURI = derivedRelayRedirectURI(for: provider.relayPathComponent)
+            return try await startOIDCRedirectAuth(
+                provider: provider.resolvedConfiguration,
+                providerRedirectURI: providerRedirectURI,
+                expectedCallbackURI: omsRelayReturnURI,
+                stateRedirectURI: omsRelayReturnURI,
                 walletType: walletType,
                 loginHint: loginHint,
-                authorizeParams: authorizeParams,
+                authorizeParams: [:],
                 walletSelection: walletSelection,
                 sessionLifetimeSeconds: sessionLifetimeSeconds
             )
         }
     }
 
-    private func startOidcRedirectAuth(
-        provider: OidcProviderConfig,
-        providerRedirectUri: String,
-        expectedCallbackUri: String,
-        stateRedirectUri: String?,
+    private func startOIDCRedirectAuth(
+        provider: ResolvedOIDCProviderConfiguration,
+        providerRedirectURI: String,
+        expectedCallbackURI: String,
+        stateRedirectURI: String?,
         walletType: WalletType,
         loginHint: String?,
         authorizeParams: [String: String],
         walletSelection: WalletSelectionBehavior?,
         sessionLifetimeSeconds: UInt32?
-    ) async throws -> StartOidcRedirectAuthResult {
+    ) async throws -> StartOIDCRedirectAuthResult {
         let requestedSessionLifetimeSeconds = try sessionLifetimeSeconds.map(requireWaasSessionLifetimeSeconds)
         let previousSessionEmail = reauthenticationSessionEmail()
         try clearSession(clearOidcRedirectAuth: true)
         let authRevision = sessionRevisionSnapshot()
+        var pendingAuth: PendingOIDCRedirectAuth?
 
         do {
             let signerCredentialId = try credentialSession.signer.credentialId()
@@ -211,39 +211,44 @@ extension WalletClient {
                     authMode: authMode.waasAuthMode,
                     metadata: [
                         "iss": provider.issuer,
-                        "aud": provider.clientId,
-                        "redirect_uri": providerRedirectUri
+                        "aud": provider.clientID,
+                        "redirect_uri": providerRedirectURI
                     ]
                 )
             )
             let nonce = try oidcNonceGenerator()
-            let state = try OidcRedirectAuth.encodeState(
+            let state = try OIDCRedirectAuth.encodeState(
                 nonce: nonce,
                 scope: projectId,
-                redirectUri: stateRedirectUri
+                redirectUri: stateRedirectURI
             )
 
             verifier = response.verifier
             challenge = response.challenge
+            let pending = PendingOIDCRedirectAuth(
+                verifier: response.verifier,
+                challenge: response.challenge,
+                nonce: nonce,
+                authMode: authMode,
+                redirectUri: expectedCallbackURI,
+                issuer: provider.issuer,
+                provider: provider.provider ?? builtInOidcProvider(for: provider.issuer),
+                providerLabel: provider.providerLabel ?? builtInOidcProviderLabel(for: provider.issuer),
+                authorizationScope: self.projectId,
+                walletType: walletType,
+                walletSelection: walletSelection,
+                sessionLifetimeSeconds: requestedSessionLifetimeSeconds,
+                signerCredentialId: signerCredentialId,
+                signerKeyType: credentialSession.signer.alg
+            )
+            pendingAuth = pending
             do {
-                try oidcRedirectAuthStore.save(
-                    PendingOidcRedirectAuth(
-                        verifier: response.verifier,
-                        challenge: response.challenge,
-                        nonce: nonce,
-                        authMode: authMode,
-                        redirectUri: expectedCallbackUri,
-                        issuer: provider.issuer,
-                        provider: provider.provider ?? builtInOidcProvider(for: provider.issuer),
-                        providerLabel: provider.providerLabel ?? builtInOidcProviderLabel(for: provider.issuer),
-                        authorizationScope: self.projectId,
-                        walletType: walletType,
-                        walletSelection: walletSelection,
-                        sessionLifetimeSeconds: requestedSessionLifetimeSeconds,
-                        signerCredentialId: signerCredentialId,
-                        signerKeyType: credentialSession.signer.alg
-                    )
+                try saveNewPendingOIDCRedirectAuth(
+                    pending,
+                    requiredSessionRevision: authRevision
                 )
+            } catch let error as OMSWalletError {
+                throw error
             } catch {
                 throw OMSWalletError.storageError(
                     message: "OIDC redirect auth state persistence failed.",
@@ -253,9 +258,9 @@ extension WalletClient {
 
             try requireCurrentSessionRevision(authRevision)
 
-            let authorizationUrl = try OidcRedirectAuth.buildAuthorizationUrl(
+            let authorizationURL = try OIDCRedirectAuth.buildAuthorizationURL(
                 provider: provider,
-                redirectUri: providerRedirectUri,
+                redirectURI: providerRedirectURI,
                 state: state,
                 challenge: response.challenge,
                 loginHint: loginHintForProvider(
@@ -265,14 +270,17 @@ extension WalletClient {
                 authMode: authMode,
                 authorizeParams: provider.authorizeParams.merging(authorizeParams) { _, new in new }
             )
+            try requireCurrentSessionRevision(authRevision)
 
-            return StartOidcRedirectAuthResult(
-                authorizationUrl: authorizationUrl,
-                state: state,
-                challenge: response.challenge
-            )
+            return StartOIDCRedirectAuthResult(authorizationURL: authorizationURL)
         } catch {
-            try? clearSession(clearOidcRedirectAuth: true)
+            if let pendingAuth {
+                clearPendingOIDCRedirectAuthBestEffort(pendingAuth)
+            }
+            _ = try? clearSession(
+                clearOidcRedirectAuth: false,
+                requiredSessionRevision: authRevision
+            )
             throw error
         }
     }
@@ -280,73 +288,80 @@ extension WalletClient {
     /// Safely handles an incoming OIDC authorization-code redirect callback.
     ///
     /// This method is idempotent and safe to call for every incoming app link.
-    /// Unrelated links return `.notOidcRedirectCallback`, stale callbacks return
-    /// `.noPendingAuth`, and successful auth returns `.completed` or
-    /// `.walletSelection` when the resolved wallet selection behavior is `.manual`.
-    public func handleOidcRedirectCallback(
-        _ callbackUrl: String?,
+    /// Unrelated links return `.notOIDCRedirectCallback`, callbacks with no pending
+    /// or already consumed flow return `.noPendingAuth`, and successful auth returns
+    /// `.completed`. Lost flow ownership throws a normalized error.
+    public func handleOIDCRedirectCallback(
+        _ callbackURL: String?,
         walletSelection: WalletSelectionBehavior? = nil,
         sessionLifetimeSeconds: UInt32? = nil
-    ) async throws -> OidcRedirectAuthResult {
-        try await runOMSWalletOperation(.walletHandleOidcRedirectCallback) {
-            guard let callbackUrl = callbackUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !callbackUrl.isEmpty else {
-                return .notOidcRedirectCallback
+    ) async throws -> OIDCRedirectAuthResult {
+        try await runOMSWalletOperation(.walletHandleOIDCRedirectCallback) {
+            guard let callbackURL = callbackURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !callbackURL.isEmpty else {
+                return .notOIDCRedirectCallback
             }
 
-            let callback = OidcRedirectAuth.parseCallbackUrl(callbackUrl)
+            let callback = OIDCRedirectAuth.parseCallbackURL(callbackURL)
             guard callback.hasOidcResponse else {
-                return .notOidcRedirectCallback
+                return .notOIDCRedirectCallback
             }
 
-            let pending: PendingOidcRedirectAuth
+            let pending: PendingOIDCRedirectAuth
             do {
-                guard let loaded = try oidcRedirectAuthStore.load() else {
+                guard let loaded = try loadPendingOIDCRedirectAuth() else {
                     return .noPendingAuth
                 }
                 pending = loaded
             } catch {
-                return .failed(
-                    OMSWalletError.storageError(
-                        message: "OIDC redirect auth state restore failed.",
-                        operation: .walletHandleOidcRedirectCallback,
-                        underlyingError: error
-                    )
+                throw OMSWalletError.storageError(
+                    message: "OIDC redirect auth state restore failed.",
+                    operation: .walletHandleOIDCRedirectCallback,
+                    underlyingError: error
                 )
             }
 
-            guard OidcRedirectAuth.matchesRedirectUri(
-                callbackUrl: callbackUrl,
-                redirectUri: pending.redirectUri
+            guard OIDCRedirectAuth.matchesRedirectURI(
+                callbackURL: callbackURL,
+                redirectURI: pending.redirectUri
             ) else {
-                return .notOidcRedirectCallback
+                return .notOIDCRedirectCallback
             }
 
             guard let state = callback.state,
-                  (try? OidcRedirectAuth.validateState(state, pending: pending)) != nil else {
-                return .notOidcRedirectCallback
+                  (try? OIDCRedirectAuth.validateState(state, pending: pending)) != nil else {
+                return .notOIDCRedirectCallback
             }
-
-            var clearPendingAuth = false
-            defer {
-                if clearPendingAuth {
-                    try? oidcRedirectAuthStore.clear()
-                }
-            }
-
+            let consumed: Bool
             do {
-                clearPendingAuth = true
+                consumed = try consumeOIDCRedirectAuth(pending)
+            } catch {
+                throw OMSWalletError.storageError(
+                    message: "OIDC redirect auth state consumption failed.",
+                    operation: .walletHandleOIDCRedirectCallback,
+                    underlyingError: error
+                )
+            }
+            guard consumed else {
+                return .noPendingAuth
+            }
+            let callbackSessionRevision = sessionRevisionSnapshot()
+
+            let result: CompleteAuthResult
+            do {
                 if let error = callback.error {
-                    throw OidcRedirectAuthError.providerError(
+                    throw OIDCRedirectAuthError.providerError(
                         callback.errorDescription ?? "OIDC provider returned error: \(error)"
                     )
                 }
                 guard let code = callback.code else {
-                    throw OidcRedirectAuthError.missingCode
+                    throw OIDCRedirectAuthError.missingCode
                 }
 
-                try restorePendingOidcRedirectAuth(pending)
-                let authRevision = sessionRevisionSnapshot()
+                try restorePendingOIDCRedirectAuth(
+                    pending,
+                    requiredSessionRevision: callbackSessionRevision
+                )
                 let resolvedWalletSelection = walletSelection ?? pending.walletSelection ?? .automatic
                 let resolvedSessionLifetimeSeconds = try requireWaasSessionLifetimeSeconds(
                     sessionLifetimeSeconds ?? pending.sessionLifetimeSeconds ?? defaultWaasSessionLifetimeSeconds
@@ -360,7 +375,7 @@ extension WalletClient {
                         lifetime: resolvedSessionLifetimeSeconds
                     )
                 )
-                let result = try await completeWalletAuth(
+                result = try await completeWalletAuth(
                     response,
                     walletType: pending.walletType,
                     walletSelection: resolvedWalletSelection,
@@ -368,45 +383,63 @@ extension WalletClient {
                         pending: pending,
                         response: response
                     ),
-                    requiredSessionRevision: authRevision
+                    requiredSessionRevision: callbackSessionRevision,
+                    oidcRedirectAuthOwnership: pending
                 )
-
-                switch result {
-                case .walletSelected(_, let wallet, _, _):
-                    return .completed(wallet: wallet)
-                case .walletSelection(let pendingSelection):
-                    return .walletSelection(pendingSelection)
-                }
             } catch let error as CancellationError {
-                clearPendingAuth = false
+                try? withOIDCRedirectAuthOwnership(pending) {
+                    _ = try clearSession(
+                        clearOidcRedirectAuth: false,
+                        requiredSessionRevision: callbackSessionRevision
+                    )
+                }
+                clearPendingOIDCRedirectAuthBestEffort(pending)
                 throw error
             } catch {
-                try? clearSession(clearOidcRedirectAuth: false)
-                return .failed(toOMSWalletError(error, operation: .walletHandleOidcRedirectCallback))
+                let failure = toOMSWalletError(error, operation: .walletHandleOIDCRedirectCallback)
+                try? withOIDCRedirectAuthOwnership(pending) {
+                    _ = try clearSession(
+                        clearOidcRedirectAuth: false,
+                        requiredSessionRevision: callbackSessionRevision
+                    )
+                }
+                clearPendingOIDCRedirectAuthBestEffort(pending)
+                throw failure
+            }
+
+            clearPendingOIDCRedirectAuthBestEffort(pending)
+            return .completed(result)
+        }
+    }
+
+    private func restorePendingOIDCRedirectAuth(
+        _ pending: PendingOIDCRedirectAuth,
+        requiredSessionRevision: UInt64
+    ) throws {
+        try withOIDCRedirectAuthOwnership(pending) {
+            try withSessionLock {
+                try requireCurrentSessionRevisionLocked(requiredSessionRevision)
+                try requireActiveCredential()
+                let signerCredentialId = try credentialSession.signer.credentialId()
+                guard signerCredentialId.lowercased() == pending.signerCredentialId.lowercased(),
+                      pending.signerKeyType == credentialSession.signer.alg else {
+                    throw OIDCRedirectAuthError.signerMismatch
+                }
+
+                verifier = pending.verifier
+                challenge = pending.challenge
             }
         }
     }
 
-    private func restorePendingOidcRedirectAuth(_ pending: PendingOidcRedirectAuth) throws {
-        try requireActiveCredential()
-        let signerCredentialId = try credentialSession.signer.credentialId()
-        guard signerCredentialId.lowercased() == pending.signerCredentialId.lowercased(),
-              pending.signerKeyType == credentialSession.signer.alg else {
-            throw OidcRedirectAuthError.signerMismatch
-        }
-
-        verifier = pending.verifier
-        challenge = pending.challenge
-    }
-
     private func loginHintForProvider(
-        _ provider: OidcProviderConfig,
+        _ provider: ResolvedOIDCProviderConfiguration,
         loginHint: String?
     ) -> String? {
         provider.issuer == "https://accounts.google.com" ? loginHint : nil
     }
 
-    private func derivedRelayRedirectUri(for relayProvider: String) -> String {
+    private func derivedRelayRedirectURI(for relayProvider: String) -> String {
         return "\(environment.walletApiUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/auth/waas/callback/\(relayProvider)"
     }
 
@@ -429,7 +462,7 @@ extension WalletClient {
     }
 
     private func oidcRedirectSessionAuth(
-        pending: PendingOidcRedirectAuth,
+        pending: PendingOIDCRedirectAuth,
         response: CompleteAuthResponse
     ) -> OMSWalletSessionAuth {
         let resolvedIssuer = nonEmpty(response.identity.iss) ?? pending.issuer
@@ -516,29 +549,42 @@ extension WalletClient {
         walletType: WalletType,
         walletSelection: WalletSelectionBehavior,
         sessionAuth: OMSWalletSessionAuth,
-        requiredSessionRevision: UInt64
+        requiredSessionRevision: UInt64,
+        oidcRedirectAuthOwnership: PendingOIDCRedirectAuth? = nil
     ) async throws -> CompleteAuthResult {
-        try requireCurrentSessionRevision(requiredSessionRevision)
-        activePendingWalletSelection = nil
-
         let sessionMetadata = SessionMetadata(
             expiresAt: response.credential.expiresAt,
             auth: sessionAuth
         )
-        try withSessionLock {
-            try requireCurrentSessionRevisionLocked(requiredSessionRevision)
-            self.sessionExpiresAt = sessionMetadata.expiresAt
-            self.sessionAuth = sessionMetadata.auth
+        try withOptionalOIDCRedirectAuthOwnership(oidcRedirectAuthOwnership) {
+            try requireCurrentSessionRevision(requiredSessionRevision)
+            activePendingWalletSelection = nil
+            try withSessionLock {
+                try requireCurrentSessionRevisionLocked(requiredSessionRevision)
+                self.sessionExpiresAt = sessionMetadata.expiresAt
+                self.sessionAuth = sessionMetadata.auth
+            }
         }
 
-        let wallets = try await signOutOnFailure {
-            try await walletsFromAuthResponse(response)
+        let wallets: [Wallet]
+        if oidcRedirectAuthOwnership == nil {
+            wallets = try await signOutOnFailure {
+                try await walletsFromAuthResponse(response)
+            }
+        } else {
+            wallets = try await walletsFromAuthResponse(response)
         }
-        try requireCurrentSessionRevision(requiredSessionRevision)
+        try withOptionalOIDCRedirectAuthOwnership(oidcRedirectAuthOwnership) {
+            try requireCurrentSessionRevision(requiredSessionRevision)
+        }
 
         let candidateWallets = wallets.filter { $0.type == walletType }
         guard walletSelection == .automatic else {
-            let pendingSelectionSession = try beginPendingWalletSelection(sessionMetadata: sessionMetadata)
+            let pendingSelectionSession = try withOptionalOIDCRedirectAuthOwnership(
+                oidcRedirectAuthOwnership
+            ) {
+                try beginPendingWalletSelection(sessionMetadata: sessionMetadata)
+            }
             return .walletSelection(
                 pendingWalletSelection(
                     walletType: walletType,
@@ -549,21 +595,39 @@ extension WalletClient {
             )
         }
 
-        let activated: WalletActivationResult
+        let activated: WalletSelectionResult
         if let selectedWallet = candidateWallets.first {
-            activated = try await signOutOnFailure {
-                try await useWallet(
+            if oidcRedirectAuthOwnership == nil {
+                activated = try await signOutOnFailure {
+                    try await useWallet(
+                        walletId: selectedWallet.id,
+                        sessionMetadata: sessionMetadata,
+                        requiredSessionRevision: requiredSessionRevision
+                    )
+                }
+            } else {
+                activated = try await useWallet(
                     walletId: selectedWallet.id,
                     sessionMetadata: sessionMetadata,
-                    requiredSessionRevision: requiredSessionRevision
+                    requiredSessionRevision: requiredSessionRevision,
+                    oidcRedirectAuthOwnership: oidcRedirectAuthOwnership
                 )
             }
         } else {
-            activated = try await signOutOnFailure {
-                try await createWallet(
+            if oidcRedirectAuthOwnership == nil {
+                activated = try await signOutOnFailure {
+                    try await createWallet(
+                        walletType: walletType,
+                        sessionMetadata: sessionMetadata,
+                        requiredSessionRevision: requiredSessionRevision
+                    )
+                }
+            } else {
+                activated = try await createWallet(
                     walletType: walletType,
                     sessionMetadata: sessionMetadata,
-                    requiredSessionRevision: requiredSessionRevision
+                    requiredSessionRevision: requiredSessionRevision,
+                    oidcRedirectAuthOwnership: oidcRedirectAuthOwnership
                 )
             }
         }
@@ -574,6 +638,16 @@ extension WalletClient {
             wallets: candidateWallets.isEmpty ? wallets + [activated.wallet] : wallets,
             credential: response.credential.sdkValue
         )
+    }
+
+    private func withOptionalOIDCRedirectAuthOwnership<T>(
+        _ pending: PendingOIDCRedirectAuth?,
+        _ body: () throws -> T
+    ) throws -> T {
+        if let pending {
+            return try withOIDCRedirectAuthOwnership(pending, body)
+        }
+        return try body()
     }
 
     private func pendingWalletSelection(
@@ -662,7 +736,7 @@ extension WalletClient {
     /// Activates an existing wallet by its WaaS wallet ID and persists its address and
     /// signer metadata to the keychain.
     @discardableResult
-    public func useWallet(walletId: String) async throws -> WalletActivationResult {
+    public func useWallet(walletId: String) async throws -> WalletSelectionResult {
         try await runOMSWalletOperation(.walletUseWallet) {
             try requireWalletSelectionOrActiveSession()
             try requireActiveCredential()
@@ -686,7 +760,7 @@ extension WalletClient {
     public func createWallet(
         walletType: WalletType = WalletType.ethereum,
         reference: String? = nil
-    ) async throws -> WalletActivationResult {
+    ) async throws -> WalletSelectionResult {
         try await runOMSWalletOperation(.walletCreateWallet) {
             try requireWalletSelectionOrActiveSession()
             try requireActiveCredential()
@@ -713,8 +787,9 @@ extension WalletClient {
         walletType: WalletType,
         reference: String? = nil,
         sessionMetadata: SessionMetadata,
-        requiredSessionRevision: UInt64
-    ) async throws -> WalletActivationResult {
+        requiredSessionRevision: UInt64,
+        oidcRedirectAuthOwnership: PendingOIDCRedirectAuth? = nil
+    ) async throws -> WalletSelectionResult {
         let params = CreateWalletRequest(
             type: walletType.waasValue,
             reference: reference
@@ -725,10 +800,11 @@ extension WalletClient {
             walletAddress: response.wallet.address,
             walletId: response.wallet.id,
             sessionMetadata: sessionMetadata,
-            requiredSessionRevision: requiredSessionRevision
+            requiredSessionRevision: requiredSessionRevision,
+            oidcRedirectAuthOwnership: oidcRedirectAuthOwnership
         )
 
-        return WalletActivationResult(
+        return WalletSelectionResult(
             walletAddress: response.wallet.address,
             wallet: response.wallet.sdkValue
         )
@@ -744,8 +820,9 @@ extension WalletClient {
     private func useWallet(
         walletId: String,
         sessionMetadata: SessionMetadata,
-        requiredSessionRevision: UInt64
-    ) async throws -> WalletActivationResult {
+        requiredSessionRevision: UInt64,
+        oidcRedirectAuthOwnership: PendingOIDCRedirectAuth? = nil
+    ) async throws -> WalletSelectionResult {
         let params = UseWalletRequest(
             walletId: walletId
         )
@@ -755,10 +832,11 @@ extension WalletClient {
             walletAddress: response.wallet.address,
             walletId: response.wallet.id,
             sessionMetadata: sessionMetadata,
-            requiredSessionRevision: requiredSessionRevision
+            requiredSessionRevision: requiredSessionRevision,
+            oidcRedirectAuthOwnership: oidcRedirectAuthOwnership
         )
 
-        return WalletActivationResult(
+        return WalletSelectionResult(
             walletAddress: response.wallet.address,
             wallet: response.wallet.sdkValue
         )

@@ -19,14 +19,28 @@ public struct TransactionStatusPollingOptions: Sendable, Equatable {
 }
 
 @available(macOS 12.0, iOS 15.0, *)
+public enum TransactionStatusResolution: String, Codable, Sendable, Equatable {
+    case notRequested
+    case resolved
+    case timedOut
+}
+
+@available(macOS 12.0, iOS 15.0, *)
 public struct SendTransactionResponse: Codable, Sendable, Equatable {
     public let txnId: String
     public let status: TransactionStatus
     public let txnHash: String?
+    public let statusResolution: TransactionStatusResolution
 
-    public init(txnId: String, status: TransactionStatus, txnHash: String? = nil) {
+    public init(
+        txnId: String,
+        status: TransactionStatus,
+        txnHash: String? = nil,
+        statusResolution: TransactionStatusResolution
+    ) {
         self.txnId = txnId
         self.status = status
         self.txnHash = txnHash
+        self.statusResolution = statusResolution
     }
 }

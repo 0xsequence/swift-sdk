@@ -2,19 +2,19 @@ import CryptoKit
 import Foundation
 
 class Constants {
-    public static func credentialsStorageKey(environment: OMSWalletEnvironment, scope: String) -> String {
+    static func credentialsStorageKey(environment: OMSWalletEnvironment, scope: String) -> String {
         "oms-wallet-credentials-\(environmentScopedSuffix(environment: environment, scope: scope))"
     }
 
-    public static func credentialApplicationTag(environment: OMSWalletEnvironment, scope: String) -> String {
+    static func credentialApplicationTag(environment: OMSWalletEnvironment, scope: String) -> String {
         "oms-wallet-credential-\(environmentScopedSuffix(environment: environment, scope: scope))"
     }
 
-    public static func credentialNonceStorageKey(environment: OMSWalletEnvironment, scope: String) -> String {
+    static func credentialNonceStorageKey(environment: OMSWalletEnvironment, scope: String) -> String {
         "oms-wallet-credential-nonce-\(environmentScopedSuffix(environment: environment, scope: scope))"
     }
 
-    public static func oidcRedirectAuthStorageKey(environment: OMSWalletEnvironment, scope: String) -> String {
+    static func oidcRedirectAuthStorageKey(environment: OMSWalletEnvironment, scope: String) -> String {
         "oms-wallet-oidc-redirect-auth-\(environmentScopedSuffix(environment: environment, scope: scope))"
     }
 

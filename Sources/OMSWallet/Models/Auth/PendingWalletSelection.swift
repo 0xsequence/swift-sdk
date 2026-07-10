@@ -6,8 +6,8 @@ public final class PendingWalletSelection: @unchecked Sendable {
     public let wallets: [Wallet]
     public let credential: CredentialInfo
 
-    private let selectWalletAction: (String) async throws -> WalletActivationResult
-    private let createAndSelectWalletAction: (String?) async throws -> WalletActivationResult
+    private let selectWalletAction: (String) async throws -> WalletSelectionResult
+    private let createAndSelectWalletAction: (String?) async throws -> WalletSelectionResult
     private let actionLock = NSLock()
     private var actionInFlight = false
 
@@ -15,8 +15,8 @@ public final class PendingWalletSelection: @unchecked Sendable {
         walletType: WalletType,
         wallets: [Wallet],
         credential: CredentialInfo,
-        selectWalletAction: @escaping (String) async throws -> WalletActivationResult,
-        createAndSelectWalletAction: @escaping (String?) async throws -> WalletActivationResult
+        selectWalletAction: @escaping (String) async throws -> WalletSelectionResult,
+        createAndSelectWalletAction: @escaping (String?) async throws -> WalletSelectionResult
     ) {
         self.walletType = walletType
         self.wallets = wallets
@@ -26,7 +26,7 @@ public final class PendingWalletSelection: @unchecked Sendable {
     }
 
     @discardableResult
-    public func selectWallet(walletId: String) async throws -> WalletActivationResult {
+    public func selectWallet(walletId: String) async throws -> WalletSelectionResult {
         try await runOMSWalletOperation(.pendingWalletSelectionSelectWallet) {
             guard wallets.contains(where: { $0.id == walletId }) else {
                 throw OMSWalletError.walletSelectionUnavailable()
@@ -38,7 +38,7 @@ public final class PendingWalletSelection: @unchecked Sendable {
     }
 
     @discardableResult
-    public func createAndSelectWallet(reference: String? = nil) async throws -> WalletActivationResult {
+    public func createAndSelectWallet(reference: String? = nil) async throws -> WalletSelectionResult {
         try await runOMSWalletOperation(.pendingWalletSelectionCreateAndSelectWallet) {
             try await runSelectionAction {
                 try await createAndSelectWalletAction(reference)

@@ -1,10 +1,10 @@
 import Foundation
 
-public struct OMSWalletEnvironment : Equatable, Sendable {
-    public let walletApiUrl: String
-    public let indexerGatewayUrl: String
+struct OMSWalletEnvironment: Equatable, Sendable {
+    let walletApiUrl: String
+    let indexerGatewayUrl: String
 
-    public init(
+    init(
         walletApiUrl: String,
         indexerGatewayUrl: String
     ) {

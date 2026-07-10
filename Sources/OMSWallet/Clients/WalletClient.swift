@@ -2,9 +2,13 @@ import Foundation
 
 @available(macOS 12.0, iOS 15.0, *)
 public final class WalletClient: @unchecked Sendable {
-    typealias SessionExpiredObserver = (OMSWalletSessionExpiredEvent) -> Void
+    typealias SessionExpiredObserver = @MainActor @Sendable (OMSWalletSessionExpiredEvent) -> Void
+    typealias SessionExpiredObserverRegistration = (
+        id: UUID,
+        observer: SessionExpiredObserver
+    )
     typealias SessionExpiredNotification = (
-        observers: [SessionExpiredObserver],
+        observers: [SessionExpiredObserverRegistration],
         event: OMSWalletSessionExpiredEvent
     )
 
@@ -29,7 +33,8 @@ public final class WalletClient: @unchecked Sendable {
     let projectId: String
     let environment: OMSWalletEnvironment
     let credentialSession: WalletCredentialSession
-    let oidcRedirectAuthStore: any OidcRedirectAuthStore
+    let oidcRedirectAuthStore: any OIDCRedirectAuthStore
+    private let oidcRedirectAuthLock: NSRecursiveLock
     let oidcNonceGenerator: () throws -> String
     let signedClientFactory: (any CredentialSigner) -> WaasClient
     let currentDate: () -> Date
@@ -121,6 +126,63 @@ public final class WalletClient: @unchecked Sendable {
         }
     }
 
+    func saveNewPendingOIDCRedirectAuth(
+        _ pending: PendingOIDCRedirectAuth,
+        requiredSessionRevision: UInt64
+    ) throws {
+        try withOIDCRedirectAuthProjectLock {
+            try withSessionLock {
+                try requireCurrentSessionRevisionLocked(requiredSessionRevision)
+                try oidcRedirectAuthStore.save(pending)
+            }
+        }
+    }
+
+    func loadPendingOIDCRedirectAuth() throws -> PendingOIDCRedirectAuth? {
+        try withOIDCRedirectAuthProjectLock { try oidcRedirectAuthStore.load() }
+    }
+
+    func consumeOIDCRedirectAuth(_ pending: PendingOIDCRedirectAuth) throws -> Bool {
+        try withOIDCRedirectAuthProjectLock {
+            let flowIdentifier = pending.flowIdentifier
+            guard let current = try oidcRedirectAuthStore.load(),
+                  current.flowIdentifier == flowIdentifier,
+                  !current.isConsumed else {
+                return false
+            }
+            try oidcRedirectAuthStore.save(current.markingConsumed())
+            return true
+        }
+    }
+
+    func clearPendingOIDCRedirectAuthBestEffort(_ pending: PendingOIDCRedirectAuth) {
+        try? withOIDCRedirectAuthProjectLock {
+            guard let current = try oidcRedirectAuthStore.load(),
+                  current.flowIdentifier == pending.flowIdentifier else {
+                return
+            }
+            try oidcRedirectAuthStore.clear()
+        }
+    }
+
+    func clearAllPendingOIDCRedirectAuth() throws {
+        try withOIDCRedirectAuthProjectLock { try oidcRedirectAuthStore.clear() }
+    }
+
+    func withOIDCRedirectAuthOwnership<T>(
+        _ pending: PendingOIDCRedirectAuth,
+        _ body: () throws -> T
+    ) throws -> T {
+        try withOIDCRedirectAuthProjectLock {
+            guard let current = try oidcRedirectAuthStore.load(),
+                  current.flowIdentifier == pending.flowIdentifier,
+                  current.isConsumed else {
+                throw OIDCRedirectAuthError.staleFlow
+            }
+            return try body()
+        }
+    }
+
     deinit {
         withSessionLock {
             sessionExpiryTask?.cancel()
@@ -128,36 +190,16 @@ public final class WalletClient: @unchecked Sendable {
         }
     }
 
-    public convenience init(
-        publishableKey: String
-    ) throws {
-        let parsedKey = try parsePublishableKey(publishableKey)
-        self.init(
-            publishableKey: publishableKey,
-            projectId: parsedKey.projectId,
-            environment: parsedKey.environment()
-        )
-    }
-
-    public convenience init(
-        publishableKey: String,
-        environment: OMSWalletEnvironment
-    ) throws {
-        let parsedKey = try parsePublishableKey(publishableKey)
-        self.init(
-            publishableKey: publishableKey,
-            projectId: parsedKey.projectId,
-            environment: environment
-        )
-    }
-
     init(publishableKey: String, projectId: String, environment: OMSWalletEnvironment) {
         self.projectId = projectId
         self.environment = environment
         let credentialSession = WalletCredentialSession(environment: environment, projectId: projectId)
         let storedWallet = credentialSession.storedMetadata()
-        self.oidcRedirectAuthStore = KeychainOidcRedirectAuthStore(projectId: projectId, environment: environment)
-        self.oidcNonceGenerator = OidcRedirectAuth.generateNonce
+        self.oidcRedirectAuthStore = KeychainOIDCRedirectAuthStore(projectId: projectId, environment: environment)
+        self.oidcRedirectAuthLock = OIDCRedirectAuthLockRegistry.lock(
+            for: Constants.oidcRedirectAuthStorageKey(environment: environment, scope: projectId)
+        )
+        self.oidcNonceGenerator = OIDCRedirectAuth.generateNonce
         self.currentDate = Date.init
         let makeSignedClient: (any CredentialSigner) -> WaasClient = { signer in
             Self.makeSignedClient(
@@ -195,15 +237,18 @@ public final class WalletClient: @unchecked Sendable {
         signedClient: WaasClient,
         publicClient: WaasPublicClient,
         indexerClient: IndexerClient? = nil,
-        oidcRedirectAuthStore: (any OidcRedirectAuthStore)? = nil,
-        oidcNonceGenerator: @escaping () throws -> String = OidcRedirectAuth.generateNonce,
+        oidcRedirectAuthStore: (any OIDCRedirectAuthStore)? = nil,
+        oidcNonceGenerator: @escaping () throws -> String = OIDCRedirectAuth.generateNonce,
         signedClientFactory: ((any CredentialSigner) -> WaasClient)? = nil,
         currentDate: @escaping () -> Date = Date.init
     ) {
         self.projectId = projectId
         self.environment = environment
         let storedWallet = credentialSession.storedMetadata()
-        self.oidcRedirectAuthStore = oidcRedirectAuthStore ?? KeychainOidcRedirectAuthStore(projectId: projectId, environment: environment)
+        self.oidcRedirectAuthStore = oidcRedirectAuthStore ?? KeychainOIDCRedirectAuthStore(projectId: projectId, environment: environment)
+        self.oidcRedirectAuthLock = OIDCRedirectAuthLockRegistry.lock(
+            for: Constants.oidcRedirectAuthStorageKey(environment: environment, scope: projectId)
+        )
         self.oidcNonceGenerator = oidcNonceGenerator
         self.currentDate = currentDate
         let makeSignedClient = signedClientFactory ?? { _ in signedClient }
@@ -225,7 +270,7 @@ public final class WalletClient: @unchecked Sendable {
 
     @discardableResult
     public func addSessionExpiredObserver(
-        _ observer: @escaping (OMSWalletSessionExpiredEvent) -> Void
+        _ observer: @escaping @MainActor @Sendable (OMSWalletSessionExpiredEvent) -> Void
     ) -> OMSWalletSessionExpiredObservation {
         let observerId = UUID()
         let replayEvent = withSessionLock { () -> OMSWalletSessionExpiredEvent? in
@@ -233,7 +278,12 @@ public final class WalletClient: @unchecked Sendable {
             return _latestSessionExpiredEvent
         }
         if let replayEvent {
-            observer(replayEvent)
+            Task { @MainActor [weak self] in
+                guard self?.shouldReplaySessionExpiredEvent(replayEvent, to: observerId) == true else {
+                    return
+                }
+                observer(replayEvent)
+            }
         }
         return OMSWalletSessionExpiredObservation { [weak self] in
             self?.removeSessionExpiredObserver(observerId)
@@ -246,8 +296,21 @@ public final class WalletClient: @unchecked Sendable {
         }
     }
 
-    func sessionExpiredObserversLocked() -> [SessionExpiredObserver] {
-        Array(_sessionExpiredObservers.values)
+    func sessionExpiredObserversLocked() -> [SessionExpiredObserverRegistration] {
+        _sessionExpiredObservers.map { (id: $0.key, observer: $0.value) }
+    }
+
+    func shouldReplaySessionExpiredEvent(
+        _ event: OMSWalletSessionExpiredEvent,
+        to observerId: UUID
+    ) -> Bool {
+        withSessionLock {
+            _sessionExpiredObservers[observerId] != nil && _latestSessionExpiredEvent == event
+        }
+    }
+
+    func isSessionExpiredObserverRegistered(_ observerId: UUID) -> Bool {
+        withSessionLock { _sessionExpiredObservers[observerId] != nil }
     }
 
     func withSessionLock<T>(_ body: () throws -> T) rethrows -> T {
@@ -255,6 +318,12 @@ public final class WalletClient: @unchecked Sendable {
         defer {
             sessionLock.unlock()
         }
+        return try body()
+    }
+
+    func withOIDCRedirectAuthProjectLock<T>(_ body: () throws -> T) rethrows -> T {
+        oidcRedirectAuthLock.lock()
+        defer { oidcRedirectAuthLock.unlock() }
         return try body()
     }
 
@@ -331,23 +400,31 @@ public final class WalletClient: @unchecked Sendable {
         walletAddress: String,
         walletId: String,
         sessionMetadata: SessionMetadata,
-        requiredSessionRevision: UInt64
+        requiredSessionRevision: UInt64,
+        oidcRedirectAuthOwnership: PendingOIDCRedirectAuth? = nil
     ) throws {
-        try withSessionLock {
-            try requireCurrentSessionRevisionLocked(requiredSessionRevision)
-            try credentialSession.persist(
-                walletId: walletId,
-                walletAddress: walletAddress,
-                expiresAt: sessionMetadata.expiresAt,
-                auth: sessionMetadata.auth
-            )
-            _latestSessionExpiredEvent = nil
-            _walletAddress = walletAddress
-            _walletId = walletId
-            _sessionExpiresAt = sessionMetadata.expiresAt
-            _sessionAuth = sessionMetadata.auth
+        let persist = {
+            try self.withSessionLock {
+                try self.requireCurrentSessionRevisionLocked(requiredSessionRevision)
+                try self.credentialSession.persist(
+                    walletId: walletId,
+                    walletAddress: walletAddress,
+                    expiresAt: sessionMetadata.expiresAt,
+                    auth: sessionMetadata.auth
+                )
+                self._latestSessionExpiredEvent = nil
+                self._walletAddress = walletAddress
+                self._walletId = walletId
+                self._sessionExpiresAt = sessionMetadata.expiresAt
+                self._sessionAuth = sessionMetadata.auth
+            }
+            self.scheduleSessionExpiry(self.session)
         }
-        scheduleSessionExpiry(session)
+        if let oidcRedirectAuthOwnership {
+            try withOIDCRedirectAuthOwnership(oidcRedirectAuthOwnership, persist)
+        } else {
+            try persist()
+        }
     }
 
     private static func makeSignedClient(
@@ -385,9 +462,9 @@ public final class WalletClient: @unchecked Sendable {
 @available(macOS 12.0, iOS 15.0, *)
 public final class OMSWalletSessionExpiredObservation: @unchecked Sendable {
     private let lock = NSLock()
-    private var onCancel: (() -> Void)?
+    private var onCancel: (@Sendable () -> Void)?
 
-    init(onCancel: @escaping () -> Void) {
+    init(onCancel: @escaping @Sendable () -> Void) {
         self.onCancel = onCancel
     }
 
