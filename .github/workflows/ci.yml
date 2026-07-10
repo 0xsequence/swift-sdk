@@ -17,17 +17,5 @@ jobs:
       - name: Select Xcode 26.3 (Swift tools 6.3)
         run: sudo xcode-select -s /Applications/Xcode_26.3.app
 
-      - name: Build
-        run: swift build
-
-      - name: Test
-        run: swift test
-
-      - name: Check public API
-        run: scripts/check-public-api-does-not-expose-generated-waas.sh
-
-      - name: Build SDK demo app
-        run: xcodebuild -project Examples/sdk-demo/oms-wallet-demo.xcodeproj -scheme oms-wallet-demo build CODE_SIGNING_ALLOWED=NO
-
-      - name: Build Trails Actions demo app
-        run: xcodebuild -project Examples/trails-actions/trails-actions.xcodeproj -scheme trails-actions build CODE_SIGNING_ALLOWED=NO
+      - name: Verify release
+        run: scripts/verify-release.sh

@@ -31,18 +31,12 @@ such as `0.2.0`, not `v0.2.0`, because the podspec source tag is
 3. Validate the release branch.
 
 ```sh
-swift build
-swift test
-scripts/check-public-api-does-not-expose-generated-waas.sh
-pod lib lint oms-wallet-swift-sdk.podspec --swift-version=6.0 --platforms=ios,macos
+scripts/verify-release.sh
 ```
 
-If the demo app changed, also run:
-
-```sh
-xcodebuild -project Examples/sdk-demo/oms-wallet-demo.xcodeproj -scheme oms-wallet-demo build CODE_SIGNING_ALLOWED=NO
-xcodebuild -project Examples/trails-actions/trails-actions.xcodeproj -scheme trails-actions build CODE_SIGNING_ALLOWED=NO
-```
+This is the same command CI runs. It checks release version alignment, builds
+and tests the Swift package, checks the public API baseline, lints the local
+podspec, and builds both example apps for the iOS Simulator without signing.
 
 4. Push the branch and open the PR.
 

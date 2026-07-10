@@ -74,8 +74,9 @@ source behavior, public API shape, or runnable example code.
 
 Run `swift test` for SDK changes. Run
 `scripts/check-public-api-does-not-expose-generated-waas.sh` when public API
-surfaces may be affected. For demo app changes, also build the relevant Xcode
-project with signing disabled when feasible.
+surfaces may be affected; it verifies the checked-in interface baseline,
+external compile probes, and generated-WaaS isolation. For demo app changes,
+also build the relevant Xcode project with signing disabled when feasible.
 
 ## Testing
 

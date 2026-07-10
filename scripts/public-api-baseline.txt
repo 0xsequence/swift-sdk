@@ -1,0 +1,734 @@
+conformance	AbiArg	Swift.Decodable
+conformance	AbiArg	Swift.Encodable
+conformance	AbiArg	Swift.Equatable
+conformance	AbiArg	Swift.Sendable
+conformance	BalancesResult	Swift.Sendable
+conformance	CompleteAuthResult	Swift.Sendable
+conformance	ContractVerificationStatus	Swift.Decodable
+conformance	ContractVerificationStatus	Swift.Encodable
+conformance	ContractVerificationStatus	Swift.Equatable
+conformance	ContractVerificationStatus	Swift.Hashable
+conformance	ContractVerificationStatus	Swift.RawRepresentable
+conformance	ContractVerificationStatus	Swift.Sendable
+conformance	CredentialInfo	Swift.Decodable
+conformance	CredentialInfo	Swift.Encodable
+conformance	CredentialInfo	Swift.Equatable
+conformance	CredentialInfo	Swift.Sendable
+conformance	CustomOIDCProviderConfiguration	Swift.Sendable
+conformance	FeeOption	Swift.Decodable
+conformance	FeeOption	Swift.Encodable
+conformance	FeeOption	Swift.Equatable
+conformance	FeeOption	Swift.Sendable
+conformance	FeeOptionSelection	Swift.Decodable
+conformance	FeeOptionSelection	Swift.Encodable
+conformance	FeeOptionSelection	Swift.Equatable
+conformance	FeeOptionSelection	Swift.Sendable
+conformance	FeeOptionSelector	Swift.Sendable
+conformance	FeeOptionWithBalance	Swift.Sendable
+conformance	FeeToken	Swift.Decodable
+conformance	FeeToken	Swift.Encodable
+conformance	FeeToken	Swift.Equatable
+conformance	FeeToken	Swift.Sendable
+conformance	GetBalancesParams	Swift.Sendable
+conformance	GetTransactionHistoryParams	Swift.Sendable
+conformance	IndexerClient	Swift.Sendable
+conformance	IndexerNetworkType	Swift.Decodable
+conformance	IndexerNetworkType	Swift.Encodable
+conformance	IndexerNetworkType	Swift.Equatable
+conformance	IndexerNetworkType	Swift.Hashable
+conformance	IndexerNetworkType	Swift.RawRepresentable
+conformance	IndexerNetworkType	Swift.Sendable
+conformance	JSONValue	Swift.Decodable
+conformance	JSONValue	Swift.Encodable
+conformance	JSONValue	Swift.Equatable
+conformance	JSONValue	Swift.Sendable
+conformance	ListAccessPages	_Concurrency.AsyncSequence
+conformance	ListAccessPages.AsyncIterator	_Concurrency.AsyncIteratorProtocol
+conformance	ListAccessResponse	Swift.Decodable
+conformance	ListAccessResponse	Swift.Encodable
+conformance	ListAccessResponse	Swift.Equatable
+conformance	ListAccessResponse	Swift.Sendable
+conformance	MetadataOptions	Swift.Decodable
+conformance	MetadataOptions	Swift.Encodable
+conformance	MetadataOptions	Swift.Sendable
+conformance	Network	Swift.CaseIterable
+conformance	Network	Swift.CustomStringConvertible
+conformance	Network	Swift.Equatable
+conformance	Network	Swift.Hashable
+conformance	Network	Swift.RawRepresentable
+conformance	Network	Swift.Sendable
+conformance	OIDCAuthMode	Swift.Decodable
+conformance	OIDCAuthMode	Swift.Encodable
+conformance	OIDCAuthMode	Swift.Equatable
+conformance	OIDCAuthMode	Swift.Hashable
+conformance	OIDCAuthMode	Swift.RawRepresentable
+conformance	OIDCAuthMode	Swift.Sendable
+conformance	OIDCRedirectAuthResult	Swift.Sendable
+conformance	OMSRelayOIDCProvider	Swift.Equatable
+conformance	OMSRelayOIDCProvider	Swift.Hashable
+conformance	OMSRelayOIDCProvider	Swift.Sendable
+conformance	OMSWallet	Swift.Sendable
+conformance	OMSWalletEmailSessionAuth	Swift.Decodable
+conformance	OMSWalletEmailSessionAuth	Swift.Encodable
+conformance	OMSWalletEmailSessionAuth	Swift.Equatable
+conformance	OMSWalletEmailSessionAuth	Swift.Sendable
+conformance	OMSWalletError	Foundation.LocalizedError
+conformance	OMSWalletError	Swift.Error
+conformance	OMSWalletError	Swift.Sendable
+conformance	OMSWalletErrorCode	Swift.Equatable
+conformance	OMSWalletErrorCode	Swift.Hashable
+conformance	OMSWalletErrorCode	Swift.RawRepresentable
+conformance	OMSWalletErrorCode	Swift.Sendable
+conformance	OMSWalletOidcSessionAuth	Swift.Decodable
+conformance	OMSWalletOidcSessionAuth	Swift.Encodable
+conformance	OMSWalletOidcSessionAuth	Swift.Equatable
+conformance	OMSWalletOidcSessionAuth	Swift.Sendable
+conformance	OMSWalletOidcSessionAuthFlow	Swift.Decodable
+conformance	OMSWalletOidcSessionAuthFlow	Swift.Encodable
+conformance	OMSWalletOidcSessionAuthFlow	Swift.Equatable
+conformance	OMSWalletOidcSessionAuthFlow	Swift.Hashable
+conformance	OMSWalletOidcSessionAuthFlow	Swift.RawRepresentable
+conformance	OMSWalletOidcSessionAuthFlow	Swift.Sendable
+conformance	OMSWalletOperation	Swift.Equatable
+conformance	OMSWalletOperation	Swift.Hashable
+conformance	OMSWalletOperation	Swift.RawRepresentable
+conformance	OMSWalletOperation	Swift.Sendable
+conformance	OMSWalletSessionAuth	Swift.Decodable
+conformance	OMSWalletSessionAuth	Swift.Encodable
+conformance	OMSWalletSessionAuth	Swift.Equatable
+conformance	OMSWalletSessionAuth	Swift.Sendable
+conformance	OMSWalletSessionExpiredEvent	Swift.Equatable
+conformance	OMSWalletSessionExpiredEvent	Swift.Sendable
+conformance	OMSWalletSessionExpiredObservation	Swift.Sendable
+conformance	OMSWalletSessionState	Swift.Equatable
+conformance	OMSWalletSessionState	Swift.Sendable
+conformance	OMSWalletUpstreamError	Swift.Equatable
+conformance	OMSWalletUpstreamError	Swift.Sendable
+conformance	OMSWalletUpstreamService	Swift.Equatable
+conformance	OMSWalletUpstreamService	Swift.Hashable
+conformance	OMSWalletUpstreamService	Swift.RawRepresentable
+conformance	OMSWalletUpstreamService	Swift.Sendable
+conformance	Page	Swift.Decodable
+conformance	Page	Swift.Encodable
+conformance	Page	Swift.Equatable
+conformance	Page	Swift.Sendable
+conformance	PendingWalletSelection	Swift.Sendable
+conformance	SendTransactionRequest	Swift.Sendable
+conformance	SendTransactionResponse	Swift.Decodable
+conformance	SendTransactionResponse	Swift.Encodable
+conformance	SendTransactionResponse	Swift.Equatable
+conformance	SendTransactionResponse	Swift.Sendable
+conformance	SortBy	Swift.Decodable
+conformance	SortBy	Swift.Encodable
+conformance	SortBy	Swift.Sendable
+conformance	SortOrder	Swift.Decodable
+conformance	SortOrder	Swift.Encodable
+conformance	SortOrder	Swift.Equatable
+conformance	SortOrder	Swift.Hashable
+conformance	SortOrder	Swift.RawRepresentable
+conformance	SortOrder	Swift.Sendable
+conformance	StartOIDCRedirectAuthResult	Swift.Sendable
+conformance	TokenBalance	Swift.Decodable
+conformance	TokenBalance	Swift.Encodable
+conformance	TokenBalance	Swift.Sendable
+conformance	TokenBalancesPage	Swift.Decodable
+conformance	TokenBalancesPage	Swift.Encodable
+conformance	TokenBalancesPage	Swift.Sendable
+conformance	TokenBalancesPageRequest	Swift.Decodable
+conformance	TokenBalancesPageRequest	Swift.Encodable
+conformance	TokenBalancesPageRequest	Swift.Sendable
+conformance	TokenContractInfo	Swift.Decodable
+conformance	TokenContractInfo	Swift.Encodable
+conformance	TokenContractInfo	Swift.Sendable
+conformance	TokenMetadata	Swift.Decodable
+conformance	TokenMetadata	Swift.Encodable
+conformance	TokenMetadata	Swift.Sendable
+conformance	TokenMetadataAsset	Swift.Decodable
+conformance	TokenMetadataAsset	Swift.Encodable
+conformance	TokenMetadataAsset	Swift.Sendable
+conformance	Transaction	Swift.Decodable
+conformance	Transaction	Swift.Encodable
+conformance	Transaction	Swift.Sendable
+conformance	TransactionHistoryResult	Swift.Sendable
+conformance	TransactionMode	Swift.Decodable
+conformance	TransactionMode	Swift.Encodable
+conformance	TransactionMode	Swift.Equatable
+conformance	TransactionMode	Swift.Hashable
+conformance	TransactionMode	Swift.Sendable
+conformance	TransactionStatus	Swift.Decodable
+conformance	TransactionStatus	Swift.Encodable
+conformance	TransactionStatus	Swift.Equatable
+conformance	TransactionStatus	Swift.Hashable
+conformance	TransactionStatus	Swift.Sendable
+conformance	TransactionStatusPollingOptions	Swift.Equatable
+conformance	TransactionStatusPollingOptions	Swift.Sendable
+conformance	TransactionStatusResolution	Swift.Decodable
+conformance	TransactionStatusResolution	Swift.Encodable
+conformance	TransactionStatusResolution	Swift.Equatable
+conformance	TransactionStatusResolution	Swift.Hashable
+conformance	TransactionStatusResolution	Swift.RawRepresentable
+conformance	TransactionStatusResolution	Swift.Sendable
+conformance	TransactionStatusResponse	Swift.Decodable
+conformance	TransactionStatusResponse	Swift.Encodable
+conformance	TransactionStatusResponse	Swift.Equatable
+conformance	TransactionStatusResponse	Swift.Sendable
+conformance	TransactionTransfer	Swift.Decodable
+conformance	TransactionTransfer	Swift.Encodable
+conformance	TransactionTransfer	Swift.Sendable
+conformance	UnitConversionError	Swift.Equatable
+conformance	UnitConversionError	Swift.Error
+conformance	UnitConversionError	Swift.Sendable
+conformance	Wallet	Swift.Decodable
+conformance	Wallet	Swift.Encodable
+conformance	Wallet	Swift.Equatable
+conformance	Wallet	Swift.Sendable
+conformance	WalletClient	Swift.Sendable
+conformance	WalletSelectionBehavior	Swift.Decodable
+conformance	WalletSelectionBehavior	Swift.Encodable
+conformance	WalletSelectionBehavior	Swift.Equatable
+conformance	WalletSelectionBehavior	Swift.Hashable
+conformance	WalletSelectionBehavior	Swift.RawRepresentable
+conformance	WalletSelectionBehavior	Swift.Sendable
+conformance	WalletSelectionResult	Swift.Sendable
+conformance	WalletType	Swift.Decodable
+conformance	WalletType	Swift.Encodable
+conformance	WalletType	Swift.Equatable
+conformance	WalletType	Swift.Hashable
+conformance	WalletType	Swift.Sendable
+symbol	swift.class	IndexerClient	final class IndexerClient
+symbol	swift.class	OMSWallet	final class OMSWallet
+symbol	swift.class	OMSWalletSessionExpiredObservation	final class OMSWalletSessionExpiredObservation
+symbol	swift.class	PendingWalletSelection	final class PendingWalletSelection
+symbol	swift.class	WalletClient	final class WalletClient
+symbol	swift.enum	CompleteAuthResult	enum CompleteAuthResult
+symbol	swift.enum	ContractVerificationStatus	enum ContractVerificationStatus
+symbol	swift.enum	IndexerNetworkType	enum IndexerNetworkType
+symbol	swift.enum	JSONValue	enum JSONValue
+symbol	swift.enum	Network	enum Network
+symbol	swift.enum	OIDCAuthMode	enum OIDCAuthMode
+symbol	swift.enum	OIDCRedirectAuthResult	enum OIDCRedirectAuthResult
+symbol	swift.enum	OMSRelayOIDCProviders	enum OMSRelayOIDCProviders
+symbol	swift.enum	OMSWalletErrorCode	enum OMSWalletErrorCode
+symbol	swift.enum	OMSWalletOidcSessionAuthFlow	enum OMSWalletOidcSessionAuthFlow
+symbol	swift.enum	OMSWalletOperation	enum OMSWalletOperation
+symbol	swift.enum	OMSWalletSessionAuth	enum OMSWalletSessionAuth
+symbol	swift.enum	OMSWalletUpstreamService	enum OMSWalletUpstreamService
+symbol	swift.enum	SortOrder	enum SortOrder
+symbol	swift.enum	TransactionMode	enum TransactionMode
+symbol	swift.enum	TransactionStatus	enum TransactionStatus
+symbol	swift.enum	TransactionStatusResolution	enum TransactionStatusResolution
+symbol	swift.enum	UnitConversionError	enum UnitConversionError
+symbol	swift.enum	WalletSelectionBehavior	enum WalletSelectionBehavior
+symbol	swift.enum	WalletType	enum WalletType
+symbol	swift.enum.case	CompleteAuthResult.walletSelected(walletAddress:wallet:wallets:credential:)	case walletSelected(walletAddress: String, wallet: Wallet, wallets: [Wallet], credential: CredentialInfo)
+symbol	swift.enum.case	CompleteAuthResult.walletSelection(_:)	case walletSelection(PendingWalletSelection)
+symbol	swift.enum.case	ContractVerificationStatus.all	case all
+symbol	swift.enum.case	ContractVerificationStatus.unverified	case unverified
+symbol	swift.enum.case	ContractVerificationStatus.verified	case verified
+symbol	swift.enum.case	IndexerNetworkType.all	case all
+symbol	swift.enum.case	IndexerNetworkType.mainnets	case mainnets
+symbol	swift.enum.case	IndexerNetworkType.testnets	case testnets
+symbol	swift.enum.case	JSONValue.array(_:)	case array([JSONValue])
+symbol	swift.enum.case	JSONValue.bool(_:)	case bool(Bool)
+symbol	swift.enum.case	JSONValue.integer(_:)	case integer(Int64)
+symbol	swift.enum.case	JSONValue.null	case null
+symbol	swift.enum.case	JSONValue.number(_:)	case number(Double)
+symbol	swift.enum.case	JSONValue.object(_:)	case object([String : JSONValue])
+symbol	swift.enum.case	JSONValue.string(_:)	case string(String)
+symbol	swift.enum.case	JSONValue.unsignedInteger(_:)	case unsignedInteger(UInt64)
+symbol	swift.enum.case	Network.arbitrum	case arbitrum
+symbol	swift.enum.case	Network.arbitrumNova	case arbitrumNova
+symbol	swift.enum.case	Network.arbitrumSepolia	case arbitrumSepolia
+symbol	swift.enum.case	Network.avalanche	case avalanche
+symbol	swift.enum.case	Network.avalancheTestnet	case avalancheTestnet
+symbol	swift.enum.case	Network.base	case base
+symbol	swift.enum.case	Network.baseSepolia	case baseSepolia
+symbol	swift.enum.case	Network.bsc	case bsc
+symbol	swift.enum.case	Network.bscTestnet	case bscTestnet
+symbol	swift.enum.case	Network.katana	case katana
+symbol	swift.enum.case	Network.mainnet	case mainnet
+symbol	swift.enum.case	Network.optimism	case optimism
+symbol	swift.enum.case	Network.optimismSepolia	case optimismSepolia
+symbol	swift.enum.case	Network.polygon	case polygon
+symbol	swift.enum.case	Network.polygonAmoy	case polygonAmoy
+symbol	swift.enum.case	Network.sepolia	case sepolia
+symbol	swift.enum.case	OIDCAuthMode.authCode	case authCode
+symbol	swift.enum.case	OIDCAuthMode.authCodePKCE	case authCodePKCE
+symbol	swift.enum.case	OIDCRedirectAuthResult.completed(_:)	case completed(CompleteAuthResult)
+symbol	swift.enum.case	OIDCRedirectAuthResult.noPendingAuth	case noPendingAuth
+symbol	swift.enum.case	OIDCRedirectAuthResult.notOIDCRedirectCallback	case notOIDCRedirectCallback
+symbol	swift.enum.case	OMSWalletErrorCode.authCommitmentConsumed	case authCommitmentConsumed
+symbol	swift.enum.case	OMSWalletErrorCode.httpError	case httpError
+symbol	swift.enum.case	OMSWalletErrorCode.invalidResponse	case invalidResponse
+symbol	swift.enum.case	OMSWalletErrorCode.requestFailed	case requestFailed
+symbol	swift.enum.case	OMSWalletErrorCode.sessionExpired	case sessionExpired
+symbol	swift.enum.case	OMSWalletErrorCode.sessionMissing	case sessionMissing
+symbol	swift.enum.case	OMSWalletErrorCode.storageError	case storageError
+symbol	swift.enum.case	OMSWalletErrorCode.transactionExecutionUnconfirmed	case transactionExecutionUnconfirmed
+symbol	swift.enum.case	OMSWalletErrorCode.transactionStatusLookupFailed	case transactionStatusLookupFailed
+symbol	swift.enum.case	OMSWalletErrorCode.validationError	case validationError
+symbol	swift.enum.case	OMSWalletErrorCode.walletSelectionInFlight	case walletSelectionInFlight
+symbol	swift.enum.case	OMSWalletErrorCode.walletSelectionStale	case walletSelectionStale
+symbol	swift.enum.case	OMSWalletErrorCode.walletSelectionUnavailable	case walletSelectionUnavailable
+symbol	swift.enum.case	OMSWalletOidcSessionAuthFlow.idToken	case idToken
+symbol	swift.enum.case	OMSWalletOidcSessionAuthFlow.redirect	case redirect
+symbol	swift.enum.case	OMSWalletOperation.indexerGetBalances	case indexerGetBalances
+symbol	swift.enum.case	OMSWalletOperation.indexerGetTransactionHistory	case indexerGetTransactionHistory
+symbol	swift.enum.case	OMSWalletOperation.pendingWalletSelection	case pendingWalletSelection
+symbol	swift.enum.case	OMSWalletOperation.pendingWalletSelectionCreateAndSelectWallet	case pendingWalletSelectionCreateAndSelectWallet
+symbol	swift.enum.case	OMSWalletOperation.pendingWalletSelectionSelectWallet	case pendingWalletSelectionSelectWallet
+symbol	swift.enum.case	OMSWalletOperation.walletCallContract	case walletCallContract
+symbol	swift.enum.case	OMSWalletOperation.walletCompleteEmailAuth	case walletCompleteEmailAuth
+symbol	swift.enum.case	OMSWalletOperation.walletCreateWallet	case walletCreateWallet
+symbol	swift.enum.case	OMSWalletOperation.walletExecute	case walletExecute
+symbol	swift.enum.case	OMSWalletOperation.walletGetIdToken	case walletGetIdToken
+symbol	swift.enum.case	OMSWalletOperation.walletGetTransactionStatus	case walletGetTransactionStatus
+symbol	swift.enum.case	OMSWalletOperation.walletHandleOIDCRedirectCallback	case walletHandleOIDCRedirectCallback
+symbol	swift.enum.case	OMSWalletOperation.walletIsValidMessageSignature	case walletIsValidMessageSignature
+symbol	swift.enum.case	OMSWalletOperation.walletIsValidTypedDataSignature	case walletIsValidTypedDataSignature
+symbol	swift.enum.case	OMSWalletOperation.walletListAccess	case walletListAccess
+symbol	swift.enum.case	OMSWalletOperation.walletListAccessPage	case walletListAccessPage
+symbol	swift.enum.case	OMSWalletOperation.walletListAccessPages	case walletListAccessPages
+symbol	swift.enum.case	OMSWalletOperation.walletListWallets	case walletListWallets
+symbol	swift.enum.case	OMSWalletOperation.walletRevokeAccess	case walletRevokeAccess
+symbol	swift.enum.case	OMSWalletOperation.walletSendTransaction	case walletSendTransaction
+symbol	swift.enum.case	OMSWalletOperation.walletSignInWithOidcIdToken	case walletSignInWithOidcIdToken
+symbol	swift.enum.case	OMSWalletOperation.walletSignMessage	case walletSignMessage
+symbol	swift.enum.case	OMSWalletOperation.walletSignOut	case walletSignOut
+symbol	swift.enum.case	OMSWalletOperation.walletSignTypedData	case walletSignTypedData
+symbol	swift.enum.case	OMSWalletOperation.walletStartEmailAuth	case walletStartEmailAuth
+symbol	swift.enum.case	OMSWalletOperation.walletStartOIDCRedirectAuth	case walletStartOIDCRedirectAuth
+symbol	swift.enum.case	OMSWalletOperation.walletTransactionStatus	case walletTransactionStatus
+symbol	swift.enum.case	OMSWalletOperation.walletUseWallet	case walletUseWallet
+symbol	swift.enum.case	OMSWalletSessionAuth.email(_:)	case email(OMSWalletEmailSessionAuth)
+symbol	swift.enum.case	OMSWalletSessionAuth.oidc(_:)	case oidc(OMSWalletOidcSessionAuth)
+symbol	swift.enum.case	OMSWalletUpstreamService.indexer	case indexer
+symbol	swift.enum.case	OMSWalletUpstreamService.waas	case waas
+symbol	swift.enum.case	SortOrder.ascending	case ascending
+symbol	swift.enum.case	SortOrder.descending	case descending
+symbol	swift.enum.case	TransactionMode.native	case native
+symbol	swift.enum.case	TransactionMode.relayer	case relayer
+symbol	swift.enum.case	TransactionMode.unknown(_:)	case unknown(String)
+symbol	swift.enum.case	TransactionStatus.executed	case executed
+symbol	swift.enum.case	TransactionStatus.failed	case failed
+symbol	swift.enum.case	TransactionStatus.pending	case pending
+symbol	swift.enum.case	TransactionStatus.quoted	case quoted
+symbol	swift.enum.case	TransactionStatus.unknown(_:)	case unknown(String)
+symbol	swift.enum.case	TransactionStatusResolution.notRequested	case notRequested
+symbol	swift.enum.case	TransactionStatusResolution.resolved	case resolved
+symbol	swift.enum.case	TransactionStatusResolution.timedOut	case timedOut
+symbol	swift.enum.case	UnitConversionError.fractionalComponentExceedsDecimals(value:decimals:)	case fractionalComponentExceedsDecimals(value: String, decimals: Int)
+symbol	swift.enum.case	UnitConversionError.invalidDecimals(_:)	case invalidDecimals(Int)
+symbol	swift.enum.case	UnitConversionError.invalidValue(_:)	case invalidValue(String)
+symbol	swift.enum.case	WalletSelectionBehavior.automatic	case automatic
+symbol	swift.enum.case	WalletSelectionBehavior.manual	case manual
+symbol	swift.enum.case	WalletType.ethereum	case ethereum
+symbol	swift.enum.case	WalletType.unknown(_:)	case unknown(String)
+symbol	swift.func	formatUnits(value:decimals:)	func formatUnits(value: String, decimals: Int = 18) throws -> String
+symbol	swift.func	parseUnits(value:decimals:)	func parseUnits(value: String, decimals: Int = 18) throws -> String
+symbol	swift.init	AbiArg.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	AbiArg.init(type:value:)	init(type: String, value: JSONValue)
+symbol	swift.init	BalancesResult.init(status:page:nativeBalances:balances:)	init(status: Int, page: TokenBalancesPage?, nativeBalances: [TokenBalance], balances: [TokenBalance])
+symbol	swift.init	ContractVerificationStatus.init(rawValue:)	init?(rawValue: String)
+symbol	swift.init	CredentialInfo.init(credentialId:expiresAt:isCaller:)	init(credentialId: String, expiresAt: String, isCaller: Bool)
+symbol	swift.init	CredentialInfo.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	CustomOIDCProviderConfiguration.init(issuer:clientID:authorizationURL:providerRedirectURI:provider:providerLabel:scopes:authorizeParams:authMode:)	init(issuer: String, clientID: String, authorizationURL: String, providerRedirectURI: String, provider: String? = nil, providerLabel: String? = nil, scopes: [String] = [], authorizeParams: [String : String] = [:], authMode: OIDCAuthMode = .authCodePKCE)
+symbol	swift.init	FeeOption.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	FeeOption.init(token:value:displayValue:)	init(token: FeeToken, value: String, displayValue: String)
+symbol	swift.init	FeeOptionSelection.init(feeOption:)	init(feeOption: FeeOption)
+symbol	swift.init	FeeOptionSelection.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	FeeOptionSelection.init(token:)	init(token: String)
+symbol	swift.init	FeeOptionSelector.init(_:)	init(_ select: @escaping FeeOptionSelector.Select)
+symbol	swift.init	FeeOptionWithBalance.init(feeOption:balance:available:availableRaw:decimals:)	init(feeOption: FeeOption, balance: TokenBalance? = nil, available: String? = nil, availableRaw: String? = nil, decimals: Int? = nil)
+symbol	swift.init	FeeToken.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	FeeToken.init(network:name:symbol:type:decimals:logoUrl:contractAddress:tokenId:)	init(network: String, name: String, symbol: String, type: String, decimals: UInt32? = nil, logoUrl: String? = nil, contractAddress: String? = nil, tokenId: String? = nil)
+symbol	swift.init	GetBalancesParams.init(walletAddress:networks:networkType:contractAddresses:includeMetadata:omitPrices:tokenIds:contractStatus:page:)	init(walletAddress: String, networks: [Network]? = nil, networkType: IndexerNetworkType? = nil, contractAddresses: [String]? = nil, includeMetadata: Bool = true, omitPrices: Bool? = nil, tokenIds: [String]? = nil, contractStatus: ContractVerificationStatus? = nil, page: TokenBalancesPageRequest? = nil)
+symbol	swift.init	GetTransactionHistoryParams.init(walletAddress:networks:networkType:contractAddresses:transactionHashes:metaTransactionIds:fromBlock:toBlock:tokenId:includeMetadata:omitPrices:metadataOptions:page:)	init(walletAddress: String, networks: [Network]? = nil, networkType: IndexerNetworkType? = nil, contractAddresses: [String]? = nil, transactionHashes: [String]? = nil, metaTransactionIds: [String]? = nil, fromBlock: Int? = nil, toBlock: Int? = nil, tokenId: String? = nil, includeMetadata: Bool = true, omitPrices: Bool? = nil, metadataOptions: MetadataOptions? = nil, page: TokenBalancesPageRequest? = nil)
+symbol	swift.init	IndexerNetworkType.init(rawValue:)	init?(rawValue: String)
+symbol	swift.init	JSONValue.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	ListAccessResponse.init(credentials:page:)	init(credentials: [CredentialInfo], page: Page? = nil)
+symbol	swift.init	ListAccessResponse.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	MetadataOptions.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	MetadataOptions.init(verifiedOnly:unverifiedOnly:includeContracts:)	init(verifiedOnly: Bool? = nil, unverifiedOnly: Bool? = nil, includeContracts: [String]? = nil)
+symbol	swift.init	Network.init(rawValue:)	init?(rawValue: String)
+symbol	swift.init	OIDCAuthMode.init(rawValue:)	init?(rawValue: String)
+symbol	swift.init	OMSWallet.init(publishableKey:)	convenience init(publishableKey: String) throws
+symbol	swift.init	OMSWalletEmailSessionAuth.init(email:)	init(email: String?)
+symbol	swift.init	OMSWalletEmailSessionAuth.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	OMSWalletErrorCode.init(rawValue:)	init?(rawValue: String)
+symbol	swift.init	OMSWalletOidcSessionAuth.init(flow:issuer:provider:providerLabel:email:)	init(flow: OMSWalletOidcSessionAuthFlow, issuer: String, provider: String? = nil, providerLabel: String? = nil, email: String? = nil)
+symbol	swift.init	OMSWalletOidcSessionAuth.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	OMSWalletOidcSessionAuthFlow.init(rawValue:)	init?(rawValue: String)
+symbol	swift.init	OMSWalletOperation.init(rawValue:)	init?(rawValue: String)
+symbol	swift.init	OMSWalletSessionAuth.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	OMSWalletSessionExpiredEvent.init(session:expiredAt:)	init(session: OMSWalletSessionState, expiredAt: Date)
+symbol	swift.init	OMSWalletSessionState.init(walletAddress:expiresAt:auth:)	init(walletAddress: String?, expiresAt: Date? = nil, auth: OMSWalletSessionAuth? = nil)
+symbol	swift.init	OMSWalletUpstreamService.init(rawValue:)	init?(rawValue: String)
+symbol	swift.init	Page.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	Page.init(limit:cursor:)	init(limit: UInt32? = nil, cursor: String? = nil)
+symbol	swift.init	SendTransactionRequest.init(to:value:data:mode:)	init(to: String, value: String, data: String? = nil, mode: TransactionMode = .relayer)
+symbol	swift.init	SendTransactionResponse.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	SendTransactionResponse.init(txnId:status:txnHash:statusResolution:)	init(txnId: String, status: TransactionStatus, txnHash: String? = nil, statusResolution: TransactionStatusResolution)
+symbol	swift.init	SortBy.init(column:order:)	init(column: String, order: SortOrder)
+symbol	swift.init	SortBy.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	SortOrder.init(rawValue:)	init?(rawValue: String)
+symbol	swift.init	StartOIDCRedirectAuthResult.init(authorizationURL:)	init(authorizationURL: String)
+symbol	swift.init	TokenBalance.init(contractType:contractAddress:accountAddress:tokenId:name:symbol:balance:balanceUSD:priceUSD:priceUpdatedAt:blockHash:blockNumber:chainId:uniqueCollectibles:isSummary:contractInfo:tokenMetadata:)	init(contractType: String?, contractAddress: String?, accountAddress: String?, tokenId: String?, name: String? = nil, symbol: String? = nil, balance: String?, balanceUSD: String? = nil, priceUSD: String? = nil, priceUpdatedAt: String? = nil, blockHash: String?, blockNumber: Int64?, chainId: Int64?, uniqueCollectibles: String? = nil, isSummary: Bool? = nil, contractInfo: TokenContractInfo? = nil, tokenMetadata: TokenMetadata? = nil)
+symbol	swift.init	TokenBalance.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	TokenBalancesPage.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	TokenBalancesPage.init(page:column:before:after:sort:pageSize:more:)	init(page: Int? = nil, column: String? = nil, before: JSONValue? = nil, after: JSONValue? = nil, sort: [SortBy]? = nil, pageSize: Int? = nil, more: Bool? = nil)
+symbol	swift.init	TokenBalancesPageRequest.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	TokenBalancesPageRequest.init(page:column:before:after:sort:pageSize:)	init(page: Int? = nil, column: String? = nil, before: JSONValue? = nil, after: JSONValue? = nil, sort: [SortBy]? = nil, pageSize: Int? = nil)
+symbol	swift.init	TokenContractInfo.init(chainId:address:source:name:type:symbol:decimals:logoURI:deployed:bytecodeHash:extensions:updatedAt:queuedAt:status:)	init(chainId: Int64? = nil, address: String? = nil, source: String? = nil, name: String? = nil, type: String? = nil, symbol: String? = nil, decimals: Int? = nil, logoURI: String? = nil, deployed: Bool? = nil, bytecodeHash: String? = nil, extensions: [String : JSONValue]? = nil, updatedAt: String? = nil, queuedAt: String? = nil, status: String? = nil)
+symbol	swift.init	TokenContractInfo.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	TokenMetadata.init(chainId:contractAddress:tokenId:source:name:description:image:video:audio:properties:attributes:imageData:externalUrl:backgroundColor:animationUrl:decimals:updatedAt:assets:status:queuedAt:lastFetched:)	init(chainId: Int64? = nil, contractAddress: String? = nil, tokenId: String? = nil, source: String? = nil, name: String? = nil, description: String? = nil, image: String? = nil, video: String? = nil, audio: String? = nil, properties: [String : JSONValue]? = nil, attributes: [[String : JSONValue]]? = nil, imageData: String? = nil, externalUrl: String? = nil, backgroundColor: String? = nil, animationUrl: String? = nil, decimals: Int? = nil, updatedAt: String? = nil, assets: [TokenMetadataAsset]? = nil, status: String? = nil, queuedAt: String? = nil, lastFetched: String? = nil)
+symbol	swift.init	TokenMetadata.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	TokenMetadataAsset.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	TokenMetadataAsset.init(id:collectionId:tokenId:url:metadataField:name:filesize:mimeType:width:height:updatedAt:)	init(id: Int64? = nil, collectionId: Int64? = nil, tokenId: String? = nil, url: String? = nil, metadataField: String? = nil, name: String? = nil, filesize: Int64? = nil, mimeType: String? = nil, width: Int? = nil, height: Int? = nil, updatedAt: String? = nil)
+symbol	swift.init	Transaction.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	Transaction.init(txnHash:blockNumber:blockHash:chainId:metaTxnId:transfers:timestamp:)	init(txnHash: String, blockNumber: Int64, blockHash: String, chainId: Int64, metaTxnId: String? = nil, transfers: [TransactionTransfer]? = nil, timestamp: String)
+symbol	swift.init	TransactionHistoryResult.init(status:page:transactions:)	init(status: Int, page: TokenBalancesPage?, transactions: [Transaction])
+symbol	swift.init	TransactionMode.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	TransactionMode.init(wireValue:)	init(wireValue: String)
+symbol	swift.init	TransactionStatus.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	TransactionStatus.init(wireValue:)	init(wireValue: String)
+symbol	swift.init	TransactionStatusPollingOptions.init(timeoutMs:intervalMs:fastIntervalMs:fastPollCount:)	init(timeoutMs: UInt64? = nil, intervalMs: UInt64? = nil, fastIntervalMs: UInt64? = nil, fastPollCount: Int? = nil)
+symbol	swift.init	TransactionStatusResolution.init(rawValue:)	init?(rawValue: String)
+symbol	swift.init	TransactionStatusResponse.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	TransactionStatusResponse.init(status:txnHash:)	init(status: TransactionStatus, txnHash: String? = nil)
+symbol	swift.init	TransactionTransfer.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	TransactionTransfer.init(transferType:contractAddress:contractType:from:to:tokenIds:amounts:logIndex:amountsUSD:pricesUSD:contractInfo:tokenMetadata:)	init(transferType: String? = nil, contractAddress: String? = nil, contractType: String? = nil, from: String? = nil, to: String? = nil, tokenIds: [String]? = nil, amounts: [String]? = nil, logIndex: Int? = nil, amountsUSD: [String]? = nil, pricesUSD: [String]? = nil, contractInfo: TokenContractInfo? = nil, tokenMetadata: [String : TokenMetadata]? = nil)
+symbol	swift.init	Wallet.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	Wallet.init(id:type:address:reference:)	init(id: String, type: WalletType, address: String, reference: String? = nil)
+symbol	swift.init	WalletSelectionBehavior.init(rawValue:)	init?(rawValue: String)
+symbol	swift.init	WalletSelectionResult.init(walletAddress:wallet:)	init(walletAddress: String, wallet: Wallet)
+symbol	swift.init	WalletType.init(from:)	init(from decoder: any Decoder) throws
+symbol	swift.init	WalletType.init(wireValue:)	init(wireValue: String)
+symbol	swift.method	FeeOptionSelector.callAsFunction(_:)	func callAsFunction(_ options: [FeeOptionWithBalance]) async throws -> FeeOptionSelection?
+symbol	swift.method	FeeOptionSelector.callAsFunction(_:)	func callAsFunction(_ options: [FeeOption]) async throws -> FeeOptionSelection?
+symbol	swift.method	IndexerClient.getBalances(_:)	func getBalances(_ params: GetBalancesParams) async throws -> BalancesResult
+symbol	swift.method	IndexerClient.getTransactionHistory(_:)	func getTransactionHistory(_ params: GetTransactionHistoryParams) async throws -> TransactionHistoryResult
+symbol	swift.method	JSONValue.encode(to:)	func encode(to encoder: any Encoder) throws
+symbol	swift.method	ListAccessPages.AsyncIterator.next()	mutating func next() async throws -> ListAccessResponse?
+symbol	swift.method	ListAccessPages.makeAsyncIterator()	func makeAsyncIterator() -> ListAccessPages.AsyncIterator
+symbol	swift.method	OMSWalletEmailSessionAuth.encode(to:)	func encode(to encoder: any Encoder) throws
+symbol	swift.method	OMSWalletOidcSessionAuth.encode(to:)	func encode(to encoder: any Encoder) throws
+symbol	swift.method	OMSWalletSessionAuth.encode(to:)	func encode(to encoder: any Encoder) throws
+symbol	swift.method	OMSWalletSessionExpiredObservation.cancel()	func cancel()
+symbol	swift.method	PendingWalletSelection.createAndSelectWallet(reference:)	@discardableResult func createAndSelectWallet(reference: String? = nil) async throws -> WalletSelectionResult
+symbol	swift.method	PendingWalletSelection.selectWallet(walletId:)	@discardableResult func selectWallet(walletId: String) async throws -> WalletSelectionResult
+symbol	swift.method	TokenBalance.encode(to:)	func encode(to encoder: any Encoder) throws
+symbol	swift.method	TokenMetadata.encode(to:)	func encode(to encoder: any Encoder) throws
+symbol	swift.method	TokenMetadataAsset.encode(to:)	func encode(to encoder: any Encoder) throws
+symbol	swift.method	Transaction.encode(to:)	func encode(to encoder: any Encoder) throws
+symbol	swift.method	TransactionMode.encode(to:)	func encode(to encoder: any Encoder) throws
+symbol	swift.method	TransactionStatus.encode(to:)	func encode(to encoder: any Encoder) throws
+symbol	swift.method	TransactionTransfer.encode(to:)	func encode(to encoder: any Encoder) throws
+symbol	swift.method	WalletClient.addSessionExpiredObserver(_:)	@discardableResult func addSessionExpiredObserver(_ observer: @escaping @MainActor @Sendable (OMSWalletSessionExpiredEvent) -> Void) -> OMSWalletSessionExpiredObservation
+symbol	swift.method	WalletClient.callContract(network:contract:method:args:selectFeeOption:mode:waitForStatus:statusPolling:)	func callContract(network: Network, contract: String, method: String, args: [AbiArg]?, selectFeeOption: FeeOptionSelector? = nil, mode: TransactionMode = .relayer, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
+symbol	swift.method	WalletClient.completeEmailAuth(code:walletSelection:walletType:sessionLifetimeSeconds:)	@discardableResult func completeEmailAuth(code: String, walletSelection: WalletSelectionBehavior = .automatic, walletType: WalletType = WalletType.ethereum, sessionLifetimeSeconds: UInt32 = 604_800) async throws -> CompleteAuthResult
+symbol	swift.method	WalletClient.createWallet(walletType:reference:)	@discardableResult func createWallet(walletType: WalletType = WalletType.ethereum, reference: String? = nil) async throws -> WalletSelectionResult
+symbol	swift.method	WalletClient.getIdToken(ttlSeconds:customClaims:)	func getIdToken(ttlSeconds: UInt32? = nil, customClaims: [String : JSONValue]? = nil) async throws -> String
+symbol	swift.method	WalletClient.getTransactionStatus(txnId:)	func getTransactionStatus(txnId: String) async throws -> TransactionStatusResponse
+symbol	swift.method	WalletClient.handleOIDCRedirectCallback(_:walletSelection:sessionLifetimeSeconds:)	func handleOIDCRedirectCallback(_ callbackURL: String?, walletSelection: WalletSelectionBehavior? = nil, sessionLifetimeSeconds: UInt32? = nil) async throws -> OIDCRedirectAuthResult
+symbol	swift.method	WalletClient.isValidMessageSignature(network:walletAddress:message:signature:)	func isValidMessageSignature(network: Network, walletAddress: String, message: String, signature: String) async throws -> Bool
+symbol	swift.method	WalletClient.isValidTypedDataSignature(network:walletAddress:typedData:signature:)	func isValidTypedDataSignature(network: Network, walletAddress: String, typedData: JSONValue, signature: String) async throws -> Bool
+symbol	swift.method	WalletClient.listAccess(pageSize:)	func listAccess(pageSize: UInt32? = nil) async throws -> [CredentialInfo]
+symbol	swift.method	WalletClient.listAccessPage(pageSize:cursor:)	func listAccessPage(pageSize: UInt32? = nil, cursor: String? = nil) async throws -> ListAccessResponse
+symbol	swift.method	WalletClient.listAccessPages(pageSize:)	func listAccessPages(pageSize: UInt32? = nil) -> ListAccessPages
+symbol	swift.method	WalletClient.listWallets()	func listWallets() async throws -> [Wallet]
+symbol	swift.method	WalletClient.revokeAccess(targetCredentialId:)	func revokeAccess(targetCredentialId: String) async throws
+symbol	swift.method	WalletClient.sendTransaction(network:request:selectFeeOption:waitForStatus:statusPolling:)	func sendTransaction(network: Network, request: SendTransactionRequest, selectFeeOption: FeeOptionSelector? = nil, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
+symbol	swift.method	WalletClient.sendTransaction(network:to:value:selectFeeOption:mode:waitForStatus:statusPolling:)	func sendTransaction(network: Network, to: String, value: String, selectFeeOption: FeeOptionSelector? = nil, mode: TransactionMode = .relayer, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
+symbol	swift.method	WalletClient.signInWithOidcIdToken(idToken:issuer:audience:walletType:walletSelection:sessionLifetimeSeconds:provider:providerLabel:)	@discardableResult func signInWithOidcIdToken(idToken: String, issuer: String, audience: String, walletType: WalletType = WalletType.ethereum, walletSelection: WalletSelectionBehavior = .automatic, sessionLifetimeSeconds: UInt32 = 604_800, provider: String? = nil, providerLabel: String? = nil) async throws -> CompleteAuthResult
+symbol	swift.method	WalletClient.signMessage(network:message:)	func signMessage(network: Network, message: String) async throws -> String
+symbol	swift.method	WalletClient.signOut()	func signOut() throws
+symbol	swift.method	WalletClient.signTypedData(network:typedData:)	func signTypedData(network: Network, typedData: JSONValue) async throws -> String
+symbol	swift.method	WalletClient.startEmailAuth(email:)	func startEmailAuth(email: String) async throws
+symbol	swift.method	WalletClient.startOIDCRedirectAuth(provider:omsRelayReturnURI:walletType:loginHint:walletSelection:sessionLifetimeSeconds:)	func startOIDCRedirectAuth(provider: OMSRelayOIDCProvider, omsRelayReturnURI: String, walletType: WalletType = WalletType.ethereum, loginHint: String? = nil, walletSelection: WalletSelectionBehavior? = nil, sessionLifetimeSeconds: UInt32? = nil) async throws -> StartOIDCRedirectAuthResult
+symbol	swift.method	WalletClient.startOIDCRedirectAuth(provider:walletType:loginHint:authorizeParams:walletSelection:sessionLifetimeSeconds:)	func startOIDCRedirectAuth(provider: CustomOIDCProviderConfiguration, walletType: WalletType = WalletType.ethereum, loginHint: String? = nil, authorizeParams: [String : String] = [:], walletSelection: WalletSelectionBehavior? = nil, sessionLifetimeSeconds: UInt32? = nil) async throws -> StartOIDCRedirectAuthResult
+symbol	swift.method	WalletClient.useWallet(walletId:)	@discardableResult func useWallet(walletId: String) async throws -> WalletSelectionResult
+symbol	swift.method	WalletType.encode(to:)	func encode(to encoder: any Encoder) throws
+symbol	swift.property	AbiArg.type	let type: String
+symbol	swift.property	AbiArg.value	let value: JSONValue
+symbol	swift.property	BalancesResult.balances	let balances: [TokenBalance]
+symbol	swift.property	BalancesResult.nativeBalances	let nativeBalances: [TokenBalance]
+symbol	swift.property	BalancesResult.page	let page: TokenBalancesPage?
+symbol	swift.property	BalancesResult.status	let status: Int
+symbol	swift.property	CompleteAuthResult.credential	var credential: CredentialInfo { get }
+symbol	swift.property	CompleteAuthResult.wallet	var wallet: Wallet? { get }
+symbol	swift.property	CompleteAuthResult.walletAddress	var walletAddress: String? { get }
+symbol	swift.property	CredentialInfo.credentialId	let credentialId: String
+symbol	swift.property	CredentialInfo.expiresAt	let expiresAt: String
+symbol	swift.property	CredentialInfo.isCaller	let isCaller: Bool
+symbol	swift.property	CustomOIDCProviderConfiguration.authMode	let authMode: OIDCAuthMode
+symbol	swift.property	CustomOIDCProviderConfiguration.authorizationURL	let authorizationURL: String
+symbol	swift.property	CustomOIDCProviderConfiguration.authorizeParams	let authorizeParams: [String : String]
+symbol	swift.property	CustomOIDCProviderConfiguration.clientID	let clientID: String
+symbol	swift.property	CustomOIDCProviderConfiguration.issuer	let issuer: String
+symbol	swift.property	CustomOIDCProviderConfiguration.provider	let provider: String?
+symbol	swift.property	CustomOIDCProviderConfiguration.providerLabel	let providerLabel: String?
+symbol	swift.property	CustomOIDCProviderConfiguration.providerRedirectURI	let providerRedirectURI: String
+symbol	swift.property	CustomOIDCProviderConfiguration.scopes	let scopes: [String]
+symbol	swift.property	FeeOption.displayValue	let displayValue: String
+symbol	swift.property	FeeOption.token	let token: FeeToken
+symbol	swift.property	FeeOption.value	let value: String
+symbol	swift.property	FeeOptionSelection.token	let token: String
+symbol	swift.property	FeeOptionWithBalance.available	let available: String?
+symbol	swift.property	FeeOptionWithBalance.availableRaw	let availableRaw: String?
+symbol	swift.property	FeeOptionWithBalance.balance	let balance: TokenBalance?
+symbol	swift.property	FeeOptionWithBalance.decimals	let decimals: Int?
+symbol	swift.property	FeeOptionWithBalance.feeOption	let feeOption: FeeOption
+symbol	swift.property	FeeOptionWithBalance.selection	var selection: FeeOptionSelection { get }
+symbol	swift.property	FeeToken.contractAddress	let contractAddress: String?
+symbol	swift.property	FeeToken.decimals	let decimals: UInt32?
+symbol	swift.property	FeeToken.logoUrl	let logoUrl: String?
+symbol	swift.property	FeeToken.name	let name: String
+symbol	swift.property	FeeToken.network	let network: String
+symbol	swift.property	FeeToken.symbol	let symbol: String
+symbol	swift.property	FeeToken.tokenId	let tokenId: String?
+symbol	swift.property	FeeToken.type	let type: String
+symbol	swift.property	GetBalancesParams.contractAddresses	let contractAddresses: [String]?
+symbol	swift.property	GetBalancesParams.contractStatus	let contractStatus: ContractVerificationStatus?
+symbol	swift.property	GetBalancesParams.includeMetadata	let includeMetadata: Bool
+symbol	swift.property	GetBalancesParams.networkType	let networkType: IndexerNetworkType?
+symbol	swift.property	GetBalancesParams.networks	let networks: [Network]?
+symbol	swift.property	GetBalancesParams.omitPrices	let omitPrices: Bool?
+symbol	swift.property	GetBalancesParams.page	let page: TokenBalancesPageRequest?
+symbol	swift.property	GetBalancesParams.tokenIds	let tokenIds: [String]?
+symbol	swift.property	GetBalancesParams.walletAddress	let walletAddress: String
+symbol	swift.property	GetTransactionHistoryParams.contractAddresses	let contractAddresses: [String]?
+symbol	swift.property	GetTransactionHistoryParams.fromBlock	let fromBlock: Int?
+symbol	swift.property	GetTransactionHistoryParams.includeMetadata	let includeMetadata: Bool
+symbol	swift.property	GetTransactionHistoryParams.metaTransactionIds	let metaTransactionIds: [String]?
+symbol	swift.property	GetTransactionHistoryParams.metadataOptions	let metadataOptions: MetadataOptions?
+symbol	swift.property	GetTransactionHistoryParams.networkType	let networkType: IndexerNetworkType?
+symbol	swift.property	GetTransactionHistoryParams.networks	let networks: [Network]?
+symbol	swift.property	GetTransactionHistoryParams.omitPrices	let omitPrices: Bool?
+symbol	swift.property	GetTransactionHistoryParams.page	let page: TokenBalancesPageRequest?
+symbol	swift.property	GetTransactionHistoryParams.toBlock	let toBlock: Int?
+symbol	swift.property	GetTransactionHistoryParams.tokenId	let tokenId: String?
+symbol	swift.property	GetTransactionHistoryParams.transactionHashes	let transactionHashes: [String]?
+symbol	swift.property	GetTransactionHistoryParams.walletAddress	let walletAddress: String
+symbol	swift.property	ListAccessResponse.credentials	let credentials: [CredentialInfo]
+symbol	swift.property	ListAccessResponse.page	let page: Page?
+symbol	swift.property	MetadataOptions.includeContracts	let includeContracts: [String]?
+symbol	swift.property	MetadataOptions.unverifiedOnly	let unverifiedOnly: Bool?
+symbol	swift.property	MetadataOptions.verifiedOnly	let verifiedOnly: Bool?
+symbol	swift.property	Network.chainId	var chainId: String { get }
+symbol	swift.property	Network.description	var description: String { get }
+symbol	swift.property	Network.displayName	var displayName: String { get }
+symbol	swift.property	Network.explorerURL	var explorerURL: URL? { get }
+symbol	swift.property	Network.explorerUrl	var explorerUrl: String { get }
+symbol	swift.property	Network.id	var id: Int { get }
+symbol	swift.property	Network.name	var name: String { get }
+symbol	swift.property	Network.nativeTokenSymbol	var nativeTokenSymbol: String { get }
+symbol	swift.property	OMSWallet.indexer	let indexer: IndexerClient
+symbol	swift.property	OMSWallet.wallet	let wallet: WalletClient
+symbol	swift.property	OMSWalletEmailSessionAuth.email	let email: String?
+symbol	swift.property	OMSWalletError.code	let code: OMSWalletErrorCode
+symbol	swift.property	OMSWalletError.errorDescription	var errorDescription: String? { get }
+symbol	swift.property	OMSWalletError.operation	let operation: OMSWalletOperation?
+symbol	swift.property	OMSWalletError.retryable	let retryable: Bool?
+symbol	swift.property	OMSWalletError.status	let status: Int?
+symbol	swift.property	OMSWalletError.txnId	let txnId: String?
+symbol	swift.property	OMSWalletError.underlyingError	let underlyingError: (any Error)?
+symbol	swift.property	OMSWalletError.upstreamError	let upstreamError: OMSWalletUpstreamError?
+symbol	swift.property	OMSWalletOidcSessionAuth.email	let email: String?
+symbol	swift.property	OMSWalletOidcSessionAuth.flow	let flow: OMSWalletOidcSessionAuthFlow
+symbol	swift.property	OMSWalletOidcSessionAuth.issuer	let issuer: String
+symbol	swift.property	OMSWalletOidcSessionAuth.provider	let provider: String?
+symbol	swift.property	OMSWalletOidcSessionAuth.providerLabel	let providerLabel: String?
+symbol	swift.property	OMSWalletSessionAuth.email	var email: String? { get }
+symbol	swift.property	OMSWalletSessionExpiredEvent.expiredAt	let expiredAt: Date
+symbol	swift.property	OMSWalletSessionExpiredEvent.session	let session: OMSWalletSessionState
+symbol	swift.property	OMSWalletSessionState.auth	let auth: OMSWalletSessionAuth?
+symbol	swift.property	OMSWalletSessionState.expiresAt	let expiresAt: Date?
+symbol	swift.property	OMSWalletSessionState.walletAddress	let walletAddress: String?
+symbol	swift.property	OMSWalletUpstreamError.code	let code: String?
+symbol	swift.property	OMSWalletUpstreamError.message	let message: String?
+symbol	swift.property	OMSWalletUpstreamError.name	let name: String?
+symbol	swift.property	OMSWalletUpstreamError.service	let service: OMSWalletUpstreamService
+symbol	swift.property	OMSWalletUpstreamError.status	let status: Int?
+symbol	swift.property	Page.cursor	let cursor: String?
+symbol	swift.property	Page.limit	let limit: UInt32?
+symbol	swift.property	PendingWalletSelection.credential	let credential: CredentialInfo
+symbol	swift.property	PendingWalletSelection.walletType	let walletType: WalletType
+symbol	swift.property	PendingWalletSelection.wallets	let wallets: [Wallet]
+symbol	swift.property	SendTransactionRequest.data	let data: String?
+symbol	swift.property	SendTransactionRequest.mode	let mode: TransactionMode
+symbol	swift.property	SendTransactionRequest.to	let to: String
+symbol	swift.property	SendTransactionRequest.value	let value: String
+symbol	swift.property	SendTransactionResponse.status	let status: TransactionStatus
+symbol	swift.property	SendTransactionResponse.statusResolution	let statusResolution: TransactionStatusResolution
+symbol	swift.property	SendTransactionResponse.txnHash	let txnHash: String?
+symbol	swift.property	SendTransactionResponse.txnId	let txnId: String
+symbol	swift.property	SortBy.column	let column: String
+symbol	swift.property	SortBy.order	let order: SortOrder
+symbol	swift.property	StartOIDCRedirectAuthResult.authorizationURL	let authorizationURL: String
+symbol	swift.property	TokenBalance.accountAddress	let accountAddress: String?
+symbol	swift.property	TokenBalance.balance	let balance: String?
+symbol	swift.property	TokenBalance.balanceUSD	let balanceUSD: String?
+symbol	swift.property	TokenBalance.blockHash	let blockHash: String?
+symbol	swift.property	TokenBalance.blockNumber	let blockNumber: Int64?
+symbol	swift.property	TokenBalance.chainId	let chainId: Int64?
+symbol	swift.property	TokenBalance.contractAddress	let contractAddress: String?
+symbol	swift.property	TokenBalance.contractInfo	let contractInfo: TokenContractInfo?
+symbol	swift.property	TokenBalance.contractType	let contractType: String?
+symbol	swift.property	TokenBalance.isSummary	let isSummary: Bool?
+symbol	swift.property	TokenBalance.name	let name: String?
+symbol	swift.property	TokenBalance.priceUSD	let priceUSD: String?
+symbol	swift.property	TokenBalance.priceUpdatedAt	let priceUpdatedAt: String?
+symbol	swift.property	TokenBalance.symbol	let symbol: String?
+symbol	swift.property	TokenBalance.tokenId	let tokenId: String?
+symbol	swift.property	TokenBalance.tokenMetadata	let tokenMetadata: TokenMetadata?
+symbol	swift.property	TokenBalance.uniqueCollectibles	let uniqueCollectibles: String?
+symbol	swift.property	TokenBalancesPage.after	let after: JSONValue?
+symbol	swift.property	TokenBalancesPage.before	let before: JSONValue?
+symbol	swift.property	TokenBalancesPage.column	let column: String?
+symbol	swift.property	TokenBalancesPage.more	let more: Bool?
+symbol	swift.property	TokenBalancesPage.page	let page: Int?
+symbol	swift.property	TokenBalancesPage.pageSize	let pageSize: Int?
+symbol	swift.property	TokenBalancesPage.sort	let sort: [SortBy]?
+symbol	swift.property	TokenBalancesPageRequest.after	let after: JSONValue?
+symbol	swift.property	TokenBalancesPageRequest.before	let before: JSONValue?
+symbol	swift.property	TokenBalancesPageRequest.column	let column: String?
+symbol	swift.property	TokenBalancesPageRequest.page	let page: Int?
+symbol	swift.property	TokenBalancesPageRequest.pageSize	let pageSize: Int?
+symbol	swift.property	TokenBalancesPageRequest.sort	let sort: [SortBy]?
+symbol	swift.property	TokenContractInfo.address	let address: String?
+symbol	swift.property	TokenContractInfo.bytecodeHash	let bytecodeHash: String?
+symbol	swift.property	TokenContractInfo.chainId	let chainId: Int64?
+symbol	swift.property	TokenContractInfo.decimals	let decimals: Int?
+symbol	swift.property	TokenContractInfo.deployed	let deployed: Bool?
+symbol	swift.property	TokenContractInfo.extensions	let extensions: [String : JSONValue]?
+symbol	swift.property	TokenContractInfo.logoURI	let logoURI: String?
+symbol	swift.property	TokenContractInfo.name	let name: String?
+symbol	swift.property	TokenContractInfo.queuedAt	let queuedAt: String?
+symbol	swift.property	TokenContractInfo.source	let source: String?
+symbol	swift.property	TokenContractInfo.status	let status: String?
+symbol	swift.property	TokenContractInfo.symbol	let symbol: String?
+symbol	swift.property	TokenContractInfo.type	let type: String?
+symbol	swift.property	TokenContractInfo.updatedAt	let updatedAt: String?
+symbol	swift.property	TokenMetadata.animationUrl	let animationUrl: String?
+symbol	swift.property	TokenMetadata.assets	let assets: [TokenMetadataAsset]?
+symbol	swift.property	TokenMetadata.attributes	let attributes: [[String : JSONValue]]?
+symbol	swift.property	TokenMetadata.audio	let audio: String?
+symbol	swift.property	TokenMetadata.backgroundColor	let backgroundColor: String?
+symbol	swift.property	TokenMetadata.chainId	let chainId: Int64?
+symbol	swift.property	TokenMetadata.contractAddress	let contractAddress: String?
+symbol	swift.property	TokenMetadata.decimals	let decimals: Int?
+symbol	swift.property	TokenMetadata.description	let description: String?
+symbol	swift.property	TokenMetadata.externalUrl	let externalUrl: String?
+symbol	swift.property	TokenMetadata.image	let image: String?
+symbol	swift.property	TokenMetadata.imageData	let imageData: String?
+symbol	swift.property	TokenMetadata.lastFetched	let lastFetched: String?
+symbol	swift.property	TokenMetadata.name	let name: String?
+symbol	swift.property	TokenMetadata.properties	let properties: [String : JSONValue]?
+symbol	swift.property	TokenMetadata.queuedAt	let queuedAt: String?
+symbol	swift.property	TokenMetadata.source	let source: String?
+symbol	swift.property	TokenMetadata.status	let status: String?
+symbol	swift.property	TokenMetadata.tokenId	let tokenId: String?
+symbol	swift.property	TokenMetadata.updatedAt	let updatedAt: String?
+symbol	swift.property	TokenMetadata.video	let video: String?
+symbol	swift.property	TokenMetadataAsset.collectionId	let collectionId: Int64?
+symbol	swift.property	TokenMetadataAsset.filesize	let filesize: Int64?
+symbol	swift.property	TokenMetadataAsset.height	let height: Int?
+symbol	swift.property	TokenMetadataAsset.id	let id: Int64?
+symbol	swift.property	TokenMetadataAsset.metadataField	let metadataField: String?
+symbol	swift.property	TokenMetadataAsset.mimeType	let mimeType: String?
+symbol	swift.property	TokenMetadataAsset.name	let name: String?
+symbol	swift.property	TokenMetadataAsset.tokenId	let tokenId: String?
+symbol	swift.property	TokenMetadataAsset.updatedAt	let updatedAt: String?
+symbol	swift.property	TokenMetadataAsset.url	let url: String?
+symbol	swift.property	TokenMetadataAsset.width	let width: Int?
+symbol	swift.property	Transaction.blockHash	let blockHash: String
+symbol	swift.property	Transaction.blockNumber	let blockNumber: Int64
+symbol	swift.property	Transaction.chainId	let chainId: Int64
+symbol	swift.property	Transaction.metaTxnId	let metaTxnId: String?
+symbol	swift.property	Transaction.timestamp	let timestamp: String
+symbol	swift.property	Transaction.transfers	let transfers: [TransactionTransfer]?
+symbol	swift.property	Transaction.txnHash	let txnHash: String
+symbol	swift.property	TransactionHistoryResult.page	let page: TokenBalancesPage?
+symbol	swift.property	TransactionHistoryResult.status	let status: Int
+symbol	swift.property	TransactionHistoryResult.transactions	let transactions: [Transaction]
+symbol	swift.property	TransactionMode.wireValue	var wireValue: String { get }
+symbol	swift.property	TransactionStatus.wireValue	var wireValue: String { get }
+symbol	swift.property	TransactionStatusPollingOptions.fastIntervalMs	let fastIntervalMs: UInt64?
+symbol	swift.property	TransactionStatusPollingOptions.fastPollCount	let fastPollCount: Int?
+symbol	swift.property	TransactionStatusPollingOptions.intervalMs	let intervalMs: UInt64?
+symbol	swift.property	TransactionStatusPollingOptions.timeoutMs	let timeoutMs: UInt64?
+symbol	swift.property	TransactionStatusResponse.status	let status: TransactionStatus
+symbol	swift.property	TransactionStatusResponse.txnHash	let txnHash: String?
+symbol	swift.property	TransactionTransfer.amounts	let amounts: [String]?
+symbol	swift.property	TransactionTransfer.amountsUSD	let amountsUSD: [String]?
+symbol	swift.property	TransactionTransfer.contractAddress	let contractAddress: String?
+symbol	swift.property	TransactionTransfer.contractInfo	let contractInfo: TokenContractInfo?
+symbol	swift.property	TransactionTransfer.contractType	let contractType: String?
+symbol	swift.property	TransactionTransfer.from	let from: String?
+symbol	swift.property	TransactionTransfer.logIndex	let logIndex: Int?
+symbol	swift.property	TransactionTransfer.pricesUSD	let pricesUSD: [String]?
+symbol	swift.property	TransactionTransfer.to	let to: String?
+symbol	swift.property	TransactionTransfer.tokenIds	let tokenIds: [String]?
+symbol	swift.property	TransactionTransfer.tokenMetadata	let tokenMetadata: [String : TokenMetadata]?
+symbol	swift.property	TransactionTransfer.transferType	let transferType: String?
+symbol	swift.property	Wallet.address	let address: String
+symbol	swift.property	Wallet.id	let id: String
+symbol	swift.property	Wallet.reference	let reference: String?
+symbol	swift.property	Wallet.type	let type: WalletType
+symbol	swift.property	WalletClient.session	var session: OMSWalletSessionState { get }
+symbol	swift.property	WalletClient.walletAddress	var walletAddress: String? { get set }
+symbol	swift.property	WalletClient.walletId	var walletId: String { get set }
+symbol	swift.property	WalletSelectionResult.wallet	let wallet: Wallet
+symbol	swift.property	WalletSelectionResult.walletAddress	let walletAddress: String
+symbol	swift.property	WalletType.wireValue	var wireValue: String { get }
+symbol	swift.struct	AbiArg	struct AbiArg
+symbol	swift.struct	BalancesResult	struct BalancesResult
+symbol	swift.struct	CredentialInfo	struct CredentialInfo
+symbol	swift.struct	CustomOIDCProviderConfiguration	struct CustomOIDCProviderConfiguration
+symbol	swift.struct	FeeOption	struct FeeOption
+symbol	swift.struct	FeeOptionSelection	struct FeeOptionSelection
+symbol	swift.struct	FeeOptionSelector	struct FeeOptionSelector
+symbol	swift.struct	FeeOptionWithBalance	struct FeeOptionWithBalance
+symbol	swift.struct	FeeToken	struct FeeToken
+symbol	swift.struct	GetBalancesParams	struct GetBalancesParams
+symbol	swift.struct	GetTransactionHistoryParams	struct GetTransactionHistoryParams
+symbol	swift.struct	ListAccessPages	struct ListAccessPages
+symbol	swift.struct	ListAccessPages.AsyncIterator	struct AsyncIterator
+symbol	swift.struct	ListAccessResponse	struct ListAccessResponse
+symbol	swift.struct	MetadataOptions	struct MetadataOptions
+symbol	swift.struct	OMSRelayOIDCProvider	struct OMSRelayOIDCProvider
+symbol	swift.struct	OMSWalletEmailSessionAuth	struct OMSWalletEmailSessionAuth
+symbol	swift.struct	OMSWalletError	struct OMSWalletError
+symbol	swift.struct	OMSWalletOidcSessionAuth	struct OMSWalletOidcSessionAuth
+symbol	swift.struct	OMSWalletSessionExpiredEvent	struct OMSWalletSessionExpiredEvent
+symbol	swift.struct	OMSWalletSessionState	struct OMSWalletSessionState
+symbol	swift.struct	OMSWalletUpstreamError	struct OMSWalletUpstreamError
+symbol	swift.struct	Page	struct Page
+symbol	swift.struct	SendTransactionRequest	struct SendTransactionRequest
+symbol	swift.struct	SendTransactionResponse	struct SendTransactionResponse
+symbol	swift.struct	SortBy	struct SortBy
+symbol	swift.struct	StartOIDCRedirectAuthResult	struct StartOIDCRedirectAuthResult
+symbol	swift.struct	TokenBalance	struct TokenBalance
+symbol	swift.struct	TokenBalancesPage	struct TokenBalancesPage
+symbol	swift.struct	TokenBalancesPageRequest	struct TokenBalancesPageRequest
+symbol	swift.struct	TokenContractInfo	struct TokenContractInfo
+symbol	swift.struct	TokenMetadata	struct TokenMetadata
+symbol	swift.struct	TokenMetadataAsset	struct TokenMetadataAsset
+symbol	swift.struct	Transaction	struct Transaction
+symbol	swift.struct	TransactionHistoryResult	struct TransactionHistoryResult
+symbol	swift.struct	TransactionStatusPollingOptions	struct TransactionStatusPollingOptions
+symbol	swift.struct	TransactionStatusResponse	struct TransactionStatusResponse
+symbol	swift.struct	TransactionTransfer	struct TransactionTransfer
+symbol	swift.struct	Wallet	struct Wallet
+symbol	swift.struct	WalletSelectionResult	struct WalletSelectionResult
+symbol	swift.type.method	FeeOptionSelector.custom(_:)	static func custom(_ pick: @escaping FeeOptionSelector.Select) -> FeeOptionSelector
+symbol	swift.type.method	Network.findById(_:)	static func findById(_ chainId: Int) -> Network?
+symbol	swift.type.method	Network.findByName(_:)	static func findByName(_ name: String) -> Network?
+symbol	swift.type.property	FeeOptionSelector.firstAvailable	static let firstAvailable: FeeOptionSelector
+symbol	swift.type.property	Network.amoy	static let amoy: Network
+symbol	swift.type.property	Network.supportedNetworks	static var supportedNetworks: [Network] { get }
+symbol	swift.type.property	OMSRelayOIDCProviders.apple	static let apple: OMSRelayOIDCProvider
+symbol	swift.type.property	OMSRelayOIDCProviders.google	static let google: OMSRelayOIDCProvider
+symbol	swift.typealias	FeeOptionSelector.Select	typealias Select = @Sendable ([FeeOptionWithBalance]) async throws -> FeeOptionSelection?
+symbol	swift.typealias	ListAccessPages.Element	typealias Element = ListAccessResponse
