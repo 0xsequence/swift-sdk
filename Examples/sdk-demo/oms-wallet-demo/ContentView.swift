@@ -1366,10 +1366,12 @@ private func sessionAuthLabel(_ auth: OMSWalletSessionAuth?) -> String {
         return auth.email ?? "Email"
     case .oidc(let auth):
         let provider = auth.providerLabel ?? auth.provider ?? "OIDC"
+        let flow = auth.flow == .idToken ? "ID token" : "Redirect"
+        let providerAndFlow = "\(provider) (\(flow))"
         guard let email = auth.email, !email.isEmpty else {
-            return provider
+            return providerAndFlow
         }
-        return "\(provider) - \(email)"
+        return "\(providerAndFlow) - \(email)"
     case .none:
         return "Auth unavailable"
     }
