@@ -32,7 +32,10 @@ extension WalletClient {
 
                 verifier = response.verifier
                 challenge = response.challenge
-                pendingEmailAuthSessionLifetimeSeconds = validatedSessionLifetimeSeconds
+                pendingEmailAuth = PendingEmailAuth(
+                    email: email,
+                    sessionLifetimeSeconds: validatedSessionLifetimeSeconds
+                )
             } catch {
                 try? signOut()
                 throw error
@@ -52,19 +55,19 @@ extension WalletClient {
         walletType: WalletType = WalletType.ethereum
     ) async throws -> CompleteAuthResult {
         try await runOMSWalletOperation(.walletCompleteEmailAuth) {
-            guard let sessionLifetimeSeconds = pendingEmailAuthSessionLifetimeSeconds else {
+            guard let pendingEmailAuth else {
                 throw OMSWalletError.sessionMissing()
             }
             let authRevision = sessionRevisionSnapshot()
             let response = try await confirmEmailSignIn(
                 code: code,
-                sessionLifetimeSeconds: sessionLifetimeSeconds
+                sessionLifetimeSeconds: pendingEmailAuth.sessionLifetimeSeconds
             )
             return try await completeWalletAuth(
                 response,
                 walletType: walletType,
                 walletSelection: walletSelection,
-                sessionAuth: .email(OMSWalletEmailSessionAuth(email: response.email)),
+                sessionAuth: .email(OMSWalletEmailSessionAuth(email: response.email ?? pendingEmailAuth.email)),
                 requiredSessionRevision: authRevision
             )
         }

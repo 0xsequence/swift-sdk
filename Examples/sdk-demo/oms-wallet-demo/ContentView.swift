@@ -1360,7 +1360,7 @@ struct WalletWindow: View {
 private func sessionAuthLabel(_ auth: OMSWalletSessionAuth?) -> String {
     switch auth {
     case .email(let auth):
-        return auth.email ?? "Email"
+        return auth.email
     case .oidc(let auth):
         let provider = auth.providerLabel ?? auth.provider ?? "OIDC"
         let flow = auth.flow == .idToken ? "ID token" : "Redirect"

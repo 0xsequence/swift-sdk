@@ -1439,7 +1439,7 @@ private struct MetadataPill: View {
 private func sessionAuthLabel(_ auth: OMSWalletSessionAuth?) -> String {
     switch auth {
     case .email(let auth):
-        return auth.email ?? "Email"
+        return auth.email
     case .oidc(let auth):
         let provider = auth.providerLabel ?? auth.provider ?? "OIDC"
         guard let email = auth.email, !email.isEmpty else {

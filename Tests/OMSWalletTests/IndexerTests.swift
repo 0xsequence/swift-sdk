@@ -160,14 +160,21 @@ import Testing
                         {
                           "transferType": "SEND",
                           "contractAddress": "0xcontract",
+                          "contractType": "ERC721",
+                          "from": "0xwallet",
+                          "to": "0xrecipient",
                           "tokenIDs": ["7"],
                           "amounts": ["1"],
+                          "logIndex": 0,
                           "tokenMetadata": {
                             "7": {
                               "chainId": 80002,
                               "contractAddress": "0xcontract",
                               "tokenID": "7",
-                              "name": "Token 7"
+                              "source": "metadata",
+                              "name": "Token 7",
+                              "attributes": [],
+                              "status": "available"
                             }
                           }
                         }
@@ -201,7 +208,7 @@ import Testing
     let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
     let filter = try #require(payload["filter"] as? [String: Any])
     let transaction = try #require(result.transactions.first)
-    let transfer = try #require(transaction.transfers?.first)
+    let transfer = try #require(transaction.transfers.first)
 
     #expect(recorder.recordedRequest()?.url?.path == "/v1/IndexerGateway/GetTransactionHistory")
     #expect(payload["networkType"] as? String == "ALL")
@@ -294,7 +301,7 @@ import Testing
         """#.utf8
     )
 
-    let balance = try JSONDecoder().decode(TokenBalance.self, from: fixture)
+    let balance = try JSONDecoder().decode(ContractTokenBalance.self, from: fixture)
     let contractInfo = try #require(balance.contractInfo)
     let tokenMetadata = try #require(balance.tokenMetadata)
     let asset = try #require(tokenMetadata.assets?.first)
@@ -315,7 +322,7 @@ import Testing
     #expect(asset.tokenId == "asset-token")
     #expect(asset.url == "https://example.com/asset.png")
 
-    if case .bool(true)? = contractInfo.extensions?["verified"] {
+    if case .bool(true)? = contractInfo.extensions["verified"] {
     } else {
         #expect(Bool(false), "Expected contractInfo.extensions.verified to decode")
     }
@@ -323,6 +330,84 @@ import Testing
     if case .string("rare")? = tokenMetadata.properties?["rarity"] {
     } else {
         #expect(Bool(false), "Expected tokenMetadata.properties.rarity to decode")
+    }
+}
+
+@Test func TestGetBalancesRejectsMissingRequiredContractBalanceFields() async throws {
+    let recorder = IndexerRequestRecorder(
+        responseBody: Data(
+            #"{"page":{"page":0,"pageSize":40,"more":false},"nativeBalances":[],"balances":[{"chainId":137,"results":[{"contractType":"ERC20","contractAddress":"0xtoken","accountAddress":"0xwallet","tokenID":"0","balance":"1","blockNumber":1,"chainId":137}]}]}"#.utf8
+        )
+    )
+    let client = makeRecordingIndexerClient(recorder: recorder)
+
+    do {
+        _ = try await client.getBalances(GetBalancesParams(walletAddress: "0xwallet"))
+        #expect(Bool(false), "Expected an invalid response error")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .invalidResponse)
+        #expect(error.operation == .indexerGetBalances)
+    }
+}
+
+@Test func TestGetBalancesRejectsMissingOrNullRequiredResultContainers() async throws {
+    let responseBodies = [
+        #"{"balances":[]}"#,
+        #"{"nativeBalances":null,"balances":[]}"#,
+        #"{"nativeBalances":[{"chainId":137}],"balances":[]}"#,
+        #"{"nativeBalances":[{"chainId":137,"results":null}],"balances":[]}"#
+    ]
+
+    for responseBody in responseBodies {
+        let recorder = IndexerRequestRecorder(responseBody: Data(responseBody.utf8))
+        let client = makeRecordingIndexerClient(recorder: recorder)
+
+        do {
+            _ = try await client.getBalances(GetBalancesParams(walletAddress: "0xwallet"))
+            #expect(Bool(false), "Expected an invalid response error for \(responseBody)")
+        } catch let error as OMSWalletError {
+            #expect(error.code == .invalidResponse)
+            #expect(error.operation == .indexerGetBalances)
+        }
+    }
+}
+
+@Test func TestGetTransactionHistoryRejectsMissingTransfers() async throws {
+    let recorder = IndexerRequestRecorder(
+        responseBody: Data(
+            #"{"transactions":[{"chainId":137,"results":[{"txnHash":"0xtxn","blockNumber":1,"blockHash":"0xblock","chainId":137,"timestamp":"2026-01-01T00:00:00Z"}]}]}"#.utf8
+        )
+    )
+    let client = makeRecordingIndexerClient(recorder: recorder)
+
+    do {
+        _ = try await client.getTransactionHistory(GetTransactionHistoryParams(walletAddress: "0xwallet"))
+        #expect(Bool(false), "Expected an invalid response error")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .invalidResponse)
+        #expect(error.operation == .indexerGetTransactionHistory)
+    }
+}
+
+@Test func TestGetTransactionHistoryRejectsMissingOrNullRequiredResultContainers() async throws {
+    let responseBodies = [
+        #"{}"#,
+        #"{"transactions":null}"#,
+        #"{"transactions":[{"chainId":137}]}"#,
+        #"{"transactions":[{"chainId":137,"results":null}]}"#
+    ]
+
+    for responseBody in responseBodies {
+        let recorder = IndexerRequestRecorder(responseBody: Data(responseBody.utf8))
+        let client = makeRecordingIndexerClient(recorder: recorder)
+
+        do {
+            _ = try await client.getTransactionHistory(GetTransactionHistoryParams(walletAddress: "0xwallet"))
+            #expect(Bool(false), "Expected an invalid response error for \(responseBody)")
+        } catch let error as OMSWalletError {
+            #expect(error.code == .invalidResponse)
+            #expect(error.operation == .indexerGetTransactionHistory)
+        }
     }
 }
 

@@ -1,5 +1,10 @@
 import Foundation
 
+struct PendingEmailAuth: Sendable {
+    let email: String
+    let sessionLifetimeSeconds: UInt32
+}
+
 @available(macOS 12.0, iOS 15.0, *)
 public final class WalletClient: @unchecked Sendable {
     typealias SessionExpiredObserver = @MainActor @Sendable (OMSWalletSessionExpiredEvent) -> Void
@@ -89,7 +94,7 @@ public final class WalletClient: @unchecked Sendable {
     private var _sessionExpiredObservers: [UUID: SessionExpiredObserver] = [:]
     private var _verifier = ""
     private var _challenge = ""
-    private var _pendingEmailAuthSessionLifetimeSeconds: UInt32?
+    private var _pendingEmailAuth: PendingEmailAuth?
 
     public internal(set) var walletAddress: String? {
         get {
@@ -126,12 +131,12 @@ public final class WalletClient: @unchecked Sendable {
             withSessionLock { _challenge = newValue }
         }
     }
-    var pendingEmailAuthSessionLifetimeSeconds: UInt32? {
+    var pendingEmailAuth: PendingEmailAuth? {
         get {
-            withSessionLock { _pendingEmailAuthSessionLifetimeSeconds }
+            withSessionLock { _pendingEmailAuth }
         }
         set {
-            withSessionLock { _pendingEmailAuthSessionLifetimeSeconds = newValue }
+            withSessionLock { _pendingEmailAuth = newValue }
         }
     }
 

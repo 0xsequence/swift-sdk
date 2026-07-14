@@ -355,25 +355,14 @@ extension WalletClient {
         )
 
         let nativeBalance = feeOptions.contains(where: { $0.token.isNativeToken })
-            ? balances?.nativeBalances.first { $0.chainId == Int64(network.id) }
+            ? balances?.nativeBalances.first { $0.chainId == Int64(network.id) }.map(TokenBalance.native)
             : nil
 
         var balancesByContract: [String: TokenBalance?] = [:]
         for contractAddress in contractAddresses {
-            balancesByContract[contractAddress] = balances.map { balances in
-                balances.balances.first {
+            balancesByContract[contractAddress] = balances?.balances.first {
                     normalizedAddress($0.contractAddress) == contractAddress
-                } ?? TokenBalance(
-                    contractType: "ERC20",
-                    contractAddress: contractAddress,
-                    accountAddress: walletAddress,
-                    tokenId: nil,
-                    balance: "0",
-                    blockHash: nil,
-                    blockNumber: nil,
-                    chainId: Int64(network.id)
-                )
-            }
+                }.map(TokenBalance.contract)
         }
 
         return feeOptions.map { feeOption in

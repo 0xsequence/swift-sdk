@@ -78,14 +78,14 @@ public struct GetBalancesParams: Sendable {
 public struct BalancesResult: Sendable {
     public let status: Int
     public let page: TokenBalancesPage?
-    public let nativeBalances: [TokenBalance]
-    public let balances: [TokenBalance]
+    public let nativeBalances: [NativeTokenBalance]
+    public let balances: [ContractTokenBalance]
 
     public init(
         status: Int,
         page: TokenBalancesPage?,
-        nativeBalances: [TokenBalance],
-        balances: [TokenBalance]
+        nativeBalances: [NativeTokenBalance],
+        balances: [ContractTokenBalance]
     ) {
         self.status = status
         self.page = page

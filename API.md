@@ -716,7 +716,7 @@ enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
     var name: String
     var nativeTokenSymbol: String
     var explorerUrl: String
-    var explorerURL: URL?
+    var explorerURL: URL
     var displayName: String
     var description: String
 
@@ -775,7 +775,7 @@ enum OMSWalletSessionAuth: Codable, Equatable, Sendable {
 
 ```swift
 struct OMSWalletEmailSessionAuth: Codable, Equatable, Sendable {
-    let email: String?
+    let email: String
 }
 ```
 
@@ -1187,8 +1187,8 @@ Use `networks` for an explicit chain list. If omitted, `networkType` defaults to
 struct BalancesResult: Sendable {
     let status: Int
     let page: TokenBalancesPage?
-    let nativeBalances: [TokenBalance]
-    let balances: [TokenBalance]
+    let nativeBalances: [NativeTokenBalance]
+    let balances: [ContractTokenBalance]
 }
 ```
 
@@ -1231,7 +1231,7 @@ struct Transaction: Codable, Sendable {
     let blockHash: String
     let chainId: Int64
     let metaTxnId: String?
-    let transfers: [TransactionTransfer]?
+    let transfers: [TransactionTransfer]
     let timestamp: String
 }
 ```
@@ -1240,14 +1240,14 @@ struct Transaction: Codable, Sendable {
 
 ```swift
 struct TransactionTransfer: Codable, Sendable {
-    let transferType: String?
-    let contractAddress: String?
-    let contractType: String?
-    let from: String?
-    let to: String?
+    let transferType: String
+    let contractAddress: String
+    let contractType: String
+    let from: String
+    let to: String
     let tokenIds: [String]?
-    let amounts: [String]?
-    let logIndex: Int?
+    let amounts: [String]
+    let logIndex: Int
     let amountsUSD: [String]?
     let pricesUSD: [String]?
     let contractInfo: TokenContractInfo?
@@ -1273,13 +1273,13 @@ struct SortBy: Codable, Sendable {
 
 ```swift
 struct TokenBalancesPage: Codable, Sendable {
-    let page: Int?
+    let page: Int
     let column: String?
     let before: JSONValue?
     let after: JSONValue?
     let sort: [SortBy]?
-    let pageSize: Int?
-    let more: Bool?
+    let pageSize: Int
+    let more: Bool
 }
 ```
 
@@ -1301,65 +1301,70 @@ struct TokenBalancesPageRequest: Codable, Sendable {
 ### TokenBalance
 
 ```swift
-struct TokenBalance: Codable, Sendable {
-    let contractType: String?
-    let contractAddress: String?
-    let accountAddress: String?
-    let tokenId: String?
-    let name: String?
-    let symbol: String?
-    let balance: String?
+struct NativeTokenBalance: Codable, Sendable {
+    let contractType: String
+    let accountAddress: String
+    let name: String
+    let symbol: String
+    let balance: String
+    let chainId: Int64
     let balanceUSD: String?
     let priceUSD: String?
     let priceUpdatedAt: String?
-    let blockHash: String?
-    let blockNumber: Int64?
-    let chainId: Int64?
+}
+
+struct ContractTokenBalance: Codable, Sendable {
+    let contractType: String
+    let contractAddress: String
+    let accountAddress: String
+    let tokenId: String
+    let balance: String
+    let blockHash: String
+    let blockNumber: Int64
+    let chainId: Int64
+    let balanceUSD: String?
+    let priceUSD: String?
+    let priceUpdatedAt: String?
     let uniqueCollectibles: String?
     let isSummary: Bool?
     let contractInfo: TokenContractInfo?
     let tokenMetadata: TokenMetadata?
+}
 
-    init(
-        contractType: String?,
-        contractAddress: String?,
-        accountAddress: String?,
-        tokenId: String?,
-        name: String? = nil,
-        symbol: String? = nil,
-        balance: String?,
-        balanceUSD: String? = nil,
-        priceUSD: String? = nil,
-        priceUpdatedAt: String? = nil,
-        blockHash: String?,
-        blockNumber: Int64?,
-        chainId: Int64?,
-        uniqueCollectibles: String? = nil,
-        isSummary: Bool? = nil,
-        contractInfo: TokenContractInfo? = nil,
-        tokenMetadata: TokenMetadata? = nil
-    )
+enum TokenBalance: Sendable {
+    case native(NativeTokenBalance)
+    case contract(ContractTokenBalance)
+
+    var contractType: String { get }
+    var accountAddress: String { get }
+    var balance: String { get }
+    var chainId: Int64 { get }
+    var balanceUSD: String? { get }
+    var priceUSD: String? { get }
+    var priceUpdatedAt: String? { get }
 }
 ```
+
+Indexer results expose concrete native and contract arrays. `TokenBalance` is the common enum used by fee-option selection.
 
 ### TokenContractInfo
 
 ```swift
 struct TokenContractInfo: Codable, Sendable {
-    let chainId: Int64?
-    let address: String?
-    let source: String?
-    let name: String?
-    let type: String?
-    let symbol: String?
+    let chainId: Int64
+    let address: String
+    let source: String
+    let name: String
+    let type: String
+    let symbol: String
     let decimals: Int?
     let logoURI: String?
-    let deployed: Bool?
-    let bytecodeHash: String?
-    let extensions: [String: JSONValue]?
-    let updatedAt: String?
+    let deployed: Bool
+    let bytecodeHash: String
+    let extensions: [String: JSONValue]
+    let updatedAt: String
     let queuedAt: String?
-    let status: String?
+    let status: String
 }
 ```
 
@@ -1369,15 +1374,15 @@ struct TokenContractInfo: Codable, Sendable {
 struct TokenMetadata: Codable, Sendable {
     let chainId: Int64?
     let contractAddress: String?
-    let tokenId: String?
-    let source: String?
-    let name: String?
+    let tokenId: String
+    let source: String
+    let name: String
     let description: String?
     let image: String?
     let video: String?
     let audio: String?
     let properties: [String: JSONValue]?
-    let attributes: [[String: JSONValue]]?
+    let attributes: [[String: JSONValue]]
     let imageData: String?
     let externalUrl: String?
     let backgroundColor: String?
@@ -1385,7 +1390,7 @@ struct TokenMetadata: Codable, Sendable {
     let decimals: Int?
     let updatedAt: String?
     let assets: [TokenMetadataAsset]?
-    let status: String?
+    let status: String
     let queuedAt: String?
     let lastFetched: String?
 }

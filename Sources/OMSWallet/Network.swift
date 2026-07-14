@@ -116,8 +116,8 @@ public enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
         }
     }
 
-    public var explorerURL: URL? {
-        URL(string: explorerUrl)
+    public var explorerURL: URL {
+        URL(string: explorerUrl)!
     }
 
     public var displayName: String {

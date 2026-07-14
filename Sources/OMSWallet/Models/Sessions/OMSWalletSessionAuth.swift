@@ -45,21 +45,21 @@ public enum OMSWalletSessionAuth: Codable, Equatable, Sendable {
 }
 
 public struct OMSWalletEmailSessionAuth: Codable, Equatable, Sendable {
-    public let email: String?
+    public let email: String
 
-    public init(email: String?) {
+    public init(email: String) {
         self.email = email
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.email = try container.decodeIfPresent(String.self, forKey: .email)
+        self.email = try container.decode(String.self, forKey: .email)
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode("email", forKey: .type)
-        try container.encodeIfPresent(email, forKey: .email)
+        try container.encode(email, forKey: .email)
     }
 
     private enum CodingKeys: String, CodingKey {

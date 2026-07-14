@@ -4,39 +4,28 @@ private let indexerGatewayWebRPCHeaderValue = "webrpc@v0.31.2;gen-swift@v0.1.2;s
 
 private struct GatewayNativeTokenBalances: Decodable {
     let chainId: Int64
-    let results: [NativeTokenBalanceResponse]?
+    let results: [NativeTokenBalance]
 }
 
 private struct GatewayTokenBalances: Decodable {
     let chainId: Int64
-    let results: [TokenBalance]?
+    let results: [ContractTokenBalance]
 }
 
 private struct GatewayTransactions: Decodable {
     let chainId: Int64
-    let results: [Transaction]?
-}
-
-private struct NativeTokenBalanceResponse: Decodable {
-    let accountAddress: String?
-    let chainId: Int64?
-    let name: String?
-    let symbol: String?
-    let balance: String?
-    let balanceUSD: String?
-    let priceUSD: String?
-    let priceUpdatedAt: String?
+    let results: [Transaction]
 }
 
 private struct GetTokenBalancesDetailsResponse: Decodable {
     let page: TokenBalancesPage?
-    let nativeBalances: [GatewayNativeTokenBalances]?
-    let balances: [GatewayTokenBalances]?
+    let nativeBalances: [GatewayNativeTokenBalances]
+    let balances: [GatewayTokenBalances]
 }
 
 private struct GetTransactionHistoryResponse: Decodable {
     let page: TokenBalancesPage?
-    let transactions: [GatewayTransactions]?
+    let transactions: [GatewayTransactions]
 }
 
 @available(macOS 12.0, iOS 15.0, *)
@@ -87,7 +76,7 @@ public final class IndexerClient: Sendable {
             return BalancesResult(
                 status: response.statusCode,
                 page: response.payload.page,
-                nativeBalances: flatten(response.payload.nativeBalances).map(nativeTokenBalance),
+                nativeBalances: flatten(response.payload.nativeBalances),
                 balances: flatten(response.payload.balances)
             )
         }
@@ -328,34 +317,16 @@ private struct GetTransactionHistoryRequest: Encodable {
     let page: TokenBalancesPageRequest
 }
 
-private func flatten(_ groups: [GatewayNativeTokenBalances]?) -> [NativeTokenBalanceResponse] {
-    groups?.flatMap { $0.results ?? [] } ?? []
+private func flatten(_ groups: [GatewayNativeTokenBalances]) -> [NativeTokenBalance] {
+    groups.flatMap(\.results)
 }
 
-private func flatten(_ groups: [GatewayTokenBalances]?) -> [TokenBalance] {
-    groups?.flatMap { $0.results ?? [] } ?? []
+private func flatten(_ groups: [GatewayTokenBalances]) -> [ContractTokenBalance] {
+    groups.flatMap(\.results)
 }
 
-private func flatten(_ groups: [GatewayTransactions]?) -> [Transaction] {
-    groups?.flatMap { $0.results ?? [] } ?? []
-}
-
-private func nativeTokenBalance(_ raw: NativeTokenBalanceResponse) -> TokenBalance {
-    TokenBalance(
-        contractType: "NATIVE",
-        contractAddress: nil,
-        accountAddress: raw.accountAddress,
-        tokenId: nil,
-        name: raw.name,
-        symbol: raw.symbol,
-        balance: raw.balance,
-        balanceUSD: raw.balanceUSD,
-        priceUSD: raw.priceUSD,
-        priceUpdatedAt: raw.priceUpdatedAt,
-        blockHash: nil,
-        blockNumber: nil,
-        chainId: raw.chainId
-    )
+private func flatten(_ groups: [GatewayTransactions]) -> [Transaction] {
+    groups.flatMap(\.results)
 }
 
 private func nonEmpty<T>(_ values: [T]?) -> [T]? {

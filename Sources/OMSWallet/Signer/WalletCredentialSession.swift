@@ -132,7 +132,12 @@ final class WalletCredentialSession {
         guard let credentialsJson = try? keychain.string(forKey: credentialsStorageKey) else {
             return nil
         }
-        return try? StorableCredentials.from(jsonString: credentialsJson)
+        do {
+            return try StorableCredentials.from(jsonString: credentialsJson)
+        } catch {
+            clearStoredSession()
+            return nil
+        }
     }
 
     private func makeCredentialSigner() -> any CredentialSigner {

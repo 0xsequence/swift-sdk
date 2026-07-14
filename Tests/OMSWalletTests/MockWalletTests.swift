@@ -173,7 +173,7 @@ private func isOidcAuth(
         for: WaasAPI.CommitVerifier.urlPath
     )
     try fixture.transport.enqueue(
-        completeAuthResponse(wallets: [wallet]),
+        completeAuthResponse(wallets: [wallet], email: nil),
         for: WaasAPI.CompleteAuth.urlPath
     )
     try fixture.transport.enqueue(
@@ -189,6 +189,7 @@ private func isOidcAuth(
     )
 
     #expect(completeAuthRequest.lifetime == 30)
+    #expect(isEmailAuth(fixture.client.session.auth))
 }
 
 @Test func TestWalletStartEmailAuthRejectsInvalidSessionLifetimeBeforeRequestOrSignOut() async throws {
@@ -371,6 +372,47 @@ private func isOidcAuth(
     #expect(replayedEvent?.expiredAt == Date(timeIntervalSince1970: 1_767_225_600))
     #expect(try fixture.storedCredentials()?.walletId == storedCredentials.walletId)
     #expect(fixture.signer.clearCallCount == 1)
+}
+
+@Test func TestWalletCredentialSessionPurgesInvalidStoredAuthMetadata() throws {
+    let environment = OMSWalletEnvironment(
+        walletApiUrl: "https://wallet.example.test",
+        indexerGatewayUrl: "https://indexer.example.test/v1/IndexerGateway/"
+    )
+    let projectId = "project-invalid-session"
+    let keychain = InMemoryKeychain()
+    let signer = MockCredentialSigner()
+    let credentials = StorableCredentials(
+        walletId: "wallet-id",
+        walletAddress: "0xwallet",
+        signerCredentialId: "0xmock-credential",
+        alg: .ecdsaP256Sha256,
+        expiresAt: "2099-01-01T00:00:00Z",
+        auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
+    )
+    var stored = try #require(
+        JSONSerialization.jsonObject(with: Data(credentials.jsonString().utf8)) as? [String: Any]
+    )
+    var auth = try #require(stored["auth"] as? [String: Any])
+    auth.removeValue(forKey: "email")
+    stored["auth"] = auth
+    let invalidJson = String(
+        data: try JSONSerialization.data(withJSONObject: stored),
+        encoding: .utf8
+    )!
+    let storageKey = Constants.credentialsStorageKey(environment: environment, scope: projectId)
+    try keychain.set(invalidJson, forKey: storageKey)
+
+    let session = WalletCredentialSession(
+        environment: environment,
+        projectId: projectId,
+        keychain: keychain,
+        signerFactory: { _, _, _ in signer }
+    )
+
+    #expect(session.restore() == nil)
+    #expect(try keychain.string(forKey: storageKey) == nil)
+    #expect(signer.clearCallCount == 1)
 }
 
 @Test @MainActor func TestWalletSessionExpiredReplayClearsOnNewAuthFlow() async throws {
@@ -2123,27 +2165,24 @@ private func waitForSessionExpiredEvent(
     fixture.client.walletId = "wallet-main"
     fixture.client.walletAddress = "0xwallet"
     fixture.indexerBackend.setNativeBalance(
-        TokenBalance(
-            contractType: "NATIVE",
-            contractAddress: nil,
+        NativeTokenBalance(
             accountAddress: "0xwallet",
-            tokenId: nil,
+            name: "POL",
+            symbol: "POL",
             balance: "99",
-            blockHash: nil,
-            blockNumber: nil,
             chainId: 80002
         )
     )
     fixture.indexerBackend.setTokenBalances(
         [
-            TokenBalance(
+            ContractTokenBalance(
                 contractType: "ERC20",
                 contractAddress: "0xUSDC",
                 accountAddress: "0xwallet",
-                tokenId: nil,
+                tokenId: "0",
                 balance: "20",
-                blockHash: nil,
-                blockNumber: nil,
+                blockHash: "0xblock",
+                blockNumber: 1,
                 chainId: 80002
             )
         ],
@@ -2192,27 +2231,24 @@ private func waitForSessionExpiredEvent(
     fixture.client.walletId = "wallet-main"
     fixture.client.walletAddress = "0xwallet"
     fixture.indexerBackend.setNativeBalance(
-        TokenBalance(
-            contractType: "NATIVE",
-            contractAddress: nil,
+        NativeTokenBalance(
             accountAddress: "0xwallet",
-            tokenId: nil,
+            name: "POL",
+            symbol: "POL",
             balance: "99",
-            blockHash: nil,
-            blockNumber: nil,
             chainId: 80002
         )
     )
     fixture.indexerBackend.setTokenBalances(
         [
-            TokenBalance(
+            ContractTokenBalance(
                 contractType: "ERC20",
                 contractAddress: "0xUSDC",
                 accountAddress: "0xwallet",
-                tokenId: nil,
+                tokenId: "0",
                 balance: "19",
-                blockHash: nil,
-                blockNumber: nil,
+                blockHash: "0xblock",
+                blockNumber: 1,
                 chainId: 80002
             )
         ],
@@ -2298,27 +2334,24 @@ private func waitForSessionExpiredEvent(
     fixture.client.walletId = "wallet-main"
     fixture.client.walletAddress = "0xwallet"
     fixture.indexerBackend.setNativeBalance(
-        TokenBalance(
-            contractType: "NATIVE",
-            contractAddress: nil,
+        NativeTokenBalance(
             accountAddress: "0xwallet",
-            tokenId: nil,
+            name: "POL",
+            symbol: "POL",
             balance: "100",
-            blockHash: nil,
-            blockNumber: nil,
             chainId: 80002
         )
     )
     fixture.indexerBackend.setTokenBalances(
         [
-            TokenBalance(
+            ContractTokenBalance(
                 contractType: "ERC20",
                 contractAddress: "0xUSDC",
                 accountAddress: "0xwallet",
-                tokenId: nil,
+                tokenId: "0",
                 balance: "2000",
-                blockHash: nil,
-                blockNumber: nil,
+                blockHash: "0xblock",
+                blockNumber: 1,
                 chainId: 80002
             )
         ],
@@ -2937,7 +2970,10 @@ func makeMockWalletClient(
     )
     client.verifier = "verifier"
     client.challenge = "challenge"
-    client.pendingEmailAuthSessionLifetimeSeconds = 604_800
+    client.pendingEmailAuth = PendingEmailAuth(
+        email: "user@example.com",
+        sessionLifetimeSeconds: 604_800
+    )
 
     return MockWalletClientFixture(
         client: client,
@@ -3037,20 +3073,20 @@ final class MockIndexerBackend: @unchecked Sendable {
         let chainIds: [Int64]
     }
 
-    private struct GatewayBalancesGroup: Encodable {
+    private struct GatewayBalancesGroup<Balance: Encodable>: Encodable {
         let chainId: Int64
-        let results: [TokenBalance]
+        let results: [Balance]
     }
 
     private struct GatewayBalancesResponse: Encodable {
         let page: TokenBalancesPage?
-        let nativeBalances: [GatewayBalancesGroup]
-        let balances: [GatewayBalancesGroup]
+        let nativeBalances: [GatewayBalancesGroup<NativeTokenBalance>]
+        let balances: [GatewayBalancesGroup<ContractTokenBalance>]
     }
 
     private let lock = NSLock()
-    private var nativeBalance: TokenBalance?
-    private var tokenBalancesByContract: [String: [TokenBalance]] = [:]
+    private var nativeBalance: NativeTokenBalance?
+    private var tokenBalancesByContract: [String: [ContractTokenBalance]] = [:]
     private var balanceRequests: [RecordedBalanceRequest] = []
 
     var nativeBalanceRequestCount: Int {
@@ -3089,13 +3125,13 @@ final class MockIndexerBackend: @unchecked Sendable {
         )
     }
 
-    func setNativeBalance(_ balance: TokenBalance?) {
+    func setNativeBalance(_ balance: NativeTokenBalance?) {
         withLock {
             nativeBalance = balance
         }
     }
 
-    func setTokenBalances(_ balances: [TokenBalance], for contractAddress: String) {
+    func setTokenBalances(_ balances: [ContractTokenBalance], for contractAddress: String) {
         withLock {
             tokenBalancesByContract[contractAddress.lowercased()] = balances
         }
@@ -3116,7 +3152,7 @@ final class MockIndexerBackend: @unchecked Sendable {
             let response = GatewayBalancesResponse(
                 page: TokenBalancesPage(page: 0, pageSize: 40, more: false),
                 nativeBalances: nativeBalance.map {
-                    [GatewayBalancesGroup(chainId: $0.chainId ?? fallbackChainId, results: [$0])]
+                    [GatewayBalancesGroup(chainId: $0.chainId, results: [$0])]
                 } ?? [],
                 balances: tokenBalances.isEmpty
                     ? []

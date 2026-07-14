@@ -1,34 +1,34 @@
 public struct TokenContractInfo: Codable, Sendable {
-    public let chainId: Int64?
-    public let address: String?
-    public let source: String?
-    public let name: String?
-    public let type: String?
-    public let symbol: String?
+    public let chainId: Int64
+    public let address: String
+    public let source: String
+    public let name: String
+    public let type: String
+    public let symbol: String
     public let decimals: Int?
     public let logoURI: String?
-    public let deployed: Bool?
-    public let bytecodeHash: String?
-    public let extensions: [String: JSONValue]?
-    public let updatedAt: String?
+    public let deployed: Bool
+    public let bytecodeHash: String
+    public let extensions: [String: JSONValue]
+    public let updatedAt: String
     public let queuedAt: String?
-    public let status: String?
+    public let status: String
 
     public init(
-        chainId: Int64? = nil,
-        address: String? = nil,
-        source: String? = nil,
-        name: String? = nil,
-        type: String? = nil,
-        symbol: String? = nil,
+        chainId: Int64,
+        address: String,
+        source: String,
+        name: String,
+        type: String,
+        symbol: String,
         decimals: Int? = nil,
         logoURI: String? = nil,
-        deployed: Bool? = nil,
-        bytecodeHash: String? = nil,
-        extensions: [String: JSONValue]? = nil,
-        updatedAt: String? = nil,
+        deployed: Bool,
+        bytecodeHash: String,
+        extensions: [String: JSONValue],
+        updatedAt: String,
         queuedAt: String? = nil,
-        status: String? = nil
+        status: String
     ) {
         self.chainId = chainId
         self.address = address
