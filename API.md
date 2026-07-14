@@ -124,10 +124,16 @@ Observers are delivered consistently on `MainActor`.
 ### startEmailAuth
 
 ```swift
-func startEmailAuth(email: String) async throws
+func startEmailAuth(
+    email: String,
+    sessionLifetimeSeconds: UInt32 = 604_800
+) async throws
 ```
 
-Sends a one-time passcode to the provided email address.
+Validates the requested credential lifetime and sends a one-time passcode to
+the provided email address. `sessionLifetimeSeconds` defaults to one week and
+must be from 1 through 2,592,000 seconds (30 days). The validated value is kept
+with the pending email auth attempt and used by `completeEmailAuth`.
 
 ### completeEmailAuth
 
@@ -135,17 +141,15 @@ Sends a one-time passcode to the provided email address.
 func completeEmailAuth(
     code: String,
     walletSelection: WalletSelectionBehavior = .automatic,
-    walletType: WalletType = .ethereum,
-    sessionLifetimeSeconds: UInt32 = 604_800
+    walletType: WalletType = .ethereum
 ) async throws -> CompleteAuthResult
 ```
 
 Verifies the OTP code. With `.automatic`, selects the first existing wallet
 matching `walletType`, or creates and selects one when none exists. With
 `.manual`, returns a pending wallet selection without selecting or creating a
-wallet. `sessionLifetimeSeconds` controls the requested credential lifetime and
-defaults to one week. Custom values must be from 1 through 2,592,000 seconds
-(30 days).
+wallet. The credential lifetime is the value validated and stored by the
+corresponding `startEmailAuth` call.
 
 ### signInWithOidcIdToken
 

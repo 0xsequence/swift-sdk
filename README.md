@@ -86,8 +86,8 @@ Only completed wallet session metadata is restored automatically, including wall
 
 OMS supports email-based OTP, OIDC ID-token auth, and OIDC redirect auth. The email two-step flow is:
 
-1. **`startEmailAuth(email:)`** sends a one-time code to the user's inbox.
-2. **`completeEmailAuth(code:walletSelection:walletType:sessionLifetimeSeconds:)`** verifies the code. In the default `.automatic` mode it selects the first matching wallet or creates one. The wallet address, wallet ID, and signer metadata are saved to the device keychain.
+1. **`startEmailAuth(email:sessionLifetimeSeconds:)`** validates the requested session lifetime and sends a one-time code to the user's inbox.
+2. **`completeEmailAuth(code:walletSelection:walletType:)`** verifies the code using the session lifetime chosen when the flow started. In the default `.automatic` mode it selects the first matching wallet or creates one. The wallet address, wallet ID, and signer metadata are saved to the device keychain.
 
 ```swift
 try await omsWallet.wallet.startEmailAuth(email: "user@example.com")
@@ -104,10 +104,11 @@ if let expiresAt = session.expiresAt { print(expiresAt) }
 print(session.auth?.email ?? "unknown")
 ```
 
-Auth completion methods accept `sessionLifetimeSeconds` when you need a shorter
-or longer requested session; the default is one week. Custom values must be from
-1 through 2,592,000 seconds (30 days). Use `addSessionExpiredObserver` when your
-app needs to react to session expiry:
+Pass `sessionLifetimeSeconds` to `startEmailAuth` when you need a shorter or
+longer email session. The default is one week, and custom values must be from 1
+through 2,592,000 seconds (30 days). The SDK validates the value before sending
+the one-time code. Use `addSessionExpiredObserver` when your app needs to react
+to session expiry:
 
 ```swift
 let sessionExpiredObservation = omsWallet.wallet.addSessionExpiredObserver { event in

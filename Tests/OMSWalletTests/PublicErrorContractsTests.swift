@@ -160,13 +160,13 @@ import Testing
 
     let invalidLifetimeFixture = makeMockWalletClient()
     await expectPublicError(
-        try await invalidLifetimeFixture.client.completeEmailAuth(
-            code: "123456",
+        try await invalidLifetimeFixture.client.startEmailAuth(
+            email: "user@example.com",
             sessionLifetimeSeconds: 0
         ),
         equals: error(
             code: .validationError,
-            operation: .walletCompleteEmailAuth,
+            operation: .walletStartEmailAuth,
             message: "sessionLifetimeSeconds must be an integer between 1 and 2592000"
         )
     )

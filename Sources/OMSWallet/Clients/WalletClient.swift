@@ -89,6 +89,7 @@ public final class WalletClient: @unchecked Sendable {
     private var _sessionExpiredObservers: [UUID: SessionExpiredObserver] = [:]
     private var _verifier = ""
     private var _challenge = ""
+    private var _pendingEmailAuthSessionLifetimeSeconds: UInt32?
 
     public internal(set) var walletAddress: String? {
         get {
@@ -123,6 +124,14 @@ public final class WalletClient: @unchecked Sendable {
         }
         set {
             withSessionLock { _challenge = newValue }
+        }
+    }
+    var pendingEmailAuthSessionLifetimeSeconds: UInt32? {
+        get {
+            withSessionLock { _pendingEmailAuthSessionLifetimeSeconds }
+        }
+        set {
+            withSessionLock { _pendingEmailAuthSessionLifetimeSeconds = newValue }
         }
     }
 

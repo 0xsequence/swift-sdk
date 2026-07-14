@@ -8,9 +8,16 @@ extension WalletClient {
     /// After this call returns, present your OTP entry UI and pass the user's code to
     /// `completeEmailAuth(code:walletSelection:walletType:)`.
     ///
-    /// - Parameter email: The email address to send the one-time passcode to.
-    public func startEmailAuth(email: String) async throws {
+    /// - Parameters:
+    ///   - email: The email address to send the one-time passcode to.
+    ///   - sessionLifetimeSeconds: The requested credential lifetime. Must be from 1 through
+    ///     2,592,000 seconds (30 days).
+    public func startEmailAuth(
+        email: String,
+        sessionLifetimeSeconds: UInt32 = 604_800
+    ) async throws {
         try await runOMSWalletOperation(.walletStartEmailAuth) {
+            let validatedSessionLifetimeSeconds = try requireWaasSessionLifetimeSeconds(sessionLifetimeSeconds)
             try signOut()
 
             do {
@@ -25,6 +32,7 @@ extension WalletClient {
 
                 verifier = response.verifier
                 challenge = response.challenge
+                pendingEmailAuthSessionLifetimeSeconds = validatedSessionLifetimeSeconds
             } catch {
                 try? signOut()
                 throw error
@@ -41,15 +49,16 @@ extension WalletClient {
     public func completeEmailAuth(
         code: String,
         walletSelection: WalletSelectionBehavior = .automatic,
-        walletType: WalletType = WalletType.ethereum,
-        sessionLifetimeSeconds: UInt32 = 604_800
+        walletType: WalletType = WalletType.ethereum
     ) async throws -> CompleteAuthResult {
         try await runOMSWalletOperation(.walletCompleteEmailAuth) {
-            let validatedSessionLifetimeSeconds = try requireWaasSessionLifetimeSeconds(sessionLifetimeSeconds)
+            guard let sessionLifetimeSeconds = pendingEmailAuthSessionLifetimeSeconds else {
+                throw OMSWalletError.sessionMissing()
+            }
             let authRevision = sessionRevisionSnapshot()
             let response = try await confirmEmailSignIn(
                 code: code,
-                sessionLifetimeSeconds: validatedSessionLifetimeSeconds
+                sessionLifetimeSeconds: sessionLifetimeSeconds
             )
             return try await completeWalletAuth(
                 response,

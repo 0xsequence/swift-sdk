@@ -36,10 +36,19 @@ private func isOidcAuth(
         address: "0x2222222222222222222222222222222222222222"
     )
     try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "default-lifetime-verifier",
+            loginHint: "user@example.com",
+            challenge: "default-lifetime-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
         completeAuthResponse(wallets: [availableWallet, otherTypeWallet]),
         for: WaasAPI.CompleteAuth.urlPath
     )
 
+    try await fixture.client.startEmailAuth(email: "user@example.com")
     let result = try await fixture.client.completeEmailAuth(
         code: "123456",
         walletSelection: .manual
@@ -58,7 +67,7 @@ private func isOidcAuth(
         CompleteAuthRequest.self,
         for: WaasAPI.CompleteAuth.urlPath
     )
-    #expect(request.verifier == "verifier")
+    #expect(request.verifier == "default-lifetime-verifier")
     #expect(request.lifetime == 604_800)
     #expect(fixture.client.walletId == "")
     #expect(fixture.client.walletAddress == nil)
@@ -152,9 +161,17 @@ private func isOidcAuth(
     #expect(restoredWallets.map(\.id) == [wallet.id])
 }
 
-@Test func TestWalletCompleteEmailAuthUsesCustomSessionLifetime() async throws {
+@Test func TestWalletCompleteEmailAuthUsesSessionLifetimeFromStart() async throws {
     let fixture = makeMockWalletClient()
     let wallet = testWallet(id: "wallet-custom-lifetime", address: "0x1111111111111111111111111111111111111111")
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "custom-lifetime-verifier",
+            loginHint: "user@example.com",
+            challenge: "custom-lifetime-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
     try fixture.transport.enqueue(
         completeAuthResponse(wallets: [wallet]),
         for: WaasAPI.CompleteAuth.urlPath
@@ -164,10 +181,8 @@ private func isOidcAuth(
         for: WaasAPI.UseWallet.urlPath
     )
 
-    _ = try await fixture.client.completeEmailAuth(
-        code: "123456",
-        sessionLifetimeSeconds: 30
-    )
+    try await fixture.client.startEmailAuth(email: "user@example.com", sessionLifetimeSeconds: 30)
+    _ = try await fixture.client.completeEmailAuth(code: "123456")
     let completeAuthRequest = try fixture.transport.decodedRequest(
         CompleteAuthRequest.self,
         for: WaasAPI.CompleteAuth.urlPath
@@ -176,19 +191,88 @@ private func isOidcAuth(
     #expect(completeAuthRequest.lifetime == 30)
 }
 
-@Test func TestWalletCompleteEmailAuthRejectsInvalidSessionLifetimeBeforeRequest() async throws {
+@Test func TestWalletStartEmailAuthRejectsInvalidSessionLifetimeBeforeRequestOrSignOut() async throws {
     let fixture = makeMockWalletClient()
+    let wallet = testWallet(id: "wallet-existing", address: "0x1111111111111111111111111111111111111111")
+    fixture.client.walletId = wallet.id
+    fixture.client.walletAddress = wallet.address
 
     do {
-        _ = try await fixture.client.completeEmailAuth(
-            code: "123456",
-            sessionLifetimeSeconds: 0
-        )
+        try await fixture.client.startEmailAuth(email: "user@example.com", sessionLifetimeSeconds: 0)
         #expect(Bool(false))
     } catch let error as OMSWalletError {
         #expect(error.code == .validationError)
-        #expect(error.operation == .walletCompleteEmailAuth)
+        #expect(error.operation == .walletStartEmailAuth)
         #expect(error.localizedDescription == "sessionLifetimeSeconds must be an integer between 1 and 2592000")
+    } catch {
+        #expect(Bool(false))
+    }
+
+    #expect(fixture.transport.requestCount(for: WaasAPI.CommitVerifier.urlPath) == 0)
+    #expect(fixture.client.walletId == wallet.id)
+    #expect(fixture.client.walletAddress == wallet.address)
+}
+
+@Test func TestWalletStartingEmailAuthAgainReplacesPendingSessionLifetime() async throws {
+    let fixture = makeMockWalletClient()
+    let wallet = testWallet(id: "wallet-restarted-auth", address: "0x1111111111111111111111111111111111111111")
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "first-verifier",
+            loginHint: "first@example.com",
+            challenge: "first-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "second-verifier",
+            loginHint: "second@example.com",
+            challenge: "second-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: [wallet]),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: wallet),
+        for: WaasAPI.UseWallet.urlPath
+    )
+
+    try await fixture.client.startEmailAuth(email: "first@example.com", sessionLifetimeSeconds: 30)
+    try await fixture.client.startEmailAuth(email: "second@example.com", sessionLifetimeSeconds: 60)
+    _ = try await fixture.client.completeEmailAuth(code: "123456")
+
+    let completeAuthRequest = try fixture.transport.decodedRequest(
+        CompleteAuthRequest.self,
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    #expect(completeAuthRequest.verifier == "second-verifier")
+    #expect(completeAuthRequest.lifetime == 60)
+}
+
+@Test func TestWalletSignOutClearsPendingEmailAuthAttempt() async throws {
+    let fixture = makeMockWalletClient()
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "pending-verifier",
+            loginHint: "user@example.com",
+            challenge: "pending-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+
+    try await fixture.client.startEmailAuth(email: "user@example.com", sessionLifetimeSeconds: 30)
+    try fixture.client.signOut()
+
+    do {
+        _ = try await fixture.client.completeEmailAuth(code: "123456")
+        #expect(Bool(false))
+    } catch let error as OMSWalletError {
+        #expect(error.code == .sessionMissing)
+        #expect(error.operation == .walletCompleteEmailAuth)
     } catch {
         #expect(Bool(false))
     }
@@ -2853,6 +2937,7 @@ func makeMockWalletClient(
     )
     client.verifier = "verifier"
     client.challenge = "challenge"
+    client.pendingEmailAuthSessionLifetimeSeconds = 604_800
 
     return MockWalletClientFixture(
         client: client,

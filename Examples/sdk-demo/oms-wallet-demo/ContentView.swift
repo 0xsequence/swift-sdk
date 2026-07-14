@@ -308,7 +308,7 @@ final class AppViewModel: ObservableObject {
         guard !input.isEmpty else {
             return
         }
-        guard sessionLifetimeSeconds != nil else {
+        guard let lifetimeSeconds = sessionLifetimeSeconds else {
             present(DemoAuthError.invalidSessionLifetime)
             return
         }
@@ -317,7 +317,10 @@ final class AppViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            try await omsWallet.wallet.startEmailAuth(email: input)
+            try await omsWallet.wallet.startEmailAuth(
+                email: input,
+                sessionLifetimeSeconds: lifetimeSeconds
+            )
             screen = .confirmCode
         } catch {
             present(error)
@@ -471,19 +474,13 @@ final class AppViewModel: ObservableObject {
     // MARK: Confirm Code
 
     func submitConfirmCode(code: String) async {
-        guard let lifetimeSeconds = sessionLifetimeSeconds else {
-            present(DemoAuthError.invalidSessionLifetime)
-            return
-        }
-
         isLoading = true
         defer { isLoading = false }
 
         do {
             let result = try await omsWallet.wallet.completeEmailAuth(
                 code: code,
-                walletSelection: walletSelectionBehavior,
-                sessionLifetimeSeconds: lifetimeSeconds
+                walletSelection: walletSelectionBehavior
             )
             switch result {
             case .walletSelected:

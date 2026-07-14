@@ -93,6 +93,7 @@ extension WalletClient {
         walletId = ""
         verifier = ""
         challenge = ""
+        pendingEmailAuthSessionLifetimeSeconds = nil
         sessionExpiresAt = nil
         sessionAuth = nil
         signedClient = signedClientFactory(credentialSession.signer)
@@ -242,6 +243,7 @@ extension WalletClient {
                 self.walletId = ""
                 self.verifier = ""
                 self.challenge = ""
+                self.pendingEmailAuthSessionLifetimeSeconds = nil
                 self.sessionExpiresAt = nil
                 self.sessionAuth = nil
                 self.signedClient = self.signedClientFactory(self.credentialSession.signer)
