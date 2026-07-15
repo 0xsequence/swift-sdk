@@ -1,0 +1,318 @@
+[
+  {
+    "label": "OMSWallet",
+    "symbols": [
+      {
+        "path": "OMSWallet"
+      },
+      {
+        "path": "WalletClient"
+      }
+    ]
+  },
+  {
+    "label": "Authentication and sessions",
+    "symbols": [
+      {
+        "path": "WalletClient.walletAddress"
+      },
+      {
+        "path": "WalletClient.walletId"
+      },
+      {
+        "path": "WalletClient.session"
+      },
+      {
+        "path": "WalletClient.addSessionExpiredObserver(_:)"
+      },
+      {
+        "path": "WalletClient.startEmailAuth(email:sessionLifetimeSeconds:)"
+      },
+      {
+        "path": "WalletClient.completeEmailAuth(code:walletSelection:walletType:)"
+      },
+      {
+        "path": "WalletClient.signInWithOidcIdToken(idToken:issuer:audience:walletType:walletSelection:sessionLifetimeSeconds:provider:providerLabel:)"
+      },
+      {
+        "path": "WalletClient.startOIDCRedirectAuth(provider:walletType:loginHint:authorizeParams:walletSelection:sessionLifetimeSeconds:)"
+      },
+      {
+        "path": "WalletClient.startOIDCRedirectAuth(provider:omsRelayReturnURI:walletType:loginHint:walletSelection:sessionLifetimeSeconds:)"
+      },
+      {
+        "path": "WalletClient.handleOIDCRedirectCallback(_:walletSelection:sessionLifetimeSeconds:)"
+      },
+      {
+        "path": "WalletClient.listWallets()"
+      },
+      {
+        "path": "WalletClient.useWallet(walletId:)"
+      },
+      {
+        "path": "WalletClient.createWallet(walletType:reference:)"
+      },
+      {
+        "path": "WalletClient.getIdToken(ttlSeconds:customClaims:)"
+      },
+      {
+        "path": "WalletClient.listAccess(pageSize:)"
+      },
+      {
+        "path": "WalletClient.listAccessPage(pageSize:cursor:)"
+      },
+      {
+        "path": "WalletClient.listAccessPages(pageSize:)"
+      },
+      {
+        "path": "WalletClient.revokeAccess(targetCredentialId:)"
+      },
+      {
+        "path": "WalletClient.signOut()"
+      },
+      {
+        "path": "WalletSelectionBehavior"
+      },
+      {
+        "path": "CompleteAuthResult"
+      },
+      {
+        "path": "PendingWalletSelection"
+      },
+      {
+        "path": "WalletSelectionResult"
+      },
+      {
+        "path": "Wallet"
+      },
+      {
+        "path": "WalletType"
+      },
+      {
+        "path": "CredentialInfo"
+      },
+      {
+        "path": "CustomOIDCProviderConfiguration"
+      },
+      {
+        "path": "OIDCAuthMode"
+      },
+      {
+        "path": "OMSRelayOIDCProvider"
+      },
+      {
+        "path": "OMSRelayOIDCProviders"
+      },
+      {
+        "path": "StartOIDCRedirectAuthResult"
+      },
+      {
+        "path": "OIDCRedirectAuthResult"
+      },
+      {
+        "path": "OMSWalletSessionState"
+      },
+      {
+        "path": "OMSWalletSessionAuth"
+      },
+      {
+        "path": "OMSWalletEmailSessionAuth"
+      },
+      {
+        "path": "OMSWalletOidcSessionAuth"
+      },
+      {
+        "path": "OMSWalletOidcSessionAuthFlow"
+      },
+      {
+        "path": "OMSWalletSessionExpiredEvent"
+      },
+      {
+        "path": "OMSWalletSessionExpiredObservation"
+      },
+      {
+        "path": "ListAccessResponse"
+      },
+      {
+        "path": "ListAccessPages"
+      }
+    ]
+  },
+  {
+    "label": "Transactions and signing",
+    "symbols": [
+      {
+        "path": "WalletClient.signMessage(network:message:)"
+      },
+      {
+        "path": "WalletClient.signTypedData(network:typedData:)"
+      },
+      {
+        "path": "WalletClient.isValidMessageSignature(network:walletAddress:message:signature:)"
+      },
+      {
+        "path": "WalletClient.isValidTypedDataSignature(network:walletAddress:typedData:signature:)"
+      },
+      {
+        "path": "WalletClient.sendTransaction(network:to:value:selectFeeOption:mode:waitForStatus:statusPolling:)"
+      },
+      {
+        "path": "WalletClient.sendTransaction(network:request:selectFeeOption:waitForStatus:statusPolling:)"
+      },
+      {
+        "path": "WalletClient.callContract(network:contract:method:args:selectFeeOption:mode:waitForStatus:statusPolling:)"
+      },
+      {
+        "path": "WalletClient.getTransactionStatus(txnId:)"
+      },
+      {
+        "path": "SendTransactionRequest"
+      },
+      {
+        "path": "SendTransactionResponse"
+      },
+      {
+        "path": "TransactionMode"
+      },
+      {
+        "path": "TransactionStatusPollingOptions"
+      },
+      {
+        "path": "TransactionStatusResponse"
+      },
+      {
+        "path": "TransactionStatus"
+      },
+      {
+        "path": "TransactionStatusResolution"
+      },
+      {
+        "path": "FeeOptionSelector"
+      },
+      {
+        "path": "FeeOptionWithBalance"
+      },
+      {
+        "path": "FeeOption"
+      },
+      {
+        "path": "FeeOptionSelection"
+      },
+      {
+        "path": "FeeToken"
+      },
+      {
+        "path": "AbiArg"
+      }
+    ]
+  },
+  {
+    "label": "Indexer",
+    "symbols": [
+      {
+        "path": "IndexerClient"
+      },
+      {
+        "path": "IndexerClient.getBalances(_:)"
+      },
+      {
+        "path": "IndexerClient.getTransactionHistory(_:)"
+      },
+      {
+        "path": "GetBalancesParams"
+      },
+      {
+        "path": "BalancesResult"
+      },
+      {
+        "path": "NativeTokenBalance"
+      },
+      {
+        "path": "ContractTokenBalance"
+      },
+      {
+        "path": "TokenBalance"
+      },
+      {
+        "path": "TokenBalancesPage"
+      },
+      {
+        "path": "TokenBalancesPageRequest"
+      },
+      {
+        "path": "TokenContractInfo"
+      },
+      {
+        "path": "TokenMetadata"
+      },
+      {
+        "path": "TokenMetadataAsset"
+      },
+      {
+        "path": "GetTransactionHistoryParams"
+      },
+      {
+        "path": "TransactionHistoryResult"
+      },
+      {
+        "path": "Transaction"
+      },
+      {
+        "path": "TransactionTransfer"
+      },
+      {
+        "path": "IndexerNetworkType"
+      },
+      {
+        "path": "ContractVerificationStatus"
+      },
+      {
+        "path": "MetadataOptions"
+      },
+      {
+        "path": "Page"
+      },
+      {
+        "path": "SortBy"
+      },
+      {
+        "path": "SortOrder"
+      }
+    ]
+  },
+  {
+    "label": "Networks, types, and errors",
+    "symbols": [
+      {
+        "path": "Network"
+      },
+      {
+        "path": "JSONValue"
+      },
+      {
+        "path": "OMSWalletError"
+      },
+      {
+        "path": "OMSWalletErrorCode"
+      },
+      {
+        "path": "OMSWalletOperation"
+      },
+      {
+        "path": "OMSWalletUpstreamError"
+      },
+      {
+        "path": "OMSWalletUpstreamService"
+      },
+      {
+        "path": "UnitConversionError"
+      },
+      {
+        "path": "parseUnits(value:decimals:)"
+      },
+      {
+        "path": "formatUnits(value:decimals:)"
+      }
+    ]
+  }
+]

@@ -33,7 +33,17 @@ fi
 
 run "Build Swift package" swift build
 run "Test Swift package" swift test
-run "Check public API" scripts/check-public-api-does-not-expose-generated-waas.sh
+run "Test API generator" python3 scripts/test-generate-api.py
+run \
+    "Dump OMSWallet symbol graph" \
+    swift package dump-symbol-graph --skip-synthesized-members --skip-inherited-docs
+symbol_graph="$(scripts/omswallet-symbol-graph-path.sh)"
+run \
+    "Check public API" \
+    env OMSWALLET_SYMBOL_GRAPH="$symbol_graph" scripts/check-public-api-does-not-expose-generated-waas.sh
+run \
+    "Check API.md" \
+    env OMSWALLET_SYMBOL_GRAPH="$symbol_graph" scripts/generate-api.sh --check
 run \
     "Lint local CocoaPod" \
     pod lib lint oms-wallet-swift-sdk.podspec --swift-version=6.0 --platforms=ios,macos

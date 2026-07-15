@@ -30,6 +30,8 @@ such as `0.2.0`, not `v0.2.0`, because the podspec source tag is
 
 3. Validate the release branch.
 
+Release verification requires Python 3.9 or later for the API generator.
+
 ```sh
 scripts/verify.sh
 ```

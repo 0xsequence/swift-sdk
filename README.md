@@ -2,6 +2,8 @@
 
 Build non-custodial OMS Wallet experiences in Swift with email and OIDC auth, secure session restore, message signing, transaction submission, and token balance queries.
 
+[API reference](https://docs.polygon.technology/wallets/sdk/swift/api-reference)
+
 **Requirements:** Swift 6.2+ · iOS 15+ · macOS 12+
 
 ## Before You Start
