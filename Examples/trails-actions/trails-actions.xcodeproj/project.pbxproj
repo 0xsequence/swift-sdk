@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		7A0000010000000000000016 /* OMS SDK in Frameworks */ = {isa = PBXBuildFile; productRef = 7A0000010000000000000018 /* OMS SDK */; };
+		7A0000010000000000000016 /* OMSWallet in Frameworks */ = {isa = PBXBuildFile; productRef = 7A0000010000000000000018 /* OMSWallet */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -40,7 +40,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				7A0000010000000000000016 /* OMS SDK in Frameworks */,
+				7A0000010000000000000016 /* OMSWallet in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -83,7 +83,7 @@
 			);
 			name = "trails-actions";
 			packageProductDependencies = (
-				7A0000010000000000000018 /* OMS SDK */,
+				7A0000010000000000000018 /* OMSWallet */,
 			);
 			productName = "trails-actions";
 			productReference = 7A0000010000000000000001 /* trails-actions.app */;
@@ -270,7 +270,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "trails-actions/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "OMS SDK Demo";
+				INFOPLIST_KEY_CFBundleDisplayName = "OMS Wallet Demo";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -282,7 +282,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.polygon.swifttrailsactions;
+				PRODUCT_BUNDLE_IDENTIFIER = technology.polygon.omswallet.trailsactions;
 				PRODUCT_MODULE_NAME = TrailsActions;
 				PRODUCT_NAME = "trails-actions";
 				SDKROOT = iphoneos;
@@ -301,7 +301,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "trails-actions/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "OMS SDK Demo";
+				INFOPLIST_KEY_CFBundleDisplayName = "OMS Wallet Demo";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -313,7 +313,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.polygon.swifttrailsactions;
+				PRODUCT_BUNDLE_IDENTIFIER = technology.polygon.omswallet.trailsactions;
 				PRODUCT_MODULE_NAME = TrailsActions;
 				PRODUCT_NAME = "trails-actions";
 				SDKROOT = iphoneos;
@@ -354,10 +354,10 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		7A0000010000000000000018 /* OMS SDK */ = {
+		7A0000010000000000000018 /* OMSWallet */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 7A0000010000000000000017 /* XCLocalSwiftPackageReference "../.." */;
-			productName = "OMS SDK";
+			productName = OMSWallet;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

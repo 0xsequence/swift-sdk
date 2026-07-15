@@ -1,9 +1,9 @@
 import Foundation
-import OMS_SDK
+import OMSWallet
 
 let trailsAPIURL = "https://trails-api.sequence.app"
 let trailsRedirectURI = "omsclienttrailsdemo://auth/callback"
-let defaultPublishableKey = "pk_dev_sdbx_01kqa06hyyetj_01kv5ceg4xefattzmm9fyx04ev"
+let defaultPublishableKey = "pk_dev_sdbx_01kqa06hyyetj_01kv5zt5s3eke9038q8y67jdvj"
 let trailsAccessKey = "AQAAAAAAAMDoWz-avqIIjXGH7JJlBSormpo"
 let trailsAccessKeyHeader = "X-Access-Key"
 

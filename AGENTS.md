@@ -6,107 +6,90 @@ instructions.
 
 ---
 
-## Behavioral Guidelines
+## Working Principles
 
-Behavioral guidelines to reduce common LLM coding mistakes. (Adapted from Andrej Karpathy's
-[CLAUDE.md](https://github.com/multica-ai/andrej-karpathy-skills/blob/main/CLAUDE.md).)
-
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
-
-### 1. Think Before Coding
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them — don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
-
-### 2. Simplicity First
-**Minimum code that solves the problem. Nothing speculative.**
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- If you write 200 lines and it could be 50, rewrite it.
-
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
-
-### 3. Surgical Changes
-**Touch only what you must. Clean up only your own mess.**
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- Remove imports/variables YOUR changes made unused; leave pre-existing dead code unless asked.
-
-The test: every changed line should trace directly to the request.
-
-### 4. Goal-Driven Execution
-**Define success criteria. Loop until verified.**
-- "Add validation" → "Write tests for invalid inputs, then make them pass."
-- "Fix the bug" → "Write a test that reproduces it, then make it pass."
-
-For multi-step tasks, state a brief plan with a verify step for each item.
+- State assumptions when ambiguity affects implementation, public API, security, or release behavior.
+- Keep changes surgical and traceable to the request. Avoid speculative abstractions, broad refactors, and formatting churn.
+- Preserve user work in the tree and match the local style of the files you touch.
+- Define success criteria for non-trivial work and choose verification proportional to the risk.
 
 ---
 
 ## Third-Party Library Docs
 
-For **any third-party library**, use the **context7** MCP to fetch up-to-date documentation rather
-than relying on training data, which lags real library APIs. If the context7 MCP server is not
-available, set it up: https://context7.com/install
+For non-trivial or version-sensitive third-party library questions, prefer context7 or official
+documentation over training-data recall. If context7 is unavailable, use official docs or local
+package sources and note the fallback; do not block ordinary repo work just to install extra
+tooling.
 
 ---
 
 ## Project Overview
 
-This repository is a Swift 6 package for the OMS SDK. It exposes the `OMS_SDK`
+This repository is a Swift 6 package for the OMS Wallet. It exposes the `OMSWallet`
 module and supports iOS 15+ and macOS 12+. The SDK covers wallet auth, Keychain
 request signing and session persistence, OIDC flows, transactions, message and
 typed-data signing, signature verification, token balances, and unit formatting.
 
-The package, product, target, and several directories contain spaces. Quote paths
-and target names in shell commands, for example `"Sources/Swift SDK"` and
-`"OMS SDK"`.
-
 ## Repository Layout
 
-- `Package.swift` defines the Swift package, the `"OMS SDK"` library target, and
-  the `"OMS SDKTests"` test target.
-- `Sources/Swift SDK/` contains the SDK implementation.
-- `Sources/Swift SDK/Clients/` contains `WalletClient` and `IndexerClient`.
-- `Sources/Swift SDK/Signer/` contains Keychain/P-256 signing and credential
+- `Package.swift` defines the Swift package, the `"OMSWallet"` library target, and
+  the `"OMSWalletTests"` test target.
+- `Sources/OMSWallet/` contains the SDK implementation.
+- `Sources/OMSWallet/Clients/` contains `WalletClient` and `IndexerClient`.
+- `Sources/OMSWallet/Signer/` contains Keychain/P-256 signing and credential
   session code.
-- `Sources/Swift SDK/Models/` contains public model types and auth/session
+- `Sources/OMSWallet/Models/` contains public model types and auth/session
   state.
-- `Sources/Swift SDK/Utils/` contains encoding, hashing, request, time, byte, and
+- `Sources/OMSWallet/Utils/` contains encoding, hashing, request, time, byte, and
   unit helpers.
-- `Sources/Swift SDK/Generated/waas.gen.swift` is generated WebRPC client code.
+- `Sources/OMSWallet/Generated/waas.gen.swift` is generated WebRPC client code.
   Do not edit it by hand unless the user explicitly asks for a generated-code
   patch.
-- `Tests/Swift SDKTests/` contains Swift Testing tests using `@Test` and
+- `Tests/OMSWalletTests/` contains Swift Testing tests using `@Test` and
   `#expect`.
-- `Examples/sdk-demo/oms-sdk-demo.xcodeproj` and
-  `Examples/sdk-demo/oms-sdk-demo/` contain the SwiftUI demo app.
+- `Examples/sdk-demo/oms-wallet-demo.xcodeproj` and
+  `Examples/sdk-demo/oms-wallet-demo/` contain the SwiftUI demo app.
 - `Examples/trails-actions/trails-actions.xcodeproj` and
   `Examples/trails-actions/trails-actions/` contain the Trails Actions demo app.
 - `README.md` is the user-facing guide; `API.md` is the detailed API reference.
+- `docs/error-contracts.md` is the public error contract matrix and expectation
+  source for error behavior changes.
 
 ## Common Commands
 
 ```sh
 swift build
 swift test
-xcodebuild -list -project Examples/sdk-demo/oms-sdk-demo.xcodeproj
-xcodebuild -project Examples/sdk-demo/oms-sdk-demo.xcodeproj -scheme oms-sdk-demo build CODE_SIGNING_ALLOWED=NO
+scripts/verify.sh
+scripts/check-public-api-does-not-expose-generated-waas.sh
+xcodebuild -list -project Examples/sdk-demo/oms-wallet-demo.xcodeproj
+xcodebuild -project Examples/sdk-demo/oms-wallet-demo.xcodeproj -scheme oms-wallet-demo build CODE_SIGNING_ALLOWED=NO
 xcodebuild -list -project Examples/trails-actions/trails-actions.xcodeproj
 xcodebuild -project Examples/trails-actions/trails-actions.xcodeproj -scheme trails-actions build CODE_SIGNING_ALLOWED=NO
 ```
 
-Run `swift test` for SDK changes. For demo app changes, also build the relevant
-Xcode project with signing disabled when feasible.
+For README/API/docs-only edits, use source-backed spot checks plus
+`git diff --check`; run Swift or Xcode builds only when the docs claim changed
+source behavior, public API shape, or runnable example code.
+
+Run `swift test` for SDK changes. Run
+`scripts/check-public-api-does-not-expose-generated-waas.sh` when public API
+surfaces may be affected; it verifies the checked-in interface baseline,
+external compile probes, and generated-WaaS isolation. For demo app changes,
+also build the relevant Xcode project with signing disabled when feasible.
 
 ## Testing
 
 See **[TESTING.md](./TESTING.md)** for testing conventions, unit vs. integration boundaries, and
 execution commands.
+
+- Use `TESTING.md` as the source of truth for test boundaries and public error
+  contract rules.
+- Prefer tests through public SDK behavior or stable internal boundaries that
+  callers actually exercise.
+- Add focused regression tests for auth, signing, session, transaction, indexer,
+  unit-formatting, and public error behavior changes.
 
 ## Coding Conventions
 
@@ -124,14 +107,14 @@ execution commands.
   requests.
 - Avoid floating-point math for token amounts. Use or extend `parseUnits` and
   `formatUnits` for base-unit conversions.
-- When editing paths with spaces, keep command examples quoted and prefer
-  `rg --files`, `rg`, `swift build`, and `swift test` from the repository root.
+- Prefer `rg --files`, `rg`, `swift build`, and `swift test` from the repository root.
 - Commit messages and PR titles follow Conventional Commits.
 
 ## CI/CD
 
-CI runs on every PR and push to `master` via `.github/workflows/ci.yml`:
-`swift build`, `swift test`, and the demo app Xcode builds are required to pass.
+CI runs `scripts/verify.sh` on every PR and push to `master` via
+`.github/workflows/ci.yml`. It builds and tests the Swift package, checks the
+public API, validates the podspec, and builds both demo apps.
 Claude review automation is defined in `.github/workflows/claude-review.yml`; it runs once
 when a non-Dependabot PR is opened or marked ready for review, and can be
 requested later with `@claude review` in a PR comment.
@@ -140,23 +123,39 @@ requested later with `@claude review` in a PR comment.
 
 Update `README.md` when user-facing setup or flow examples change. Update
 `API.md` when public methods, parameters, models, or behavior change. Keep docs
-aligned with the actual Swift names, labels, return types, and the `OMS_SDK`
+aligned with the actual Swift names, labels, return types, and the `OMSWallet`
 import name. Avoid adding method descriptions in source code.
 
 ## Demo App
 
-The demo app should handle OMS SDK errors and open an error window when that
+The demo app should handle OMS Wallet errors and open an error window when that
 happens.
 
-## Working Tree Notes
+## Security and Configuration
 
-The demo app may contain local Xcode or macOS metadata changes. Do not revert
-unrelated user changes, generated assets, or `.DS_Store` churn unless explicitly
-asked.
+- Do not commit secrets, signing keys, provisioning credentials, local build
+  settings, or user-specific Xcode state.
+- Publishable keys used by SDK examples are public project identifiers, not
+  secrets. Concrete sandbox publishable keys may be checked into demo app configs
+  when intentionally provided for runnable examples; do not flag or replace them
+  solely because they are concrete values.
+
+## Agent Workflow Rules
+
+- Inspect relevant code, tests, docs, package configuration, and example project
+  files before editing.
+- Keep changes narrowly scoped to the requested behavior.
+- Preserve user changes in the working tree; never revert unrelated edits,
+  generated assets, or local Xcode/macOS metadata unless explicitly asked.
+- Prefer existing package structure, model names, request helpers,
+  session/signing abstractions, and test fixtures.
+- Update tests and docs when behavior or public API changes.
+- Ask before making product, architecture, or security trade-offs that are not
+  answered by the request or existing docs.
+- Run the relevant verification commands before reporting completion.
 
 ## Common Pitfalls
 
-- Paths and target names contain spaces — always quote them in shell commands.
 - `waas.gen.swift` is generated; do not edit by hand unless explicitly asked.
 - Never persist private key material in session storage — the P-256 credential is intentionally non-extractable.
 - Do not use floating-point for token amounts; use `parseUnits`/`formatUnits`.
@@ -169,5 +168,5 @@ asked.
 | Test commands | `TESTING.md`, `ci.yml`, `AGENTS.md` Common Commands |
 | Repository structure | `AGENTS.md` Repository Layout |
 | Swift version or platform targets | `Package.swift`, `ci.yml`, `README.md` |
-| New third-party dependency added | `Package.swift`, `AGENTS.md` (note the lib), context7 setup |
+| New third-party dependency added | `Package.swift`, `AGENTS.md` third-party docs guidance |
 | Demo app flows change | `README.md`, `Examples/` |

@@ -34,7 +34,7 @@ jobs:
           model: "claude-opus-4-8"
           direct_prompt: |
             Review this pull request. Focus on:
-            - Correctness against the OMS SDK conventions in AGENTS.md
+            - Correctness against the OMS Wallet conventions in AGENTS.md
             - Security: no private key material in session storage, P-256 credential must remain non-extractable
             - No floating-point math for token amounts (use parseUnits/formatUnits)
             - Platform availability annotations (@available) on new public surfaces

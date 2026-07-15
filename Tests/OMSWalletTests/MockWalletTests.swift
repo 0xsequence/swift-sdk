@@ -1,0 +1,3550 @@
+import Foundation
+import Testing
+@testable import OMSWallet
+
+private func isEmailAuth(_ auth: OMSWalletSessionAuth?, email: String? = "user@example.com") -> Bool {
+    guard case .email(let emailAuth) = auth else {
+        return false
+    }
+    return emailAuth.email == email
+}
+
+private func isOidcAuth(
+    _ auth: OMSWalletSessionAuth?,
+    flow: OMSWalletOidcSessionAuthFlow,
+    issuer: String = "https://accounts.google.com",
+    provider: String? = "google",
+    providerLabel: String? = "Google",
+    email: String? = "user@example.com"
+) -> Bool {
+    guard case .oidc(let oidcAuth) = auth else {
+        return false
+    }
+    return oidcAuth.flow == flow
+        && oidcAuth.issuer == issuer
+        && oidcAuth.provider == provider
+        && oidcAuth.providerLabel == providerLabel
+        && oidcAuth.email == email
+}
+
+@Test func TestWalletCompleteEmailAuthManualReturnsPendingWalletSelection() async throws {
+    let fixture = makeMockWalletClient()
+    let availableWallet = testWallet(id: "wallet-1", address: "0x1111111111111111111111111111111111111111")
+    let otherTypeWallet = testWallet(
+        id: "wallet-2",
+        type: .unknown("other"),
+        address: "0x2222222222222222222222222222222222222222"
+    )
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "default-lifetime-verifier",
+            loginHint: "user@example.com",
+            challenge: "default-lifetime-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: [availableWallet, otherTypeWallet]),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+
+    try await fixture.client.startEmailAuth(email: "user@example.com")
+    let result = try await fixture.client.completeEmailAuth(
+        code: "123456",
+        walletSelection: .manual
+    )
+
+    switch result {
+    case .walletSelection(let pendingSelection):
+        #expect(pendingSelection.walletType == .ethereum)
+        #expect(pendingSelection.wallets.map(\.id) == [availableWallet.id])
+        #expect(pendingSelection.credential.credentialId == testCredential.credentialId)
+    case .walletSelected:
+        #expect(Bool(false))
+    }
+
+    let request = try fixture.transport.decodedRequest(
+        CompleteAuthRequest.self,
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    #expect(request.verifier == "default-lifetime-verifier")
+    #expect(request.lifetime == 604_800)
+    #expect(fixture.client.walletId == "")
+    #expect(fixture.client.walletAddress == nil)
+    #expect(fixture.client.session.walletAddress == nil)
+    #expect(fixture.transport.requestCount(for: WaasAPI.UseWallet.urlPath) == 0)
+    #expect(fixture.transport.requestCount(for: WaasAPI.CreateWallet.urlPath) == 0)
+}
+
+@Test func TestWalletCompleteEmailAuthAutomaticSelectsFirstMatchingWallet() async throws {
+    let fixture = makeMockWalletClient()
+    let firstWallet = testWallet(id: "wallet-1", address: "0x1111111111111111111111111111111111111111")
+    let secondWallet = testWallet(id: "wallet-2", address: "0x2222222222222222222222222222222222222222")
+    let otherTypeWallet = testWallet(
+        id: "wallet-3",
+        type: .unknown("other"),
+        address: "0x3333333333333333333333333333333333333333"
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: [firstWallet, secondWallet, otherTypeWallet]),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: firstWallet),
+        for: WaasAPI.UseWallet.urlPath
+    )
+
+    let result = try await fixture.client.completeEmailAuth(code: "123456")
+    guard case .walletSelected(_, let wallet, let wallets, _) = result else {
+        #expect(Bool(false))
+        return
+    }
+
+    let useWalletRequest = try fixture.transport.decodedRequest(
+        UseWalletRequest.self,
+        for: WaasAPI.UseWallet.urlPath
+    )
+    let storedCredentials = try fixture.storedCredentials()
+
+    #expect(wallet.id == firstWallet.id)
+    #expect(wallets.map(\.id) == [firstWallet.id, secondWallet.id, otherTypeWallet.id])
+    #expect(useWalletRequest.walletId == firstWallet.id)
+    #expect(fixture.client.walletId == firstWallet.id)
+    #expect(fixture.client.walletAddress == firstWallet.address)
+    #expect(fixture.client.session.walletAddress == firstWallet.address)
+    #expect(storedCredentials?.walletId == firstWallet.id)
+    #expect(storedCredentials?.walletAddress == firstWallet.address)
+    #expect(isEmailAuth(storedCredentials?.auth))
+}
+
+@Test func TestWalletAuthBindsSessionToLocalSignerAcrossProtectedCallsAndRestore() async throws {
+    let fixture = makeMockWalletClient()
+    let wallet = testWallet(id: "wallet-local-signer", address: "0x1111111111111111111111111111111111111111")
+    let serverCredential = WaasCredentialInfo(
+        credentialId: "server-credential-id",
+        expiresAt: "2099-01-01T00:00:00Z",
+        isCaller: true
+    )
+    let localSignerCredentialId = try fixture.signer.credentialId()
+    #expect(serverCredential.credentialId != localSignerCredentialId)
+
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: [wallet], credential: serverCredential),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: wallet),
+        for: WaasAPI.UseWallet.urlPath
+    )
+    try fixture.transport.enqueue(
+        ListWalletsResponse(wallets: [wallet], page: nil),
+        for: WaasAPI.ListWallets.urlPath
+    )
+
+    _ = try await fixture.client.completeEmailAuth(code: "123456")
+    let activeWallets = try await fixture.client.listWallets()
+
+    let restoredFixture = makeMockWalletClient(
+        environment: fixture.environment,
+        projectId: fixture.projectId,
+        keychain: fixture.keychain,
+        signer: fixture.signer
+    )
+    try restoredFixture.transport.enqueue(
+        ListWalletsResponse(wallets: [wallet], page: nil),
+        for: WaasAPI.ListWallets.urlPath
+    )
+    let restoredWallets = try await restoredFixture.client.listWallets()
+
+    #expect(activeWallets.map(\.id) == [wallet.id])
+    #expect(restoredFixture.client.session.walletAddress == wallet.address)
+    #expect(restoredWallets.map(\.id) == [wallet.id])
+}
+
+@Test func TestWalletCompleteEmailAuthUsesSessionLifetimeFromStart() async throws {
+    let fixture = makeMockWalletClient()
+    let wallet = testWallet(id: "wallet-custom-lifetime", address: "0x1111111111111111111111111111111111111111")
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "custom-lifetime-verifier",
+            loginHint: "user@example.com",
+            challenge: "custom-lifetime-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: [wallet], email: nil),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: wallet),
+        for: WaasAPI.UseWallet.urlPath
+    )
+
+    try await fixture.client.startEmailAuth(email: "user@example.com", sessionLifetimeSeconds: 30)
+    _ = try await fixture.client.completeEmailAuth(code: "123456")
+    let completeAuthRequest = try fixture.transport.decodedRequest(
+        CompleteAuthRequest.self,
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+
+    #expect(completeAuthRequest.lifetime == 30)
+    #expect(isEmailAuth(fixture.client.session.auth))
+}
+
+@Test func TestWalletStartEmailAuthRejectsInvalidSessionLifetimeBeforeRequestOrSignOut() async throws {
+    let fixture = makeMockWalletClient()
+    let wallet = testWallet(id: "wallet-existing", address: "0x1111111111111111111111111111111111111111")
+    fixture.client.walletId = wallet.id
+    fixture.client.walletAddress = wallet.address
+
+    do {
+        try await fixture.client.startEmailAuth(email: "user@example.com", sessionLifetimeSeconds: 0)
+        #expect(Bool(false))
+    } catch let error as OMSWalletError {
+        #expect(error.code == .validationError)
+        #expect(error.operation == .walletStartEmailAuth)
+        #expect(error.localizedDescription == "sessionLifetimeSeconds must be an integer between 1 and 2592000")
+    } catch {
+        #expect(Bool(false))
+    }
+
+    #expect(fixture.transport.requestCount(for: WaasAPI.CommitVerifier.urlPath) == 0)
+    #expect(fixture.client.walletId == wallet.id)
+    #expect(fixture.client.walletAddress == wallet.address)
+}
+
+@Test func TestWalletStartingEmailAuthAgainReplacesPendingSessionLifetime() async throws {
+    let fixture = makeMockWalletClient()
+    let wallet = testWallet(id: "wallet-restarted-auth", address: "0x1111111111111111111111111111111111111111")
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "first-verifier",
+            loginHint: "first@example.com",
+            challenge: "first-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "second-verifier",
+            loginHint: "second@example.com",
+            challenge: "second-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: [wallet]),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: wallet),
+        for: WaasAPI.UseWallet.urlPath
+    )
+
+    try await fixture.client.startEmailAuth(email: "first@example.com", sessionLifetimeSeconds: 30)
+    try await fixture.client.startEmailAuth(email: "second@example.com", sessionLifetimeSeconds: 60)
+    _ = try await fixture.client.completeEmailAuth(code: "123456")
+
+    let completeAuthRequest = try fixture.transport.decodedRequest(
+        CompleteAuthRequest.self,
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    #expect(completeAuthRequest.verifier == "second-verifier")
+    #expect(completeAuthRequest.lifetime == 60)
+}
+
+@Test func TestWalletSignOutClearsPendingEmailAuthAttempt() async throws {
+    let fixture = makeMockWalletClient()
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "pending-verifier",
+            loginHint: "user@example.com",
+            challenge: "pending-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+
+    try await fixture.client.startEmailAuth(email: "user@example.com", sessionLifetimeSeconds: 30)
+    try fixture.client.signOut()
+
+    do {
+        _ = try await fixture.client.completeEmailAuth(code: "123456")
+        #expect(Bool(false))
+    } catch let error as OMSWalletError {
+        #expect(error.code == .sessionMissing)
+        #expect(error.operation == .walletCompleteEmailAuth)
+    } catch {
+        #expect(Bool(false))
+    }
+
+    #expect(fixture.transport.requestCount(for: WaasAPI.CompleteAuth.urlPath) == 0)
+}
+
+@Test @MainActor func TestWalletOperationExpiresSessionRetainsMetadataAndNotifiesObservers() async throws {
+    let expiresAt = "2026-01-01T00:00:00Z"
+    var now = Date(timeIntervalSince1970: 1_767_225_599)
+    let fixture = makeMockWalletClient(currentDate: { now })
+    let wallet = testWallet(id: "wallet-expiring", address: "0x1111111111111111111111111111111111111111")
+    let credential = WaasCredentialInfo(
+        credentialId: "0xcredential",
+        expiresAt: expiresAt,
+        isCaller: true
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: [wallet], credential: credential),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: wallet),
+        for: WaasAPI.UseWallet.urlPath
+    )
+
+    _ = try await fixture.client.completeEmailAuth(code: "123456")
+    var expiredEvent: OMSWalletSessionExpiredEvent?
+    var secondExpiredEvent: OMSWalletSessionExpiredEvent?
+    var canceledExpiredEvent: OMSWalletSessionExpiredEvent?
+    let observation = fixture.client.addSessionExpiredObserver { event in
+        #expect(Thread.isMainThread)
+        expiredEvent = event
+    }
+    defer { observation.cancel() }
+    let secondObservation = fixture.client.addSessionExpiredObserver { event in
+        secondExpiredEvent = event
+    }
+    defer { secondObservation.cancel() }
+    let canceledObservation = fixture.client.addSessionExpiredObserver { event in
+        canceledExpiredEvent = event
+    }
+    canceledObservation.cancel()
+
+    now = Date(timeIntervalSince1970: 1_767_225_601)
+    do {
+        _ = try await fixture.client.signMessage(network: .polygon, message: "hello")
+        Issue.record("Expected expired wallet session error")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .sessionExpired)
+        #expect(error.operation == .walletSignMessage)
+    }
+    _ = try await waitForSessionExpiredEvent { expiredEvent }
+    _ = try await waitForSessionExpiredEvent { secondExpiredEvent }
+
+    let storedCredentials = try fixture.storedCredentials()
+    #expect(expiredEvent?.session.walletAddress == wallet.address)
+    #expect(expiredEvent?.session.expiresAt == Date(timeIntervalSince1970: 1_767_225_600))
+    #expect(isEmailAuth(expiredEvent?.session.auth))
+    #expect(expiredEvent?.expiredAt == Date(timeIntervalSince1970: 1_767_225_600))
+    #expect(secondExpiredEvent?.session.walletAddress == wallet.address)
+    #expect(canceledExpiredEvent == nil)
+    #expect(fixture.client.session == OMSWalletSessionState(walletAddress: nil))
+    #expect(storedCredentials?.walletId == wallet.id)
+    #expect(storedCredentials?.walletAddress == wallet.address)
+    #expect(storedCredentials?.expiresAt == expiresAt)
+    #expect(isEmailAuth(storedCredentials?.auth))
+    #expect(fixture.signer.clearCallCount == 1)
+    #expect(fixture.transport.requestCount(for: WaasAPI.SignMessage.urlPath) == 0)
+}
+
+@Test @MainActor func TestWalletRestoredExpiredSessionIsInactiveAndReplaysObserver() async throws {
+    let storedCredentials = StorableCredentials(
+        walletId: "wallet-expired",
+        walletAddress: "0x1111111111111111111111111111111111111111",
+        signerCredentialId: "0xmock-credential",
+        alg: .ecdsaP256Sha256,
+        expiresAt: "2026-01-01T00:00:00Z",
+        auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
+    )
+    let fixture = makeMockWalletClient(
+        currentDate: { Date(timeIntervalSince1970: 1_767_225_601) },
+        storedCredentials: storedCredentials
+    )
+    var expiredEvent: OMSWalletSessionExpiredEvent?
+
+    let observation = fixture.client.addSessionExpiredObserver { event in
+        expiredEvent = event
+    }
+    defer { observation.cancel() }
+    let replayedEvent = try await waitForSessionExpiredEvent { expiredEvent }
+
+    #expect(fixture.client.session == OMSWalletSessionState(walletAddress: nil))
+    #expect(replayedEvent?.session.walletAddress == storedCredentials.walletAddress)
+    #expect(isEmailAuth(replayedEvent?.session.auth))
+    #expect(replayedEvent?.expiredAt == Date(timeIntervalSince1970: 1_767_225_600))
+    #expect(try fixture.storedCredentials()?.walletId == storedCredentials.walletId)
+    #expect(fixture.signer.clearCallCount == 1)
+}
+
+@Test func TestWalletCredentialSessionPurgesInvalidStoredAuthMetadata() throws {
+    let environment = OMSWalletEnvironment(
+        walletApiUrl: "https://wallet.example.test",
+        indexerGatewayUrl: "https://indexer.example.test/v1/IndexerGateway/"
+    )
+    let projectId = "project-invalid-session"
+    let keychain = InMemoryKeychain()
+    let signer = MockCredentialSigner()
+    let credentials = StorableCredentials(
+        walletId: "wallet-id",
+        walletAddress: "0xwallet",
+        signerCredentialId: "0xmock-credential",
+        alg: .ecdsaP256Sha256,
+        expiresAt: "2099-01-01T00:00:00Z",
+        auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
+    )
+    var stored = try #require(
+        JSONSerialization.jsonObject(with: Data(credentials.jsonString().utf8)) as? [String: Any]
+    )
+    var auth = try #require(stored["auth"] as? [String: Any])
+    auth.removeValue(forKey: "email")
+    stored["auth"] = auth
+    let invalidJson = String(
+        data: try JSONSerialization.data(withJSONObject: stored),
+        encoding: .utf8
+    )!
+    let storageKey = Constants.credentialsStorageKey(environment: environment, scope: projectId)
+    try keychain.set(invalidJson, forKey: storageKey)
+
+    let session = WalletCredentialSession(
+        environment: environment,
+        projectId: projectId,
+        keychain: keychain,
+        signerFactory: { _, _, _ in signer }
+    )
+
+    #expect(session.restore() == nil)
+    #expect(try keychain.string(forKey: storageKey) == nil)
+    #expect(signer.clearCallCount == 1)
+}
+
+@Test @MainActor func TestWalletSessionExpiredReplayClearsOnNewAuthFlow() async throws {
+    let storedCredentials = StorableCredentials(
+        walletId: "wallet-expired",
+        walletAddress: "0x1111111111111111111111111111111111111111",
+        signerCredentialId: "0xmock-credential",
+        alg: .ecdsaP256Sha256,
+        expiresAt: "2026-01-01T00:00:00Z",
+        auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
+    )
+    let fixture = makeMockWalletClient(
+        currentDate: { Date(timeIntervalSince1970: 1_767_225_601) },
+        storedCredentials: storedCredentials
+    )
+    var expiredEvent: OMSWalletSessionExpiredEvent?
+    let expiredObservation = fixture.client.addSessionExpiredObserver { event in
+        expiredEvent = event
+    }
+    let initialReplay = try await waitForSessionExpiredEvent { expiredEvent }
+    expiredObservation.cancel()
+    #expect(initialReplay?.session.walletAddress == storedCredentials.walletAddress)
+
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "new-verifier",
+            loginHint: "new@example.com",
+            challenge: "new-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try await fixture.client.startEmailAuth(email: "new@example.com")
+
+    var replayedEvent: OMSWalletSessionExpiredEvent?
+    let replayObservation = fixture.client.addSessionExpiredObserver { event in
+        replayedEvent = event
+    }
+    defer { replayObservation.cancel() }
+    await Task.yield()
+    #expect(replayedEvent == nil)
+}
+
+@MainActor
+private func waitForSessionExpiredEvent(
+    _ event: () -> OMSWalletSessionExpiredEvent?,
+    attempts: Int = 40
+) async throws -> OMSWalletSessionExpiredEvent? {
+    for _ in 0..<attempts {
+        if let event = event() {
+            return event
+        }
+        try await Task.sleep(nanoseconds: 50_000_000)
+    }
+    return event()
+}
+
+@Test @MainActor func TestWalletSessionExpiryTimerReplaysObserver() async throws {
+    let fixture = makeMockWalletClient(
+        currentDate: { Date(timeIntervalSince1970: 1_767_225_601) }
+    )
+    let wallet = testWallet(id: "wallet-expired-timer", address: "0x2222222222222222222222222222222222222222")
+    let credential = WaasCredentialInfo(
+        credentialId: "0xcredential",
+        expiresAt: "2026-01-01T00:00:00Z",
+        isCaller: true
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: [wallet], credential: credential),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: wallet),
+        for: WaasAPI.UseWallet.urlPath
+    )
+
+    _ = try await fixture.client.completeEmailAuth(code: "123456")
+    await Task.yield()
+    await Task.yield()
+    var expiredEvent: OMSWalletSessionExpiredEvent?
+    let observation = fixture.client.addSessionExpiredObserver { event in
+        expiredEvent = event
+    }
+    defer { observation.cancel() }
+    let replayedEvent = try await waitForSessionExpiredEvent { expiredEvent }
+
+    #expect(replayedEvent?.session.walletAddress == wallet.address)
+    #expect(isEmailAuth(replayedEvent?.session.auth))
+    #expect(fixture.client.session == OMSWalletSessionState(walletAddress: nil))
+    #expect(try fixture.storedCredentials()?.walletId == wallet.id)
+}
+
+@Test func TestWalletCompleteEmailAuthFetchesPaginatedWallets() async throws {
+    let fixture = makeMockWalletClient()
+    let firstWallet = testWallet(id: "wallet-1", address: "0x1111111111111111111111111111111111111111")
+    let secondWallet = testWallet(id: "wallet-2", address: "0x2222222222222222222222222222222222222222")
+    let thirdWallet = testWallet(id: "wallet-3", address: "0x3333333333333333333333333333333333333333")
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: [firstWallet], page: WaasPage(cursor: "cursor-1")),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        ListWalletsResponse(wallets: [secondWallet], page: WaasPage(cursor: " cursor-2 ")),
+        for: WaasAPI.ListWallets.urlPath
+    )
+    try fixture.transport.enqueue(
+        ListWalletsResponse(wallets: [thirdWallet], page: WaasPage(cursor: " ")),
+        for: WaasAPI.ListWallets.urlPath
+    )
+
+    let result = try await fixture.client.completeEmailAuth(
+        code: "123456",
+        walletSelection: .manual
+    )
+    let listWalletsRequests = try fixture.transport.decodedRequests(
+        ListWalletsRequest.self,
+        for: WaasAPI.ListWallets.urlPath
+    )
+
+    guard case .walletSelection(let pendingSelection) = result else {
+        Issue.record("Expected pending wallet selection")
+        return
+    }
+    #expect(pendingSelection.wallets.map(\.id) == [firstWallet.id, secondWallet.id, thirdWallet.id])
+    #expect(listWalletsRequests.count == 2)
+    #expect(listWalletsRequests[0].page?.cursor == "cursor-1")
+    #expect(listWalletsRequests[1].page?.cursor == "cursor-2")
+}
+
+@Test func TestPendingWalletSelectionSelectsAndCreatesWallets() async throws {
+    let selectFixture = makeMockWalletClient()
+    let firstWallet = testWallet(id: "wallet-1", address: "0x1111111111111111111111111111111111111111")
+    let selectedWallet = testWallet(id: "wallet-2", address: "0x2222222222222222222222222222222222222222")
+    try selectFixture.transport.enqueue(
+        completeAuthResponse(wallets: [firstWallet, selectedWallet]),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try selectFixture.transport.enqueue(
+        UseWalletResponse(wallet: selectedWallet),
+        for: WaasAPI.UseWallet.urlPath
+    )
+
+    let result = try await selectFixture.client.completeEmailAuth(
+        code: "123456",
+        walletSelection: .manual
+    )
+    guard case .walletSelection(let pendingSelection) = result else {
+        #expect(Bool(false))
+        return
+    }
+
+    do {
+        _ = try await pendingSelection.selectWallet(walletId: "wallet-missing")
+        #expect(Bool(false))
+    } catch let error as OMSWalletError {
+        #expect(error.code == .walletSelectionUnavailable)
+        #expect(error.operation == .pendingWalletSelectionSelectWallet)
+    } catch {
+        #expect(Bool(false))
+    }
+
+    let selected = try await pendingSelection.selectWallet(walletId: selectedWallet.id)
+    let useWalletRequest = try selectFixture.transport.decodedRequest(
+        UseWalletRequest.self,
+        for: WaasAPI.UseWallet.urlPath
+    )
+
+    #expect(selected.wallet.id == selectedWallet.id)
+    #expect(useWalletRequest.walletId == selectedWallet.id)
+
+    do {
+        _ = try await pendingSelection.createAndSelectWallet(reference: "after-select")
+        #expect(Bool(false))
+    } catch let error as OMSWalletError {
+        #expect(error.code == .walletSelectionStale)
+        #expect(error.operation == .pendingWalletSelectionCreateAndSelectWallet)
+    } catch {
+        #expect(Bool(false))
+    }
+    #expect(selectFixture.transport.requestCount(for: WaasAPI.CreateWallet.urlPath) == 0)
+
+    let createFixture = makeMockWalletClient()
+    let createdWallet = testWallet(id: "wallet-3", address: "0x3333333333333333333333333333333333333333")
+    try createFixture.transport.enqueue(
+        completeAuthResponse(wallets: []),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try createFixture.transport.enqueue(
+        CreateWalletResponse(wallet: createdWallet),
+        for: WaasAPI.CreateWallet.urlPath
+    )
+
+    let createResult = try await createFixture.client.completeEmailAuth(
+        code: "123456",
+        walletSelection: .manual
+    )
+    guard case .walletSelection(let createPendingSelection) = createResult else {
+        #expect(Bool(false))
+        return
+    }
+
+    let created = try await createPendingSelection.createAndSelectWallet(reference: "reference-1")
+    let createWalletRequest = try createFixture.transport.decodedRequest(
+        CreateWalletRequest.self,
+        for: WaasAPI.CreateWallet.urlPath
+    )
+
+    #expect(created.wallet.id == createdWallet.id)
+    #expect(createWalletRequest.type == .ethereum)
+    #expect(createWalletRequest.reference == "reference-1")
+}
+
+@Test func TestStalePendingWalletSelectionCannotCreateWalletAfterNewAuth() async throws {
+    let fixture = makeMockWalletClient()
+    let staleCreatedWallet = testWallet(id: "wallet-stale", address: "0x1111111111111111111111111111111111111111")
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: [], email: "first@example.com"),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+
+    let firstResult = try await fixture.client.completeEmailAuth(
+        code: "123456",
+        walletSelection: .manual
+    )
+    guard case .walletSelection(let stalePendingSelection) = firstResult else {
+        #expect(Bool(false))
+        return
+    }
+
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "second-verifier",
+            loginHint: "second@example.com",
+            challenge: "second-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try await fixture.client.startEmailAuth(email: "second@example.com")
+    _ = try fixture.signer.credentialId()
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: [], email: "second@example.com"),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+
+    let secondResult = try await fixture.client.completeEmailAuth(
+        code: "654321",
+        walletSelection: .manual
+    )
+    guard case .walletSelection = secondResult else {
+        #expect(Bool(false))
+        return
+    }
+
+    try fixture.transport.enqueue(
+        CreateWalletResponse(wallet: staleCreatedWallet),
+        for: WaasAPI.CreateWallet.urlPath
+    )
+
+    do {
+        _ = try await stalePendingSelection.createAndSelectWallet(reference: "stale")
+        #expect(Bool(false), "Stale pending wallet selection should not create and select a wallet after a newer auth flow")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .walletSelectionStale)
+        #expect(error.operation == .pendingWalletSelectionCreateAndSelectWallet)
+        #expect(fixture.transport.requestCount(for: WaasAPI.CreateWallet.urlPath) == 0)
+        #expect(fixture.client.walletId == "")
+        #expect(fixture.client.walletAddress == nil)
+        #expect(try fixture.storedCredentials() == nil)
+    } catch {
+        #expect(Bool(false))
+    }
+
+    let storedCredentials = try fixture.storedCredentials()
+    #expect(storedCredentials?.auth.email != "first@example.com")
+}
+
+@Test func TestWalletPublicUseCreateAndListWalletsUseVerifiedSession() async throws {
+    let fixture = makeMockWalletClient()
+    let existingWallet = testWallet(id: "wallet-1", address: "0x1111111111111111111111111111111111111111")
+    let listedWallet = testWallet(id: "wallet-2", address: "0x2222222222222222222222222222222222222222")
+    let createdWallet = testWallet(id: "wallet-3", address: "0x3333333333333333333333333333333333333333")
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: []),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        ListWalletsResponse(wallets: [existingWallet], page: WaasPage(cursor: "next")),
+        for: WaasAPI.ListWallets.urlPath
+    )
+    try fixture.transport.enqueue(
+        ListWalletsResponse(wallets: [listedWallet], page: nil),
+        for: WaasAPI.ListWallets.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: existingWallet),
+        for: WaasAPI.UseWallet.urlPath
+    )
+    try fixture.transport.enqueue(
+        CreateWalletResponse(wallet: createdWallet),
+        for: WaasAPI.CreateWallet.urlPath
+    )
+
+    _ = try await fixture.client.completeEmailAuth(code: "123456", walletSelection: .manual)
+    let listedWallets = try await fixture.client.listWallets()
+    let usedWallet = try await fixture.client.useWallet(walletId: existingWallet.id)
+    let created = try await fixture.client.createWallet(
+        walletType: .ethereum,
+        reference: "reference-1"
+    )
+
+    let listWalletsRequests = try fixture.transport.decodedRequests(
+        ListWalletsRequest.self,
+        for: WaasAPI.ListWallets.urlPath
+    )
+    let useWalletRequest = try fixture.transport.decodedRequest(
+        UseWalletRequest.self,
+        for: WaasAPI.UseWallet.urlPath
+    )
+    let createWalletRequest = try fixture.transport.decodedRequest(
+        CreateWalletRequest.self,
+        for: WaasAPI.CreateWallet.urlPath
+    )
+
+    #expect(listedWallets.map(\.id) == [existingWallet.id, listedWallet.id])
+    #expect(listWalletsRequests.count == 2)
+    #expect(listWalletsRequests[0].page == nil)
+    #expect(listWalletsRequests[1].page?.cursor == "next")
+    #expect(useWalletRequest.walletId == existingWallet.id)
+    #expect(usedWallet.wallet.id == existingWallet.id)
+    #expect(createWalletRequest.type == .ethereum)
+    #expect(createWalletRequest.reference == "reference-1")
+    #expect(created.wallet.id == createdWallet.id)
+    #expect(fixture.client.walletId == createdWallet.id)
+    #expect(fixture.client.walletAddress == createdWallet.address)
+    #expect(isEmailAuth(fixture.client.session.auth))
+}
+
+@Test func TestWalletCompleteEmailAuthSignsOutWhenActivationFails() async throws {
+    let fixture = makeMockWalletClient()
+    let existingWallet = testWallet(id: "wallet-1", address: "0x1111111111111111111111111111111111111111")
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: [existingWallet]),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    fixture.transport.enqueueHTTPError(
+        statusCode: 500,
+        errorCode: WebRPCErrorKind.internalError.code,
+        message: "activation failed",
+        for: WaasAPI.UseWallet.urlPath
+    )
+
+    do {
+        _ = try await fixture.client.completeEmailAuth(code: "123456")
+        #expect(Bool(false))
+    } catch let error as OMSWalletError {
+        #expect(error.code == .requestFailed)
+        #expect(error.operation == .walletCompleteEmailAuth)
+        #expect(error.status == 500)
+    } catch {
+        #expect(Bool(false))
+    }
+
+    #expect(fixture.client.walletId == "")
+    #expect(fixture.client.walletAddress == nil)
+    #expect(fixture.client.verifier == "")
+    #expect(fixture.client.challenge == "")
+    #expect(fixture.client.session == OMSWalletSessionState(walletAddress: nil))
+    #expect(fixture.signer.clearCallCount == 1)
+    #expect(fixture.signer.hasStoredCredential == false)
+    #expect(try fixture.storedCredentials() == nil)
+}
+
+@Test func TestWalletSignInWithOidcIdTokenCommitsCompletesAndResolvesWallet() async throws {
+    let fixture = makeMockWalletClient()
+    let idToken = try fakeOidcIdToken()
+    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: ""
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            identity: Identity(
+                type: .oidc,
+                iss: "https://accounts.google.com",
+                sub: "google-sub-123"
+            ),
+            wallets: [selectedWallet],
+            email: "user@example.com"
+        ),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: selectedWallet),
+        for: WaasAPI.UseWallet.urlPath
+    )
+
+    let result = try await fixture.client.signInWithOidcIdToken(
+        idToken: idToken,
+        issuer: "https://accounts.google.com",
+        audience: "demo-web-client-id"
+    )
+    guard case .walletSelected(_, let wallet, _, _) = result else {
+        #expect(Bool(false))
+        return
+    }
+
+    let commitRequest = try fixture.transport.decodedRequest(
+        CommitVerifierRequest.self,
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    let completeAuthRequest = try fixture.transport.decodedRequest(
+        CompleteAuthRequest.self,
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    let useWalletRequest = try fixture.transport.decodedRequest(
+        UseWalletRequest.self,
+        for: WaasAPI.UseWallet.urlPath
+    )
+    let storedCredentials = try fixture.storedCredentials()
+
+    #expect(commitRequest.identityType == .oidc)
+    #expect(commitRequest.authMode == .idToken)
+    #expect(commitRequest.metadata == [
+        "iss": "https://accounts.google.com",
+        "aud": "demo-web-client-id",
+        "exp": "1910000100"
+    ])
+    #expect(commitRequest.handle == expectedOidcHandleHash(idToken))
+    #expect(completeAuthRequest.identityType == .oidc)
+    #expect(completeAuthRequest.authMode == .idToken)
+    #expect(completeAuthRequest.verifier == "oidc-verifier-123")
+    #expect(completeAuthRequest.answer == idToken)
+    #expect(completeAuthRequest.lifetime == 604_800)
+    #expect(useWalletRequest.walletId == selectedWallet.id)
+    #expect(wallet.id == selectedWallet.id)
+    #expect(fixture.client.walletId == selectedWallet.id)
+    #expect(fixture.client.walletAddress == selectedWallet.address)
+    #expect(isOidcAuth(fixture.client.session.auth, flow: .idToken))
+    #expect(isOidcAuth(storedCredentials?.auth, flow: .idToken))
+}
+
+@Test func TestWalletSignInWithOidcIdTokenRejectsInvalidSessionLifetimeBeforeRequest() async throws {
+    let fixture = makeMockWalletClient()
+
+    do {
+        _ = try await fixture.client.signInWithOidcIdToken(
+            idToken: try fakeOidcIdToken(),
+            issuer: "https://accounts.google.com",
+            audience: "demo-web-client-id",
+            sessionLifetimeSeconds: 2_592_001
+        )
+        #expect(Bool(false))
+    } catch let error as OMSWalletError {
+        #expect(error.code == .validationError)
+        #expect(error.operation == .walletSignInWithOidcIdToken)
+        #expect(error.localizedDescription == "sessionLifetimeSeconds must be an integer between 1 and 2592000")
+    } catch {
+        #expect(Bool(false))
+    }
+
+    #expect(fixture.transport.requestCount(for: WaasAPI.CommitVerifier.urlPath) == 0)
+}
+
+@Test func TestWalletSignInWithOidcIdTokenCanReturnManualWalletSelection() async throws {
+    let fixture = makeMockWalletClient()
+    let availableWallet = testWallet(id: "wallet-def", address: "0xdef")
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: ""
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            identity: Identity(type: .oidc, iss: "https://issuer.example", sub: "oidc-sub-123"),
+            wallets: [availableWallet],
+            email: "user@example.com"
+        ),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+
+    let result = try await fixture.client.signInWithOidcIdToken(
+        idToken: try fakeOidcIdToken(),
+        issuer: "https://issuer.example",
+        audience: "demo-web-client-id",
+        walletSelection: .manual
+    )
+    guard case .walletSelection(let pendingSelection) = result else {
+        #expect(Bool(false))
+        return
+    }
+
+    #expect(pendingSelection.walletType == .ethereum)
+    #expect(pendingSelection.wallets.map(\.id) == [availableWallet.id])
+    #expect(pendingSelection.credential.credentialId == testCredential.credentialId)
+    #expect(fixture.client.walletId == "")
+    #expect(fixture.client.walletAddress == nil)
+    #expect(fixture.client.session.walletAddress == nil)
+    #expect(try fixture.storedCredentials() == nil)
+    #expect(fixture.transport.requestCount(for: WaasAPI.UseWallet.urlPath) == 0)
+    #expect(fixture.transport.requestCount(for: WaasAPI.CreateWallet.urlPath) == 0)
+}
+
+@Test func TestWalletSignInWithOidcIdTokenStoresCustomProviderMetadata() async throws {
+    let fixture = makeMockWalletClient()
+    let selectedWallet = testWallet(id: "wallet-custom-oidc", address: "0xcustomoidc")
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: ""
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            identity: Identity(type: .oidc, iss: "https://issuer.example", sub: "oidc-sub-123"),
+            wallets: [selectedWallet],
+            email: "user@example.com"
+        ),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: selectedWallet),
+        for: WaasAPI.UseWallet.urlPath
+    )
+
+    _ = try await fixture.client.signInWithOidcIdToken(
+        idToken: try fakeOidcIdToken(),
+        issuer: "https://issuer.example",
+        audience: "custom-client-id",
+        provider: "custom",
+        providerLabel: "Custom"
+    )
+    let storedCredentials = try fixture.storedCredentials()
+
+    #expect(isOidcAuth(
+        fixture.client.session.auth,
+        flow: .idToken,
+        issuer: "https://issuer.example",
+        provider: "custom",
+        providerLabel: "Custom"
+    ))
+    #expect(isOidcAuth(
+        storedCredentials?.auth,
+        flow: .idToken,
+        issuer: "https://issuer.example",
+        provider: "custom",
+        providerLabel: "Custom"
+    ))
+}
+
+@Test func TestWalletSignInWithOidcIdTokenClearsPendingRedirectAuth() async throws {
+    let fixture = makeMockWalletClient()
+    try fixture.oidcRedirectAuthStore.save(
+        PendingOIDCRedirectAuth(
+            verifier: "stale-verifier",
+            challenge: "stale-challenge",
+            nonce: "stale-nonce",
+            authMode: .authCodePKCE,
+            redirectUri: "omsclientswiftdemo://auth/callback",
+            issuer: "https://issuer.example",
+            provider: nil,
+            providerLabel: nil,
+            authorizationScope: fixture.projectId,
+            walletType: .ethereum,
+            walletSelection: nil,
+            sessionLifetimeSeconds: nil,
+            signerCredentialId: "0xmock-credential",
+            signerKeyType: .ecdsaP256Sha256
+        )
+    )
+    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: ""
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            identity: Identity(type: .oidc, iss: "https://accounts.google.com", sub: "google-sub-123"),
+            wallets: [selectedWallet]
+        ),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: selectedWallet),
+        for: WaasAPI.UseWallet.urlPath
+    )
+
+    _ = try await fixture.client.signInWithOidcIdToken(
+        idToken: try fakeOidcIdToken(),
+        issuer: "https://accounts.google.com",
+        audience: "demo-web-client-id"
+    )
+
+    #expect(fixture.oidcRedirectAuthStore.pending == nil)
+}
+
+@Test func TestWalletSignInWithOidcIdTokenSignsOutWhenCompleteAuthFails() async throws {
+    let fixture = makeMockWalletClient()
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: ""
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    fixture.transport.enqueueHTTPError(
+        statusCode: 500,
+        errorCode: WebRPCErrorKind.identityProviderError.code,
+        message: "identity provider error",
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+
+    do {
+        _ = try await fixture.client.signInWithOidcIdToken(
+            idToken: try fakeOidcIdToken(),
+            issuer: "https://accounts.google.com",
+            audience: "demo-web-client-id"
+        )
+        #expect(Bool(false))
+    } catch let error as OMSWalletError {
+        #expect(error.code == .requestFailed)
+        #expect(error.operation == .walletSignInWithOidcIdToken)
+        #expect(error.status == 500)
+    } catch {
+        #expect(Bool(false))
+    }
+
+    #expect(fixture.client.walletId == "")
+    #expect(fixture.client.walletAddress == nil)
+    #expect(fixture.client.verifier == "")
+    #expect(fixture.client.challenge == "")
+    #expect(fixture.client.session == OMSWalletSessionState(walletAddress: nil))
+    #expect(fixture.signer.hasStoredCredential == false)
+    #expect(try fixture.storedCredentials() == nil)
+}
+
+@Test func TestCustomOIDCProviderConfigurationDefaultsToNoScopesForCustomProviders() {
+    let provider = CustomOIDCProviderConfiguration(
+        issuer: "https://issuer.example",
+        clientID: "client-123",
+        authorizationURL: "https://issuer.example/oauth/authorize",
+        providerRedirectURI: "https://issuer.example/oauth/callback"
+    )
+
+    #expect(provider.scopes == [])
+    #expect(provider.authMode == .authCodePKCE)
+}
+
+@Test func TestWalletStartOIDCRedirectAuthCustomGoogleProviderUsesProviderRedirectURI() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    let provider = CustomOIDCProviderConfiguration(
+        issuer: "https://accounts.google.com",
+        clientID: "913882656162-7l4ofa0ou2hqo90umlkenhdop1f5inba.apps.googleusercontent.com",
+        authorizationURL: "https://accounts.google.com/o/oauth2/v2/auth",
+        providerRedirectURI: "myapp://google/callback",
+        provider: "google",
+        providerLabel: "Google",
+        scopes: ["openid", "email"]
+    )
+
+    let result = try await fixture.client.startOIDCRedirectAuth(
+        provider: provider,
+        loginHint: "user@example.com"
+    )
+    let request = try fixture.transport.decodedRequest(
+        CommitVerifierRequest.self,
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    let query = queryParams(result.authorizationURL)
+    let decodedState = try decodedOidcState(#require(query["state"]))
+
+    #expect(request.metadata["redirect_uri"] == "myapp://google/callback")
+    #expect(query["redirect_uri"] == "myapp://google/callback")
+    #expect(query["login_hint"] == "user@example.com")
+    #expect(decodedState["redirect_uri"] == nil)
+    #expect(fixture.oidcRedirectAuthStore.pending?.redirectUri == "myapp://google/callback")
+}
+
+@Test func TestWalletStartOIDCRedirectAuthCommitsVerifierBuildsAuthorizationURLAndStoresPendingAuth() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    let provider = CustomOIDCProviderConfiguration(
+        issuer: "https://issuer.example",
+        clientID: "client-123",
+        authorizationURL: "https://issuer.example/oauth/authorize",
+        providerRedirectURI: "https://provider.example/callback",
+        authorizeParams: ["prompt": "consent"]
+    )
+
+    let result = try await fixture.client.startOIDCRedirectAuth(
+        provider: provider,
+        authorizeParams: ["prompt": "select_account", "audience": "wallet"]
+    )
+    let request = try fixture.transport.decodedRequest(
+        CommitVerifierRequest.self,
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    let query = queryParams(result.authorizationURL)
+    let state = try #require(query["state"])
+    let decodedState = try decodedOidcState(state)
+
+    #expect(request.identityType == .oidc)
+    #expect(request.authMode == .authCodePkce)
+    #expect(request.metadata["iss"] == "https://issuer.example")
+    #expect(request.metadata["aud"] == "client-123")
+    #expect(request.metadata["redirect_uri"] == "https://provider.example/callback")
+    #expect(uriOriginAndPath(result.authorizationURL) == "https://issuer.example/oauth/authorize")
+    #expect(query["client_id"] == "client-123")
+    #expect(query["redirect_uri"] == "https://provider.example/callback")
+    #expect(query["response_type"] == "code")
+    #expect(query["scope"] == nil)
+    #expect(!state.isEmpty)
+    #expect(query["code_challenge"] == "pkce-challenge")
+    #expect(query["code_challenge_method"] == "S256")
+    #expect(query["login_hint"] == nil)
+    #expect(query["prompt"] == "select_account")
+    #expect(query["audience"] == "wallet")
+    #expect(decodedState["nonce"] as? String == "nonce-123")
+    #expect(decodedState["scope"] as? String == fixture.projectId)
+    #expect(decodedState["redirect_uri"] == nil)
+    #expect(fixture.oidcRedirectAuthStore.pending?.verifier == "oidc-verifier-123")
+    #expect(fixture.oidcRedirectAuthStore.pending?.challenge == "pkce-challenge")
+    #expect(fixture.oidcRedirectAuthStore.pending?.nonce == "nonce-123")
+    #expect(fixture.oidcRedirectAuthStore.pending?.authMode == .authCodePKCE)
+    #expect(fixture.oidcRedirectAuthStore.pending?.redirectUri == "https://provider.example/callback")
+    #expect(fixture.oidcRedirectAuthStore.pending?.walletType == .ethereum)
+    #expect(fixture.oidcRedirectAuthStore.pending?.walletSelection == nil)
+    #expect(fixture.oidcRedirectAuthStore.pending?.sessionLifetimeSeconds == nil)
+    #expect(fixture.oidcRedirectAuthStore.pending?.signerCredentialId == "0xmock-credential")
+    #expect(fixture.oidcRedirectAuthStore.pending?.signerKeyType == .ecdsaP256Sha256)
+    #expect(fixture.client.verifier == "oidc-verifier-123")
+}
+
+@Test func TestWalletStartOidcRedirectAuthRejectsInvalidSessionLifetimeBeforeRequest() async throws {
+    let fixture = makeMockWalletClient()
+
+    do {
+        _ = try await fixture.client.startOIDCRedirectAuth(
+            provider: CustomOIDCProviderConfiguration(
+                issuer: "https://issuer.example",
+                clientID: "client-123",
+                authorizationURL: "https://issuer.example/oauth/authorize",
+                providerRedirectURI: "omsclientswiftdemo://auth/callback"
+            ),
+            sessionLifetimeSeconds: 2_592_001
+        )
+        #expect(Bool(false))
+    } catch let error as OMSWalletError {
+        #expect(error.code == .validationError)
+        #expect(error.operation == .walletStartOIDCRedirectAuth)
+        #expect(error.localizedDescription == "sessionLifetimeSeconds must be an integer between 1 and 2592000")
+    } catch {
+        #expect(Bool(false))
+    }
+
+    #expect(fixture.transport.requestCount(for: WaasAPI.CommitVerifier.urlPath) == 0)
+    #expect(fixture.oidcRedirectAuthStore.pending == nil)
+}
+
+@Test func TestWalletStartOidcRedirectAuthUsesAppleDefaultsThroughRelay() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+
+    let result = try await fixture.client.startOIDCRedirectAuth(
+        provider: OMSRelayOIDCProviders.apple,
+        omsRelayReturnURI: "omsclientswiftdemo://auth/callback",
+        loginHint: "ignored@example.com"
+    )
+    let request = try fixture.transport.decodedRequest(
+        CommitVerifierRequest.self,
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    let query = queryParams(result.authorizationURL)
+    let decodedState = try decodedOidcState(#require(query["state"]))
+
+    #expect(request.identityType == .oidc)
+    #expect(request.authMode == .authCodePkce)
+    #expect(request.metadata["iss"] == "https://appleid.apple.com")
+    #expect(request.metadata["aud"] == "service.oms.polygon.technology")
+    #expect(request.metadata["redirect_uri"] == "https://wallet.example.test/auth/waas/callback/apple")
+    #expect(uriOriginAndPath(result.authorizationURL) == "https://appleid.apple.com/auth/authorize")
+    #expect(query["client_id"] == "service.oms.polygon.technology")
+    #expect(query["redirect_uri"] == "https://wallet.example.test/auth/waas/callback/apple")
+    #expect(query["response_type"] == "code")
+    #expect(query["response_mode"] == "form_post")
+    #expect(query["scope"] == "openid email")
+    #expect(query["code_challenge"] == "pkce-challenge")
+    #expect(query["code_challenge_method"] == "S256")
+    #expect(query["login_hint"] == nil)
+    #expect(decodedState["redirect_uri"] as? String == "omsclientswiftdemo://auth/callback")
+    #expect(fixture.oidcRedirectAuthStore.pending?.authMode == .authCodePKCE)
+    #expect(fixture.oidcRedirectAuthStore.pending?.redirectUri == "omsclientswiftdemo://auth/callback")
+}
+
+@Test func TestWalletStartOidcRedirectAuthUsesDerivedRelayForHelperProvider() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+
+    let result = try await fixture.client.startOIDCRedirectAuth(
+        provider: OMSRelayOIDCProviders.google,
+        omsRelayReturnURI: "omsclientswiftdemo://auth/callback"
+    )
+    let request = try fixture.transport.decodedRequest(
+        CommitVerifierRequest.self,
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    let query = queryParams(result.authorizationURL)
+    let decodedState = try decodedOidcState(#require(query["state"]))
+
+    #expect(request.identityType == .oidc)
+    #expect(request.authMode == .authCodePkce)
+    #expect(request.metadata["iss"] == "https://accounts.google.com")
+    #expect(request.metadata["aud"] == "913882656162-7l4ofa0ou2hqo90umlkenhdop1f5inba.apps.googleusercontent.com")
+    #expect(request.metadata["redirect_uri"] == "https://wallet.example.test/auth/waas/callback/google")
+    #expect(query["redirect_uri"] == "https://wallet.example.test/auth/waas/callback/google")
+    #expect(decodedState["redirect_uri"] as? String == "omsclientswiftdemo://auth/callback")
+    #expect(fixture.oidcRedirectAuthStore.pending?.redirectUri == "omsclientswiftdemo://auth/callback")
+}
+
+@Test func TestWalletStartOidcRedirectAuthUsesStoredEmailAsGoogleLoginHint() async throws {
+    let storedCredentials = StorableCredentials(
+        walletId: "wallet-google",
+        walletAddress: "0x1111111111111111111111111111111111111111",
+        signerCredentialId: "0xmock-credential",
+        alg: .ecdsaP256Sha256,
+        expiresAt: "2099-01-01T00:00:00Z",
+        auth: .oidc(
+            OMSWalletOidcSessionAuth(
+                flow: .redirect,
+                issuer: "https://accounts.google.com",
+                provider: "google",
+                providerLabel: "Google",
+                email: "last@example.com"
+            )
+        )
+    )
+    let fixture = makeMockWalletClient(
+        oidcNonceGenerator: { "nonce-123" },
+        currentDate: { Date(timeIntervalSince1970: 1_767_225_599) },
+        storedCredentials: storedCredentials
+    )
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+
+    let result = try await fixture.client.startOIDCRedirectAuth(
+        provider: OMSRelayOIDCProviders.google,
+        omsRelayReturnURI: "omsclientswiftdemo://auth/callback"
+    )
+    let query = queryParams(result.authorizationURL)
+    let decodedState = try decodedOidcState(#require(query["state"]))
+
+    #expect(query["redirect_uri"] == "https://wallet.example.test/auth/waas/callback/google")
+    #expect(decodedState["redirect_uri"] as? String == "omsclientswiftdemo://auth/callback")
+    #expect(query["login_hint"] == "last@example.com")
+    #expect(try fixture.storedCredentials() == nil)
+}
+
+@Test func TestWalletOidcRedirectAuthCodeModeOmitsPkceAndUsesPendingAuthMode() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    let selectedWallet = testWallet(id: "wallet-auth-code", address: "0xauthcode")
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            identity: Identity(type: .oidc, iss: "https://issuer.example", sub: "oidc-sub-123"),
+            wallets: [selectedWallet]
+        ),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: selectedWallet),
+        for: WaasAPI.UseWallet.urlPath
+    )
+    let provider = CustomOIDCProviderConfiguration(
+        issuer: "https://issuer.example",
+        clientID: "client-123",
+        authorizationURL: "https://issuer.example/oauth/authorize",
+        providerRedirectURI: "omsclientswiftdemo://auth/callback",
+        scopes: [],
+        authorizeParams: [
+            "scope": "openid email",
+            "code_challenge": "manual-challenge",
+            "code_challenge_method": "plain"
+        ],
+        authMode: .authCode
+    )
+
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: provider
+    )
+    let query = queryParams(started.authorizationURL)
+    let commitRequest = try fixture.transport.decodedRequest(
+        CommitVerifierRequest.self,
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+
+    #expect(commitRequest.authMode == .authCode)
+    #expect(query["scope"] == nil)
+    #expect(query["code_challenge"] == nil)
+    #expect(query["code_challenge_method"] == nil)
+    #expect(fixture.oidcRedirectAuthStore.pending?.authMode == .authCode)
+
+    let result = try await fixture.client.handleOIDCRedirectCallback(
+        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))"
+    )
+    guard case .completed(.walletSelected(_, let wallet, _, _)) = result else {
+        #expect(Bool(false))
+        return
+    }
+    let completeAuthRequest = try fixture.transport.decodedRequest(
+        CompleteAuthRequest.self,
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+
+    #expect(completeAuthRequest.authMode == .authCode)
+    #expect(completeAuthRequest.lifetime == 604_800)
+    #expect(wallet.id == selectedWallet.id)
+}
+
+@Test func TestWalletHandleOidcRedirectCallbackCompletesAuthActivatesWalletAndClearsPendingAuth() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
+    let secondWallet = testWallet(id: "wallet-ghi", address: "0xghi")
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            identity: Identity(type: .oidc, iss: "https://issuer.example", sub: "oidc-sub-123"),
+            wallets: [selectedWallet, secondWallet]
+        ),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: selectedWallet),
+        for: WaasAPI.UseWallet.urlPath
+    )
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
+            issuer: "https://issuer.example",
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
+        )
+    )
+
+    let result = try await fixture.client.handleOIDCRedirectCallback(
+        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))&scope=openid"
+    )
+    guard case .completed(.walletSelected(_, let wallet, let wallets, let credential)) = result else {
+        #expect(Bool(false))
+        return
+    }
+    let completeAuthRequest = try fixture.transport.decodedRequest(
+        CompleteAuthRequest.self,
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    let useWalletRequest = try fixture.transport.decodedRequest(
+        UseWalletRequest.self,
+        for: WaasAPI.UseWallet.urlPath
+    )
+    let storedCredentials = try fixture.storedCredentials()
+
+    #expect(completeAuthRequest.identityType == .oidc)
+    #expect(completeAuthRequest.authMode == .authCodePkce)
+    #expect(completeAuthRequest.verifier == "oidc-verifier-123")
+    #expect(completeAuthRequest.answer == "auth-code")
+    #expect(completeAuthRequest.lifetime == 604_800)
+    #expect(useWalletRequest.walletId == selectedWallet.id)
+    #expect(wallet.address == "0xdef")
+    #expect(wallets.map(\.id) == [selectedWallet.id, secondWallet.id])
+    #expect(credential.credentialId == testCredential.credentialId)
+    #expect(fixture.client.walletAddress == "0xdef")
+    #expect(fixture.client.walletId == "wallet-def")
+    #expect(fixture.oidcRedirectAuthStore.pending == nil)
+    #expect(storedCredentials?.walletId == "wallet-def")
+    #expect(storedCredentials?.walletAddress == "0xdef")
+    #expect(
+        isOidcAuth(
+            storedCredentials?.auth,
+            flow: .redirect,
+            issuer: "https://issuer.example",
+            provider: nil,
+            providerLabel: nil
+        )
+    )
+}
+
+@Test func TestWalletHandleOidcRedirectCallbackCompletesAuthFromFragmentResponseMode() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    let selectedWallet = testWallet(id: "wallet-fragment", address: "0xfragment")
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            identity: Identity(type: .oidc, iss: "https://issuer.example", sub: "oidc-sub-123"),
+            wallets: [selectedWallet]
+        ),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: selectedWallet),
+        for: WaasAPI.UseWallet.urlPath
+    )
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
+            issuer: "https://issuer.example",
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
+        ),
+        authorizeParams: ["response_mode": "fragment"]
+    )
+
+    #expect(queryParams(started.authorizationURL)["response_mode"] == "fragment")
+    let result = try await fixture.client.handleOIDCRedirectCallback(
+        "omsclientswiftdemo://auth/callback#code=fragment-code&state=\(try oidcState(started))&scope=openid"
+    )
+    guard case .completed(.walletSelected(_, let wallet, _, _)) = result else {
+        #expect(Bool(false))
+        return
+    }
+    let completeAuthRequest = try fixture.transport.decodedRequest(
+        CompleteAuthRequest.self,
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+
+    #expect(completeAuthRequest.answer == "fragment-code")
+    #expect(wallet.id == selectedWallet.id)
+    #expect(fixture.client.walletId == selectedWallet.id)
+    #expect(fixture.oidcRedirectAuthStore.pending == nil)
+}
+
+@Test func TestWalletHandleOidcRedirectCallbackCanReturnPendingWalletSelectionWithoutActivatingWallet() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
+    let otherTypeWallet = testWallet(
+        id: "wallet-other",
+        type: .unknown("other"),
+        address: "0xother"
+    )
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            identity: Identity(type: .oidc, iss: "https://issuer.example", sub: "oidc-sub-123"),
+            wallets: [selectedWallet, otherTypeWallet]
+        ),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
+            issuer: "https://issuer.example",
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
+        )
+    )
+
+    let result = try await fixture.client.handleOIDCRedirectCallback(
+        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))",
+        walletSelection: .manual
+    )
+
+    guard case .completed(.walletSelection(let pendingSelection)) = result else {
+        #expect(Bool(false))
+        return
+    }
+    #expect(pendingSelection.walletType == .ethereum)
+    #expect(pendingSelection.wallets.map(\.id) == ["wallet-def"])
+    #expect(pendingSelection.credential.credentialId == testCredential.credentialId)
+    #expect(fixture.client.walletId == "")
+    #expect(fixture.client.walletAddress == nil)
+    #expect(fixture.client.session.walletAddress == nil)
+    #expect(fixture.oidcRedirectAuthStore.pending == nil)
+    #expect(fixture.transport.requestCount(for: WaasAPI.UseWallet.urlPath) == 0)
+    #expect(try fixture.storedCredentials() == nil)
+}
+
+@Test func TestWalletHandleOidcRedirectCallbackUsesPendingCompletionPreferences() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
+    let otherTypeWallet = testWallet(
+        id: "wallet-other",
+        type: .unknown("other"),
+        address: "0xother"
+    )
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            identity: Identity(type: .oidc, iss: "https://issuer.example", sub: "oidc-sub-123"),
+            wallets: [selectedWallet, otherTypeWallet]
+        ),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
+            issuer: "https://issuer.example",
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
+        ),
+        walletSelection: .manual,
+        sessionLifetimeSeconds: 120
+    )
+
+    #expect(fixture.oidcRedirectAuthStore.pending?.walletSelection == .manual)
+    #expect(fixture.oidcRedirectAuthStore.pending?.sessionLifetimeSeconds == 120)
+    let result = try await fixture.client.handleOIDCRedirectCallback(
+        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))"
+    )
+
+    guard case .completed(.walletSelection(let pendingSelection)) = result else {
+        #expect(Bool(false))
+        return
+    }
+    let completeAuthRequest = try fixture.transport.decodedRequest(
+        CompleteAuthRequest.self,
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+
+    #expect(completeAuthRequest.lifetime == 120)
+    #expect(pendingSelection.wallets.map(\.id) == ["wallet-def"])
+    #expect(fixture.transport.requestCount(for: WaasAPI.UseWallet.urlPath) == 0)
+    #expect(fixture.oidcRedirectAuthStore.pending == nil)
+}
+
+@Test func TestWalletHandleOidcRedirectCallbackOverridesPendingCompletionPreferences() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            identity: Identity(type: .oidc, iss: "https://issuer.example", sub: "oidc-sub-123"),
+            wallets: [selectedWallet]
+        ),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: selectedWallet),
+        for: WaasAPI.UseWallet.urlPath
+    )
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
+            issuer: "https://issuer.example",
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
+        ),
+        walletSelection: .manual,
+        sessionLifetimeSeconds: 120
+    )
+
+    let result = try await fixture.client.handleOIDCRedirectCallback(
+        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))",
+        walletSelection: .automatic,
+        sessionLifetimeSeconds: 300
+    )
+    guard case .completed(.walletSelected(_, let wallet, _, _)) = result else {
+        #expect(Bool(false))
+        return
+    }
+    let completeAuthRequest = try fixture.transport.decodedRequest(
+        CompleteAuthRequest.self,
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+
+    #expect(completeAuthRequest.lifetime == 300)
+    #expect(wallet.id == selectedWallet.id)
+    #expect(fixture.transport.requestCount(for: WaasAPI.UseWallet.urlPath) == 1)
+    #expect(fixture.oidcRedirectAuthStore.pending == nil)
+}
+
+@Test func TestWalletHandleOidcRedirectCallbackRejectsInvalidSessionLifetimeBeforeRequest() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
+            issuer: "https://issuer.example",
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
+        )
+    )
+
+    do {
+        _ = try await fixture.client.handleOIDCRedirectCallback(
+            "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))",
+            sessionLifetimeSeconds: 0
+        )
+        Issue.record("Expected invalid session lifetime error")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .validationError)
+        #expect(error.operation == .walletHandleOIDCRedirectCallback)
+        #expect(error.localizedDescription == "sessionLifetimeSeconds must be an integer between 1 and 2592000")
+    }
+    #expect(fixture.transport.requestCount(for: WaasAPI.CompleteAuth.urlPath) == 0)
+}
+
+@Test func TestWalletHandleOidcRedirectCallbackIgnoresUnrelatedCallbackWithoutClearingPendingAuth() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
+            issuer: "https://issuer.example",
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
+        )
+    )
+
+    let result = try await fixture.client.handleOIDCRedirectCallback(
+        "otherapp://auth/callback?code=auth-code&state=\(try oidcState(started))"
+    )
+
+    guard case .notOIDCRedirectCallback = result else {
+        #expect(Bool(false))
+        return
+    }
+    #expect(fixture.oidcRedirectAuthStore.pending?.verifier == "oidc-verifier-123")
+    #expect(fixture.transport.requestCount(for: WaasAPI.CompleteAuth.urlPath) == 0)
+}
+
+@Test func TestWalletHandleOidcRedirectCallbackIgnoresInvalidStateWithoutClearingPendingAuth() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    _ = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
+            issuer: "https://issuer.example",
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
+        )
+    )
+
+    let result = try await fixture.client.handleOIDCRedirectCallback(
+        "omsclientswiftdemo://auth/callback?code=auth-code&state=not-base64"
+    )
+
+    guard case .notOIDCRedirectCallback = result else {
+        #expect(Bool(false))
+        return
+    }
+    #expect(fixture.oidcRedirectAuthStore.pending?.verifier == "oidc-verifier-123")
+    #expect(fixture.transport.requestCount(for: WaasAPI.CompleteAuth.urlPath) == 0)
+}
+
+@Test func TestWalletHandleOIDCRedirectCallbackReturnsNoPendingAuth() async throws {
+    let fixture = makeMockWalletClient()
+
+    let result = try await fixture.client.handleOIDCRedirectCallback(
+        "omsclientswiftdemo://auth/callback?code=auth-code&state=state"
+    )
+
+    guard case .noPendingAuth = result else {
+        Issue.record("Expected no pending OIDC auth")
+        return
+    }
+}
+
+@Test func TestWalletHandleOidcRedirectCallbackConsumesPendingAuthWhenCancelled() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            identity: Identity(type: .oidc, iss: "https://issuer.example", sub: "oidc-sub-123"),
+            wallets: [selectedWallet]
+        ),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    fixture.transport.enqueueCancellation(for: WaasAPI.UseWallet.urlPath)
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
+            issuer: "https://issuer.example",
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
+        )
+    )
+
+    do {
+        _ = try await fixture.client.handleOIDCRedirectCallback(
+            "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))"
+        )
+        #expect(Bool(false))
+        return
+    } catch is CancellationError {
+    } catch {
+        #expect(Bool(false))
+    }
+    #expect(fixture.oidcRedirectAuthStore.pending == nil)
+    #expect(fixture.client.walletId == "")
+    #expect(fixture.client.walletAddress == nil)
+    #expect(fixture.signer.clearCallCount == 2)
+    #expect(fixture.signer.hasStoredCredential == false)
+}
+
+@Test func TestWalletHandleOIDCRedirectCallbackThrowsAndClearsPendingAuthForProviderError() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            loginHint: "user@example.com",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
+            issuer: "https://issuer.example",
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
+        )
+    )
+
+    do {
+        _ = try await fixture.client.handleOIDCRedirectCallback(
+            "omsclientswiftdemo://auth/callback?error=access_denied&error_description=User%20cancelled&state=\(try oidcState(started))"
+        )
+        Issue.record("Expected provider error")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .validationError)
+        #expect(error.operation == .walletHandleOIDCRedirectCallback)
+        #expect(error.underlyingError as? OIDCRedirectAuthError == .providerError("User cancelled"))
+    }
+    #expect(fixture.client.walletId == "")
+    #expect(fixture.client.walletAddress == nil)
+    #expect(fixture.oidcRedirectAuthStore.pending == nil)
+}
+
+@Test func TestWalletHandleOIDCRedirectCallbackThrowsNormalizedBackendError() async throws {
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(
+            verifier: "oidc-verifier-123",
+            challenge: "pkce-challenge"
+        ),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    fixture.transport.enqueueHTTPError(
+        statusCode: 500,
+        errorCode: WebRPCErrorKind.identityProviderError.code,
+        message: "identity provider error",
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    let started = try await fixture.client.startOIDCRedirectAuth(
+        provider: CustomOIDCProviderConfiguration(
+            issuer: "https://issuer.example",
+            clientID: "client-123",
+            authorizationURL: "https://issuer.example/oauth/authorize",
+            providerRedirectURI: "omsclientswiftdemo://auth/callback"
+        )
+    )
+
+    do {
+        _ = try await fixture.client.handleOIDCRedirectCallback(
+            "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))"
+        )
+        Issue.record("Expected backend error")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .requestFailed)
+        #expect(error.operation == .walletHandleOIDCRedirectCallback)
+        #expect(error.status == 500)
+        #expect(error.upstreamError?.service == .waas)
+    }
+
+    #expect(fixture.oidcRedirectAuthStore.pending == nil)
+}
+
+@Test func TestWalletPublicMethodsRequireActiveWalletBeforeUsingWalletState() async throws {
+    let fixture = makeMockWalletClient()
+
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.listAccess()
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.listAccessPage()
+    }
+    await expectNoAuthenticatedWalletSession {
+        var iterator = fixture.client.listAccessPages().makeAsyncIterator()
+        _ = try await iterator.next()
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.getIdToken()
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.revokeAccess(targetCredentialId: "credential-1")
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.signMessage(network: .polygonAmoy, message: "hello")
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.signTypedData(network: .polygonAmoy, typedData: .object([:]))
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.isValidMessageSignature(
+            network: .polygonAmoy,
+            walletAddress: "0xwallet",
+            message: "hello",
+            signature: "0xsig"
+        )
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.isValidTypedDataSignature(
+            network: .polygonAmoy,
+            walletAddress: "0xwallet",
+            typedData: .object([:]),
+            signature: "0xsig"
+        )
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.sendTransaction(
+            network: .polygonAmoy,
+            to: "0xabc",
+            value: "0"
+        )
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.sendTransaction(
+            network: .polygonAmoy,
+            request: SendTransactionRequest(to: "0xabc", value: "0")
+        )
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await fixture.client.callContract(
+            network: .polygonAmoy,
+            contract: "0xcontract",
+            method: "mint(address)",
+            args: nil
+        )
+    }
+
+    let blockedPaths = [
+        WaasAPI.ListAccess.urlPath,
+        WaasAPI.GetIDToken.urlPath,
+        WaasAPI.RevokeAccess.urlPath,
+        WaasAPI.SignMessage.urlPath,
+        WaasAPI.SignTypedData.urlPath,
+        WaasPublicAPI.IsValidMessageSignature.urlPath,
+        WaasPublicAPI.IsValidTypedDataSignature.urlPath,
+        WaasAPI.PrepareEthereumTransaction.urlPath,
+        WaasAPI.PrepareEthereumContractCall.urlPath
+    ]
+    for path in blockedPaths {
+        #expect(fixture.transport.requestCount(for: path) == 0)
+    }
+
+    let walletIdOnlyFixture = makeMockWalletClient()
+    walletIdOnlyFixture.client.walletId = "wallet-main"
+    await expectNoAuthenticatedWalletSession {
+        try await walletIdOnlyFixture.client.sendTransaction(
+            network: .polygonAmoy,
+            to: "0xabc",
+            value: "0",
+            selectFeeOption: .firstAvailable
+        )
+    }
+    await expectNoAuthenticatedWalletSession {
+        try await walletIdOnlyFixture.client.callContract(
+            network: .polygonAmoy,
+            contract: "0xcontract",
+            method: "mint(address)",
+            args: nil,
+            selectFeeOption: .firstAvailable
+        )
+    }
+    #expect(walletIdOnlyFixture.transport.requestCount(for: WaasAPI.PrepareEthereumTransaction.urlPath) == 0)
+    #expect(walletIdOnlyFixture.transport.requestCount(for: WaasAPI.PrepareEthereumContractCall.urlPath) == 0)
+}
+
+@Test func TestWalletListAccessPaginationHelpersUseWaasPages() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    let firstCredential = WaasCredentialInfo(
+        credentialId: "credential-1",
+        expiresAt: "2026-01-01T00:00:00Z",
+        isCaller: true
+    )
+    let secondCredential = WaasCredentialInfo(
+        credentialId: "credential-2",
+        expiresAt: "2026-01-02T00:00:00Z",
+        isCaller: false
+    )
+    let manualCredential = WaasCredentialInfo(
+        credentialId: "credential-3",
+        expiresAt: "2026-01-03T00:00:00Z",
+        isCaller: false
+    )
+
+    try fixture.transport.enqueue(
+        WaasListAccessResponse(credentials: [firstCredential], page: WaasPage(cursor: "next")),
+        for: WaasAPI.ListAccess.urlPath
+    )
+    try fixture.transport.enqueue(
+        WaasListAccessResponse(credentials: [secondCredential]),
+        for: WaasAPI.ListAccess.urlPath
+    )
+    try fixture.transport.enqueue(
+        WaasListAccessResponse(credentials: [manualCredential], page: WaasPage(cursor: "after-manual")),
+        for: WaasAPI.ListAccess.urlPath
+    )
+
+    var pages: [ListAccessResponse] = []
+    for try await page in fixture.client.listAccessPages(pageSize: 1) {
+        pages.append(page)
+    }
+    let manualPage = try await fixture.client.listAccessPage(pageSize: 2, cursor: "manual")
+    let listAccessRequests = try fixture.transport.decodedRequests(
+        ListAccessRequest.self,
+        for: WaasAPI.ListAccess.urlPath
+    )
+
+    #expect(pages.count == 2)
+    #expect(pages[0].credentials.map(\.credentialId) == ["credential-1"])
+    #expect(pages[0].page?.cursor == "next")
+    #expect(pages[1].credentials.map(\.credentialId) == ["credential-2"])
+    #expect(pages[1].page?.cursor == nil)
+    #expect(manualPage.credentials.map(\.credentialId) == ["credential-3"])
+    #expect(manualPage.page?.cursor == "after-manual")
+    #expect(listAccessRequests.count == 3)
+    #expect(listAccessRequests[0].walletId == "wallet-main")
+    #expect(listAccessRequests[0].page?.limit == 1)
+    #expect(listAccessRequests[0].page?.cursor == nil)
+    #expect(listAccessRequests[1].walletId == "wallet-main")
+    #expect(listAccessRequests[1].page?.limit == 1)
+    #expect(listAccessRequests[1].page?.cursor == "next")
+    #expect(listAccessRequests[2].walletId == "wallet-main")
+    #expect(listAccessRequests[2].page?.limit == 2)
+    #expect(listAccessRequests[2].page?.cursor == "manual")
+}
+
+@Test func TestWalletListAccessReturnsCombinedCredentialPages() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+
+    try fixture.transport.enqueue(
+        WaasListAccessResponse(
+            credentials: [
+                WaasCredentialInfo(
+                    credentialId: "credential-1",
+                    expiresAt: "2026-01-01T00:00:00Z",
+                    isCaller: true
+                )
+            ],
+            page: WaasPage(cursor: "next")
+        ),
+        for: WaasAPI.ListAccess.urlPath
+    )
+    try fixture.transport.enqueue(
+        WaasListAccessResponse(
+            credentials: [
+                WaasCredentialInfo(
+                    credentialId: "credential-2",
+                    expiresAt: "2026-01-02T00:00:00Z",
+                    isCaller: false
+                )
+            ]
+        ),
+        for: WaasAPI.ListAccess.urlPath
+    )
+
+    let credentials = try await fixture.client.listAccess(pageSize: 25)
+    let listAccessRequests = try fixture.transport.decodedRequests(
+        ListAccessRequest.self,
+        for: WaasAPI.ListAccess.urlPath
+    )
+
+    #expect(credentials.map(\.credentialId) == ["credential-1", "credential-2"])
+    #expect(listAccessRequests.count == 2)
+    #expect(listAccessRequests[0].page?.limit == 25)
+    #expect(listAccessRequests[0].page?.cursor == nil)
+    #expect(listAccessRequests[1].page?.limit == 25)
+    #expect(listAccessRequests[1].page?.cursor == "next")
+}
+
+@Test func TestWalletSendTransactionDefaultSelectsFirstFeeOptionIdentifierWithoutBalanceLookup() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-1",
+            status: .quoted,
+            feeOptions: testWaasFeeOptions(),
+            sponsored: false,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .executed),
+        for: WaasAPI.Execute.urlPath
+    )
+    try fixture.transport.enqueue(
+        WaasTransactionStatusResponse(status: .executed, txnHash: "0xdeadbeef"),
+        for: WaasAPI.TransactionStatusMethod.urlPath
+    )
+
+    let txResult = try await fixture.client.sendTransaction(
+        network: .polygonAmoy,
+        to: "0xabc",
+        value: "0"
+    )
+    let prepareRequest = try fixture.transport.decodedRequest(
+        PrepareEthereumTransactionRequest.self,
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+    let executeRequest = try fixture.transport.decodedRequest(
+        ExecuteRequest.self,
+        for: WaasAPI.Execute.urlPath
+    )
+
+    #expect(txResult.txnId == "txn-1")
+    #expect(txResult.status == .executed)
+    #expect(txResult.txnHash == "0xdeadbeef")
+    #expect(prepareRequest.mode == .relayer)
+    #expect(executeRequest.feeOption?.token == "POL")
+    #expect(fixture.indexerBackend.nativeBalanceRequestCount == 0)
+    #expect(fixture.indexerBackend.tokenBalanceContractAddresses.isEmpty)
+}
+
+@Test func TestWalletGetTransactionStatusKeepsCancellationError() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0x1111111111111111111111111111111111111111"
+    fixture.transport.enqueueCancellation(for: WaasAPI.TransactionStatusMethod.urlPath)
+
+    do {
+        _ = try await fixture.client.getTransactionStatus(txnId: "txn-cancelled-1")
+        #expect(Bool(false), "Expected CancellationError")
+    } catch is CancellationError {
+    } catch {
+        #expect(Bool(false), "Expected CancellationError")
+    }
+}
+
+@Test func TestWalletSendTransactionFirstAvailableSelectsFirstFundedFeeOption() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+    fixture.indexerBackend.setNativeBalance(
+        NativeTokenBalance(
+            accountAddress: "0xwallet",
+            name: "POL",
+            symbol: "POL",
+            balance: "99",
+            chainId: 80002
+        )
+    )
+    fixture.indexerBackend.setTokenBalances(
+        [
+            ContractTokenBalance(
+                contractType: "ERC20",
+                contractAddress: "0xUSDC",
+                accountAddress: "0xwallet",
+                tokenId: "0",
+                balance: "20",
+                blockHash: "0xblock",
+                blockNumber: 1,
+                chainId: 80002
+            )
+        ],
+        for: "0xusdc"
+    )
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-1",
+            status: .quoted,
+            feeOptions: testWaasFeeOptions(),
+            sponsored: false,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .executed),
+        for: WaasAPI.Execute.urlPath
+    )
+    try fixture.transport.enqueue(
+        WaasTransactionStatusResponse(status: .executed, txnHash: "0xdeadbeef"),
+        for: WaasAPI.TransactionStatusMethod.urlPath
+    )
+
+    let txResult = try await fixture.client.sendTransaction(
+        network: .polygonAmoy,
+        to: "0xabc",
+        value: "0",
+        selectFeeOption: .firstAvailable
+    )
+    let executeRequest = try fixture.transport.decodedRequest(
+        ExecuteRequest.self,
+        for: WaasAPI.Execute.urlPath
+    )
+
+    #expect(txResult.txnId == "txn-1")
+    #expect(txResult.status == .executed)
+    #expect(executeRequest.feeOption?.token == "usdc")
+    #expect(fixture.indexerBackend.nativeBalanceRequestCount == 1)
+    #expect(fixture.indexerBackend.tokenBalanceContractAddresses == ["0xusdc"])
+}
+
+@Test func TestWalletSendTransactionFirstAvailableRequiresFundedFeeOption() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+    fixture.indexerBackend.setNativeBalance(
+        NativeTokenBalance(
+            accountAddress: "0xwallet",
+            name: "POL",
+            symbol: "POL",
+            balance: "99",
+            chainId: 80002
+        )
+    )
+    fixture.indexerBackend.setTokenBalances(
+        [
+            ContractTokenBalance(
+                contractType: "ERC20",
+                contractAddress: "0xUSDC",
+                accountAddress: "0xwallet",
+                tokenId: "0",
+                balance: "19",
+                blockHash: "0xblock",
+                blockNumber: 1,
+                chainId: 80002
+            )
+        ],
+        for: "0xusdc"
+    )
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-1",
+            status: .quoted,
+            feeOptions: testWaasFeeOptions(),
+            sponsored: false,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+
+    do {
+        _ = try await fixture.client.sendTransaction(
+            network: .polygonAmoy,
+            to: "0xabc",
+            value: "0",
+            selectFeeOption: .firstAvailable
+        )
+    } catch let error as OMSWalletError {
+        #expect(error.code == .validationError)
+        #expect(error.operation == .walletSendTransaction)
+        #expect(isTransactionError(error.underlyingError, .noFeeOptionSelected))
+        #expect(fixture.indexerBackend.nativeBalanceRequestCount == 1)
+        #expect(fixture.indexerBackend.tokenBalanceContractAddresses == ["0xusdc"])
+        #expect(fixture.transport.requestCount(for: WaasAPI.Execute.urlPath) == 0)
+        return
+    }
+    #expect(Bool(false), "Expected TransactionError.noFeeOptionSelected")
+}
+
+@Test func TestFeeOptionSelectorFirstAvailableRejectsMalformedAvailableRaw() async throws {
+    let feeOption = testFeeOptions()[0]
+
+    let selection = try await FeeOptionSelector.firstAvailable([
+        FeeOptionWithBalance(
+            feeOption: feeOption,
+            availableRaw: "not-a-number"
+        )
+    ])
+
+    #expect(selection == nil)
+}
+
+@Test func TestFeeOptionSelectorFirstAvailableRejectsMalformedFeeValue() async throws {
+    let baseFeeOption = testFeeOptions()[0]
+    let malformedFeeOption = FeeOption(
+        token: baseFeeOption.token,
+        value: "not-a-number",
+        displayValue: "invalid"
+    )
+
+    let selection = try await FeeOptionSelector.firstAvailable([
+        FeeOptionWithBalance(
+            feeOption: malformedFeeOption,
+            availableRaw: "100000"
+        )
+    ])
+
+    #expect(selection == nil)
+}
+
+@Test func TestFeeOptionSelectorFirstAvailableAcceptsValidUnsignedDecimals() async throws {
+    let feeOption = testFeeOptions()[0]
+
+    let selection = try await FeeOptionSelector.firstAvailable([
+        FeeOptionWithBalance(
+            feeOption: feeOption,
+            availableRaw: "000100"
+        )
+    ])
+
+    #expect(selection?.token == FeeOptionWithBalance(feeOption: feeOption).selection.token)
+}
+
+@Test func TestWalletSendTransactionCustomSelectorReceivesFeeOptionBalances() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+    fixture.indexerBackend.setNativeBalance(
+        NativeTokenBalance(
+            accountAddress: "0xwallet",
+            name: "POL",
+            symbol: "POL",
+            balance: "100",
+            chainId: 80002
+        )
+    )
+    fixture.indexerBackend.setTokenBalances(
+        [
+            ContractTokenBalance(
+                contractType: "ERC20",
+                contractAddress: "0xUSDC",
+                accountAddress: "0xwallet",
+                tokenId: "0",
+                balance: "2000",
+                blockHash: "0xblock",
+                blockNumber: 1,
+                chainId: 80002
+            )
+        ],
+        for: "0xusdc"
+    )
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-1",
+            status: .quoted,
+            feeOptions: testWaasFeeOptions(),
+            sponsored: false,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .executed),
+        for: WaasAPI.Execute.urlPath
+    )
+    try fixture.transport.enqueue(
+        WaasTransactionStatusResponse(status: .executed, txnHash: "0xdeadbeef"),
+        for: WaasAPI.TransactionStatusMethod.urlPath
+    )
+
+    let txResult = try await fixture.client.sendTransaction(
+        network: .polygonAmoy,
+        request: SendTransactionRequest(to: "0xabc", value: "0", mode: .native),
+        selectFeeOption: .custom { feeOptions in
+            #expect(feeOptions.count == 2)
+            #expect(feeOptions[0].feeOption.token.symbol == "POL")
+            #expect(feeOptions[0].balance?.balance == "100")
+            #expect(feeOptions[0].available == "0.0000000000000001")
+            #expect(feeOptions[0].availableRaw == "100")
+            #expect(feeOptions[0].decimals == 18)
+            #expect(feeOptions[1].feeOption.token.symbol == "USDC")
+            #expect(feeOptions[1].balance?.balance == "2000")
+            #expect(feeOptions[1].available == "0.002")
+            #expect(feeOptions[1].availableRaw == "2000")
+            #expect(feeOptions[1].decimals == 6)
+            return feeOptions[1].selection
+        }
+    )
+    let prepareRequest = try fixture.transport.decodedRequest(
+        PrepareEthereumTransactionRequest.self,
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+    let executeRequest = try fixture.transport.decodedRequest(
+        ExecuteRequest.self,
+        for: WaasAPI.Execute.urlPath
+    )
+
+    #expect(txResult.txnId == "txn-1")
+    #expect(txResult.status == .executed)
+    #expect(txResult.txnHash == "0xdeadbeef")
+    #expect(prepareRequest.mode == .native)
+    #expect(executeRequest.feeOption?.token == "usdc")
+    #expect(fixture.indexerBackend.nativeBalanceRequestCount == 1)
+    #expect(fixture.indexerBackend.tokenBalanceContractAddresses == ["0xusdc"])
+}
+
+@Test func TestWalletSendTransactionUnsponsoredCustomSelectorRequiresSelection() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-1",
+            status: .quoted,
+            feeOptions: testWaasFeeOptions(),
+            sponsored: false,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+
+    do {
+        _ = try await fixture.client.sendTransaction(
+            network: .polygonAmoy,
+            request: SendTransactionRequest(to: "0xabc", value: "0"),
+            selectFeeOption: .custom { _ in nil }
+        )
+        #expect(Bool(false), "Expected no fee option selected error")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .validationError)
+        #expect(error.operation == .walletSendTransaction)
+        #expect(isTransactionError(error.underlyingError, .noFeeOptionSelected))
+    } catch {
+        #expect(Bool(false), "Expected TransactionError.noFeeOptionSelected")
+    }
+
+    #expect(fixture.transport.requestCount(for: WaasAPI.Execute.urlPath) == 0)
+}
+
+@Test func TestWalletSendTransactionSponsoredSkipsCustomFeeSelector() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-1",
+            status: .quoted,
+            feeOptions: testWaasFeeOptions(),
+            sponsored: true,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .executed),
+        for: WaasAPI.Execute.urlPath
+    )
+    try fixture.transport.enqueue(
+        WaasTransactionStatusResponse(status: .executed),
+        for: WaasAPI.TransactionStatusMethod.urlPath
+    )
+
+    let txResult = try await fixture.client.sendTransaction(
+        network: .polygonAmoy,
+        request: SendTransactionRequest(to: "0xabc", value: "0"),
+        selectFeeOption: .custom { feeOptions in
+            #expect(Bool(false), "Sponsored transactions should not ask for fee selection")
+            return feeOptions.first?.selection
+        }
+    )
+    let executeRequest = try fixture.transport.decodedRequest(
+        ExecuteRequest.self,
+        for: WaasAPI.Execute.urlPath
+    )
+
+    #expect(txResult.txnId == "txn-1")
+    #expect(txResult.status == .executed)
+    #expect(txResult.txnHash == nil)
+    #expect(executeRequest.feeOption == nil)
+    #expect(fixture.indexerBackend.nativeBalanceRequestCount == 0)
+    #expect(fixture.indexerBackend.tokenBalanceContractAddresses.isEmpty)
+}
+
+@Test func TestWalletCallContractReturnsSendTransactionResponse() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-contract-1",
+            status: .quoted,
+            feeOptions: testWaasFeeOptions(),
+            sponsored: false,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumContractCall.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .executed),
+        for: WaasAPI.Execute.urlPath
+    )
+    try fixture.transport.enqueue(
+        WaasTransactionStatusResponse(status: .executed, txnHash: "0xcontractdeadbeef"),
+        for: WaasAPI.TransactionStatusMethod.urlPath
+    )
+
+    let txResult = try await fixture.client.callContract(
+        network: .polygonAmoy,
+        contract: "0xcontract",
+        method: "mint(address)",
+        args: [AbiArg(type: "address", value: .string("0xrecipient"))],
+        mode: .native
+    )
+    let prepareRequest = try fixture.transport.decodedRequest(
+        PrepareEthereumContractCallRequest.self,
+        for: WaasAPI.PrepareEthereumContractCall.urlPath
+    )
+    let executeRequest = try fixture.transport.decodedRequest(
+        ExecuteRequest.self,
+        for: WaasAPI.Execute.urlPath
+    )
+
+    #expect(txResult.txnId == "txn-contract-1")
+    #expect(txResult.status == .executed)
+    #expect(txResult.txnHash == "0xcontractdeadbeef")
+    #expect(txResult.statusResolution == .resolved)
+    #expect(prepareRequest.mode == .native)
+    #expect(executeRequest.txnId == "txn-contract-1")
+    #expect(executeRequest.feeOption?.token == "POL")
+}
+
+@Test func TestWalletSendTransactionCanSkipStatusPolling() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-no-poll-1",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: true,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .pending),
+        for: WaasAPI.Execute.urlPath
+    )
+
+    let txResult = try await fixture.client.sendTransaction(
+        network: .polygonAmoy,
+        request: SendTransactionRequest(to: "0xabc", value: "0"),
+        waitForStatus: false
+    )
+
+    #expect(txResult.txnId == "txn-no-poll-1")
+    #expect(txResult.status == .pending)
+    #expect(txResult.txnHash == nil)
+    #expect(txResult.statusResolution == .notRequested)
+    #expect(fixture.transport.requestCount(for: WaasAPI.TransactionStatusMethod.urlPath) == 0)
+}
+
+@Test func TestWalletCallContractCanSkipStatusPolling() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-contract-no-poll-1",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: true,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumContractCall.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .pending),
+        for: WaasAPI.Execute.urlPath
+    )
+
+    let txResult = try await fixture.client.callContract(
+        network: .polygonAmoy,
+        contract: "0xcontract",
+        method: "mint(address)",
+        args: [AbiArg(type: "address", value: .string("0xrecipient"))],
+        waitForStatus: false
+    )
+
+    #expect(txResult.txnId == "txn-contract-no-poll-1")
+    #expect(txResult.status == .pending)
+    #expect(txResult.txnHash == nil)
+    #expect(txResult.statusResolution == .notRequested)
+    #expect(fixture.transport.requestCount(for: WaasAPI.TransactionStatusMethod.urlPath) == 0)
+}
+
+@Test func TestWalletSendTransactionMarksTimedOutWhenPollingDeadlineExpires() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-pending-1",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: true,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .pending),
+        for: WaasAPI.Execute.urlPath
+    )
+    try fixture.transport.enqueue(
+        WaasTransactionStatusResponse(status: .pending),
+        for: WaasAPI.TransactionStatusMethod.urlPath
+    )
+
+    let txResult = try await fixture.client.sendTransaction(
+        network: .polygonAmoy,
+        request: SendTransactionRequest(to: "0xabc", value: "0"),
+        statusPolling: TransactionStatusPollingOptions(
+            timeoutMs: 0
+        )
+    )
+
+    #expect(txResult.txnId == "txn-pending-1")
+    #expect(txResult.status == .pending)
+    #expect(txResult.txnHash == nil)
+    #expect(txResult.statusResolution == .timedOut)
+    #expect(fixture.transport.requestCount(for: WaasAPI.TransactionStatusMethod.urlPath) == 1)
+}
+
+@Test func TestWalletSendTransactionReturnsTimedOutNonterminalStatuses() async throws {
+    let statuses: [WaasGenerated.TransactionStatus] = [.quoted, .unknown("future-status")]
+
+    for (index, status) in statuses.enumerated() {
+        let fixture = makeMockWalletClient()
+        fixture.client.walletId = "wallet-main"
+        try fixture.transport.enqueue(
+            PrepareResponse(
+                txnId: "txn-timeout-\(index)",
+                status: .quoted,
+                feeOptions: [],
+                sponsored: true,
+                expiresAt: "2026-04-27T00:00:00Z"
+            ),
+            for: WaasAPI.PrepareEthereumTransaction.urlPath
+        )
+        try fixture.transport.enqueue(
+            ExecuteResponse(status: .pending),
+            for: WaasAPI.Execute.urlPath
+        )
+        try fixture.transport.enqueue(
+            WaasTransactionStatusResponse(status: status),
+            for: WaasAPI.TransactionStatusMethod.urlPath
+        )
+
+        let result = try await fixture.client.sendTransaction(
+            network: .polygonAmoy,
+            request: SendTransactionRequest(to: "0xabc", value: "0"),
+            statusPolling: TransactionStatusPollingOptions(timeoutMs: 0)
+        )
+
+        #expect(result.txnId == "txn-timeout-\(index)")
+        #expect(result.status == status.sdkValue)
+        #expect(result.statusResolution == .timedOut)
+    }
+}
+
+@Test func TestWalletSendTransactionRejectsInvalidPollingOptionsBeforeExecute() async throws {
+    let invalidOptions = [
+        TransactionStatusPollingOptions(intervalMs: 0),
+        TransactionStatusPollingOptions(fastIntervalMs: 0),
+        TransactionStatusPollingOptions(fastPollCount: -1)
+    ]
+
+    for (index, options) in invalidOptions.enumerated() {
+        let fixture = makeMockWalletClient()
+        fixture.client.walletId = "wallet-main"
+        try fixture.transport.enqueue(
+            PrepareResponse(
+                txnId: "txn-invalid-polling-\(index)",
+                status: .quoted,
+                feeOptions: [],
+                sponsored: true,
+                expiresAt: "2026-04-27T00:00:00Z"
+            ),
+            for: WaasAPI.PrepareEthereumTransaction.urlPath
+        )
+
+        do {
+            _ = try await fixture.client.sendTransaction(
+                network: .polygonAmoy,
+                request: SendTransactionRequest(to: "0xabc", value: "0"),
+                statusPolling: options
+            )
+            Issue.record("Expected polling option validation error")
+        } catch let error as OMSWalletError {
+            #expect(error.code == .validationError)
+            #expect(error.operation == .walletSendTransaction)
+        }
+
+        #expect(fixture.transport.requestCount(for: WaasAPI.Execute.urlPath) == 0)
+    }
+}
+
+@Test func TestWalletSendTransactionReturnsWhenPollingFindsHashBeforeExecuted() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-hash-1",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: true,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .pending),
+        for: WaasAPI.Execute.urlPath
+    )
+    try fixture.transport.enqueue(
+        WaasTransactionStatusResponse(status: .pending, txnHash: "0xsubmitted"),
+        for: WaasAPI.TransactionStatusMethod.urlPath
+    )
+
+    let txResult = try await fixture.client.sendTransaction(
+        network: .polygonAmoy,
+        request: SendTransactionRequest(to: "0xabc", value: "0")
+    )
+
+    #expect(txResult.txnId == "txn-hash-1")
+    #expect(txResult.status == .pending)
+    #expect(txResult.txnHash == "0xsubmitted")
+    #expect(txResult.statusResolution == .resolved)
+    #expect(fixture.transport.requestCount(for: WaasAPI.TransactionStatusMethod.urlPath) == 1)
+}
+
+@Test func TestWalletSendTransactionReturnsFailedStatusAsTerminal() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-failed",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: true,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .pending),
+        for: WaasAPI.Execute.urlPath
+    )
+    try fixture.transport.enqueue(
+        WaasTransactionStatusResponse(status: .failed),
+        for: WaasAPI.TransactionStatusMethod.urlPath
+    )
+
+    let txResult = try await fixture.client.sendTransaction(
+        network: .polygonAmoy,
+        request: SendTransactionRequest(to: "0xabc", value: "0")
+    )
+
+    #expect(txResult.txnId == "txn-failed")
+    #expect(txResult.status == .failed)
+    #expect(txResult.txnHash == nil)
+    #expect(txResult.statusResolution == .resolved)
+    #expect(fixture.transport.requestCount(for: WaasAPI.TransactionStatusMethod.urlPath) == 1)
+}
+
+@Test func TestWalletSendTransactionExecutedFastPathAcceptsStatusHash() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-fast-hash-1",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: true,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .executed),
+        for: WaasAPI.Execute.urlPath
+    )
+    try fixture.transport.enqueue(
+        WaasTransactionStatusResponse(status: .pending, txnHash: "0xfastsubmitted"),
+        for: WaasAPI.TransactionStatusMethod.urlPath
+    )
+
+    let txResult = try await fixture.client.sendTransaction(
+        network: .polygonAmoy,
+        request: SendTransactionRequest(to: "0xabc", value: "0")
+    )
+
+    #expect(txResult.txnId == "txn-fast-hash-1")
+    #expect(txResult.status == .pending)
+    #expect(txResult.txnHash == "0xfastsubmitted")
+    #expect(txResult.statusResolution == .resolved)
+    #expect(fixture.transport.requestCount(for: WaasAPI.TransactionStatusMethod.urlPath) == 1)
+}
+
+@Test func TestWalletSendTransactionUnsponsoredWithoutFeeOptionsThrows() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-1",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: false,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+
+    do {
+        _ = try await fixture.client.sendTransaction(
+            network: .polygonAmoy,
+            request: SendTransactionRequest(to: "0xabc", value: "0")
+        )
+        #expect(Bool(false), "Expected no fee options error")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .validationError)
+        #expect(error.operation == .walletSendTransaction)
+        #expect(isTransactionError(error.underlyingError, .noFeeOptionsAvailable))
+    } catch {
+        #expect(Bool(false), "Expected TransactionError.noFeeOptionsAvailable")
+    }
+
+    #expect(fixture.transport.requestCount(for: WaasAPI.Execute.urlPath) == 0)
+}
+
+let testCredential: WaasCredentialInfo = WaasCredentialInfo(
+    credentialId: "0xcredential",
+    expiresAt: "2099-01-01T00:00:00Z",
+    isCaller: true
+)
+
+private func expectNoAuthenticatedWalletSession<T>(
+    expectedCode: OMSWalletErrorCode = .sessionMissing,
+    _ operation: () async throws -> T
+) async {
+    do {
+        _ = try await operation()
+        #expect(Bool(false), "Expected no authenticated wallet session error")
+    } catch let error as OMSWalletError {
+        #expect(error.code == expectedCode)
+        #expect(error.operation != nil)
+    } catch {
+        #expect(Bool(false), "Expected OMSWalletError.sessionMissing")
+    }
+}
+
+private func isTransactionError(_ error: (any Error)?, _ expected: TransactionError) -> Bool {
+    guard let transactionError = error as? TransactionError else {
+        return false
+    }
+
+    switch (transactionError, expected) {
+    case (.noFeeOptionsAvailable, .noFeeOptionsAvailable),
+         (.noFeeOptionSelected, .noFeeOptionSelected),
+         (.missingTransactionHash, .missingTransactionHash),
+         (.pollingTimedOut, .pollingTimedOut):
+        return true
+    case (.transactionFailed(let actual), .transactionFailed(let expected)):
+        return actual == expected
+    default:
+        return false
+    }
+}
+
+struct MockWalletClientFixture {
+    let client: WalletClient
+    let transport: MockWaasTransport
+    let signer: MockCredentialSigner
+    let keychain: InMemoryKeychain
+    let environment: OMSWalletEnvironment
+    let projectId: String
+    let oidcRedirectAuthStore: InMemoryOIDCRedirectAuthStore
+    let indexerBackend: MockIndexerBackend
+
+    func storedCredentials() throws -> StorableCredentials? {
+        guard let json = try keychain.string(
+            forKey: Constants.credentialsStorageKey(environment: environment, scope: projectId)
+        ) else {
+            return nil
+        }
+        return try StorableCredentials.from(jsonString: json)
+    }
+}
+
+func makeMockWalletClient(
+    environment: OMSWalletEnvironment = OMSWalletEnvironment(
+        walletApiUrl: "https://wallet.example.test",
+        indexerGatewayUrl: "https://indexer.example.test/v1/IndexerGateway/"
+    ),
+    projectId: String = "proj_\(UUID().uuidString)",
+    keychain: InMemoryKeychain = InMemoryKeychain(),
+    signer: MockCredentialSigner = MockCredentialSigner(),
+    oidcRedirectAuthStoreOverride: (any OIDCRedirectAuthStore)? = nil,
+    oidcNonceGenerator: @escaping () throws -> String = OIDCRedirectAuth.generateNonce,
+    currentDate: @escaping () -> Date = Date.init,
+    storedCredentials: StorableCredentials? = nil
+) -> MockWalletClientFixture {
+    let transport = MockWaasTransport()
+    let indexerBackend = MockIndexerBackend()
+    let indexerClient = indexerBackend.makeClient(
+        publishableKey: "test-publishable-key",
+        environment: environment
+    )
+    let oidcRedirectAuthStore = InMemoryOIDCRedirectAuthStore()
+    if let storedCredentials {
+        _ = try? keychain.set(
+            storedCredentials.jsonString(),
+            forKey: Constants.credentialsStorageKey(environment: environment, scope: projectId)
+        )
+    }
+    let credentialSession = WalletCredentialSession(
+        environment: environment,
+        projectId: projectId,
+        keychain: keychain,
+        signerFactory: { _, _, _ in signer }
+    )
+    let signedClient = WaasClient(
+        baseURL: environment.walletApiUrl,
+        transport: transport
+    )
+    let publicClient = WaasPublicClient(
+        baseURL: environment.walletApiUrl,
+        transport: transport
+    )
+    let client = WalletClient(
+        publishableKey: "test-publishable-key",
+        projectId: projectId,
+        environment: environment,
+        credentialSession: credentialSession,
+        signedClient: signedClient,
+        publicClient: publicClient,
+        indexerClient: indexerClient,
+        oidcRedirectAuthStore: oidcRedirectAuthStoreOverride ?? oidcRedirectAuthStore,
+        oidcNonceGenerator: oidcNonceGenerator,
+        currentDate: currentDate
+    )
+    client.verifier = "verifier"
+    client.challenge = "challenge"
+    client.pendingEmailAuth = PendingEmailAuth(
+        email: "user@example.com",
+        sessionLifetimeSeconds: 604_800
+    )
+
+    return MockWalletClientFixture(
+        client: client,
+        transport: transport,
+        signer: signer,
+        keychain: keychain,
+        environment: environment,
+        projectId: projectId,
+        oidcRedirectAuthStore: oidcRedirectAuthStore,
+        indexerBackend: indexerBackend
+    )
+}
+
+func completeAuthResponse(
+    identity: Identity = Identity(type: .email, sub: "user@example.com"),
+    wallets: [WaasWallet],
+    page: WaasPage? = nil,
+    email: String? = "user@example.com",
+    credential: WaasCredentialInfo = testCredential
+) -> CompleteAuthResponse {
+    CompleteAuthResponse(
+        identity: identity,
+        wallets: wallets,
+        page: page,
+        email: email,
+        credential: credential
+    )
+}
+
+func testWallet(
+    id: String,
+    type: WaasWalletType = .ethereum,
+    address: String
+) -> WaasWallet {
+    WaasWallet(
+        id: id,
+        type: type,
+        address: address
+    )
+}
+
+func testFeeOptions() -> [FeeOption] {
+    [
+        FeeOption(
+            token: FeeToken(
+                network: "polygon",
+                name: "Polygon",
+                symbol: "POL",
+                type: "native",
+                decimals: nil,
+                logoUrl: "",
+                contractAddress: nil,
+                tokenId: nil
+            ),
+            value: "100",
+            displayValue: "0.0000000000000001"
+        ),
+        FeeOption(
+            token: FeeToken(
+                network: "polygon",
+                name: "USD Coin",
+                symbol: "USDC",
+                type: "erc20",
+                decimals: 6,
+                logoUrl: "",
+                contractAddress: "0xUSDC",
+                tokenId: "usdc"
+            ),
+            value: "20",
+            displayValue: "0.002"
+        )
+    ]
+}
+
+func testWaasFeeOptions() -> [WaasFeeOption] {
+    testFeeOptions().map { feeOption in
+        WaasFeeOption(
+            token: WaasFeeToken(
+                network: feeOption.token.network,
+                name: feeOption.token.name,
+                symbol: feeOption.token.symbol,
+                type: feeOption.token.type,
+                decimals: feeOption.token.decimals,
+                logoUrl: feeOption.token.logoUrl,
+                contractAddress: feeOption.token.contractAddress,
+                tokenId: feeOption.token.tokenId
+            ),
+            value: feeOption.value,
+            displayValue: feeOption.displayValue
+        )
+    }
+}
+
+final class MockIndexerBackend: @unchecked Sendable {
+    private struct RecordedBalanceRequest {
+        let contractAddresses: [String]
+        let chainIds: [Int64]
+    }
+
+    private struct GatewayBalancesGroup<Balance: Encodable>: Encodable {
+        let chainId: Int64
+        let results: [Balance]
+    }
+
+    private struct GatewayBalancesResponse: Encodable {
+        let page: TokenBalancesPage?
+        let nativeBalances: [GatewayBalancesGroup<NativeTokenBalance>]
+        let balances: [GatewayBalancesGroup<ContractTokenBalance>]
+    }
+
+    private let lock = NSLock()
+    private var nativeBalance: NativeTokenBalance?
+    private var tokenBalancesByContract: [String: [ContractTokenBalance]] = [:]
+    private var balanceRequests: [RecordedBalanceRequest] = []
+
+    var nativeBalanceRequestCount: Int {
+        withLock { balanceRequests.count }
+    }
+
+    var tokenBalanceContractAddresses: [String] {
+        withLock {
+            balanceRequests.flatMap { request in
+                request.contractAddresses.map { $0.lowercased() }
+            }
+        }
+    }
+
+    func makeClient(
+        publishableKey: String,
+        environment: OMSWalletEnvironment
+    ) -> IndexerClient {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockIndexerURLProtocol.self]
+        configuration.timeoutIntervalForRequest = 1
+        configuration.timeoutIntervalForResource = 1
+
+        let host = MockIndexerURLProtocol.register(backend: self)
+        let session = URLSession(configuration: configuration)
+        let httpClient = HttpClient(session: session)
+        let indexerEnvironment = OMSWalletEnvironment(
+            walletApiUrl: environment.walletApiUrl,
+            indexerGatewayUrl: "https://\(host)/v1/IndexerGateway/"
+        )
+
+        return IndexerClient(
+            publishableKey: publishableKey,
+            environment: indexerEnvironment,
+            client: httpClient
+        )
+    }
+
+    func setNativeBalance(_ balance: NativeTokenBalance?) {
+        withLock {
+            nativeBalance = balance
+        }
+    }
+
+    func setTokenBalances(_ balances: [ContractTokenBalance], for contractAddress: String) {
+        withLock {
+            tokenBalancesByContract[contractAddress.lowercased()] = balances
+        }
+    }
+
+    func responseBody(for requestBody: Data?) -> Data {
+        withLock {
+            let request = decodeBalanceRequest(requestBody)
+            balanceRequests.append(request)
+            let tokenBalances = request.contractAddresses.flatMap { contractAddress in
+                tokenBalancesByContract[contractAddress.lowercased()] ?? []
+            }
+
+            let fallbackChainId = request.chainIds.first
+                ?? nativeBalance?.chainId
+                ?? tokenBalances.first?.chainId
+                ?? Int64(Network.polygonAmoy.id)
+            let response = GatewayBalancesResponse(
+                page: TokenBalancesPage(page: 0, pageSize: 40, more: false),
+                nativeBalances: nativeBalance.map {
+                    [GatewayBalancesGroup(chainId: $0.chainId, results: [$0])]
+                } ?? [],
+                balances: tokenBalances.isEmpty
+                    ? []
+                    : [GatewayBalancesGroup(chainId: tokenBalances.first?.chainId ?? fallbackChainId, results: tokenBalances)]
+            )
+            return (try? JSONEncoder().encode(response)) ?? Data(#"{"nativeBalances":[],"balances":[]}"#.utf8)
+        }
+    }
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
+
+    private func decodeBalanceRequest(_ body: Data?) -> RecordedBalanceRequest {
+        guard
+            let body,
+            let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
+        else {
+            return RecordedBalanceRequest(contractAddresses: [], chainIds: [])
+        }
+
+        let filter = object["filter"] as? [String: Any]
+        return RecordedBalanceRequest(
+            contractAddresses: filter?["contractWhitelist"] as? [String] ?? [],
+            chainIds: (object["chainIds"] as? [Int] ?? []).map(Int64.init)
+        )
+    }
+}
+
+final class MockIndexerURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var backendsByHost: [String: MockIndexerBackend] = [:]
+
+    static func register(backend: MockIndexerBackend) -> String {
+        let host = "wallet-indexer-\(UUID().uuidString).test"
+        lock.lock()
+        defer { lock.unlock() }
+        backendsByHost[host] = backend
+        return host
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        let body = Self.backend(for: request)?.responseBody(for: Self.bodyData(for: request))
+            ?? Data(#"{"nativeBalances":[],"balances":[]}"#.utf8)
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+
+    private static func backend(for request: URLRequest) -> MockIndexerBackend? {
+        guard let host = request.url?.host else {
+            return nil
+        }
+        lock.lock()
+        defer { lock.unlock() }
+        return backendsByHost[host]
+    }
+
+    private static func bodyData(for request: URLRequest) -> Data? {
+        if let body = request.httpBody {
+            return body
+        }
+
+        guard let stream = request.httpBodyStream else {
+            return nil
+        }
+
+        stream.open()
+        defer { stream.close() }
+
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 1024)
+
+        while true {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count > 0 {
+                data.append(buffer, count: count)
+            } else {
+                break
+            }
+        }
+
+        return data
+    }
+}
+
+private func uriOriginAndPath(_ url: String) -> String {
+    guard let components = URLComponents(string: url) else {
+        return ""
+    }
+    let scheme = components.scheme.map { "\($0)://" } ?? ""
+    let host = components.host ?? ""
+    let port = components.port.map { ":\($0)" } ?? ""
+    return "\(scheme)\(host)\(port)\(components.percentEncodedPath)"
+}
+
+private func queryParams(_ url: String) -> [String: String] {
+    guard let query = URLComponents(string: url)?.percentEncodedQuery else {
+        return [:]
+    }
+    return query
+        .split(separator: "&", omittingEmptySubsequences: true)
+        .reduce(into: [String: String]()) { result, pair in
+            let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            let key = urlDecode(String(parts[0]))
+            let value = parts.count > 1 ? urlDecode(String(parts[1])) : ""
+            result[key] = value
+        }
+}
+
+func oidcState(_ result: StartOIDCRedirectAuthResult) throws -> String {
+    try #require(queryParams(result.authorizationURL)["state"])
+}
+
+private func decodedOidcState(_ value: String) throws -> [String: Any] {
+    var base64 = value
+        .replacingOccurrences(of: "-", with: "+")
+        .replacingOccurrences(of: "_", with: "/")
+    let padding = (4 - base64.count % 4) % 4
+    base64.append(String(repeating: "=", count: padding))
+    let data = try #require(Data(base64Encoded: base64))
+    let object = try JSONSerialization.jsonObject(with: data)
+    return try #require(object as? [String: Any])
+}
+
+private func urlDecode(_ value: String) -> String {
+    value
+        .replacingOccurrences(of: "+", with: " ")
+        .removingPercentEncoding ?? value
+}
+
+final class InMemoryKeychain: KeychainManaging {
+    private let lock = NSLock()
+    private var storage: [String: String] = [:]
+
+    @discardableResult
+    func set(_ value: String, forKey key: String, service: String) throws -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        storage[storageKey(key: key, service: service)] = value
+        return true
+    }
+
+    func string(forKey key: String, service: String) throws -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage[storageKey(key: key, service: service)]
+    }
+
+    @discardableResult
+    func delete(forKey key: String, service: String) throws -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage.removeValue(forKey: storageKey(key: key, service: service)) != nil
+    }
+
+    private func storageKey(key: String, service: String) -> String {
+        "\(service):\(key)"
+    }
+}
+
+final class InMemoryOIDCRedirectAuthStore: OIDCRedirectAuthStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private(set) var pending: PendingOIDCRedirectAuth?
+
+    func load() throws -> PendingOIDCRedirectAuth? {
+        lock.lock()
+        defer { lock.unlock() }
+        return pending
+    }
+
+    func save(_ pending: PendingOIDCRedirectAuth) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        self.pending = pending
+    }
+
+    func clear() throws {
+        lock.lock()
+        defer { lock.unlock() }
+        pending = nil
+    }
+}
+
+final class MockCredentialSigner: CredentialSigner, @unchecked Sendable {
+    let alg: SigningAlgorithm = .ecdsaP256Sha256
+
+    private let lock = NSLock()
+    private var credentialAvailable = true
+    private var clearCalls = 0
+
+    var hasStoredCredential: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return credentialAvailable
+    }
+
+    var clearCallCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return clearCalls
+    }
+
+    func credentialId() throws -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        credentialAvailable = true
+        return "0xmock-credential"
+    }
+
+    func nextNonce() throws -> String {
+        "1"
+    }
+
+    func sign(preimage: String) throws -> String {
+        "0xmock-signature"
+    }
+
+    func hasCredential() throws -> Bool {
+        hasStoredCredential
+    }
+
+    func clear() throws {
+        lock.lock()
+        defer { lock.unlock() }
+        credentialAvailable = false
+        clearCalls += 1
+    }
+}
+
+struct RecordedWebRPCRequest: Sendable {
+    let path: String
+    let body: Data
+}
+
+enum MockWaasResponse: Sendable {
+    case success(Data)
+    case httpError(statusCode: Int, body: Data)
+    case failure(WebRPCTransportError)
+    case cancellation
+}
+
+final class MockWaasTransport: WebRPCTransport, @unchecked Sendable {
+    enum MockError: Error {
+        case unexpectedRequest(String)
+        case missingRecordedRequest(String, Int)
+    }
+
+    private let lock = NSLock()
+    private var responses: [String: [MockWaasResponse]] = [:]
+    private var recordedRequests: [RecordedWebRPCRequest] = []
+
+    func enqueue<T: Encodable>(_ response: T, for path: String) throws {
+        let body = try WebRPCJSON.makeEncoder().encode(response)
+        lock.lock()
+        defer { lock.unlock() }
+        responses[path, default: []].append(.success(body))
+    }
+
+    func enqueueHTTPError(
+        statusCode: Int,
+        errorCode: Int,
+        message: String,
+        for path: String
+    ) {
+        let body = Data(
+            """
+            {"error":"Internal","code":\(errorCode),"msg":"\(message)","cause":"test","status":\(statusCode)}
+            """.utf8
+        )
+        lock.lock()
+        defer { lock.unlock() }
+        responses[path, default: []].append(.httpError(statusCode: statusCode, body: body))
+    }
+
+    func enqueueRawHTTPError(
+        statusCode: Int,
+        body: Data,
+        for path: String
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        responses[path, default: []].append(.httpError(statusCode: statusCode, body: body))
+    }
+
+    func enqueueTransportError(
+        _ error: WebRPCTransportError,
+        for path: String
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        responses[path, default: []].append(.failure(error))
+    }
+
+    func enqueueCancellation(for path: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        responses[path, default: []].append(.cancellation)
+    }
+
+    func post(
+        baseURL: String,
+        path: String,
+        body: Data,
+        headers: [String: String]
+    ) async throws -> WebRPCHTTPResponse {
+        let response = try recordAndDequeue(
+            path: path,
+            body: body
+        )
+
+        switch response {
+        case .success(let body):
+            return WebRPCHTTPResponse(statusCode: 200, body: body)
+        case .httpError(let statusCode, let body):
+            return WebRPCHTTPResponse(statusCode: statusCode, body: body)
+        case .failure(let error):
+            throw error
+        case .cancellation:
+            throw CancellationError()
+        }
+    }
+
+    private func recordAndDequeue(
+        path: String,
+        body: Data
+    ) throws -> MockWaasResponse {
+        lock.lock()
+        defer { lock.unlock() }
+        recordedRequests.append(
+            RecordedWebRPCRequest(
+                path: path,
+                body: body
+            )
+        )
+        guard var queuedResponses = responses[path], !queuedResponses.isEmpty else {
+            throw MockError.unexpectedRequest(path)
+        }
+        let response = queuedResponses.removeFirst()
+        responses[path] = queuedResponses
+        return response
+    }
+
+    func requestCount(for path: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedRequests.filter { $0.path == path }.count
+    }
+
+    func decodedRequest<T: Decodable>(
+        _ type: T.Type,
+        for path: String,
+        at index: Int = 0
+    ) throws -> T {
+        let requests = recordedRequests(for: path)
+        guard requests.indices.contains(index) else {
+            throw MockError.missingRecordedRequest(path, index)
+        }
+        return try WebRPCJSON.makeDecoder().decode(T.self, from: requests[index].body)
+    }
+
+    func decodedRequests<T: Decodable>(
+        _ type: T.Type,
+        for path: String
+    ) throws -> [T] {
+        try recordedRequests(for: path).map {
+            try WebRPCJSON.makeDecoder().decode(T.self, from: $0.body)
+        }
+    }
+
+    private func recordedRequests(for path: String) -> [RecordedWebRPCRequest] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedRequests.filter { $0.path == path }
+    }
+}

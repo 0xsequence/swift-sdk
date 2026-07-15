@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest a new feature or improvement for the OMS Swift SDK
+about: Suggest a new feature or improvement for the OMS Wallet Swift SDK
 labels: enhancement
 ---
 

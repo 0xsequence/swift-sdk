@@ -4,7 +4,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "OMS SDK",
+    name: "OMSWallet",
     platforms: [
         .macOS(.v12),
         .iOS(.v15)
@@ -12,19 +12,17 @@ let package = Package(
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
-            name: "OMS SDK",
-            targets: ["OMS SDK"]
+            name: "OMSWallet",
+            targets: ["OMSWallet"]
         ),
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
-        .target(
-             name: "OMS SDK"
-         ),
+        .target(name: "OMSWallet"),
         .testTarget(
-            name: "OMS SDKTests",
-            dependencies: ["OMS SDK"]
+            name: "OMSWalletTests",
+            dependencies: ["OMSWallet"]
         ),
     ],
     swiftLanguageModes: [.v6]

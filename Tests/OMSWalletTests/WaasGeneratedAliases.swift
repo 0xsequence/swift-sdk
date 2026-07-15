@@ -1,0 +1,58 @@
+@testable import OMSWallet
+
+typealias WaasAPI = WaasGenerated.WaasAPI
+typealias WaasPublicAPI = WaasGenerated.WaasPublicAPI
+typealias WaasClient = WaasGenerated.WaasClient
+typealias WaasPublicClient = WaasGenerated.WaasPublicClient
+typealias WebRPCJSON = WaasGenerated.WebRPCJSON
+typealias WebRPCHTTPResponse = WaasGenerated.WebRPCHTTPResponse
+typealias WebRPCTransport = WaasGenerated.WebRPCTransport
+typealias WebRPCTransportError = WaasGenerated.WebRPCTransportError
+typealias WebRPCGeneratedVersions = WaasGenerated.WebRPCGeneratedVersions
+typealias WebRPCErrorKind = WaasGenerated.WebRPCErrorKind
+
+let WEBRPC_HEADER_VALUE = WaasGenerated.WEBRPC_HEADER_VALUE
+
+typealias SigningAlgorithm = WaasGenerated.SigningAlgorithm
+typealias AuthMode = WaasGenerated.AuthMode
+typealias Identity = WaasGenerated.Identity
+typealias IdentityType = WaasGenerated.IdentityType
+
+typealias CommitVerifierRequest = WaasGenerated.CommitVerifierRequest
+typealias CommitVerifierResponse = WaasGenerated.CommitVerifierResponse
+typealias CompleteAuthRequest = WaasGenerated.CompleteAuthRequest
+typealias CompleteAuthResponse = WaasGenerated.CompleteAuthResponse
+typealias CreateWalletRequest = WaasGenerated.CreateWalletRequest
+typealias CreateWalletResponse = WaasGenerated.CreateWalletResponse
+typealias ExecuteRequest = WaasGenerated.ExecuteRequest
+typealias ExecuteResponse = WaasGenerated.ExecuteResponse
+typealias GetIDTokenRequest = WaasGenerated.GetIDTokenRequest
+typealias GetIDTokenResponse = WaasGenerated.GetIDTokenResponse
+typealias IsValidMessageSignatureRequest = WaasGenerated.IsValidMessageSignatureRequest
+typealias IsValidMessageSignatureResponse = WaasGenerated.IsValidMessageSignatureResponse
+typealias IsValidTypedDataSignatureRequest = WaasGenerated.IsValidTypedDataSignatureRequest
+typealias IsValidTypedDataSignatureResponse = WaasGenerated.IsValidTypedDataSignatureResponse
+typealias ListAccessRequest = WaasGenerated.ListAccessRequest
+typealias ListWalletsRequest = WaasGenerated.ListWalletsRequest
+typealias ListWalletsResponse = WaasGenerated.ListWalletsResponse
+typealias PrepareEthereumContractCallRequest = WaasGenerated.PrepareEthereumContractCallRequest
+typealias PrepareEthereumTransactionRequest = WaasGenerated.PrepareEthereumTransactionRequest
+typealias PrepareResponse = WaasGenerated.PrepareResponse
+typealias RevokeAccessRequest = WaasGenerated.RevokeAccessRequest
+typealias RevokeAccessResponse = WaasGenerated.RevokeAccessResponse
+typealias SignMessageRequest = WaasGenerated.SignMessageRequest
+typealias SignMessageResponse = WaasGenerated.SignMessageResponse
+typealias SignTypedDataRequest = WaasGenerated.SignTypedDataRequest
+typealias SignTypedDataResponse = WaasGenerated.SignTypedDataResponse
+typealias TransactionStatusRequest = WaasGenerated.TransactionStatusRequest
+typealias UseWalletRequest = WaasGenerated.UseWalletRequest
+typealias UseWalletResponse = WaasGenerated.UseWalletResponse
+
+typealias WaasCredentialInfo = WaasGenerated.CredentialInfo
+typealias WaasFeeOption = WaasGenerated.FeeOption
+typealias WaasFeeToken = WaasGenerated.FeeToken
+typealias WaasListAccessResponse = WaasGenerated.ListAccessResponse
+typealias WaasPage = WaasGenerated.Page
+typealias WaasTransactionStatusResponse = WaasGenerated.TransactionStatusResponse
+typealias WaasWallet = WaasGenerated.Wallet
+typealias WaasWalletType = WaasGenerated.WalletType
