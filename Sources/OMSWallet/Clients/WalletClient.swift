@@ -33,6 +33,7 @@ public final class WalletClient: @unchecked Sendable {
         }
     }
     var publicClient: WaasPublicClient
+    let walletImportClient: WaasClient?
     let indexerClient: IndexerClient
     
     let projectId: String
@@ -204,7 +205,12 @@ public final class WalletClient: @unchecked Sendable {
         }
     }
 
-    init(publishableKey: String, projectId: String, environment: OMSWalletEnvironment) {
+    init(
+        publishableKey: String,
+        projectId: String,
+        environment: OMSWalletEnvironment,
+        walletImport: WalletImportConfiguration? = nil
+    ) {
         self.projectId = projectId
         self.environment = environment
         let credentialSession = WalletCredentialSession(environment: environment, projectId: projectId)
@@ -224,6 +230,15 @@ public final class WalletClient: @unchecked Sendable {
             )
         }
         self.signedClientFactory = makeSignedClient
+        self.walletImportClient = walletImport.map {
+            Self.makeWalletImportClient(
+                publishableKey: publishableKey,
+                projectId: projectId,
+                environment: environment,
+                signer: credentialSession.signer,
+                configuration: $0
+            )
+        }
 
         self._walletId = ""
         self._walletAddress = ""
@@ -254,7 +269,8 @@ public final class WalletClient: @unchecked Sendable {
         oidcRedirectAuthStore: (any OIDCRedirectAuthStore)? = nil,
         oidcNonceGenerator: @escaping () throws -> String = OIDCRedirectAuth.generateNonce,
         signedClientFactory: ((any CredentialSigner) -> WaasClient)? = nil,
-        currentDate: @escaping () -> Date = Date.init
+        currentDate: @escaping () -> Date = Date.init,
+        walletImportClient: WaasClient? = nil
     ) {
         self.projectId = projectId
         self.environment = environment
@@ -274,6 +290,7 @@ public final class WalletClient: @unchecked Sendable {
         self._sessionAuth = nil
         self.credentialSession = credentialSession
         self._signedClient = signedClient
+        self.walletImportClient = walletImportClient
         self.publicClient = publicClient
         self.indexerClient = indexerClient ?? IndexerClient(
             publishableKey: publishableKey,
@@ -469,6 +486,25 @@ public final class WalletClient: @unchecked Sendable {
                     "Api-Key": publishableKey
                 ]
             }
+        )
+    }
+
+    private static func makeWalletImportClient(
+        publishableKey: String,
+        projectId: String,
+        environment: OMSWalletEnvironment,
+        signer: any CredentialSigner,
+        configuration: WalletImportConfiguration
+    ) -> WaasClient {
+        WaasClient(
+            baseURL: environment.walletApiUrl,
+            transport: AttestedSignedWaasTransport(
+                publishableKey: publishableKey,
+                scope: projectId,
+                signer: signer,
+                trustedPcr0s: configuration.trustedPcr0s
+            ),
+            headers: { [:] }
         )
     }
 }

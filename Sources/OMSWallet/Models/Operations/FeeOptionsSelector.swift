@@ -3,6 +3,7 @@ import Foundation
 @available(macOS 12.0, iOS 15.0, *)
 public struct FeeOptionWithBalance: Sendable {
     public let feeOption: FeeOption
+    public let selection: FeeOptionSelection
     public let balance: TokenBalance?
     public let available: String?
     public let availableRaw: String?
@@ -10,12 +11,14 @@ public struct FeeOptionWithBalance: Sendable {
 
     public init(
         feeOption: FeeOption,
+        selection: FeeOptionSelection? = nil,
         balance: TokenBalance? = nil,
         available: String? = nil,
         availableRaw: String? = nil,
         decimals: Int? = nil
     ) {
         self.feeOption = feeOption
+        self.selection = selection ?? FeeOptionSelection(feeOption: feeOption)
         self.balance = balance
         self.available = available
         self.availableRaw = availableRaw
@@ -24,20 +27,14 @@ public struct FeeOptionWithBalance: Sendable {
 }
 
 @available(macOS 12.0, iOS 15.0, *)
-public extension FeeOptionWithBalance {
-    var selection: FeeOptionSelection {
-        FeeOptionSelection(feeOption: feeOption)
-    }
-}
-
 @available(macOS 12.0, iOS 15.0, *)
 public extension FeeOptionSelection {
-    init(feeOption: FeeOption) {
+    init(feeOption: FeeOption, index: UInt32? = nil) {
         let tokenId = feeOption.token.tokenId?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let tokenId, !tokenId.isEmpty {
-            self.init(token: tokenId)
+            self.init(token: tokenId, index: index)
         } else {
-            self.init(token: feeOption.token.symbol)
+            self.init(token: feeOption.token.symbol, index: index)
         }
     }
 }

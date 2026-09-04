@@ -1,5 +1,17 @@
 import Foundation
 
+public enum SolanaNetwork: String, CaseIterable, Codable, Sendable, CustomStringConvertible {
+    case devnet = "solana:devnet"
+    case mainnet = "solana:mainnet"
+
+    public var description: String { rawValue }
+}
+
+public enum SolanaNetworks {
+    public static let devnet: SolanaNetwork = .devnet
+    public static let mainnet: SolanaNetwork = .mainnet
+}
+
 public enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
     case mainnet
     case sepolia

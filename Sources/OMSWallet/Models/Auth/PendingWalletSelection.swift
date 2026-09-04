@@ -4,7 +4,7 @@ import Foundation
 public final class PendingWalletSelection: @unchecked Sendable {
     public let walletType: WalletType
     public let wallets: [Wallet]
-    public let credential: CredentialInfo
+    public let credential: WalletCredential
 
     private let selectWalletAction: (String) async throws -> WalletSelectionResult
     private let createAndSelectWalletAction: (String?) async throws -> WalletSelectionResult
@@ -14,7 +14,7 @@ public final class PendingWalletSelection: @unchecked Sendable {
     init(
         walletType: WalletType,
         wallets: [Wallet],
-        credential: CredentialInfo,
+        credential: WalletCredential,
         selectWalletAction: @escaping (String) async throws -> WalletSelectionResult,
         createAndSelectWalletAction: @escaping (String?) async throws -> WalletSelectionResult
     ) {

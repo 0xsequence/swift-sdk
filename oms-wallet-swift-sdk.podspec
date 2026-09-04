@@ -25,4 +25,5 @@ Pod::Spec.new do |s|
 
   s.source_files = "Sources/OMSWallet/**/*.swift"
   s.frameworks = "Foundation", "Security", "CryptoKit"
+  s.dependency "SwiftCBOR", "0.6.0"
 end

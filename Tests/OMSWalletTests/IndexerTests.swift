@@ -139,6 +139,43 @@ import Testing
     #expect(page["pageSize"] as? Int == 100)
 }
 
+@Test func TestGetSolanaBalancesUsesSolanaGatewayAndDecodesStrictAssets() async throws {
+    let recorder = IndexerRequestRecorder(
+        responseBody: Data(
+            #"{"balances":[{"network":"solana:mainnet","accountAddress":"solana-wallet","assetType":"native","name":"Solana","symbol":"SOL","decimals":9,"balance":"4679287","formattedBalance":"0.004679287","verificationStatus":"unknown","verificationSource":"none"},{"network":"solana:mainnet","accountAddress":"solana-wallet","assetType":"fungible-token","tokenProgram":"spl-token","mintAddress":"usdc-mint","name":"USD Coin","symbol":"USDC","decimals":6,"balance":"4208117429","formattedBalance":"4208.117429","verificationStatus":"verified","verificationSource":"jupiter"}],"errors":[{"network":"solana:devnet","reason":"RPC unavailable"}]}"#.utf8
+        )
+    )
+    let client = makeRecordingIndexerClient(recorder: recorder)
+
+    let result = try await client.getSolanaBalances(
+        GetSolanaBalancesParams(
+            walletAddress: "solana-wallet",
+            includeMetadata: false,
+            omitNativeBalances: false,
+            mintAddresses: ["usdc-mint"],
+            excludedMintAddresses: ["spam-mint"]
+        )
+    )
+
+    let request = try #require(recorder.recordedRequest())
+    let body = try #require(recorder.recordedBody())
+    let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+    let filter = try #require(payload["filter"] as? [String: Any])
+    #expect(request.url?.path == "/v1/SolanaIndexerGateway/GetTokenBalancesDetails")
+    #expect(request.value(forHTTPHeaderField: "Webrpc")?.contains("solana-indexer-gateway@v1") == true)
+    #expect(payload["networks"] as? [String] == ["solana:mainnet", "solana:devnet"])
+    #expect(payload["omitMetadata"] as? Bool == true)
+    #expect(filter["contractWhitelist"] as? [String] == ["usdc-mint"])
+    #expect(filter["contractBlacklist"] as? [String] == ["spam-mint"])
+    #expect(result.balances.count == 2)
+    guard case .fungibleToken(let token) = result.balances[1] else {
+        Issue.record("Expected fungible token balance")
+        return
+    }
+    #expect(token.mintAddress == "usdc-mint")
+    #expect(result.errors.first?.network == .devnet)
+}
+
 @Test func TestGetTransactionHistoryEncodesGatewayFiltersAndDecodesTransactions() async throws {
     let recorder = IndexerRequestRecorder(
         responseBody: Data(
@@ -475,7 +512,8 @@ func makeRecordingIndexerClient(recorder: IndexerRequestRecorder) -> IndexerClie
     let httpClient = HttpClient(session: session)
     let environment = OMSWalletEnvironment(
         walletApiUrl: "https://wallet.example.test",
-        indexerGatewayUrl: "https://\(host)/v1/IndexerGateway/"
+        indexerGatewayUrl: "https://\(host)/v1/IndexerGateway/",
+        solanaIndexerGatewayUrl: "https://\(host)/v1/SolanaIndexerGateway/"
     )
 
     return IndexerClient(

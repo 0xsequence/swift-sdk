@@ -595,13 +595,13 @@ extension WalletClient {
             let pendingSelectionSession = try withOptionalOIDCRedirectAuthOwnership(
                 oidcRedirectAuthOwnership
             ) {
-                try beginPendingWalletSelection(sessionMetadata: sessionMetadata)
+                try beginPendingWalletSelection(walletType: walletType, sessionMetadata: sessionMetadata)
             }
             return .walletSelection(
                 pendingWalletSelection(
                     walletType: walletType,
                     wallets: candidateWallets,
-                    credential: response.credential.sdkValue,
+                    credential: response.credential.walletCredential,
                     selectionSession: pendingSelectionSession
                 )
             )
@@ -648,7 +648,7 @@ extension WalletClient {
             walletAddress: activated.walletAddress,
             wallet: activated.wallet,
             wallets: candidateWallets.isEmpty ? wallets + [activated.wallet] : wallets,
-            credential: response.credential.sdkValue
+            credential: response.credential.walletCredential
         )
     }
 
@@ -665,7 +665,7 @@ extension WalletClient {
     private func pendingWalletSelection(
         walletType: WalletType,
         wallets: [Wallet],
-        credential: CredentialInfo,
+        credential: WalletCredential,
         selectionSession: PendingWalletSelectionSession
     ) -> PendingWalletSelection {
         PendingWalletSelection(
@@ -699,19 +699,21 @@ extension WalletClient {
     }
 
     private func beginPendingWalletSelection(
+        walletType: WalletType,
         sessionMetadata: SessionMetadata
     ) throws -> PendingWalletSelectionSession {
         let selectionSession = PendingWalletSelectionSession(
             id: UUID(),
             signerCredentialId: try credentialSession.signer.credentialId(),
             signerKeyType: credentialSession.signer.alg,
+            walletType: walletType,
             metadata: sessionMetadata
         )
         activePendingWalletSelection = selectionSession
         return selectionSession
     }
 
-    private func requireActivePendingWalletSelection(
+    func requireActivePendingWalletSelection(
         _ selectionSession: PendingWalletSelectionSession
     ) throws {
         guard activePendingWalletSelection?.id == selectionSession.id else {
@@ -803,7 +805,7 @@ extension WalletClient {
         oidcRedirectAuthOwnership: PendingOIDCRedirectAuth? = nil
     ) async throws -> WalletSelectionResult {
         let params = CreateWalletRequest(
-            type: walletType.waasValue,
+            networkFamily: walletType.waasNetworkFamily,
             reference: reference
         )
 
@@ -818,7 +820,7 @@ extension WalletClient {
 
         return WalletSelectionResult(
             walletAddress: response.wallet.address,
-            wallet: response.wallet.sdkValue
+            wallet: try response.wallet.sdkValue
         )
     }
 
@@ -850,12 +852,12 @@ extension WalletClient {
 
         return WalletSelectionResult(
             walletAddress: response.wallet.address,
-            wallet: response.wallet.sdkValue
+            wallet: try response.wallet.sdkValue
         )
     }
 
     private func walletsFromAuthResponse(_ response: CompleteAuthResponse) async throws -> [Wallet] {
-        var wallets = response.wallets.map { $0.sdkValue }
+        var wallets = try response.wallets.map { try $0.sdkValue }
         if let cursor = nonEmptyCursor(response.page?.cursor) {
             wallets += try await listWallets(startingAt: cursor)
         }
@@ -872,7 +874,7 @@ extension WalletClient {
                     page: cursor.map { Page(cursor: $0).waasValue }
                 )
             )
-            wallets += response.wallets.map { $0.sdkValue }
+            wallets += try response.wallets.map { try $0.sdkValue }
             cursor = nonEmptyCursor(response.page?.cursor)
         } while cursor != nil
 

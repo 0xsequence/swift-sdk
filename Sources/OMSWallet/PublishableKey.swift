@@ -4,11 +4,13 @@ struct ParsedPublishableKey: Equatable, Sendable {
     let projectId: String
     let walletApiUrl: String
     let indexerGatewayUrl: String
+    let solanaIndexerGatewayUrl: String
 
     func environment() -> OMSWalletEnvironment {
         OMSWalletEnvironment(
             walletApiUrl: walletApiUrl,
-            indexerGatewayUrl: indexerGatewayUrl
+            indexerGatewayUrl: indexerGatewayUrl,
+            solanaIndexerGatewayUrl: solanaIndexerGatewayUrl
         )
     }
 }
@@ -42,7 +44,8 @@ func parsePublishableKey(_ publishableKey: String) throws -> ParsedPublishableKe
     return ParsedPublishableKey(
         projectId: "prj_\(keyParts[0])",
         walletApiUrl: route.apiUrl,
-        indexerGatewayUrl: "\(route.apiUrl)/v1/IndexerGateway/"
+        indexerGatewayUrl: "\(route.apiUrl)/v1/IndexerGateway/",
+        solanaIndexerGatewayUrl: "\(route.apiUrl)/v1/SolanaIndexerGateway/"
     )
 }
 

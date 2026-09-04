@@ -262,6 +262,34 @@ On subsequent launches, an unexpired completed session is restored from secure s
 try omsWallet.wallet.signOut()
 ```
 
+### Import a Wallet
+
+Wallet import requires one or more audited AWS Nitro Enclave PCR0 measurements. The SDK rejects
+all-zero debug measurements, verifies the attestation and request/response binding, and encrypts
+the private key locally before import.
+
+```swift
+let importPolicy = try WalletImportConfiguration(
+    trustedPcr0s: ["your-audited-48-byte-pcr0-hex"]
+)
+let omsWallet = try OMSWallet(
+    publishableKey: "your-publishable-key",
+    walletImport: importPolicy
+)
+
+let imported = try await omsWallet.wallet.importWallet(
+    privateKey: .ethereum("0x..."),
+    reference: "Imported wallet"
+)
+print(imported.wallet.keyOrigin == .imported)
+```
+
+Ethereum imports accept 32 raw bytes or hexadecimal text. Solana imports accept a 32-byte seed,
+64-byte keypair, or base58 text. The SDK does not persist plaintext imported keys. For
+caller-managed HPKE flows, use `getWalletImportRecipientKey(cipherSuite:)` and then
+`importEncryptedWallet(walletType:keyMaterial:reference:)`; both responses remain attestation
+verified.
+
 ## Core Workflows
 
 ### Sign and Verify Messages
@@ -278,6 +306,18 @@ let isValid = try await omsWallet.wallet.isValidMessageSignature(
     network: .polygonAmoy,
     walletAddress: walletAddress,
     message: "hello from OMS Wallet",
+    signature: signature
+)
+```
+
+For a selected Solana wallet, use the Solana-specific message methods; off-chain messages do not
+require a cluster:
+
+```swift
+let signature = try await omsWallet.wallet.signSolanaMessage(message: "hello from Solana")
+let valid = try await omsWallet.wallet.isValidSolanaMessageSignature(
+    walletAddress: wallet.address,
+    message: "hello from Solana",
     signature: signature
 )
 ```
@@ -337,6 +377,20 @@ let result = try await omsWallet.indexer.getBalances(
 for balance in result.balances {
     print(balance.contractAddress, balance.balance)
     print(balance.contractInfo?.symbol ?? "", balance.contractInfo?.decimals ?? 0)
+}
+```
+
+Query native SOL and fungible token balances through the Solana indexer gateway:
+
+```swift
+let result = try await omsWallet.indexer.getSolanaBalances(
+    GetSolanaBalancesParams(
+        walletAddress: "solana-wallet-address",
+        networks: [.mainnet, .devnet]
+    )
+)
+for balance in result.balances {
+    print(balance)
 }
 ```
 
@@ -451,6 +505,18 @@ let txResult = try await omsWallet.wallet.sendTransaction(
 )
 
 let status = try await omsWallet.wallet.getTransactionStatus(txnId: txResult.txnId)
+```
+
+For a selected Solana wallet, amounts are smallest units (lamports for SOL and base units for SPL
+tokens):
+
+```swift
+let result = try await omsWallet.wallet.sendSolanaTransfer(
+    network: .devnet,
+    asset: "SOL",
+    to: "solana-recipient-address",
+    amount: "1000000"
+)
 ```
 
 To tune polling, pass `statusPolling`:
@@ -620,12 +686,44 @@ let scopedIdToken = try await omsWallet.wallet.getIdToken(
 let credentials = try await omsWallet.wallet.listAccess()
 
 for try await page in omsWallet.wallet.listAccessPages(pageSize: 25) {
-    print(page.credentials)
+    print(page.grants)
 }
 
-if let credential = credentials.first {
-    try await omsWallet.wallet.revokeAccess(targetCredentialId: credential.credentialId)
+if let grant = credentials.first {
+    try await omsWallet.wallet.revokeAccess(credentialId: grant.credential.credentialId)
 }
+```
+
+For an owner-approved smart session, inspect the remote credential before showing consent, then
+authorize bounded EVM transfer grants. The returned wallet and session IDs can be shared with the
+remote application; backend credential registration and execution stay outside this SDK surface.
+
+```swift
+let credentialId = "remote-credential-id"
+let metadata = try await omsWallet.wallet.inspectRemoteCredential(credentialId: credentialId)
+showConsentScreen(metadata)
+
+let session = try await omsWallet.wallet.authorizeRemoteAccess(
+    credentialId: credentialId,
+    network: .polygon,
+    grants: [
+        .nativeTransfer(
+            to: "0x1111111111111111111111111111111111111111",
+            limit: "1000000000000000"
+        )
+    ],
+    expiresAt: "2099-01-01T00:00:00Z"
+)
+
+let details = try await omsWallet.wallet.getRemoteAccessSession(sessionId: session.sessionId)
+let usage = try await omsWallet.wallet.getRemoteAccessSessionUsage(
+    sessionId: session.sessionId,
+    network: .polygon
+)
+try await omsWallet.wallet.revokeAccess(
+    credentialId: credentialId,
+    sessionId: session.sessionId
+)
 ```
 
 ## API Reference

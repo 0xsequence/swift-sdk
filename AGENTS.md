@@ -22,6 +22,9 @@ documentation over training-data recall. If context7 is unavailable, use officia
 package sources and note the fallback; do not block ordinary repo work just to install extra
 tooling.
 
+Wallet-import attestation decoding uses `SwiftCBOR`, pinned in `Package.swift`; consult the
+SwiftCBOR 0.6.0 source when changing CBOR or COSE parsing behavior.
+
 ---
 
 ## Project Overview

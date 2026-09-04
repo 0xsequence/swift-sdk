@@ -3,6 +3,7 @@ import Foundation
 struct HttpResponse {
     let statusCode: Int
     let body: Data
+    let headers: [String: String]
 }
 
 enum HttpError: Error {
@@ -69,7 +70,10 @@ final class HttpClient : Sendable {
 
         return HttpResponse(
             statusCode: httpResponse.statusCode,
-            body: data
+            body: data,
+            headers: httpResponse.allHeaderFields.reduce(into: [:]) { headers, entry in
+                headers[String(describing: entry.key).lowercased()] = String(describing: entry.value)
+            }
         )
     }
 }
