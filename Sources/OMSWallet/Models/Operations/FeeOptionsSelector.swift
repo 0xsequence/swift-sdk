@@ -27,7 +27,6 @@ public struct FeeOptionWithBalance: Sendable {
 }
 
 @available(macOS 12.0, iOS 15.0, *)
-@available(macOS 12.0, iOS 15.0, *)
 public extension FeeOptionSelection {
     init(feeOption: FeeOption, index: UInt32? = nil) {
         let tokenId = feeOption.token.tokenId?.trimmingCharacters(in: .whitespacesAndNewlines)

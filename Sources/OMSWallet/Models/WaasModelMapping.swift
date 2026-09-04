@@ -85,8 +85,8 @@ extension WaasGenerated.NetworkFamily {
             return .ethereum
         case .solana:
             return .solana
-        case .unknown:
-            return nil
+        case .unknown(let value):
+            return .unknown(value)
         }
     }
 }
@@ -98,8 +98,8 @@ extension WaasGenerated.KeyOrigin {
             return .enclave
         case .imported:
             return .imported
-        case .unknown:
-            return nil
+        case .unknown(let value):
+            return .unknown(value)
         }
     }
 }

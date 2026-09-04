@@ -28,7 +28,7 @@ let package = Package(
         ),
         .testTarget(
             name: "OMSWalletTests",
-            dependencies: ["OMSWallet"]
+            dependencies: ["OMSWallet", "SwiftCBOR"]
         ),
     ],
     swiftLanguageModes: [.v6]
