@@ -2607,7 +2607,7 @@ private func waitForSessionExpiredEvent(
     #expect(fixture.transport.requestCount(for: WaasAPI.Execute.urlPath) == 0)
 }
 
-@Test func TestWalletSendTransactionSponsoredSkipsCustomFeeSelector() async throws {
+@Test func TestWalletSendTransactionSponsoredInvokesCustomFeeSelectorWithEmptyOptions() async throws {
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"
     fixture.client.walletAddress = "0xwallet"
@@ -2635,8 +2635,8 @@ private func waitForSessionExpiredEvent(
         network: .polygonAmoy,
         request: SendTransactionRequest(to: "0xabc", value: "0"),
         selectFeeOption: .custom { feeOptions in
-            #expect(Bool(false), "Sponsored transactions should not ask for fee selection")
-            return feeOptions.first?.selection
+            #expect(feeOptions.isEmpty)
+            return nil
         }
     )
     let executeRequest = try fixture.transport.decodedRequest(
@@ -2650,6 +2650,70 @@ private func waitForSessionExpiredEvent(
     #expect(executeRequest.feeOption == nil)
     #expect(fixture.indexerBackend.nativeBalanceRequestCount == 0)
     #expect(fixture.indexerBackend.tokenBalanceContractAddresses.isEmpty)
+}
+
+@Test func TestWalletSendTransactionSponsoredContinuesWithFirstAvailable() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-1",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: true,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .executed),
+        for: WaasAPI.Execute.urlPath
+    )
+
+    let result = try await fixture.client.sendTransaction(
+        network: .polygonAmoy,
+        request: SendTransactionRequest(to: "0xabc", value: "0"),
+        selectFeeOption: .firstAvailable,
+        waitForStatus: false
+    )
+
+    #expect(result.txnId == "txn-1")
+    #expect(fixture.transport.requestCount(for: WaasAPI.Execute.urlPath) == 1)
+}
+
+@Test func TestWalletSendTransactionSponsoredDoesNotExecuteWhenAcknowledgementThrows() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-1",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: true,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+
+    do {
+        _ = try await fixture.client.sendTransaction(
+            network: .polygonAmoy,
+            request: SendTransactionRequest(to: "0xabc", value: "0"),
+            selectFeeOption: .custom { feeOptions in
+                #expect(feeOptions.isEmpty)
+                throw CancellationError()
+            }
+        )
+    } catch is CancellationError {
+        #expect(fixture.transport.requestCount(for: WaasAPI.Execute.urlPath) == 0)
+        return
+    }
+
+    #expect(Bool(false), "Expected cancellation")
 }
 
 @Test func TestWalletCallContractReturnsSendTransactionResponse() async throws {

@@ -369,6 +369,9 @@ extension WalletClient {
     ) async throws -> FeeOptionSelection? {
         let feeOptions = prepareResponse.feeOptions.map { $0.sdkValue }
         guard !prepareResponse.sponsored else {
+            if let feeOptionSelector {
+                _ = try await feeOptionSelector([FeeOptionWithBalance]())
+            }
             return nil
         }
 

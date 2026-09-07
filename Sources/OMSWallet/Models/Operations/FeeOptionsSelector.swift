@@ -40,15 +40,14 @@ public extension FeeOptionSelection {
 
 @available(macOS 12.0, iOS 15.0, *)
 public struct FeeOptionSelector: Sendable {
+    /// Sponsored transactions pass an empty array. Returning `nil` acknowledges the free fee;
+    /// throw to stop execution.
     public typealias Select = @Sendable (_ options: [FeeOptionWithBalance]) async throws -> FeeOptionSelection?
 
     private let select: Select
     public init(_ select: @escaping Select) { self.select = select }
 
     public func callAsFunction(_ options: [FeeOptionWithBalance]) async throws -> FeeOptionSelection? {
-        guard !options.isEmpty else {
-            throw TransactionError.noFeeOptionsAvailable
-        }
         return try await select(options)
     }
 

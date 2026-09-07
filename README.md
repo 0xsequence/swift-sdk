@@ -544,6 +544,10 @@ let txResult = try await omsWallet.wallet.sendTransaction(
     to: "0x1111111111111111111111111111111111111111",
     value: value,
     selectFeeOption: .custom { options in
+        if options.isEmpty {
+            // Present the sponsored transaction for confirmation here.
+            return nil
+        }
         guard let selected = options.first else { return nil }
         return selected.selection
     }
@@ -554,7 +558,10 @@ Custom selectors receive `FeeOptionWithBalance` values. `balance` is the wallet'
 raw indexer balance for that fee token when available, `available` is formatted
 with the token decimals, `availableRaw` is the raw integer balance, and
 `decimals` is the token decimal count used for formatting. Unsponsored
-transactions require the selector to return a fee selection.
+transactions require the selector to return a fee selection. Sponsored transactions
+invoke the selector with an empty array; return `nil` after acknowledging the free fee,
+or throw to stop execution. `.firstAvailable` returns `nil` for that empty array and
+continues execution as before.
 
 ## Advanced Configuration
 

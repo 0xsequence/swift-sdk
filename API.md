@@ -805,6 +805,8 @@ public enum TransactionStatusResolution: String, Codable, Sendable, Equatable {
 
 ```swift
 public struct FeeOptionSelector: Sendable {
+    /// Sponsored transactions pass an empty array. Returning `nil` acknowledges the free fee;
+    /// throw to stop execution.
     public typealias Select = @Sendable ([FeeOptionWithBalance]) async throws -> FeeOptionSelection?
     public init(_ select: @escaping FeeOptionSelector.Select)
     public func callAsFunction(_ options: [FeeOptionWithBalance]) async throws -> FeeOptionSelection?
