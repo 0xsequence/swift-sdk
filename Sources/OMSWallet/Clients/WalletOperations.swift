@@ -183,6 +183,7 @@ extension WalletClient {
             try requireActiveSolanaWallet()
             let walletId = try requireActiveWalletId()
             try requireActiveCredential()
+            let walletAddress = try walletAddressIfNeeded(for: selectFeeOption)
             let prepared = try await signedClient.prepareSolanaTransfer(
                 PrepareSolanaTransferRequest(
                     network: network.rawValue,
@@ -194,12 +195,12 @@ extension WalletClient {
                 )
             )
             return try await execute(
-                network: nil,
+                feeBalanceNetwork: .solana(network),
                 prepareResponse: prepared,
                 feeOptionSelector: selectFeeOption,
                 waitForStatus: waitForStatus,
                 statusPolling: statusPolling,
-                walletAddress: nil
+                walletAddress: walletAddress
             )
         }
     }
@@ -225,7 +226,7 @@ extension WalletClient {
         )
 
         return try await self.execute(
-            network: network,
+            feeBalanceNetwork: .ethereum(network),
             prepareResponse: prepareResponse,
             feeOptionSelector: selectFeeOption,
             waitForStatus: waitForStatus,
@@ -261,7 +262,7 @@ extension WalletClient {
             )
 
             return try await self.execute(
-                network: network,
+                feeBalanceNetwork: .ethereum(network),
                 prepareResponse: prepareResponse,
                 feeOptionSelector: selectFeeOption,
                 waitForStatus: waitForStatus,
@@ -286,7 +287,7 @@ extension WalletClient {
     }
 
     private func execute(
-        network: Network?,
+        feeBalanceNetwork: FeeBalanceNetwork?,
         prepareResponse: PrepareResponse,
         feeOptionSelector: FeeOptionSelector?,
         waitForStatus: Bool,
@@ -297,7 +298,7 @@ extension WalletClient {
             try validateTransactionStatusPollingOptions(statusPolling)
         }
         let feeOptionSelection = try await selectFeeOption(
-            network: network,
+            feeBalanceNetwork: feeBalanceNetwork,
             prepareResponse: prepareResponse,
             feeOptionSelector: feeOptionSelector,
             walletAddress: walletAddress
@@ -362,7 +363,7 @@ extension WalletClient {
     }
 
     private func selectFeeOption(
-        network: Network?,
+        feeBalanceNetwork: FeeBalanceNetwork?,
         prepareResponse: PrepareResponse,
         feeOptionSelector: FeeOptionSelector?,
         walletAddress: String?
@@ -387,12 +388,21 @@ extension WalletClient {
         }
 
         let options: [FeeOptionWithBalance]
-        if let network, let walletAddress {
-            options = await enrichFeeOptionsWithBalances(
-                network: network,
-                walletAddress: walletAddress,
-                feeOptions: feeOptions
-            )
+        if let feeBalanceNetwork, let walletAddress {
+            switch feeBalanceNetwork {
+            case .ethereum(let network):
+                options = await enrichFeeOptionsWithBalances(
+                    network: network,
+                    walletAddress: walletAddress,
+                    feeOptions: feeOptions
+                )
+            case .solana(let network):
+                options = await enrichSolanaFeeOptionsWithBalances(
+                    network: network,
+                    walletAddress: walletAddress,
+                    feeOptions: feeOptions
+                )
+            }
         } else {
             options = feeOptions.enumerated().map { index, feeOption in
                 FeeOptionWithBalance(
@@ -459,6 +469,57 @@ extension WalletClient {
                 balance: balance,
                 available: formatTokenAmount(balance?.balance, decimals: decimals),
                 availableRaw: balance?.balance,
+                decimals: decimals
+            )
+        }
+    }
+
+    private func enrichSolanaFeeOptionsWithBalances(
+        network: SolanaNetwork,
+        walletAddress: String,
+        feeOptions: [FeeOption]
+    ) async -> [FeeOptionWithBalance] {
+        let mintAddresses = feeOptions
+            .filter { !$0.token.isNativeToken }
+            .compactMap { normalizedSolanaAddress($0.token.contractAddress) }
+            .reduce(into: [String]()) { addresses, address in
+                if !addresses.contains(address) {
+                    addresses.append(address)
+                }
+            }
+        let includesNative = feeOptions.contains { $0.token.isNativeToken }
+        let balances = try? await indexerClient.getSolanaBalances(
+            GetSolanaBalancesParams(
+                walletAddress: walletAddress,
+                networks: [network],
+                includeMetadata: false,
+                omitNativeBalances: !includesNative,
+                mintAddresses: mintAddresses
+            )
+        )
+        let nativeBalance = balances?.balances.first { balance in
+            if case .native(let value) = balance {
+                return value.network == network
+            }
+            return false
+        }
+        var balancesByMint: [String: SolanaBalance] = [:]
+        for balance in balances?.balances ?? [] {
+            if case .fungibleToken(let value) = balance, value.network == network {
+                balancesByMint[value.mintAddress] = balance
+            }
+        }
+
+        return feeOptions.enumerated().map { index, feeOption in
+            let balance = feeOption.token.isNativeToken
+                ? nativeBalance
+                : normalizedSolanaAddress(feeOption.token.contractAddress).flatMap { balancesByMint[$0] }
+            let decimals = balance?.decimals ?? feeOption.token.decimals.map(Int.init)
+            return FeeOptionWithBalance(
+                feeOption: feeOption,
+                selection: FeeOptionSelection(feeOption: feeOption, index: UInt32(index)),
+                available: formatTokenAmount(balance?.rawBalance, decimals: decimals),
+                availableRaw: balance?.rawBalance,
                 decimals: decimals
             )
         }
@@ -607,12 +668,41 @@ private extension FeeToken {
     }
 }
 
+private enum FeeBalanceNetwork {
+    case ethereum(Network)
+    case solana(SolanaNetwork)
+}
+
+private extension SolanaBalance {
+    var rawBalance: String {
+        switch self {
+        case .native(let balance): balance.balance
+        case .fungibleToken(let balance): balance.balance
+        }
+    }
+
+    var decimals: Int {
+        switch self {
+        case .native(let balance): balance.decimals
+        case .fungibleToken(let balance): balance.decimals
+        }
+    }
+}
+
 private func normalizedAddress(_ address: String?) -> String? {
     guard let trimmed = address?.trimmingCharacters(in: .whitespacesAndNewlines),
           !trimmed.isEmpty else {
         return nil
     }
     return trimmed.lowercased()
+}
+
+private func normalizedSolanaAddress(_ address: String?) -> String? {
+    guard let trimmed = address?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !trimmed.isEmpty else {
+        return nil
+    }
+    return trimmed
 }
 
 private func formatTokenAmount(_ value: String?, decimals: Int?) -> String? {

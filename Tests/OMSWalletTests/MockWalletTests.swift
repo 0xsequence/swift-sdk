@@ -2258,6 +2258,103 @@ private func waitForSessionExpiredEvent(
     #expect(transaction.statusResolution == .notRequested)
 }
 
+@Test func TestWalletSolanaFirstAvailableUsesIndexerBalances() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "solana-wallet"
+    fixture.client.walletAddress = "4Nd1mYQbqjVU2aR7cJNPyqW9XjHnBYvWQd7ZxYxvT6uP"
+    let usdcMint = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+    try fixture.indexerBackend.setSolanaBalancesResponse(
+        """
+        {
+          "balances": [
+            {
+              "network": "solana:devnet",
+              "accountAddress": "4Nd1mYQbqjVU2aR7cJNPyqW9XjHnBYvWQd7ZxYxvT6uP",
+              "assetType": "native",
+              "name": "Solana",
+              "symbol": "SOL",
+              "decimals": 9,
+              "balance": "1000",
+              "formattedBalance": "0.000001",
+              "verificationStatus": "unknown",
+              "verificationSource": "none"
+            },
+            {
+              "network": "solana:devnet",
+              "accountAddress": "4Nd1mYQbqjVU2aR7cJNPyqW9XjHnBYvWQd7ZxYxvT6uP",
+              "assetType": "fungible-token",
+              "tokenProgram": "spl-token",
+              "mintAddress": "\(usdcMint)",
+              "name": "USD Coin",
+              "symbol": "USDC",
+              "decimals": 6,
+              "balance": "20000",
+              "formattedBalance": "0.02",
+              "verificationStatus": "verified",
+              "verificationSource": "jupiter"
+            }
+          ],
+          "errors": []
+        }
+        """
+    )
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "solana-first-available",
+            status: .quoted,
+            feeOptions: [
+                WaasFeeOption(
+                    token: WaasFeeToken(
+                        network: SolanaNetwork.devnet.rawValue,
+                        name: "SOL",
+                        symbol: "SOL",
+                        type: "native"
+                    ),
+                    value: "5000",
+                    displayValue: "0.000005"
+                ),
+                WaasFeeOption(
+                    token: WaasFeeToken(
+                        network: SolanaNetwork.devnet.rawValue,
+                        name: "USD Coin",
+                        symbol: "USDC",
+                        type: "spl",
+                        contractAddress: usdcMint
+                    ),
+                    value: "10000",
+                    displayValue: "0.01"
+                )
+            ],
+            sponsored: false,
+            expiresAt: "2099-01-01T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareSolanaTransfer.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .pending),
+        for: WaasAPI.Execute.urlPath
+    )
+
+    let result = try await fixture.client.sendSolanaTransfer(
+        network: .devnet,
+        asset: "SOL",
+        to: "recipient",
+        amount: "1000000",
+        selectFeeOption: .firstAvailable,
+        waitForStatus: false
+    )
+    let execute = try fixture.transport.decodedRequest(
+        ExecuteRequest.self,
+        for: WaasAPI.Execute.urlPath
+    )
+
+    #expect(result.txnId == "solana-first-available")
+    #expect(execute.feeOption?.token == "USDC")
+    #expect(execute.feeOption?.index == 1)
+    #expect(fixture.indexerBackend.solanaBalanceRequestCount == 1)
+    #expect(fixture.indexerBackend.solanaBalanceMintAddresses == [usdcMint])
+}
+
 @Test func TestWalletSendTransactionDefaultSelectsFirstFeeOptionIdentifierWithoutBalanceLookup() async throws {
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"
@@ -3334,6 +3431,8 @@ final class MockIndexerBackend: @unchecked Sendable {
     private var nativeBalance: NativeTokenBalance?
     private var tokenBalancesByContract: [String: [ContractTokenBalance]] = [:]
     private var balanceRequests: [RecordedBalanceRequest] = []
+    private var solanaBalancesResponse = Data(#"{"balances":[],"errors":[]}"#.utf8)
+    private var solanaBalanceRequests: [RecordedBalanceRequest] = []
 
     var nativeBalanceRequestCount: Int {
         withLock { balanceRequests.count }
@@ -3345,6 +3444,14 @@ final class MockIndexerBackend: @unchecked Sendable {
                 request.contractAddresses.map { $0.lowercased() }
             }
         }
+    }
+
+    var solanaBalanceRequestCount: Int {
+        withLock { solanaBalanceRequests.count }
+    }
+
+    var solanaBalanceMintAddresses: [String] {
+        withLock { solanaBalanceRequests.flatMap(\.contractAddresses) }
     }
 
     func makeClient(
@@ -3361,7 +3468,8 @@ final class MockIndexerBackend: @unchecked Sendable {
         let httpClient = HttpClient(session: session)
         let indexerEnvironment = OMSWalletEnvironment(
             walletApiUrl: environment.walletApiUrl,
-            indexerGatewayUrl: "https://\(host)/v1/IndexerGateway/"
+            indexerGatewayUrl: "https://\(host)/v1/IndexerGateway/",
+            solanaIndexerGatewayUrl: "https://\(host)/v1/SolanaIndexerGateway/"
         )
 
         return IndexerClient(
@@ -3383,8 +3491,21 @@ final class MockIndexerBackend: @unchecked Sendable {
         }
     }
 
-    func responseBody(for requestBody: Data?) -> Data {
+    func setSolanaBalancesResponse(_ body: String) throws {
+        let data = Data(body.utf8)
+        _ = try JSONSerialization.jsonObject(with: data)
         withLock {
+            solanaBalancesResponse = data
+        }
+    }
+
+    func responseBody(for request: URLRequest) -> Data {
+        withLock {
+            if request.url?.path.contains("/SolanaIndexerGateway/") == true {
+                solanaBalanceRequests.append(decodeBalanceRequest(Self.bodyData(for: request)))
+                return solanaBalancesResponse
+            }
+            let requestBody = Self.bodyData(for: request)
             let request = decodeBalanceRequest(requestBody)
             balanceRequests.append(request)
             let tokenBalances = request.contractAddresses.flatMap { contractAddress in
@@ -3406,6 +3527,24 @@ final class MockIndexerBackend: @unchecked Sendable {
             )
             return (try? JSONEncoder().encode(response)) ?? Data(#"{"nativeBalances":[],"balances":[]}"#.utf8)
         }
+    }
+
+    private static func bodyData(for request: URLRequest) -> Data? {
+        if let body = request.httpBody {
+            return body
+        }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 1_024)
+        defer { buffer.deallocate() }
+        while stream.hasBytesAvailable {
+            let count = stream.read(buffer, maxLength: 1_024)
+            guard count > 0 else { break }
+            data.append(buffer, count: count)
+        }
+        return data
     }
 
     private func withLock<T>(_ body: () -> T) -> T {
@@ -3451,7 +3590,7 @@ final class MockIndexerURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func startLoading() {
-        let body = Self.backend(for: request)?.responseBody(for: Self.bodyData(for: request))
+        let body = Self.backend(for: request)?.responseBody(for: request)
             ?? Data(#"{"nativeBalances":[],"balances":[]}"#.utf8)
         let response = HTTPURLResponse(
             url: request.url!,

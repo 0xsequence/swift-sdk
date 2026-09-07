@@ -219,6 +219,8 @@ enum AttestationVerifier {
     }
 
     private static func verifyCertificateChain(leaf: Data, bundle: [Data], now: Date) throws -> SecKey {
+        // AWS specifies cabundle as [ROOT_CERT, INTERM_1, ..., INTERM_N].
+        // https://docs.aws.amazon.com/enclaves/latest/user/verify-root.html
         guard let rootData = bundle.first,
               Data(SHA256.hash(data: rootData)).hexString == rootSha256,
               let leafCertificate = SecCertificateCreateWithData(nil, leaf as CFData) else {

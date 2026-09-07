@@ -554,10 +554,11 @@ let txResult = try await omsWallet.wallet.sendTransaction(
 )
 ```
 
-Custom selectors receive `FeeOptionWithBalance` values. `balance` is the wallet's
-raw indexer balance for that fee token when available, `available` is formatted
-with the token decimals, `availableRaw` is the raw integer balance, and
-`decimals` is the token decimal count used for formatting. Unsponsored
+Custom selectors receive `FeeOptionWithBalance` values. For Ethereum fees, `balance`
+contains the matching `TokenBalance` when available. For both Ethereum and Solana fees,
+`available` is formatted with the token decimals, `availableRaw` is the raw integer
+balance, and `decimals` is the token decimal count used for formatting. This lets
+`.firstAvailable` select the first affordable option on either network family. Unsponsored
 transactions require the selector to return a fee selection. Sponsored transactions
 invoke the selector with an empty array; return `nil` after acknowledging the free fee,
 or throw to stop execution. `.firstAvailable` returns `nil` for that empty array and
