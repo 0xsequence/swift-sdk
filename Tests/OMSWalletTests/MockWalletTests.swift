@@ -3096,7 +3096,8 @@ func makeMockWalletClient(
     oidcRedirectAuthStoreOverride: (any OIDCRedirectAuthStore)? = nil,
     oidcNonceGenerator: @escaping () throws -> String = OIDCRedirectAuth.generateNonce,
     currentDate: @escaping () -> Date = Date.init,
-    storedCredentials: StorableCredentials? = nil
+    storedCredentials: StorableCredentials? = nil,
+    walletImportClient: WaasClient? = nil
 ) -> MockWalletClientFixture {
     let transport = MockWaasTransport()
     let indexerBackend = MockIndexerBackend()
@@ -3135,7 +3136,8 @@ func makeMockWalletClient(
         indexerClient: indexerClient,
         oidcRedirectAuthStore: oidcRedirectAuthStoreOverride ?? oidcRedirectAuthStore,
         oidcNonceGenerator: oidcNonceGenerator,
-        currentDate: currentDate
+        currentDate: currentDate,
+        walletImportClient: walletImportClient
     )
     client.verifier = "verifier"
     client.challenge = "challenge"

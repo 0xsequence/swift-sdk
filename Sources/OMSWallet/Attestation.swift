@@ -3,6 +3,10 @@ import Foundation
 import Security
 import SwiftCBOR
 
+enum WalletImportAttestationError {
+    static let transportPrefix = "WaaS attestation verification failed: "
+}
+
 public struct WalletImportConfiguration: Sendable {
     let trustedPcr0s: Set<String>
 
@@ -50,35 +54,43 @@ struct AttestedSignedWaasTransport: WebRPCTransport {
     }
 
     func post(baseURL: String, path: String, body: Data, headers: [String: String]) async throws -> WebRPCHTTPResponse {
-        let endpoint = resolveEndpoint(path)
-        let payload = String(data: body, encoding: .utf8) ?? ""
-        let nonce = try randomNonce()
-        let authHeader = try buildAuthHeader(endpoint: endpoint, payload: payload)
-        var requestHeaders = [
-            "Api-Key": publishableKey,
-            "OMS-Wallet-Signature": authHeader,
-            "X-Attestation-Nonce": nonce
-        ]
-        headers.forEach { requestHeaders[$0.key] = $0.value }
-        let response = try await client.postJson(
-            baseUrl: baseURL,
-            path: path,
-            body: payload,
-            headers: requestHeaders
-        )
-        guard let encodedDocument = response.headers["x-attestation-document"] else {
-            throw attestationError("WaaS response is missing its attestation document")
+        do {
+            let endpoint = resolveEndpoint(path)
+            let payload = String(data: body, encoding: .utf8) ?? ""
+            let nonce = try randomNonce()
+            let authHeader = try buildAuthHeader(endpoint: endpoint, payload: payload)
+            var requestHeaders = [
+                "Api-Key": publishableKey,
+                "OMS-Wallet-Signature": authHeader,
+                "X-Attestation-Nonce": nonce
+            ]
+            headers.forEach { requestHeaders[$0.key] = $0.value }
+            let response = try await client.postJson(
+                baseUrl: baseURL,
+                path: path,
+                body: payload,
+                headers: requestHeaders
+            )
+            guard let encodedDocument = response.headers["x-attestation-document"] else {
+                throw attestationError("WaaS response is missing its attestation document")
+            }
+            try AttestationVerifier.verify(
+                encodedDocument: encodedDocument,
+                method: "POST",
+                path: path.hasPrefix("/") ? path : "/\(path)",
+                requestBody: payload,
+                responseBody: String(data: response.body, encoding: .utf8) ?? "",
+                nonce: nonce,
+                trustedPcr0s: trustedPcr0s
+            )
+            return WebRPCHTTPResponse(statusCode: response.statusCode, body: response.body)
+        } catch let error as OMSWalletError where error.code == .attestationVerificationFailed {
+            throw WebRPCTransportError(
+                message: WalletImportAttestationError.transportPrefix
+                    + (error.errorDescription ?? "WaaS attestation verification failed"),
+                underlyingDescription: error.errorDescription
+            )
         }
-        try AttestationVerifier.verify(
-            encodedDocument: encodedDocument,
-            method: "POST",
-            path: path.hasPrefix("/") ? path : "/\(path)",
-            requestBody: payload,
-            responseBody: String(data: response.body, encoding: .utf8) ?? "",
-            nonce: nonce,
-            trustedPcr0s: trustedPcr0s
-        )
-        return WebRPCHTTPResponse(statusCode: response.statusCode, body: response.body)
     }
 
     private func buildAuthHeader(endpoint: String, payload: String) throws -> String {

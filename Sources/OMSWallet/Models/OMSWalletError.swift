@@ -234,6 +234,15 @@ func toOMSWalletError(_ error: any Error, operation: OMSWalletOperation) -> OMSW
     }
 
     if let transportError = error as? WebRPCTransportError {
+        if let attestationMessage = transportError.attestationVerificationMessage {
+            return OMSWalletError(
+                code: .attestationVerificationFailed,
+                message: attestationMessage,
+                operation: operation,
+                retryable: false,
+                underlyingError: transportError
+            )
+        }
         return OMSWalletError(
             code: .requestFailed,
             message: transportError.message,
@@ -446,6 +455,14 @@ private extension HttpError {
 }
 
 private extension WebRPCTransportError {
+    var attestationVerificationMessage: String? {
+        guard message.hasPrefix(WalletImportAttestationError.transportPrefix) else {
+            return nil
+        }
+        let detail = String(message.dropFirst(WalletImportAttestationError.transportPrefix.count))
+        return detail.isEmpty ? "WaaS attestation verification failed" : detail
+    }
+
     func toWaasUpstreamError() -> OMSWalletUpstreamError {
         OMSWalletUpstreamError(
             service: .waas,

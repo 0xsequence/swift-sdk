@@ -569,7 +569,10 @@ extension WalletClient {
     }
 
     private func requireActiveSolanaWallet() throws {
-        guard let walletAddress, !Self.isEthereumAddress(walletAddress) else {
+        guard let walletAddress else {
+            throw OMSWalletError.sessionMissing()
+        }
+        guard !Self.isEthereumAddress(walletAddress) else {
             throw OMSWalletError(
                 code: .validationError,
                 message: "An active Solana wallet is required"
