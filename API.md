@@ -123,40 +123,92 @@ signer metadata to the keychain.
 Creates a new wallet of the specified type for the authenticated user and persists
 its address and signer metadata to the keychain.
 
+### `WalletClient.importWallet(privateKey:reference:)`
+
+```swift
+@discardableResult public func importWallet(privateKey: WalletImportPrivateKey, reference: String? = nil) async throws -> WalletSelectionResult
+```
+
+Imports and activates an Ethereum or Solana private key.
+
+### `WalletClient.getWalletImportRecipientKey(cipherSuite:)`
+
+```swift
+public func getWalletImportRecipientKey(cipherSuite: WalletImportCipherSuite) async throws -> WalletImportRecipientKey
+```
+
+Fetches an attested recipient key for advanced wallet-import encryption flows.
+
+### `WalletClient.importEncryptedWallet(walletType:keyMaterial:reference:)`
+
+```swift
+@discardableResult public func importEncryptedWallet(walletType: WalletType, keyMaterial: EncryptedWalletImportKeyMaterial, reference: String? = nil) async throws -> WalletSelectionResult
+```
+
+Imports and activates key material encrypted by the caller for an attested WaaS recipient key.
+
 ### `WalletClient.getIdToken(ttlSeconds:customClaims:)`
 
 ```swift
 public func getIdToken(ttlSeconds: UInt32? = nil, customClaims: [String : JSONValue]? = nil) async throws -> String
 ```
 
-### `WalletClient.listAccess(pageSize:)`
+### `WalletClient.inspectRemoteCredential(credentialId:)`
 
 ```swift
-public func listAccess(pageSize: UInt32? = nil) async throws -> [CredentialInfo]
+public func inspectRemoteCredential(credentialId: String) async throws -> RemoteCredentialMetadata
 ```
 
-Returns a list of credentials that currently have access to this wallet.
+Returns display metadata for a remote credential before the owner approves access.
 
-### `WalletClient.listAccessPage(pageSize:cursor:)`
+### `WalletClient.authorizeRemoteAccess(credentialId:network:grants:expiresAt:sessionId:)`
 
 ```swift
-public func listAccessPage(pageSize: UInt32? = nil, cursor: String? = nil) async throws -> ListAccessResponse
+public func authorizeRemoteAccess(credentialId: String, network: Network, grants: [SmartSessionGrant], expiresAt: String, sessionId: String? = nil) async throws -> AuthorizedRemoteAccess
+```
+
+Authorizes owner-approved EVM smart-session grants for a remote credential.
+
+### `WalletClient.listAccess(pageSize:type:)`
+
+```swift
+public func listAccess(pageSize: UInt32? = nil, type: AccessGrantType? = nil) async throws -> [AccessGrant]
+```
+
+Returns all wallet access grants, following WaaS cursors automatically.
+
+### `WalletClient.listAccessPage(pageSize:cursor:type:)`
+
+```swift
+public func listAccessPage(pageSize: UInt32? = nil, cursor: String? = nil, type: AccessGrantType? = nil) async throws -> AccessGrantPage
 ```
 
 Returns one credential-access page for this wallet.
 
-### `WalletClient.listAccessPages(pageSize:)`
+### `WalletClient.listAccessPages(pageSize:type:)`
 
 ```swift
-public func listAccessPages(pageSize: UInt32? = nil) -> ListAccessPages
+public func listAccessPages(pageSize: UInt32? = nil, type: AccessGrantType? = nil) -> ListAccessPages
 ```
 
 Returns credential-access pages for this wallet until WaaS stops returning a cursor.
 
-### `WalletClient.revokeAccess(targetCredentialId:)`
+### `WalletClient.getRemoteAccessSession(sessionId:)`
 
 ```swift
-public func revokeAccess(targetCredentialId: String) async throws
+public func getRemoteAccessSession(sessionId: String) async throws -> RemoteAccessSession
+```
+
+### `WalletClient.getRemoteAccessSessionUsage(sessionId:network:)`
+
+```swift
+public func getRemoteAccessSessionUsage(sessionId: String, network: Network) async throws -> [SmartSessionGrantUsage]
+```
+
+### `WalletClient.revokeAccess(credentialId:sessionId:)`
+
+```swift
+public func revokeAccess(credentialId: String, sessionId: String? = nil) async throws
 ```
 
 Revokes access for a specific credential, preventing it from interacting
@@ -188,10 +240,10 @@ public enum CompleteAuthResult: Sendable {
         walletAddress: String,
         wallet: Wallet,
         wallets: [Wallet],
-        credential: CredentialInfo
+        credential: WalletCredential
     )
     case walletSelection(PendingWalletSelection)
-    public var credential: CredentialInfo { get }
+    public var credential: WalletCredential { get }
     public var walletAddress: String? { get }
     public var wallet: Wallet? { get }
 }
@@ -203,7 +255,7 @@ public enum CompleteAuthResult: Sendable {
 public final class PendingWalletSelection: @unchecked Sendable {
     public let walletType: WalletType
     public let wallets: [Wallet]
-    public let credential: CredentialInfo
+    public let credential: WalletCredential
     @discardableResult public func selectWallet(walletId: String) async throws -> WalletSelectionResult
     @discardableResult public func createAndSelectWallet(reference: String? = nil) async throws -> WalletSelectionResult
 }
@@ -227,7 +279,8 @@ public struct Wallet: Codable, Equatable, Sendable {
     public let type: WalletType
     public let address: String
     public let reference: String?
-    public init(id: String, type: WalletType, address: String, reference: String? = nil)
+    public let keyOrigin: WalletKeyOrigin
+    public init(id: String, type: WalletType, address: String, reference: String? = nil, keyOrigin: WalletKeyOrigin)
     public init(from decoder: any Decoder) throws
 }
 ```
@@ -237,6 +290,7 @@ public struct Wallet: Codable, Equatable, Sendable {
 ```swift
 public enum WalletType: Codable, Equatable, Hashable, Sendable {
     case ethereum
+    case solana
     case unknown(String)
     public var wireValue: String { get }
     public init(wireValue: String)
@@ -245,15 +299,171 @@ public enum WalletType: Codable, Equatable, Hashable, Sendable {
 }
 ```
 
-### `CredentialInfo`
+### `WalletKeyOrigin`
 
 ```swift
-public struct CredentialInfo: Codable, Equatable, Sendable {
+public enum WalletKeyOrigin: Codable, Equatable, Hashable, Sendable {
+    case enclave
+    case imported
+    case unknown(String)
+    public var wireValue: String { get }
+    public init(wireValue: String)
+    public init(from decoder: any Decoder) throws
+    public func encode(to encoder: any Encoder) throws
+}
+```
+
+### `WalletImportCipherSuite`
+
+```swift
+public enum WalletImportCipherSuite: String, CaseIterable, Sendable {
+    case x25519Sha256Aes256Gcm = "x25519-sha256-aes256gcm"
+    case x25519Sha256ChaCha20Poly1305 = "x25519-sha256-chacha20poly1305"
+    case p256Sha256Aes256Gcm = "p256-sha256-aes256gcm"
+    case p256Sha256ChaCha20Poly1305 = "p256-sha256-chacha20poly1305"
+    public init?(rawValue: String)
+}
+```
+
+### `WalletImportPrivateKey`
+
+```swift
+public enum WalletImportPrivateKey: Sendable {
+    case ethereum(String)
+    case ethereumBytes(Data)
+    case solana(String)
+    case solanaBytes(Data)
+}
+```
+
+### `WalletImportRecipientKey`
+
+```swift
+public struct WalletImportRecipientKey: Equatable, Sendable {
+    public let keyId: String
+    public let cipherSuite: WalletImportCipherSuite
+    public let publicKey: String
+    public init(keyId: String, cipherSuite: WalletImportCipherSuite, publicKey: String)
+}
+```
+
+### `EncryptedWalletImportKeyMaterial`
+
+```swift
+public struct EncryptedWalletImportKeyMaterial: Equatable, Sendable {
+    public let keyId: String
+    public let cipherSuite: WalletImportCipherSuite
+    public let encapsulatedKey: String
+    public let ciphertext: String
+    public init(keyId: String, cipherSuite: WalletImportCipherSuite, encapsulatedKey: String, ciphertext: String)
+}
+```
+
+### `WalletCredential`
+
+```swift
+public struct WalletCredential: Codable, Equatable, Sendable {
     public let credentialId: String
     public let expiresAt: String
     public let isCaller: Bool
     public init(credentialId: String, expiresAt: String, isCaller: Bool)
     public init(from decoder: any Decoder) throws
+}
+```
+
+### `RemoteCredentialMetadata`
+
+```swift
+public struct RemoteCredentialMetadata: Codable, Equatable, Sendable {
+    public let appUrl: String
+    public let appName: String
+    public let appLogoUrl: String
+    public let custom: [String : String]
+    public init(appUrl: String, appName: String, appLogoUrl: String, custom: [String : String])
+    public init(from decoder: any Decoder) throws
+}
+```
+
+### `SmartSessionGrant`
+
+```swift
+public enum SmartSessionGrant: Equatable, Sendable {
+    case nativeTransfer(to: String, limit: String)
+    case erc20Transfer(token: String, to: String? = nil, limit: String, cumulative: Bool? = nil)
+}
+```
+
+### `AccessGrantType`
+
+```swift
+public enum AccessGrantType: String, Codable, Equatable, Sendable {
+    case direct
+    case remote
+    public init?(rawValue: String)
+}
+```
+
+### `RemoteAccessGrant`
+
+```swift
+public struct RemoteAccessGrant: Equatable, Sendable {
+    public let credential: WalletCredential
+    public let sessionId: String
+    public let metadata: RemoteCredentialMetadata
+    public let grants: [SmartSessionGrant]
+    public init(credential: WalletCredential, sessionId: String, metadata: RemoteCredentialMetadata, grants: [SmartSessionGrant])
+}
+```
+
+### `AccessGrant`
+
+```swift
+public enum AccessGrant: Equatable, Sendable {
+    case direct(WalletCredential)
+    case remote(RemoteAccessGrant)
+    public var credential: WalletCredential { get }
+}
+```
+
+### `AccessGrantPage`
+
+```swift
+public struct AccessGrantPage: Equatable, Sendable {
+    public let grants: [AccessGrant]
+    public let page: Page?
+    public init(grants: [AccessGrant], page: Page? = nil)
+}
+```
+
+### `AuthorizedRemoteAccess`
+
+```swift
+public struct AuthorizedRemoteAccess: Equatable, Sendable {
+    public let walletId: String
+    public let sessionId: String
+    public let expiresAt: String
+}
+```
+
+### `RemoteAccessSession`
+
+```swift
+public struct RemoteAccessSession: Equatable, Sendable {
+    public let sessionId: String
+    public let walletId: String
+    public let signerAddress: String
+    public let grants: [SmartSessionGrant]
+    public let chainId: Int
+    public let expiresAt: String
+}
+```
+
+### `SmartSessionGrantUsage`
+
+```swift
+public struct SmartSessionGrantUsage: Equatable, Sendable {
+    public let grant: SmartSessionGrant
+    public let used: String?
 }
 ```
 
@@ -410,25 +620,14 @@ public final class OMSWalletSessionExpiredObservation: @unchecked Sendable {
 }
 ```
 
-### `ListAccessResponse`
-
-```swift
-public struct ListAccessResponse: Codable, Equatable, Sendable {
-    public let credentials: [CredentialInfo]
-    public let page: Page?
-    public init(credentials: [CredentialInfo], page: Page? = nil)
-    public init(from decoder: any Decoder) throws
-}
-```
-
 ### `ListAccessPages`
 
 ```swift
 public struct ListAccessPages: AsyncSequence {
-    public typealias Element = ListAccessResponse
+    public typealias Element = AccessGrantPage
     public func makeAsyncIterator() -> ListAccessPages.AsyncIterator
     public struct AsyncIterator: AsyncIteratorProtocol {
-        public mutating func next() async throws -> ListAccessResponse?
+        public mutating func next() async throws -> AccessGrantPage?
     }
 }
 ```
@@ -443,6 +642,12 @@ public func signMessage(network: Network, message: String) async throws -> Strin
 
 Signs an arbitrary message using the wallet's session key.
 
+### `WalletClient.signSolanaMessage(message:)`
+
+```swift
+public func signSolanaMessage(message: String) async throws -> String
+```
+
 ### `WalletClient.signTypedData(network:typedData:)`
 
 ```swift
@@ -453,6 +658,12 @@ public func signTypedData(network: Network, typedData: JSONValue) async throws -
 
 ```swift
 public func isValidMessageSignature(network: Network, walletAddress: String, message: String, signature: String) async throws -> Bool
+```
+
+### `WalletClient.isValidSolanaMessageSignature(walletAddress:message:signature:)`
+
+```swift
+public func isValidSolanaMessageSignature(walletAddress: String, message: String, signature: String) async throws -> Bool
 ```
 
 ### `WalletClient.isValidTypedDataSignature(network:walletAddress:typedData:signature:)`
@@ -471,6 +682,12 @@ public func sendTransaction(network: Network, to: String, value: String, selectF
 
 ```swift
 public func sendTransaction(network: Network, request: SendTransactionRequest, selectFeeOption: FeeOptionSelector? = nil, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
+```
+
+### `WalletClient.sendSolanaTransfer(network:asset:to:amount:selectFeeOption:mode:waitForStatus:statusPolling:)`
+
+```swift
+public func sendSolanaTransfer(network: SolanaNetwork, asset: String, to: String, amount: String, selectFeeOption: FeeOptionSelector? = nil, mode: TransactionMode = .relayer, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
 ```
 
 ### `WalletClient.callContract(network:contract:method:args:selectFeeOption:mode:waitForStatus:statusPolling:)`
@@ -580,6 +797,8 @@ public enum TransactionStatusResolution: String, Codable, Sendable, Equatable {
 
 ```swift
 public struct FeeOptionSelector: Sendable {
+    /// Sponsored transactions pass an empty array. Returning `nil` acknowledges the free fee;
+    /// throw to stop execution.
     public typealias Select = @Sendable ([FeeOptionWithBalance]) async throws -> FeeOptionSelection?
     public init(_ select: @escaping FeeOptionSelector.Select)
     public func callAsFunction(_ options: [FeeOptionWithBalance]) async throws -> FeeOptionSelection?
@@ -594,12 +813,12 @@ public struct FeeOptionSelector: Sendable {
 ```swift
 public struct FeeOptionWithBalance: Sendable {
     public let feeOption: FeeOption
+    public let selection: FeeOptionSelection
     public let balance: TokenBalance?
     public let available: String?
     public let availableRaw: String?
     public let decimals: Int?
-    public init(feeOption: FeeOption, balance: TokenBalance? = nil, available: String? = nil, availableRaw: String? = nil, decimals: Int? = nil)
-    public var selection: FeeOptionSelection { get }
+    public init(feeOption: FeeOption, selection: FeeOptionSelection? = nil, balance: TokenBalance? = nil, available: String? = nil, availableRaw: String? = nil, decimals: Int? = nil)
 }
 ```
 
@@ -620,8 +839,9 @@ public struct FeeOption: Codable, Equatable, Sendable {
 ```swift
 public struct FeeOptionSelection: Codable, Equatable, Sendable {
     public let token: String
-    public init(token: String)
-    public init(feeOption: FeeOption)
+    public let index: UInt32?
+    public init(token: String, index: UInt32? = nil)
+    public init(feeOption: FeeOption, index: UInt32? = nil)
     public init(from decoder: any Decoder) throws
 }
 ```
@@ -672,6 +892,132 @@ public func getBalances(_ params: GetBalancesParams) async throws -> BalancesRes
 
 ```swift
 public func getTransactionHistory(_ params: GetTransactionHistoryParams) async throws -> TransactionHistoryResult
+```
+
+### `IndexerClient.getSolanaBalances(_:)`
+
+```swift
+public func getSolanaBalances(_ params: GetSolanaBalancesParams) async throws -> SolanaBalancesResult
+```
+
+### `GetSolanaBalancesParams`
+
+```swift
+public struct GetSolanaBalancesParams: Sendable {
+    public let walletAddress: String
+    public let networks: [SolanaNetwork]
+    public let includeMetadata: Bool
+    public let omitNativeBalances: Bool?
+    public let mintAddresses: [String]
+    public let excludedMintAddresses: [String]
+    public init(walletAddress: String, networks: [SolanaNetwork] = [.mainnet, .devnet], includeMetadata: Bool = true, omitNativeBalances: Bool? = nil, mintAddresses: [String] = [], excludedMintAddresses: [String] = [])
+}
+```
+
+### `SolanaBalancesResult`
+
+```swift
+public struct SolanaBalancesResult: Sendable {
+    public let status: Int
+    public let balances: [SolanaBalance]
+    public let errors: [SolanaNetworkError]
+}
+```
+
+### `SolanaBalance`
+
+```swift
+public enum SolanaBalance: Decodable, Sendable {
+    case native(SolanaNativeBalance)
+    case fungibleToken(SolanaFungibleTokenBalance)
+    public init(from decoder: any Decoder) throws
+}
+```
+
+### `SolanaNativeBalance`
+
+```swift
+public struct SolanaNativeBalance: Codable, Sendable {
+    public let network: SolanaNetwork
+    public let accountAddress: String
+    public let name: String
+    public let symbol: String
+    public let decimals: Int
+    public let balance: String
+    public let formattedBalance: String
+    public let imageUrl: String?
+    public let metadataUri: String?
+    public let verificationStatus: SolanaVerificationStatus
+    public let verificationSource: SolanaVerificationSource
+    public let priceUSD: String?
+    public let balanceUSD: String?
+    public init(from decoder: any Decoder) throws
+}
+```
+
+### `SolanaFungibleTokenBalance`
+
+```swift
+public struct SolanaFungibleTokenBalance: Codable, Sendable {
+    public let network: SolanaNetwork
+    public let accountAddress: String
+    public let tokenProgram: SolanaTokenProgram
+    public let mintAddress: String
+    public let name: String
+    public let symbol: String
+    public let decimals: Int
+    public let balance: String
+    public let formattedBalance: String
+    public let imageUrl: String?
+    public let metadataUri: String?
+    public let verificationStatus: SolanaVerificationStatus
+    public let verificationSource: SolanaVerificationSource
+    public let priceUSD: String?
+    public let balanceUSD: String?
+    public init(from decoder: any Decoder) throws
+}
+```
+
+### `SolanaNetworkError`
+
+```swift
+public struct SolanaNetworkError: Codable, Sendable {
+    public let network: SolanaNetwork
+    public let reason: String
+    public init(from decoder: any Decoder) throws
+}
+```
+
+### `SolanaVerificationStatus`
+
+```swift
+public enum SolanaVerificationStatus: String, Codable, Sendable {
+    case verified
+    case unverified
+    case unknown
+    public init?(rawValue: String)
+}
+```
+
+### `SolanaVerificationSource`
+
+```swift
+public enum SolanaVerificationSource: String, Codable, Sendable {
+    case jupiter
+    case solflareUtl = "solflare-utl"
+    case none
+    public init?(rawValue: String)
+}
+```
+
+### `SolanaTokenProgram`
+
+```swift
+public enum SolanaTokenProgram: String, Codable, Sendable {
+    case splToken = "spl-token"
+    case token2022 = "token-2022"
+    public init?(rawValue: String)
+}
 ```
 
 ### `GetBalancesParams`
@@ -1044,6 +1390,26 @@ public enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
 }
 ```
 
+### `SolanaNetwork`
+
+```swift
+public enum SolanaNetwork: String, CaseIterable, Codable, Sendable, CustomStringConvertible {
+    case devnet = "solana:devnet"
+    case mainnet = "solana:mainnet"
+    public var description: String { get }
+    public init?(rawValue: String)
+}
+```
+
+### `SolanaNetworks`
+
+```swift
+public enum SolanaNetworks {
+    public static let devnet: SolanaNetwork
+    public static let mainnet: SolanaNetwork
+}
+```
+
 ### `JSONValue`
 
 ```swift
@@ -1095,6 +1461,7 @@ public enum OMSWalletErrorCode: String, Sendable {
     case transactionStatusLookupFailed = "OMS_TRANSACTION_STATUS_LOOKUP_FAILED"
     case validationError = "OMS_VALIDATION_ERROR"
     case storageError = "OMS_STORAGE_ERROR"
+    case attestationVerificationFailed = "OMS_ATTESTATION_VERIFICATION_FAILED"
     public init?(rawValue: String)
 }
 ```
@@ -1113,23 +1480,34 @@ public enum OMSWalletOperation: String, Sendable {
     case walletHandleOIDCRedirectCallback = "wallet.handleOIDCRedirectCallback"
     case walletUseWallet = "wallet.useWallet"
     case walletCreateWallet = "wallet.createWallet"
+    case walletImportWallet = "wallet.importWallet"
+    case walletGetImportRecipientKey = "wallet.getWalletImportRecipientKey"
+    case walletImportEncryptedWallet = "wallet.importEncryptedWallet"
     case walletListWallets = "wallet.listWallets"
     case walletSignOut = "wallet.signOut"
     case walletListAccess = "wallet.listAccess"
     case walletListAccessPage = "wallet.listAccessPage"
     case walletListAccessPages = "wallet.listAccessPages"
+    case walletInspectRemoteCredential = "wallet.inspectRemoteCredential"
+    case walletAuthorizeRemoteAccess = "wallet.authorizeRemoteAccess"
+    case walletGetRemoteAccessSession = "wallet.getRemoteAccessSession"
+    case walletGetRemoteAccessSessionUsage = "wallet.getRemoteAccessSessionUsage"
     case walletGetIdToken = "wallet.getIdToken"
     case walletRevokeAccess = "wallet.revokeAccess"
     case walletSignMessage = "wallet.signMessage"
+    case walletSignSolanaMessage = "wallet.signSolanaMessage"
     case walletSignTypedData = "wallet.signTypedData"
     case walletIsValidMessageSignature = "wallet.isValidMessageSignature"
+    case walletIsValidSolanaMessageSignature = "wallet.isValidSolanaMessageSignature"
     case walletIsValidTypedDataSignature = "wallet.isValidTypedDataSignature"
     case walletSendTransaction = "wallet.sendTransaction"
+    case walletSendSolanaTransfer = "wallet.sendSolanaTransfer"
     case walletCallContract = "wallet.callContract"
     case walletExecute = "wallet.execute"
     case walletGetTransactionStatus = "wallet.getTransactionStatus"
     case walletTransactionStatus = "wallet.transactionStatus"
     case indexerGetBalances = "indexer.getBalances"
+    case indexerGetSolanaBalances = "indexer.getSolanaBalances"
     case indexerGetTransactionHistory = "indexer.getTransactionHistory"
     public init?(rawValue: String)
 }

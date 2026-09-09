@@ -1,6 +1,25 @@
 import Foundation
 
 private let indexerGatewayWebRPCHeaderValue = "webrpc@v0.31.2;gen-swift@v0.1.2;sequence-indexer@v0.4.0"
+private let solanaIndexerGatewayWebRPCHeaderValue = "webrpc@v0.31.2;gen-swift@v0.1.2;solana-indexer-gateway@v1"
+
+private struct SolanaBalancesFilter: Encodable {
+    let accountAddresses: [String]
+    let omitNativeBalances: Bool?
+    let contractWhitelist: [String]?
+    let contractBlacklist: [String]?
+}
+
+private struct GetSolanaBalancesRequest: Encodable {
+    let networks: [SolanaNetwork]
+    let filter: SolanaBalancesFilter
+    let omitMetadata: Bool
+}
+
+private struct GetSolanaBalancesResponse: Decodable {
+    let balances: [SolanaBalance]
+    let errors: [SolanaNetworkError]
+}
 
 private struct GatewayNativeTokenBalances: Decodable {
     let chainId: Int64
@@ -118,11 +137,41 @@ public final class IndexerClient: Sendable {
         }
     }
 
+    public func getSolanaBalances(_ params: GetSolanaBalancesParams) async throws -> SolanaBalancesResult {
+        try await runOMSWalletOperation(.indexerGetSolanaBalances) {
+            let request = GetSolanaBalancesRequest(
+                networks: params.networks,
+                filter: SolanaBalancesFilter(
+                    accountAddresses: [params.walletAddress],
+                    omitNativeBalances: params.omitNativeBalances,
+                    contractWhitelist: nonEmpty(params.mintAddresses),
+                    contractBlacklist: nonEmpty(params.excludedMintAddresses)
+                ),
+                omitMetadata: !params.includeMetadata
+            )
+            let response = try await postJson(
+                operation: .indexerGetSolanaBalances,
+                baseUrl: environment.solanaIndexerGatewayUrl,
+                path: "/GetTokenBalancesDetails",
+                request: request,
+                responseType: GetSolanaBalancesResponse.self,
+                webRPCHeaderValue: solanaIndexerGatewayWebRPCHeaderValue
+            )
+            return SolanaBalancesResult(
+                status: response.statusCode,
+                balances: response.payload.balances,
+                errors: response.payload.errors
+            )
+        }
+    }
+
     private func postJson<Request: Encodable, Response: Decodable>(
         operation: OMSWalletOperation,
+        baseUrl: String? = nil,
         path: String,
         request: Request,
-        responseType: Response.Type
+        responseType: Response.Type,
+        webRPCHeaderValue: String = indexerGatewayWebRPCHeaderValue
     ) async throws -> (statusCode: Int, payload: Response) {
         let bodyData = try encoder.encode(request)
         let bodyString = String(data: bodyData, encoding: .utf8) ?? "{}"
@@ -130,10 +179,10 @@ public final class IndexerClient: Sendable {
         let response: HttpResponse
         do {
             response = try await client.postJson(
-                baseUrl: environment.indexerGatewayUrl,
+                baseUrl: baseUrl ?? environment.indexerGatewayUrl,
                 path: path,
                 body: bodyString,
-                headers: defaultHeaders()
+                headers: defaultHeaders(webRPCHeaderValue: webRPCHeaderValue)
             )
         } catch let error as CancellationError {
             throw error
@@ -206,11 +255,11 @@ public final class IndexerClient: Sendable {
         )
     }
 
-    private func defaultHeaders() -> [String: String] {
+    private func defaultHeaders(webRPCHeaderValue: String) -> [String: String] {
         [
             "Api-Key": publishableKey,
             "Accept": "application/json",
-            "Webrpc": indexerGatewayWebRPCHeaderValue
+            "Webrpc": webRPCHeaderValue
         ]
     }
 

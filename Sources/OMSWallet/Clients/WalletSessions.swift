@@ -290,42 +290,138 @@ extension WalletClient {
         return true
     }
 
-    /// Returns a list of credentials that currently have access to this wallet.
-    ///
-    /// Use this to display active sessions or integrations in your app's account
-    /// management UI, or to check what credentials exist before revoking one.
-    ///
-    /// - Returns: An array of `CredentialInfo` values representing each credential
-    ///   with access to this wallet.
-    public func listAccess(pageSize: UInt32? = nil) async throws -> [CredentialInfo] {
-        try await runOMSWalletOperation(.walletListAccess) {
-            var credentials: [CredentialInfo] = []
-            for try await response in listAccessPages(pageSize: pageSize) {
-                credentials += response.credentials
+    /// Returns display metadata for a remote credential before the owner approves access.
+    public func inspectRemoteCredential(credentialId: String) async throws -> RemoteCredentialMetadata {
+        try await runOMSWalletOperation(.walletInspectRemoteCredential) {
+            guard !credentialId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw OMSWalletError(code: .validationError, message: "credentialId is required")
             }
-            return credentials
+            return try await publicClient.inspectCredential(
+                InspectCredentialRequest(scope: projectId, credentialId: credentialId)
+            ).metadata.sdkValue
+        }
+    }
+
+    /// Authorizes owner-approved EVM smart-session grants for a remote credential.
+    public func authorizeRemoteAccess(
+        credentialId: String,
+        network: Network,
+        grants: [SmartSessionGrant],
+        expiresAt: String,
+        sessionId: String? = nil
+    ) async throws -> AuthorizedRemoteAccess {
+        try await runOMSWalletOperation(.walletAuthorizeRemoteAccess) {
+            let walletId = try requireActiveWalletId()
+            try requireActiveCredential()
+            guard let walletAddress, Self.isEthereumAddress(walletAddress) else {
+                throw OMSWalletError(code: .validationError, message: "An active Ethereum wallet is required")
+            }
+            try validateSmartSessionGrants(grants)
+            let response = try await signedClient.authorizeRemoteAccess(
+                AuthorizeRemoteAccessRequest(
+                    credentialId: credentialId,
+                    walletId: walletId,
+                    grants: Grants(entries: grants.map(\.waasValue)),
+                    expiry: expiresAt,
+                    chainId: network.chainId,
+                    sessionId: sessionId
+                )
+            )
+            try requireSameActiveWalletSession(walletId)
+            return AuthorizedRemoteAccess(
+                walletId: walletId,
+                sessionId: response.sessionId,
+                expiresAt: response.expiry
+            )
+        }
+    }
+
+    /// Returns all wallet access grants, following WaaS cursors automatically.
+    public func listAccess(
+        pageSize: UInt32? = nil,
+        type: AccessGrantType? = nil
+    ) async throws -> [AccessGrant] {
+        try await runOMSWalletOperation(.walletListAccess) {
+            var grants: [AccessGrant] = []
+            for try await response in listAccessPages(pageSize: pageSize, type: type) {
+                grants += response.grants
+            }
+            return grants
         }
     }
 
     /// Returns credential-access pages for this wallet until WaaS stops returning a cursor.
-    public func listAccessPages(pageSize: UInt32? = nil) -> ListAccessPages {
-        ListAccessPages(client: self, pageSize: pageSize)
+    public func listAccessPages(pageSize: UInt32? = nil, type: AccessGrantType? = nil) -> ListAccessPages {
+        ListAccessPages(client: self, pageSize: pageSize, type: type)
     }
 
     /// Returns one credential-access page for this wallet.
     public func listAccessPage(
         pageSize: UInt32? = nil,
-        cursor: String? = nil
-    ) async throws -> ListAccessResponse {
+        cursor: String? = nil,
+        type: AccessGrantType? = nil
+    ) async throws -> AccessGrantPage {
         try await runOMSWalletOperation(.walletListAccessPage) {
             let walletId = try requireActiveWalletId()
             try requireActiveCredential()
-            return try await signedClient.listAccess(
+            let response = try await signedClient.listAccess(
                 ListAccessRequest(
                     walletId: walletId,
-                    page: accessPage(pageSize: pageSize, cursor: cursor)?.waasValue
+                    page: accessPage(pageSize: pageSize, cursor: cursor)?.waasValue,
+                    type: type?.waasValue
                 )
-            ).sdkValue
+            )
+            let grants = response.credentials.compactMap(\.sdkValue)
+            guard grants.count == response.credentials.count else {
+                throw DecodingError.dataCorrupted(
+                    DecodingError.Context(codingPath: [], debugDescription: "Access response contains an invalid credential")
+                )
+            }
+            return AccessGrantPage(grants: grants, page: response.page?.sdkValue)
+        }
+    }
+
+    public func getRemoteAccessSession(sessionId: String) async throws -> RemoteAccessSession {
+        try await runOMSWalletOperation(.walletGetRemoteAccessSession) {
+            guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw OMSWalletError(code: .validationError, message: "sessionId is required")
+            }
+            let walletId = try requireActiveWalletId()
+            try requireActiveCredential()
+            let response = try await signedClient.getSession(GetSessionRequest(sessionId: sessionId))
+            try requireSameActiveWalletSession(walletId)
+            guard let session = response.session.sdkValue, session.walletId == walletId else {
+                throw DecodingError.dataCorrupted(
+                    DecodingError.Context(codingPath: [], debugDescription: "Session does not belong to the active wallet")
+                )
+            }
+            return session
+        }
+    }
+
+    public func getRemoteAccessSessionUsage(
+        sessionId: String,
+        network: Network
+    ) async throws -> [SmartSessionGrantUsage] {
+        try await runOMSWalletOperation(.walletGetRemoteAccessSessionUsage) {
+            guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw OMSWalletError(code: .validationError, message: "sessionId is required")
+            }
+            let walletId = try requireActiveWalletId()
+            try requireActiveCredential()
+            let response = try await signedClient.getSessionUsage(
+                GetSessionUsageRequest(sessionId: sessionId, network: network.chainId)
+            )
+            try requireSameActiveWalletSession(walletId)
+            return try response.entries.map { entry in
+                guard let grant = entry.grant.sdkValue,
+                      entry.used.map(isCanonicalUnsignedDecimal) ?? true else {
+                    throw DecodingError.dataCorrupted(
+                        DecodingError.Context(codingPath: [], debugDescription: "Session usage contains an invalid grant")
+                    )
+                }
+                return SmartSessionGrantUsage(grant: grant, used: entry.used)
+            }
         }
     }
 
@@ -352,14 +448,15 @@ extension WalletClient {
     /// This action cannot be undone — the credential will need to be re-authorized
     /// to regain access.
     ///
-    /// - Parameter targetCredentialId: The unique identifier of the credential to revoke.
-    public func revokeAccess(targetCredentialId: String) async throws {
+    /// - Parameter credentialId: The unique identifier of the credential to revoke.
+    public func revokeAccess(credentialId: String, sessionId: String? = nil) async throws {
         try await runOMSWalletOperation(.walletRevokeAccess) {
             let walletId = try requireActiveWalletId()
             try requireActiveCredential()
             let params = RevokeAccessRequest(
-                targetCredentialId: targetCredentialId,
-                walletId: walletId
+                targetCredentialId: credentialId,
+                walletId: walletId,
+                sessionId: sessionId
             )
 
             _ = try await signedClient.revokeAccess(params)
@@ -373,36 +470,89 @@ extension WalletClient {
 
         return Page(limit: pageSize, cursor: cursor)
     }
+
+    private func requireSameActiveWalletSession(_ expectedWalletId: String) throws {
+        guard try requireActiveWalletId() == expectedWalletId else {
+            throw OMSWalletError(code: .sessionMissing, message: "Active wallet session changed")
+        }
+        try requireActiveCredential()
+    }
+
+    private func validateSmartSessionGrants(_ grants: [SmartSessionGrant]) throws {
+        guard !grants.isEmpty else {
+            throw OMSWalletError(code: .validationError, message: "At least one grant is required")
+        }
+        for grant in grants {
+            switch grant {
+            case .nativeTransfer(let to, let limit):
+                guard isEthereumAddressValue(to), isCanonicalUnsignedDecimal(limit) else {
+                    throw OMSWalletError(code: .validationError, message: "Invalid native transfer grant")
+                }
+            case .erc20Transfer(let token, let to, let limit, _):
+                guard isEthereumAddressValue(token),
+                      to.map(isEthereumAddressValue) ?? true,
+                      isCanonicalUnsignedDecimal(limit) else {
+                    throw OMSWalletError(code: .validationError, message: "Invalid ERC-20 transfer grant")
+                }
+            }
+        }
+    }
+}
+
+private extension AccessGrantType {
+    var waasValue: WaasGenerated.CredentialType {
+        switch self {
+        case .direct: .direct
+        case .remote: .remote
+        }
+    }
+}
+
+private func isCanonicalUnsignedDecimal(_ value: String) -> Bool {
+    guard !value.isEmpty, value.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }) else { return false }
+    return value == "0" || !value.hasPrefix("0")
+}
+
+private func isEthereumAddressValue(_ value: String) -> Bool {
+    value.count == 42
+        && value.hasPrefix("0x")
+        && value.dropFirst(2).allSatisfy { character in
+            character.isASCII && character.isHexDigit
+        }
 }
 
 @available(macOS 12.0, iOS 15.0, *)
 public struct ListAccessPages: AsyncSequence {
-    public typealias Element = ListAccessResponse
+    public typealias Element = AccessGrantPage
 
     private let client: WalletClient
     private let pageSize: UInt32?
+    private let type: AccessGrantType?
 
-    fileprivate init(client: WalletClient, pageSize: UInt32?) {
+    fileprivate init(client: WalletClient, pageSize: UInt32?, type: AccessGrantType?) {
         self.client = client
         self.pageSize = pageSize
+        self.type = type
     }
 
     public func makeAsyncIterator() -> AsyncIterator {
-        AsyncIterator(client: client, pageSize: pageSize)
+        AsyncIterator(client: client, pageSize: pageSize, type: type)
     }
 
     public struct AsyncIterator: AsyncIteratorProtocol {
         private let client: WalletClient
         private let pageSize: UInt32?
+        private let type: AccessGrantType?
         private var cursor: String?
         private var hasStarted = false
 
-        fileprivate init(client: WalletClient, pageSize: UInt32?) {
+        fileprivate init(client: WalletClient, pageSize: UInt32?, type: AccessGrantType?) {
             self.client = client
             self.pageSize = pageSize
+            self.type = type
         }
 
-        public mutating func next() async throws -> ListAccessResponse? {
+        public mutating func next() async throws -> AccessGrantPage? {
             try await runOMSWalletOperation(.walletListAccessPages) {
                 if hasStarted && cursor == nil {
                     return nil
@@ -410,7 +560,8 @@ public struct ListAccessPages: AsyncSequence {
 
                 let response = try await client.listAccessPage(
                     pageSize: pageSize,
-                    cursor: cursor
+                    cursor: cursor,
+                    type: type
                 )
                 hasStarted = true
                 cursor = nonEmptyCursor(response.page?.cursor)

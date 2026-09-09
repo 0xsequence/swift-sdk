@@ -2,12 +2,15 @@ import Foundation
 
 public enum WalletType: Codable, Equatable, Hashable, Sendable {
     case ethereum
+    case solana
     case unknown(String)
 
     public var wireValue: String {
         switch self {
         case .ethereum:
             return "ethereum"
+        case .solana:
+            return "solana"
         case .unknown(let value):
             return value
         }
@@ -17,6 +20,8 @@ public enum WalletType: Codable, Equatable, Hashable, Sendable {
         switch wireValue {
         case "ethereum":
             self = .ethereum
+        case "solana":
+            self = .solana
         default:
             self = .unknown(wireValue)
         }
@@ -33,17 +38,63 @@ public enum WalletType: Codable, Equatable, Hashable, Sendable {
     }
 }
 
+public enum WalletKeyOrigin: Codable, Equatable, Hashable, Sendable {
+    case enclave
+    case imported
+    case unknown(String)
+
+    public var wireValue: String {
+        switch self {
+        case .enclave:
+            return "enclave"
+        case .imported:
+            return "imported"
+        case .unknown(let value):
+            return value
+        }
+    }
+
+    public init(wireValue: String) {
+        switch wireValue {
+        case "enclave":
+            self = .enclave
+        case "imported":
+            self = .imported
+        default:
+            self = .unknown(wireValue)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = WalletKeyOrigin(wireValue: try container.decode(String.self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(wireValue)
+    }
+}
+
 public struct Wallet: Codable, Equatable, Sendable {
     public let id: String
     public let type: WalletType
     public let address: String
     public let reference: String?
+    public let keyOrigin: WalletKeyOrigin
 
-    public init(id: String, type: WalletType, address: String, reference: String? = nil) {
+    public init(
+        id: String,
+        type: WalletType,
+        address: String,
+        reference: String? = nil,
+        keyOrigin: WalletKeyOrigin
+    ) {
         self.id = id
         self.type = type
         self.address = address
         self.reference = reference
+        self.keyOrigin = keyOrigin
     }
 }
 
@@ -189,9 +240,11 @@ public struct FeeOption: Codable, Equatable, Sendable {
 
 public struct FeeOptionSelection: Codable, Equatable, Sendable {
     public let token: String
+    public let index: UInt32?
 
-    public init(token: String) {
+    public init(token: String, index: UInt32? = nil) {
         self.token = token
+        self.index = index
     }
 }
 
@@ -215,7 +268,7 @@ public struct AbiArg: Codable, Equatable, Sendable {
     }
 }
 
-public struct CredentialInfo: Codable, Equatable, Sendable {
+public struct WalletCredential: Codable, Equatable, Sendable {
     public let credentialId: String
     public let expiresAt: String
     public let isCaller: Bool
@@ -227,14 +280,89 @@ public struct CredentialInfo: Codable, Equatable, Sendable {
     }
 }
 
-public struct ListAccessResponse: Codable, Equatable, Sendable {
-    public let credentials: [CredentialInfo]
+public struct RemoteCredentialMetadata: Codable, Equatable, Sendable {
+    public let appUrl: String
+    public let appName: String
+    public let appLogoUrl: String
+    public let custom: [String: String]
+
+    public init(appUrl: String, appName: String, appLogoUrl: String, custom: [String: String]) {
+        self.appUrl = appUrl
+        self.appName = appName
+        self.appLogoUrl = appLogoUrl
+        self.custom = custom
+    }
+}
+
+public enum SmartSessionGrant: Equatable, Sendable {
+    case nativeTransfer(to: String, limit: String)
+    case erc20Transfer(token: String, to: String? = nil, limit: String, cumulative: Bool? = nil)
+}
+
+public enum AccessGrantType: String, Codable, Equatable, Sendable {
+    case direct
+    case remote
+}
+
+public struct RemoteAccessGrant: Equatable, Sendable {
+    public let credential: WalletCredential
+    public let sessionId: String
+    public let metadata: RemoteCredentialMetadata
+    public let grants: [SmartSessionGrant]
+
+    public init(
+        credential: WalletCredential,
+        sessionId: String,
+        metadata: RemoteCredentialMetadata,
+        grants: [SmartSessionGrant]
+    ) {
+        self.credential = credential
+        self.sessionId = sessionId
+        self.metadata = metadata
+        self.grants = grants
+    }
+}
+
+public enum AccessGrant: Equatable, Sendable {
+    case direct(WalletCredential)
+    case remote(RemoteAccessGrant)
+
+    public var credential: WalletCredential {
+        switch self {
+        case .direct(let credential): credential
+        case .remote(let grant): grant.credential
+        }
+    }
+}
+
+public struct AccessGrantPage: Equatable, Sendable {
+    public let grants: [AccessGrant]
     public let page: Page?
 
-    public init(credentials: [CredentialInfo], page: Page? = nil) {
-        self.credentials = credentials
+    public init(grants: [AccessGrant], page: Page? = nil) {
+        self.grants = grants
         self.page = page
     }
+}
+
+public struct AuthorizedRemoteAccess: Equatable, Sendable {
+    public let walletId: String
+    public let sessionId: String
+    public let expiresAt: String
+}
+
+public struct RemoteAccessSession: Equatable, Sendable {
+    public let sessionId: String
+    public let walletId: String
+    public let signerAddress: String
+    public let grants: [SmartSessionGrant]
+    public let chainId: Int
+    public let expiresAt: String
+}
+
+public struct SmartSessionGrantUsage: Equatable, Sendable {
+    public let grant: SmartSessionGrant
+    public let used: String?
 }
 
 public struct TransactionStatusResponse: Codable, Equatable, Sendable {

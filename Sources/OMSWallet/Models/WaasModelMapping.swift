@@ -57,6 +57,8 @@ extension WalletType {
         switch self {
         case .ethereum:
             return .ethereum
+        case .solana:
+            return .solana
         case .unknown(let value):
             return .unknown(value)
         }
@@ -68,8 +70,47 @@ extension WaasGenerated.WalletType {
         switch self {
         case .ethereum:
             return .ethereum
+        case .solana:
+            return .solana
         case .unknown(let value):
             return .unknown(value)
+        }
+    }
+}
+
+extension WaasGenerated.NetworkFamily {
+    var sdkWalletType: WalletType? {
+        switch self {
+        case .evm:
+            return .ethereum
+        case .solana:
+            return .solana
+        case .unknown(let value):
+            return .unknown(value)
+        }
+    }
+}
+
+extension WaasGenerated.KeyOrigin {
+    var sdkValue: WalletKeyOrigin? {
+        switch self {
+        case .enclave:
+            return .enclave
+        case .imported:
+            return .imported
+        case .unknown(let value):
+            return .unknown(value)
+        }
+    }
+}
+
+extension WalletImportCipherSuite {
+    var waasValue: WaasGenerated.Ciphersuite {
+        switch self {
+        case .x25519Sha256Aes256Gcm: .x25519Sha256Aes256Gcm
+        case .x25519Sha256ChaCha20Poly1305: .x25519Sha256ChaCha20Poly1305
+        case .p256Sha256Aes256Gcm: .p256Sha256Aes256Gcm
+        case .p256Sha256ChaCha20Poly1305: .p256Sha256ChaCha20Poly1305
         }
     }
 }
@@ -105,19 +146,38 @@ extension WaasGenerated.TransactionStatus {
 }
 
 extension Wallet {
-    init(waasValue: WaasGenerated.Wallet) {
+    init(waasValue: WaasGenerated.Wallet) throws {
+        guard let type = waasValue.networkFamily?.sdkWalletType else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: [],
+                    debugDescription: "Wallet response is missing or has an invalid networkFamily"
+                )
+            )
+        }
+        guard let keyOrigin = waasValue.keyOrigin?.sdkValue else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: [],
+                    debugDescription: "Wallet response is missing or has an invalid keyOrigin"
+                )
+            )
+        }
         self.init(
             id: waasValue.id,
-            type: waasValue.type.sdkValue,
+            type: type,
             address: waasValue.address,
-            reference: waasValue.reference
+            reference: waasValue.reference,
+            keyOrigin: keyOrigin
         )
     }
 }
 
 extension WaasGenerated.Wallet {
     var sdkValue: Wallet {
-        Wallet(waasValue: self)
+        get throws {
+            try Wallet(waasValue: self)
+        }
     }
 }
 
@@ -160,7 +220,7 @@ extension WaasGenerated.FeeOption {
 
 extension FeeOptionSelection {
     var waasValue: WaasGenerated.FeeOptionSelection {
-        WaasGenerated.FeeOptionSelection(token: token)
+        WaasGenerated.FeeOptionSelection(token: token, index: index)
     }
 }
 
@@ -186,35 +246,134 @@ extension AbiArg {
     }
 }
 
-extension CredentialInfo {
-    init(waasValue: WaasGenerated.CredentialInfo) {
-        self.init(
-            credentialId: waasValue.credentialId,
-            expiresAt: waasValue.expiresAt,
-            isCaller: waasValue.isCaller
+extension WaasGenerated.CredentialMetadata {
+    var sdkValue: RemoteCredentialMetadata {
+        RemoteCredentialMetadata(
+            appUrl: appUrl,
+            appName: appName,
+            appLogoUrl: appLogoUrl,
+            custom: custom
         )
+    }
+}
+
+extension SmartSessionGrant {
+    var waasValue: WaasGenerated.Grant {
+        switch self {
+        case .nativeTransfer(let to, let limit):
+            return WaasGenerated.Grant(
+                kind: .nativeTransfer,
+                nativeTransfer: WaasGenerated.NativeTransferGrant(to: to, limit: limit)
+            )
+        case .erc20Transfer(let token, let to, let limit, let cumulative):
+            return WaasGenerated.Grant(
+                kind: .erc20transfer,
+                erc20transfer: WaasGenerated.ERC20TransferGrant(
+                    token: token,
+                    to: to,
+                    limit: limit,
+                    cumulative: cumulative
+                )
+            )
+        }
+    }
+}
+
+extension WaasGenerated.Grant {
+    var sdkValue: SmartSessionGrant? {
+        switch kind {
+        case .nativeTransfer:
+            guard let nativeTransfer,
+                  isEthereumAddressValue(nativeTransfer.to),
+                  isCanonicalUnsignedDecimal(nativeTransfer.limit) else {
+                return nil
+            }
+            return .nativeTransfer(to: nativeTransfer.to, limit: nativeTransfer.limit)
+        case .erc20transfer:
+            guard let erc20transfer,
+                  isEthereumAddressValue(erc20transfer.token),
+                  erc20transfer.to.map(isEthereumAddressValue) ?? true,
+                  isCanonicalUnsignedDecimal(erc20transfer.limit) else {
+                return nil
+            }
+            return .erc20Transfer(
+                token: erc20transfer.token,
+                to: erc20transfer.to,
+                limit: erc20transfer.limit,
+                cumulative: erc20transfer.cumulative
+            )
+        case .unknown:
+            return nil
+        }
     }
 }
 
 extension WaasGenerated.CredentialInfo {
-    var sdkValue: CredentialInfo {
-        CredentialInfo(waasValue: self)
+    var walletCredential: WalletCredential {
+        WalletCredential(
+            credentialId: credentialId,
+            expiresAt: expiresAt,
+            isCaller: isCaller
+        )
+    }
+
+    var sdkValue: AccessGrant? {
+        let credential = walletCredential
+        switch type {
+        case .direct:
+            return .direct(credential)
+        case .remote:
+            guard let sessionId, !sessionId.isEmpty,
+                  let metadata,
+                  let entries = grants?.entries,
+                  entries.allSatisfy({ $0.sdkValue != nil }) else {
+                return nil
+            }
+            return .remote(
+                RemoteAccessGrant(
+                    credential: credential,
+                    sessionId: sessionId,
+                    metadata: metadata.sdkValue,
+                    grants: entries.compactMap { $0.sdkValue }
+                )
+            )
+        case .unknown:
+            return nil
+        }
     }
 }
 
-extension ListAccessResponse {
-    init(waasValue: WaasGenerated.ListAccessResponse) {
-        self.init(
-            credentials: waasValue.credentials.map { $0.sdkValue },
-            page: waasValue.page?.sdkValue
+extension WaasGenerated.SessionInfo {
+    var sdkValue: RemoteAccessSession? {
+        guard let chainId = Int(chainId), chainId > 0, String(chainId) == self.chainId,
+              !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !walletId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !expiresAt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              isEthereumAddressValue(signerAddress),
+              grants.entries.allSatisfy({ $0.sdkValue != nil }) else {
+            return nil
+        }
+        return RemoteAccessSession(
+            sessionId: sessionId,
+            walletId: walletId,
+            signerAddress: signerAddress,
+            grants: grants.entries.compactMap { $0.sdkValue },
+            chainId: chainId,
+            expiresAt: expiresAt
         )
     }
 }
 
-extension WaasGenerated.ListAccessResponse {
-    var sdkValue: ListAccessResponse {
-        ListAccessResponse(waasValue: self)
-    }
+private func isCanonicalUnsignedDecimal(_ value: String) -> Bool {
+    !value.isEmpty
+        && value.utf8.allSatisfy { $0 >= 48 && $0 <= 57 }
+        && (value == "0" || !value.hasPrefix("0"))
+}
+
+private func isEthereumAddressValue(_ value: String) -> Bool {
+    value.count == 42
+        && value.hasPrefix("0x")
+        && value.dropFirst(2).allSatisfy { $0.isASCII && $0.isHexDigit }
 }
 
 extension TransactionStatusResponse {

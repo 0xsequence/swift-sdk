@@ -53,19 +53,40 @@
         "path": "WalletClient.createWallet(walletType:reference:)"
       },
       {
+        "path": "WalletClient.importWallet(privateKey:reference:)"
+      },
+      {
+        "path": "WalletClient.getWalletImportRecipientKey(cipherSuite:)"
+      },
+      {
+        "path": "WalletClient.importEncryptedWallet(walletType:keyMaterial:reference:)"
+      },
+      {
         "path": "WalletClient.getIdToken(ttlSeconds:customClaims:)"
       },
       {
-        "path": "WalletClient.listAccess(pageSize:)"
+        "path": "WalletClient.inspectRemoteCredential(credentialId:)"
       },
       {
-        "path": "WalletClient.listAccessPage(pageSize:cursor:)"
+        "path": "WalletClient.authorizeRemoteAccess(credentialId:network:grants:expiresAt:sessionId:)"
       },
       {
-        "path": "WalletClient.listAccessPages(pageSize:)"
+        "path": "WalletClient.listAccess(pageSize:type:)"
       },
       {
-        "path": "WalletClient.revokeAccess(targetCredentialId:)"
+        "path": "WalletClient.listAccessPage(pageSize:cursor:type:)"
+      },
+      {
+        "path": "WalletClient.listAccessPages(pageSize:type:)"
+      },
+      {
+        "path": "WalletClient.getRemoteAccessSession(sessionId:)"
+      },
+      {
+        "path": "WalletClient.getRemoteAccessSessionUsage(sessionId:network:)"
+      },
+      {
+        "path": "WalletClient.revokeAccess(credentialId:sessionId:)"
       },
       {
         "path": "WalletClient.signOut()"
@@ -89,7 +110,49 @@
         "path": "WalletType"
       },
       {
-        "path": "CredentialInfo"
+        "path": "WalletKeyOrigin"
+      },
+      {
+        "path": "WalletImportCipherSuite"
+      },
+      {
+        "path": "WalletImportPrivateKey"
+      },
+      {
+        "path": "WalletImportRecipientKey"
+      },
+      {
+        "path": "EncryptedWalletImportKeyMaterial"
+      },
+      {
+        "path": "WalletCredential"
+      },
+      {
+        "path": "RemoteCredentialMetadata"
+      },
+      {
+        "path": "SmartSessionGrant"
+      },
+      {
+        "path": "AccessGrantType"
+      },
+      {
+        "path": "RemoteAccessGrant"
+      },
+      {
+        "path": "AccessGrant"
+      },
+      {
+        "path": "AccessGrantPage"
+      },
+      {
+        "path": "AuthorizedRemoteAccess"
+      },
+      {
+        "path": "RemoteAccessSession"
+      },
+      {
+        "path": "SmartSessionGrantUsage"
       },
       {
         "path": "CustomOIDCProviderConfiguration"
@@ -131,9 +194,6 @@
         "path": "OMSWalletSessionExpiredObservation"
       },
       {
-        "path": "ListAccessResponse"
-      },
-      {
         "path": "ListAccessPages"
       }
     ]
@@ -145,10 +205,16 @@
         "path": "WalletClient.signMessage(network:message:)"
       },
       {
+        "path": "WalletClient.signSolanaMessage(message:)"
+      },
+      {
         "path": "WalletClient.signTypedData(network:typedData:)"
       },
       {
         "path": "WalletClient.isValidMessageSignature(network:walletAddress:message:signature:)"
+      },
+      {
+        "path": "WalletClient.isValidSolanaMessageSignature(walletAddress:message:signature:)"
       },
       {
         "path": "WalletClient.isValidTypedDataSignature(network:walletAddress:typedData:signature:)"
@@ -158,6 +224,9 @@
       },
       {
         "path": "WalletClient.sendTransaction(network:request:selectFeeOption:waitForStatus:statusPolling:)"
+      },
+      {
+        "path": "WalletClient.sendSolanaTransfer(network:asset:to:amount:selectFeeOption:mode:waitForStatus:statusPolling:)"
       },
       {
         "path": "WalletClient.callContract(network:contract:method:args:selectFeeOption:mode:waitForStatus:statusPolling:)"
@@ -217,6 +286,36 @@
       },
       {
         "path": "IndexerClient.getTransactionHistory(_:)"
+      },
+      {
+        "path": "IndexerClient.getSolanaBalances(_:)"
+      },
+      {
+        "path": "GetSolanaBalancesParams"
+      },
+      {
+        "path": "SolanaBalancesResult"
+      },
+      {
+        "path": "SolanaBalance"
+      },
+      {
+        "path": "SolanaNativeBalance"
+      },
+      {
+        "path": "SolanaFungibleTokenBalance"
+      },
+      {
+        "path": "SolanaNetworkError"
+      },
+      {
+        "path": "SolanaVerificationStatus"
+      },
+      {
+        "path": "SolanaVerificationSource"
+      },
+      {
+        "path": "SolanaTokenProgram"
       },
       {
         "path": "GetBalancesParams"
@@ -285,6 +384,12 @@
     "symbols": [
       {
         "path": "Network"
+      },
+      {
+        "path": "SolanaNetwork"
+      },
+      {
+        "path": "SolanaNetworks"
       },
       {
         "path": "JSONValue"

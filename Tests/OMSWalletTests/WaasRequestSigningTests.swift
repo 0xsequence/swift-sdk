@@ -97,6 +97,7 @@ import Testing
             email: "user@example.com",
             credential: WaasCredentialInfo(
                 credentialId: testCredentialId,
+                type: .direct,
                 expiresAt: "2099-01-01T00:00:00Z",
                 isCaller: true
             )

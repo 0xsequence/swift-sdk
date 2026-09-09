@@ -32,7 +32,7 @@ private func isOidcAuth(
     let availableWallet = testWallet(id: "wallet-1", address: "0x1111111111111111111111111111111111111111")
     let otherTypeWallet = testWallet(
         id: "wallet-2",
-        type: .unknown("other"),
+        type: .solana,
         address: "0x2222222222222222222222222222222222222222"
     )
     try fixture.transport.enqueue(
@@ -82,7 +82,7 @@ private func isOidcAuth(
     let secondWallet = testWallet(id: "wallet-2", address: "0x2222222222222222222222222222222222222222")
     let otherTypeWallet = testWallet(
         id: "wallet-3",
-        type: .unknown("other"),
+        type: .solana,
         address: "0x3333333333333333333333333333333333333333"
     )
     try fixture.transport.enqueue(
@@ -122,6 +122,7 @@ private func isOidcAuth(
     let wallet = testWallet(id: "wallet-local-signer", address: "0x1111111111111111111111111111111111111111")
     let serverCredential = WaasCredentialInfo(
         credentialId: "server-credential-id",
+        type: .direct,
         expiresAt: "2099-01-01T00:00:00Z",
         isCaller: true
     )
@@ -288,6 +289,7 @@ private func isOidcAuth(
     let wallet = testWallet(id: "wallet-expiring", address: "0x1111111111111111111111111111111111111111")
     let credential = WaasCredentialInfo(
         credentialId: "0xcredential",
+        type: .direct,
         expiresAt: expiresAt,
         isCaller: true
     )
@@ -476,6 +478,7 @@ private func waitForSessionExpiredEvent(
     let wallet = testWallet(id: "wallet-expired-timer", address: "0x2222222222222222222222222222222222222222")
     let credential = WaasCredentialInfo(
         credentialId: "0xcredential",
+        type: .direct,
         expiresAt: "2026-01-01T00:00:00Z",
         isCaller: true
     )
@@ -620,7 +623,8 @@ private func waitForSessionExpiredEvent(
     )
 
     #expect(created.wallet.id == createdWallet.id)
-    #expect(createWalletRequest.type == .ethereum)
+    #expect(createWalletRequest.type == nil)
+    #expect(createWalletRequest.networkFamily == .evm)
     #expect(createWalletRequest.reference == "reference-1")
 }
 
@@ -741,7 +745,8 @@ private func waitForSessionExpiredEvent(
     #expect(listWalletsRequests[1].page?.cursor == "next")
     #expect(useWalletRequest.walletId == existingWallet.id)
     #expect(usedWallet.wallet.id == existingWallet.id)
-    #expect(createWalletRequest.type == .ethereum)
+    #expect(createWalletRequest.type == nil)
+    #expect(createWalletRequest.networkFamily == .evm)
     #expect(createWalletRequest.reference == "reference-1")
     #expect(created.wallet.id == createdWallet.id)
     #expect(fixture.client.walletId == createdWallet.id)
@@ -1511,7 +1516,7 @@ private func waitForSessionExpiredEvent(
     let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
     let otherTypeWallet = testWallet(
         id: "wallet-other",
-        type: .unknown("other"),
+        type: .solana,
         address: "0xother"
     )
     try fixture.transport.enqueue(
@@ -1563,7 +1568,7 @@ private func waitForSessionExpiredEvent(
     let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
     let otherTypeWallet = testWallet(
         id: "wallet-other",
-        type: .unknown("other"),
+        type: .solana,
         address: "0xother"
     )
     try fixture.transport.enqueue(
@@ -1909,7 +1914,7 @@ private func waitForSessionExpiredEvent(
         try await fixture.client.getIdToken()
     }
     await expectNoAuthenticatedWalletSession {
-        try await fixture.client.revokeAccess(targetCredentialId: "credential-1")
+        try await fixture.client.revokeAccess(credentialId: "credential-1")
     }
     await expectNoAuthenticatedWalletSession {
         try await fixture.client.signMessage(network: .polygonAmoy, message: "hello")
@@ -1998,16 +2003,19 @@ private func waitForSessionExpiredEvent(
     fixture.client.walletId = "wallet-main"
     let firstCredential = WaasCredentialInfo(
         credentialId: "credential-1",
+        type: .direct,
         expiresAt: "2026-01-01T00:00:00Z",
         isCaller: true
     )
     let secondCredential = WaasCredentialInfo(
         credentialId: "credential-2",
+        type: .direct,
         expiresAt: "2026-01-02T00:00:00Z",
         isCaller: false
     )
     let manualCredential = WaasCredentialInfo(
         credentialId: "credential-3",
+        type: .direct,
         expiresAt: "2026-01-03T00:00:00Z",
         isCaller: false
     )
@@ -2025,7 +2033,7 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.ListAccess.urlPath
     )
 
-    var pages: [ListAccessResponse] = []
+    var pages: [AccessGrantPage] = []
     for try await page in fixture.client.listAccessPages(pageSize: 1) {
         pages.append(page)
     }
@@ -2036,11 +2044,11 @@ private func waitForSessionExpiredEvent(
     )
 
     #expect(pages.count == 2)
-    #expect(pages[0].credentials.map(\.credentialId) == ["credential-1"])
+    #expect(pages[0].grants.map(\.credential.credentialId) == ["credential-1"])
     #expect(pages[0].page?.cursor == "next")
-    #expect(pages[1].credentials.map(\.credentialId) == ["credential-2"])
+    #expect(pages[1].grants.map(\.credential.credentialId) == ["credential-2"])
     #expect(pages[1].page?.cursor == nil)
-    #expect(manualPage.credentials.map(\.credentialId) == ["credential-3"])
+    #expect(manualPage.grants.map(\.credential.credentialId) == ["credential-3"])
     #expect(manualPage.page?.cursor == "after-manual")
     #expect(listAccessRequests.count == 3)
     #expect(listAccessRequests[0].walletId == "wallet-main")
@@ -2063,6 +2071,7 @@ private func waitForSessionExpiredEvent(
             credentials: [
                 WaasCredentialInfo(
                     credentialId: "credential-1",
+                    type: .direct,
                     expiresAt: "2026-01-01T00:00:00Z",
                     isCaller: true
                 )
@@ -2076,6 +2085,7 @@ private func waitForSessionExpiredEvent(
             credentials: [
                 WaasCredentialInfo(
                     credentialId: "credential-2",
+                    type: .direct,
                     expiresAt: "2026-01-02T00:00:00Z",
                     isCaller: false
                 )
@@ -2090,12 +2100,259 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.ListAccess.urlPath
     )
 
-    #expect(credentials.map(\.credentialId) == ["credential-1", "credential-2"])
+    #expect(credentials.map(\.credential.credentialId) == ["credential-1", "credential-2"])
     #expect(listAccessRequests.count == 2)
     #expect(listAccessRequests[0].page?.limit == 25)
     #expect(listAccessRequests[0].page?.cursor == nil)
     #expect(listAccessRequests[1].page?.limit == 25)
     #expect(listAccessRequests[1].page?.cursor == "next")
+}
+
+@Test func TestWalletOwnerSmartSessionFlowUsesPublicAndSignedWaasMethods() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0x1111111111111111111111111111111111111111"
+    let transfer = WaasGenerated.Grant(
+        kind: .nativeTransfer,
+        nativeTransfer: WaasGenerated.NativeTransferGrant(
+            to: "0x2222222222222222222222222222222222222222",
+            limit: "100"
+        )
+    )
+    try fixture.transport.enqueue(
+        WaasGenerated.InspectCredentialResponse(
+            metadata: WaasGenerated.CredentialMetadata(
+                appUrl: "https://app.example",
+                appName: "Example",
+                appLogoUrl: "https://app.example/logo.png",
+                custom: ["environment": "test"]
+            )
+        ),
+        for: WaasPublicAPI.InspectCredential.urlPath
+    )
+    try fixture.transport.enqueue(
+        WaasGenerated.AuthorizeRemoteAccessResponse(
+            sessionId: "session-1",
+            expiry: "2099-01-01T00:00:00Z"
+        ),
+        for: WaasAPI.AuthorizeRemoteAccess.urlPath
+    )
+    try fixture.transport.enqueue(
+        WaasGenerated.GetSessionResponse(
+            session: WaasGenerated.SessionInfo(
+                sessionId: "session-1",
+                walletId: "wallet-main",
+                signerAddress: "0x3333333333333333333333333333333333333333",
+                grants: WaasGenerated.Grants(entries: [transfer]),
+                chainId: "137",
+                expiresAt: "2099-01-01T00:00:00Z"
+            )
+        ),
+        for: WaasAPI.GetSession.urlPath
+    )
+    try fixture.transport.enqueue(
+        WaasGenerated.GetSessionUsageResponse(
+            entries: [WaasGenerated.GrantUsage(grant: transfer, used: "25")]
+        ),
+        for: WaasAPI.GetSessionUsage.urlPath
+    )
+
+    let metadata = try await fixture.client.inspectRemoteCredential(credentialId: "remote-credential")
+    let authorization = try await fixture.client.authorizeRemoteAccess(
+        credentialId: "remote-credential",
+        network: .polygon,
+        grants: [
+            .nativeTransfer(
+                to: "0x2222222222222222222222222222222222222222",
+                limit: "100"
+            )
+        ],
+        expiresAt: "2099-01-01T00:00:00Z"
+    )
+    let session = try await fixture.client.getRemoteAccessSession(sessionId: authorization.sessionId)
+    let usage = try await fixture.client.getRemoteAccessSessionUsage(
+        sessionId: authorization.sessionId,
+        network: .polygon
+    )
+    let inspect = try fixture.transport.decodedRequest(
+        WaasGenerated.InspectCredentialRequest.self,
+        for: WaasPublicAPI.InspectCredential.urlPath
+    )
+    let authorize = try fixture.transport.decodedRequest(
+        WaasGenerated.AuthorizeRemoteAccessRequest.self,
+        for: WaasAPI.AuthorizeRemoteAccess.urlPath
+    )
+
+    #expect(metadata.appName == "Example")
+    #expect(inspect.scope == fixture.projectId)
+    #expect(authorize.walletId == "wallet-main")
+    #expect(authorize.chainId == "137")
+    #expect(authorization.sessionId == "session-1")
+    #expect(session.chainId == 137)
+    #expect(session.grants == [.nativeTransfer(to: "0x2222222222222222222222222222222222222222", limit: "100")])
+    #expect(usage == [SmartSessionGrantUsage(grant: session.grants[0], used: "25")])
+}
+
+@Test func TestWalletSolanaOperationsUseSolanaRequestShapes() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "solana-wallet"
+    fixture.client.walletAddress = "3gFktQX6vki5M2DzN8Y1ESPUJ4fJ8o6hVQWf8vYvPypD"
+    try fixture.transport.enqueue(
+        WaasGenerated.SignMessageResponse(signature: "solana-signature"),
+        for: WaasAPI.SignMessage.urlPath
+    )
+    try fixture.transport.enqueue(
+        WaasGenerated.IsValidMessageSignatureResponse(isValid: true),
+        for: WaasPublicAPI.IsValidMessageSignature.urlPath
+    )
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "solana-txn",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: true,
+            expiresAt: "2099-01-01T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareSolanaTransfer.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .executed),
+        for: WaasAPI.Execute.urlPath
+    )
+
+    let signature = try await fixture.client.signSolanaMessage(message: "hello")
+    let valid = try await fixture.client.isValidSolanaMessageSignature(
+        walletAddress: fixture.client.walletAddress!,
+        message: "hello",
+        signature: signature
+    )
+    let transaction = try await fixture.client.sendSolanaTransfer(
+        network: .devnet,
+        asset: "SOL",
+        to: "recipient",
+        amount: "1000000",
+        waitForStatus: false
+    )
+    let sign = try fixture.transport.decodedRequest(
+        WaasGenerated.SignMessageRequest.self,
+        for: WaasAPI.SignMessage.urlPath
+    )
+    let verify = try fixture.transport.decodedRequest(
+        WaasGenerated.IsValidMessageSignatureRequest.self,
+        for: WaasPublicAPI.IsValidMessageSignature.urlPath
+    )
+    let prepare = try fixture.transport.decodedRequest(
+        WaasGenerated.PrepareSolanaTransferRequest.self,
+        for: WaasAPI.PrepareSolanaTransfer.urlPath
+    )
+
+    #expect(sign.network.isEmpty)
+    #expect(sign.walletId == "solana-wallet")
+    #expect(verify.networkFamily == .solana)
+    #expect(verify.network == nil)
+    #expect(valid)
+    #expect(prepare.network == SolanaNetwork.devnet.rawValue)
+    #expect(prepare.asset == "SOL")
+    #expect(prepare.amount == "1000000")
+    #expect(transaction.txnId == "solana-txn")
+    #expect(transaction.statusResolution == .notRequested)
+}
+
+@Test func TestWalletSolanaFirstAvailableUsesIndexerBalances() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "solana-wallet"
+    fixture.client.walletAddress = "4Nd1mYQbqjVU2aR7cJNPyqW9XjHnBYvWQd7ZxYxvT6uP"
+    let usdcMint = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+    try fixture.indexerBackend.setSolanaBalancesResponse(
+        """
+        {
+          "balances": [
+            {
+              "network": "solana:devnet",
+              "accountAddress": "4Nd1mYQbqjVU2aR7cJNPyqW9XjHnBYvWQd7ZxYxvT6uP",
+              "assetType": "native",
+              "name": "Solana",
+              "symbol": "SOL",
+              "decimals": 9,
+              "balance": "1000",
+              "formattedBalance": "0.000001",
+              "verificationStatus": "unknown",
+              "verificationSource": "none"
+            },
+            {
+              "network": "solana:devnet",
+              "accountAddress": "4Nd1mYQbqjVU2aR7cJNPyqW9XjHnBYvWQd7ZxYxvT6uP",
+              "assetType": "fungible-token",
+              "tokenProgram": "spl-token",
+              "mintAddress": "\(usdcMint)",
+              "name": "USD Coin",
+              "symbol": "USDC",
+              "decimals": 6,
+              "balance": "20000",
+              "formattedBalance": "0.02",
+              "verificationStatus": "verified",
+              "verificationSource": "jupiter"
+            }
+          ],
+          "errors": []
+        }
+        """
+    )
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "solana-first-available",
+            status: .quoted,
+            feeOptions: [
+                WaasFeeOption(
+                    token: WaasFeeToken(
+                        network: SolanaNetwork.devnet.rawValue,
+                        name: "SOL",
+                        symbol: "SOL",
+                        type: "native"
+                    ),
+                    value: "5000",
+                    displayValue: "0.000005"
+                ),
+                WaasFeeOption(
+                    token: WaasFeeToken(
+                        network: SolanaNetwork.devnet.rawValue,
+                        name: "USD Coin",
+                        symbol: "USDC",
+                        type: "spl",
+                        contractAddress: usdcMint
+                    ),
+                    value: "10000",
+                    displayValue: "0.01"
+                )
+            ],
+            sponsored: false,
+            expiresAt: "2099-01-01T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareSolanaTransfer.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .pending),
+        for: WaasAPI.Execute.urlPath
+    )
+
+    let result = try await fixture.client.sendSolanaTransfer(
+        network: .devnet,
+        asset: "SOL",
+        to: "recipient",
+        amount: "1000000",
+        selectFeeOption: .firstAvailable,
+        waitForStatus: false
+    )
+    let execute = try fixture.transport.decodedRequest(
+        ExecuteRequest.self,
+        for: WaasAPI.Execute.urlPath
+    )
+
+    #expect(result.txnId == "solana-first-available")
+    #expect(execute.feeOption?.token == "USDC")
+    #expect(execute.feeOption?.index == 1)
+    #expect(fixture.indexerBackend.solanaBalanceRequestCount == 1)
+    #expect(fixture.indexerBackend.solanaBalanceMintAddresses == [usdcMint])
 }
 
 @Test func TestWalletSendTransactionDefaultSelectsFirstFeeOptionIdentifierWithoutBalanceLookup() async throws {
@@ -2447,7 +2704,7 @@ private func waitForSessionExpiredEvent(
     #expect(fixture.transport.requestCount(for: WaasAPI.Execute.urlPath) == 0)
 }
 
-@Test func TestWalletSendTransactionSponsoredSkipsCustomFeeSelector() async throws {
+@Test func TestWalletSendTransactionSponsoredInvokesCustomFeeSelectorWithEmptyOptions() async throws {
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"
     fixture.client.walletAddress = "0xwallet"
@@ -2475,8 +2732,8 @@ private func waitForSessionExpiredEvent(
         network: .polygonAmoy,
         request: SendTransactionRequest(to: "0xabc", value: "0"),
         selectFeeOption: .custom { feeOptions in
-            #expect(Bool(false), "Sponsored transactions should not ask for fee selection")
-            return feeOptions.first?.selection
+            #expect(feeOptions.isEmpty)
+            return nil
         }
     )
     let executeRequest = try fixture.transport.decodedRequest(
@@ -2490,6 +2747,70 @@ private func waitForSessionExpiredEvent(
     #expect(executeRequest.feeOption == nil)
     #expect(fixture.indexerBackend.nativeBalanceRequestCount == 0)
     #expect(fixture.indexerBackend.tokenBalanceContractAddresses.isEmpty)
+}
+
+@Test func TestWalletSendTransactionSponsoredContinuesWithFirstAvailable() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-1",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: true,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+    try fixture.transport.enqueue(
+        ExecuteResponse(status: .executed),
+        for: WaasAPI.Execute.urlPath
+    )
+
+    let result = try await fixture.client.sendTransaction(
+        network: .polygonAmoy,
+        request: SendTransactionRequest(to: "0xabc", value: "0"),
+        selectFeeOption: .firstAvailable,
+        waitForStatus: false
+    )
+
+    #expect(result.txnId == "txn-1")
+    #expect(fixture.transport.requestCount(for: WaasAPI.Execute.urlPath) == 1)
+}
+
+@Test func TestWalletSendTransactionSponsoredDoesNotExecuteWhenAcknowledgementThrows() async throws {
+    let fixture = makeMockWalletClient()
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
+
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-1",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: true,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+
+    do {
+        _ = try await fixture.client.sendTransaction(
+            network: .polygonAmoy,
+            request: SendTransactionRequest(to: "0xabc", value: "0"),
+            selectFeeOption: .custom { feeOptions in
+                #expect(feeOptions.isEmpty)
+                throw CancellationError()
+            }
+        )
+    } catch is CancellationError {
+        #expect(fixture.transport.requestCount(for: WaasAPI.Execute.urlPath) == 0)
+        return
+    }
+
+    #expect(Bool(false), "Expected cancellation")
 }
 
 @Test func TestWalletCallContractReturnsSendTransactionResponse() async throws {
@@ -2544,6 +2865,7 @@ private func waitForSessionExpiredEvent(
 @Test func TestWalletSendTransactionCanSkipStatusPolling() async throws {
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
 
     try fixture.transport.enqueue(
         PrepareResponse(
@@ -2576,6 +2898,7 @@ private func waitForSessionExpiredEvent(
 @Test func TestWalletCallContractCanSkipStatusPolling() async throws {
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
 
     try fixture.transport.enqueue(
         PrepareResponse(
@@ -2610,6 +2933,7 @@ private func waitForSessionExpiredEvent(
 @Test func TestWalletSendTransactionMarksTimedOutWhenPollingDeadlineExpires() async throws {
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
 
     try fixture.transport.enqueue(
         PrepareResponse(
@@ -2651,6 +2975,7 @@ private func waitForSessionExpiredEvent(
     for (index, status) in statuses.enumerated() {
         let fixture = makeMockWalletClient()
         fixture.client.walletId = "wallet-main"
+        fixture.client.walletAddress = "0xwallet"
         try fixture.transport.enqueue(
             PrepareResponse(
                 txnId: "txn-timeout-\(index)",
@@ -2692,6 +3017,7 @@ private func waitForSessionExpiredEvent(
     for (index, options) in invalidOptions.enumerated() {
         let fixture = makeMockWalletClient()
         fixture.client.walletId = "wallet-main"
+        fixture.client.walletAddress = "0xwallet"
         try fixture.transport.enqueue(
             PrepareResponse(
                 txnId: "txn-invalid-polling-\(index)",
@@ -2722,6 +3048,7 @@ private func waitForSessionExpiredEvent(
 @Test func TestWalletSendTransactionReturnsWhenPollingFindsHashBeforeExecuted() async throws {
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
 
     try fixture.transport.enqueue(
         PrepareResponse(
@@ -2757,6 +3084,7 @@ private func waitForSessionExpiredEvent(
 @Test func TestWalletSendTransactionReturnsFailedStatusAsTerminal() async throws {
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
 
     try fixture.transport.enqueue(
         PrepareResponse(
@@ -2792,6 +3120,7 @@ private func waitForSessionExpiredEvent(
 @Test func TestWalletSendTransactionExecutedFastPathAcceptsStatusHash() async throws {
     let fixture = makeMockWalletClient()
     fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0xwallet"
 
     try fixture.transport.enqueue(
         PrepareResponse(
@@ -2859,6 +3188,7 @@ private func waitForSessionExpiredEvent(
 
 let testCredential: WaasCredentialInfo = WaasCredentialInfo(
     credentialId: "0xcredential",
+    type: .direct,
     expiresAt: "2099-01-01T00:00:00Z",
     isCaller: true
 )
@@ -2927,7 +3257,8 @@ func makeMockWalletClient(
     oidcRedirectAuthStoreOverride: (any OIDCRedirectAuthStore)? = nil,
     oidcNonceGenerator: @escaping () throws -> String = OIDCRedirectAuth.generateNonce,
     currentDate: @escaping () -> Date = Date.init,
-    storedCredentials: StorableCredentials? = nil
+    storedCredentials: StorableCredentials? = nil,
+    walletImportClient: WaasClient? = nil
 ) -> MockWalletClientFixture {
     let transport = MockWaasTransport()
     let indexerBackend = MockIndexerBackend()
@@ -2966,7 +3297,8 @@ func makeMockWalletClient(
         indexerClient: indexerClient,
         oidcRedirectAuthStore: oidcRedirectAuthStoreOverride ?? oidcRedirectAuthStore,
         oidcNonceGenerator: oidcNonceGenerator,
-        currentDate: currentDate
+        currentDate: currentDate,
+        walletImportClient: walletImportClient
     )
     client.verifier = "verifier"
     client.challenge = "challenge"
@@ -3008,9 +3340,20 @@ func testWallet(
     type: WaasWalletType = .ethereum,
     address: String
 ) -> WaasWallet {
-    WaasWallet(
+    let networkFamily: WaasGenerated.NetworkFamily
+    switch type {
+    case .ethereum:
+        networkFamily = .evm
+    case .solana:
+        networkFamily = .solana
+    case .unknown(let value):
+        networkFamily = .unknown(value)
+    }
+    return WaasWallet(
         id: id,
         type: type,
+        networkFamily: networkFamily,
+        keyOrigin: .enclave,
         address: address
     )
 }
@@ -3088,6 +3431,8 @@ final class MockIndexerBackend: @unchecked Sendable {
     private var nativeBalance: NativeTokenBalance?
     private var tokenBalancesByContract: [String: [ContractTokenBalance]] = [:]
     private var balanceRequests: [RecordedBalanceRequest] = []
+    private var solanaBalancesResponse = Data(#"{"balances":[],"errors":[]}"#.utf8)
+    private var solanaBalanceRequests: [RecordedBalanceRequest] = []
 
     var nativeBalanceRequestCount: Int {
         withLock { balanceRequests.count }
@@ -3099,6 +3444,14 @@ final class MockIndexerBackend: @unchecked Sendable {
                 request.contractAddresses.map { $0.lowercased() }
             }
         }
+    }
+
+    var solanaBalanceRequestCount: Int {
+        withLock { solanaBalanceRequests.count }
+    }
+
+    var solanaBalanceMintAddresses: [String] {
+        withLock { solanaBalanceRequests.flatMap(\.contractAddresses) }
     }
 
     func makeClient(
@@ -3115,7 +3468,8 @@ final class MockIndexerBackend: @unchecked Sendable {
         let httpClient = HttpClient(session: session)
         let indexerEnvironment = OMSWalletEnvironment(
             walletApiUrl: environment.walletApiUrl,
-            indexerGatewayUrl: "https://\(host)/v1/IndexerGateway/"
+            indexerGatewayUrl: "https://\(host)/v1/IndexerGateway/",
+            solanaIndexerGatewayUrl: "https://\(host)/v1/SolanaIndexerGateway/"
         )
 
         return IndexerClient(
@@ -3137,8 +3491,21 @@ final class MockIndexerBackend: @unchecked Sendable {
         }
     }
 
-    func responseBody(for requestBody: Data?) -> Data {
+    func setSolanaBalancesResponse(_ body: String) throws {
+        let data = Data(body.utf8)
+        _ = try JSONSerialization.jsonObject(with: data)
         withLock {
+            solanaBalancesResponse = data
+        }
+    }
+
+    func responseBody(for request: URLRequest) -> Data {
+        withLock {
+            if request.url?.path.contains("/SolanaIndexerGateway/") == true {
+                solanaBalanceRequests.append(decodeBalanceRequest(Self.bodyData(for: request)))
+                return solanaBalancesResponse
+            }
+            let requestBody = Self.bodyData(for: request)
             let request = decodeBalanceRequest(requestBody)
             balanceRequests.append(request)
             let tokenBalances = request.contractAddresses.flatMap { contractAddress in
@@ -3160,6 +3527,24 @@ final class MockIndexerBackend: @unchecked Sendable {
             )
             return (try? JSONEncoder().encode(response)) ?? Data(#"{"nativeBalances":[],"balances":[]}"#.utf8)
         }
+    }
+
+    private static func bodyData(for request: URLRequest) -> Data? {
+        if let body = request.httpBody {
+            return body
+        }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 1_024)
+        defer { buffer.deallocate() }
+        while stream.hasBytesAvailable {
+            let count = stream.read(buffer, maxLength: 1_024)
+            guard count > 0 else { break }
+            data.append(buffer, count: count)
+        }
+        return data
     }
 
     private func withLock<T>(_ body: () -> T) -> T {
@@ -3205,7 +3590,7 @@ final class MockIndexerURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func startLoading() {
-        let body = Self.backend(for: request)?.responseBody(for: Self.bodyData(for: request))
+        let body = Self.backend(for: request)?.responseBody(for: request)
             ?? Data(#"{"nativeBalances":[],"balances":[]}"#.utf8)
         let response = HTTPURLResponse(
             url: request.url!,

@@ -14,6 +14,7 @@ public enum OMSWalletErrorCode: String, Sendable {
     case transactionStatusLookupFailed = "OMS_TRANSACTION_STATUS_LOOKUP_FAILED"
     case validationError = "OMS_VALIDATION_ERROR"
     case storageError = "OMS_STORAGE_ERROR"
+    case attestationVerificationFailed = "OMS_ATTESTATION_VERIFICATION_FAILED"
 }
 
 public enum OMSWalletOperation: String, Sendable {
@@ -27,23 +28,34 @@ public enum OMSWalletOperation: String, Sendable {
     case walletHandleOIDCRedirectCallback = "wallet.handleOIDCRedirectCallback"
     case walletUseWallet = "wallet.useWallet"
     case walletCreateWallet = "wallet.createWallet"
+    case walletImportWallet = "wallet.importWallet"
+    case walletGetImportRecipientKey = "wallet.getWalletImportRecipientKey"
+    case walletImportEncryptedWallet = "wallet.importEncryptedWallet"
     case walletListWallets = "wallet.listWallets"
     case walletSignOut = "wallet.signOut"
     case walletListAccess = "wallet.listAccess"
     case walletListAccessPage = "wallet.listAccessPage"
     case walletListAccessPages = "wallet.listAccessPages"
+    case walletInspectRemoteCredential = "wallet.inspectRemoteCredential"
+    case walletAuthorizeRemoteAccess = "wallet.authorizeRemoteAccess"
+    case walletGetRemoteAccessSession = "wallet.getRemoteAccessSession"
+    case walletGetRemoteAccessSessionUsage = "wallet.getRemoteAccessSessionUsage"
     case walletGetIdToken = "wallet.getIdToken"
     case walletRevokeAccess = "wallet.revokeAccess"
     case walletSignMessage = "wallet.signMessage"
+    case walletSignSolanaMessage = "wallet.signSolanaMessage"
     case walletSignTypedData = "wallet.signTypedData"
     case walletIsValidMessageSignature = "wallet.isValidMessageSignature"
+    case walletIsValidSolanaMessageSignature = "wallet.isValidSolanaMessageSignature"
     case walletIsValidTypedDataSignature = "wallet.isValidTypedDataSignature"
     case walletSendTransaction = "wallet.sendTransaction"
+    case walletSendSolanaTransfer = "wallet.sendSolanaTransfer"
     case walletCallContract = "wallet.callContract"
     case walletExecute = "wallet.execute"
     case walletGetTransactionStatus = "wallet.getTransactionStatus"
     case walletTransactionStatus = "wallet.transactionStatus"
     case indexerGetBalances = "indexer.getBalances"
+    case indexerGetSolanaBalances = "indexer.getSolanaBalances"
     case indexerGetTransactionHistory = "indexer.getTransactionHistory"
 }
 
@@ -222,6 +234,15 @@ func toOMSWalletError(_ error: any Error, operation: OMSWalletOperation) -> OMSW
     }
 
     if let transportError = error as? WebRPCTransportError {
+        if let attestationMessage = transportError.attestationVerificationMessage {
+            return OMSWalletError(
+                code: .attestationVerificationFailed,
+                message: attestationMessage,
+                operation: operation,
+                retryable: false,
+                underlyingError: transportError
+            )
+        }
         return OMSWalletError(
             code: .requestFailed,
             message: transportError.message,
@@ -434,6 +455,14 @@ private extension HttpError {
 }
 
 private extension WebRPCTransportError {
+    var attestationVerificationMessage: String? {
+        guard message.hasPrefix(WalletImportAttestationError.transportPrefix) else {
+            return nil
+        }
+        let detail = String(message.dropFirst(WalletImportAttestationError.transportPrefix.count))
+        return detail.isEmpty ? "WaaS attestation verification failed" : detail
+    }
+
     func toWaasUpstreamError() -> OMSWalletUpstreamError {
         OMSWalletUpstreamError(
             service: .waas,

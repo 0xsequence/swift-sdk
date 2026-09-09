@@ -262,6 +262,29 @@ On subsequent launches, an unexpired completed session is restored from secure s
 try omsWallet.wallet.signOut()
 ```
 
+### Import a Wallet
+
+Wallet import verifies AWS Nitro enclave attestations against measurements managed by each OMS
+environment. Development uses Nitro debug mode, whose all-zero PCR0 does not identify a specific
+enclave image; use only disposable test keys there. Staging and Production accept only the release
+measurements shipped by the SDK.
+
+```swift
+let omsWallet = try OMSWallet(publishableKey: "your-publishable-key")
+
+let imported = try await omsWallet.wallet.importWallet(
+    privateKey: .ethereum("0x..."),
+    reference: "Imported wallet"
+)
+print(imported.wallet.keyOrigin == .imported)
+```
+
+Ethereum imports accept 32 raw bytes or hexadecimal text. Solana imports accept a 32-byte seed,
+64-byte keypair, or base58 text. The SDK does not persist plaintext imported keys. For
+caller-managed HPKE flows, use `getWalletImportRecipientKey(cipherSuite:)` and then
+`importEncryptedWallet(walletType:keyMaterial:reference:)`; both responses remain attestation
+verified.
+
 ## Core Workflows
 
 ### Sign and Verify Messages
@@ -278,6 +301,18 @@ let isValid = try await omsWallet.wallet.isValidMessageSignature(
     network: .polygonAmoy,
     walletAddress: walletAddress,
     message: "hello from OMS Wallet",
+    signature: signature
+)
+```
+
+For a selected Solana wallet, use the Solana-specific message methods; off-chain messages do not
+require a cluster:
+
+```swift
+let signature = try await omsWallet.wallet.signSolanaMessage(message: "hello from Solana")
+let valid = try await omsWallet.wallet.isValidSolanaMessageSignature(
+    walletAddress: wallet.address,
+    message: "hello from Solana",
     signature: signature
 )
 ```
@@ -337,6 +372,20 @@ let result = try await omsWallet.indexer.getBalances(
 for balance in result.balances {
     print(balance.contractAddress, balance.balance)
     print(balance.contractInfo?.symbol ?? "", balance.contractInfo?.decimals ?? 0)
+}
+```
+
+Query native SOL and fungible token balances through the Solana indexer gateway:
+
+```swift
+let result = try await omsWallet.indexer.getSolanaBalances(
+    GetSolanaBalancesParams(
+        walletAddress: "solana-wallet-address",
+        networks: [.mainnet, .devnet]
+    )
+)
+for balance in result.balances {
+    print(balance)
 }
 ```
 
@@ -453,6 +502,18 @@ let txResult = try await omsWallet.wallet.sendTransaction(
 let status = try await omsWallet.wallet.getTransactionStatus(txnId: txResult.txnId)
 ```
 
+For a selected Solana wallet, amounts are smallest units (lamports for SOL and base units for SPL
+tokens):
+
+```swift
+let result = try await omsWallet.wallet.sendSolanaTransfer(
+    network: .devnet,
+    asset: "SOL",
+    to: "solana-recipient-address",
+    amount: "1000000"
+)
+```
+
 To tune polling, pass `statusPolling`:
 
 ```swift
@@ -478,17 +539,25 @@ let txResult = try await omsWallet.wallet.sendTransaction(
     to: "0x1111111111111111111111111111111111111111",
     value: value,
     selectFeeOption: .custom { options in
+        if options.isEmpty {
+            // Present the sponsored transaction for confirmation here.
+            return nil
+        }
         guard let selected = options.first else { return nil }
         return selected.selection
     }
 )
 ```
 
-Custom selectors receive `FeeOptionWithBalance` values. `balance` is the wallet's
-raw indexer balance for that fee token when available, `available` is formatted
-with the token decimals, `availableRaw` is the raw integer balance, and
-`decimals` is the token decimal count used for formatting. Unsponsored
-transactions require the selector to return a fee selection.
+Custom selectors receive `FeeOptionWithBalance` values. For Ethereum fees, `balance`
+contains the matching `TokenBalance` when available. For both Ethereum and Solana fees,
+`available` is formatted with the token decimals, `availableRaw` is the raw integer
+balance, and `decimals` is the token decimal count used for formatting. This lets
+`.firstAvailable` select the first affordable option on either network family. Unsponsored
+transactions require the selector to return a fee selection. Sponsored transactions
+invoke the selector with an empty array; return `nil` after acknowledging the free fee,
+or throw to stop execution. `.firstAvailable` returns `nil` for that empty array and
+continues execution as before.
 
 ## Advanced Configuration
 
@@ -620,12 +689,44 @@ let scopedIdToken = try await omsWallet.wallet.getIdToken(
 let credentials = try await omsWallet.wallet.listAccess()
 
 for try await page in omsWallet.wallet.listAccessPages(pageSize: 25) {
-    print(page.credentials)
+    print(page.grants)
 }
 
-if let credential = credentials.first {
-    try await omsWallet.wallet.revokeAccess(targetCredentialId: credential.credentialId)
+if let grant = credentials.first {
+    try await omsWallet.wallet.revokeAccess(credentialId: grant.credential.credentialId)
 }
+```
+
+For an owner-approved smart session, inspect the remote credential before showing consent, then
+authorize bounded EVM transfer grants. The returned wallet and session IDs can be shared with the
+remote application; backend credential registration and execution stay outside this SDK surface.
+
+```swift
+let credentialId = "remote-credential-id"
+let metadata = try await omsWallet.wallet.inspectRemoteCredential(credentialId: credentialId)
+showConsentScreen(metadata)
+
+let session = try await omsWallet.wallet.authorizeRemoteAccess(
+    credentialId: credentialId,
+    network: .polygon,
+    grants: [
+        .nativeTransfer(
+            to: "0x1111111111111111111111111111111111111111",
+            limit: "1000000000000000"
+        )
+    ],
+    expiresAt: "2099-01-01T00:00:00Z"
+)
+
+let details = try await omsWallet.wallet.getRemoteAccessSession(sessionId: session.sessionId)
+let usage = try await omsWallet.wallet.getRemoteAccessSessionUsage(
+    sessionId: session.sessionId,
+    network: .polygon
+)
+try await omsWallet.wallet.revokeAccess(
+    credentialId: credentialId,
+    sessionId: session.sessionId
+)
 ```
 
 ## API Reference

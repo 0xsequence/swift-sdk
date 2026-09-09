@@ -3,9 +3,7 @@ public final class OMSWallet: Sendable {
     public let wallet: WalletClient
     public let indexer: IndexerClient
 
-    public convenience init(
-        publishableKey: String
-    ) throws {
+    public convenience init(publishableKey: String) throws {
         let parsedKey = try parsePublishableKey(publishableKey)
         self.init(
             publishableKey: publishableKey,
@@ -22,7 +20,8 @@ public final class OMSWallet: Sendable {
         self.wallet = WalletClient(
             publishableKey: publishableKey,
             projectId: parsedKey.projectId,
-            environment: environment
+            environment: environment,
+            walletImportTrustedPcr0s: parsedKey.walletImportTrustedPcr0s
         )
 
         self.indexer = IndexerClient(
