@@ -209,7 +209,7 @@ public final class WalletClient: @unchecked Sendable {
         publishableKey: String,
         projectId: String,
         environment: OMSWalletEnvironment,
-        walletImport: WalletImportConfiguration? = nil
+        walletImportTrustedPcr0s: Set<String>? = nil
     ) {
         self.projectId = projectId
         self.environment = environment
@@ -230,13 +230,13 @@ public final class WalletClient: @unchecked Sendable {
             )
         }
         self.signedClientFactory = makeSignedClient
-        self.walletImportClient = walletImport.map {
+        self.walletImportClient = walletImportTrustedPcr0s.map {
             Self.makeWalletImportClient(
                 publishableKey: publishableKey,
                 projectId: projectId,
                 environment: environment,
                 signer: credentialSession.signer,
-                configuration: $0
+                trustedPcr0s: $0
             )
         }
 
@@ -494,7 +494,7 @@ public final class WalletClient: @unchecked Sendable {
         projectId: String,
         environment: OMSWalletEnvironment,
         signer: any CredentialSigner,
-        configuration: WalletImportConfiguration
+        trustedPcr0s: Set<String>
     ) -> WaasClient {
         WaasClient(
             baseURL: environment.walletApiUrl,
@@ -502,7 +502,7 @@ public final class WalletClient: @unchecked Sendable {
                 publishableKey: publishableKey,
                 scope: projectId,
                 signer: signer,
-                trustedPcr0s: configuration.trustedPcr0s
+                trustedPcr0s: trustedPcr0s
             ),
             headers: { [:] }
         )

@@ -264,18 +264,13 @@ try omsWallet.wallet.signOut()
 
 ### Import a Wallet
 
-Wallet import requires one or more audited AWS Nitro Enclave PCR0 measurements. The SDK rejects
-all-zero debug measurements, verifies the attestation and request/response binding, and encrypts
-the private key locally before import.
+Wallet import verifies AWS Nitro enclave attestations against measurements managed by each OMS
+environment. Development uses Nitro debug mode, whose all-zero PCR0 does not identify a specific
+enclave image; use only disposable test keys there. Staging and Production accept only the release
+measurements shipped by the SDK.
 
 ```swift
-let importPolicy = try WalletImportConfiguration(
-    trustedPcr0s: ["your-audited-48-byte-pcr0-hex"]
-)
-let omsWallet = try OMSWallet(
-    publishableKey: "your-publishable-key",
-    walletImport: importPolicy
-)
+let omsWallet = try OMSWallet(publishableKey: "your-publishable-key")
 
 let imported = try await omsWallet.wallet.importWallet(
     privateKey: .ethereum("0x..."),

@@ -4,15 +4,6 @@ import SwiftCBOR
 import Testing
 @testable import OMSWallet
 
-@Test func TestWalletImportConfigurationRejectsInvalidAndAllZeroPcr0s() throws {
-    for values in [[], [String(repeating: "0", count: 95)], [String(repeating: "0", count: 96)], [String(repeating: "z", count: 96)]] {
-        #expect(throws: OMSWalletError.self) {
-            _ = try WalletImportConfiguration(trustedPcr0s: values)
-        }
-    }
-    _ = try WalletImportConfiguration(trustedPcr0s: ["0x" + String(repeating: "a", count: 96)])
-}
-
 @Test func TestWalletImportPrivateKeyValidationCoversScalarAndLengthBoundaries() throws {
     let one = Data(repeating: 0, count: 31) + Data([1])
     #expect(try WalletImportValidation.plaintext(.ethereumBytes(one)) == one)

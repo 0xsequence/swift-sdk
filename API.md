@@ -10,7 +10,7 @@
 public final class OMSWallet: Sendable {
     public let wallet: WalletClient
     public let indexer: IndexerClient
-    public convenience init(publishableKey: String, walletImport: WalletImportConfiguration? = nil) throws
+    public convenience init(publishableKey: String) throws
 }
 ```
 
@@ -310,14 +310,6 @@ public enum WalletKeyOrigin: Codable, Equatable, Hashable, Sendable {
     public init(wireValue: String)
     public init(from decoder: any Decoder) throws
     public func encode(to encoder: any Encoder) throws
-}
-```
-
-### `WalletImportConfiguration`
-
-```swift
-public struct WalletImportConfiguration: Sendable {
-    public init(trustedPcr0s: [String]) throws
 }
 ```
 

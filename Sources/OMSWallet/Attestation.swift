@@ -7,28 +7,6 @@ enum WalletImportAttestationError {
     static let transportPrefix = "WaaS attestation verification failed: "
 }
 
-public struct WalletImportConfiguration: Sendable {
-    let trustedPcr0s: Set<String>
-
-    public init(trustedPcr0s: [String]) throws {
-        let normalized = trustedPcr0s.map {
-            $0.trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-                .replacingOccurrences(of: "^0x", with: "", options: .regularExpression)
-        }
-        guard !normalized.isEmpty,
-              normalized.allSatisfy({
-                  $0.count == 96 && $0.allSatisfy(\.isHexDigit) && $0.contains(where: { $0 != "0" })
-              }) else {
-            throw OMSWalletError(
-                code: .validationError,
-                message: "walletImport.trustedPcr0s must contain at least one nonzero 48-byte hex PCR0"
-            )
-        }
-        self.trustedPcr0s = Set(normalized)
-    }
-}
-
 @available(macOS 12.0, iOS 15.0, *)
 struct AttestedSignedWaasTransport: WebRPCTransport {
     let session: URLSession

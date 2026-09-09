@@ -253,7 +253,6 @@ conformance	WalletImportCipherSuite	Swift.Equatable
 conformance	WalletImportCipherSuite	Swift.Hashable
 conformance	WalletImportCipherSuite	Swift.RawRepresentable
 conformance	WalletImportCipherSuite	Swift.Sendable
-conformance	WalletImportConfiguration	Swift.Sendable
 conformance	WalletImportPrivateKey	Swift.Sendable
 conformance	WalletImportRecipientKey	Swift.Equatable
 conformance	WalletImportRecipientKey	Swift.Sendable
@@ -492,7 +491,7 @@ symbol	swift.init	NativeTokenBalance.init(accountAddress:name:symbol:balance:cha
 symbol	swift.init	NativeTokenBalance.init(from:)	init(from decoder: any Decoder) throws
 symbol	swift.init	Network.init(rawValue:)	init?(rawValue: String)
 symbol	swift.init	OIDCAuthMode.init(rawValue:)	init?(rawValue: String)
-symbol	swift.init	OMSWallet.init(publishableKey:walletImport:)	convenience init(publishableKey: String, walletImport: WalletImportConfiguration? = nil) throws
+symbol	swift.init	OMSWallet.init(publishableKey:)	convenience init(publishableKey: String) throws
 symbol	swift.init	OMSWalletEmailSessionAuth.init(email:)	init(email: String)
 symbol	swift.init	OMSWalletEmailSessionAuth.init(from:)	init(from decoder: any Decoder) throws
 symbol	swift.init	OMSWalletErrorCode.init(rawValue:)	init?(rawValue: String)
@@ -552,7 +551,6 @@ symbol	swift.init	Wallet.init(id:type:address:reference:keyOrigin:)	init(id: Str
 symbol	swift.init	WalletCredential.init(credentialId:expiresAt:isCaller:)	init(credentialId: String, expiresAt: String, isCaller: Bool)
 symbol	swift.init	WalletCredential.init(from:)	init(from decoder: any Decoder) throws
 symbol	swift.init	WalletImportCipherSuite.init(rawValue:)	init?(rawValue: String)
-symbol	swift.init	WalletImportConfiguration.init(trustedPcr0s:)	init(trustedPcr0s: [String]) throws
 symbol	swift.init	WalletImportRecipientKey.init(keyId:cipherSuite:publicKey:)	init(keyId: String, cipherSuite: WalletImportCipherSuite, publicKey: String)
 symbol	swift.init	WalletKeyOrigin.init(from:)	init(from decoder: any Decoder) throws
 symbol	swift.init	WalletKeyOrigin.init(wireValue:)	init(wireValue: String)
@@ -986,7 +984,6 @@ symbol	swift.struct	TransactionStatusResponse	struct TransactionStatusResponse
 symbol	swift.struct	TransactionTransfer	struct TransactionTransfer
 symbol	swift.struct	Wallet	struct Wallet
 symbol	swift.struct	WalletCredential	struct WalletCredential
-symbol	swift.struct	WalletImportConfiguration	struct WalletImportConfiguration
 symbol	swift.struct	WalletImportRecipientKey	struct WalletImportRecipientKey
 symbol	swift.struct	WalletSelectionResult	struct WalletSelectionResult
 symbol	swift.type.method	FeeOptionSelector.custom(_:)	static func custom(_ pick: @escaping FeeOptionSelector.Select) -> FeeOptionSelector

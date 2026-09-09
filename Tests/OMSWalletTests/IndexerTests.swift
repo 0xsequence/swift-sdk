@@ -41,19 +41,44 @@ import Testing
 
 @Test func TestPublishableKeyRoutingDerivesProjectAndApiUrls() throws {
     let routes = [
-        ("pk_dev_sdbx_project_key", "https://sandbox-api.dev.polygon-dev.technology"),
-        ("pk_dev_live_project_key", "https://api.dev.polygon-dev.technology"),
-        ("pk_stg_sdbx_project_key", "https://sandbox-api.stg.polygon-dev.technology"),
-        ("pk_stg_live_project_key", "https://api.stg.polygon-dev.technology"),
-        ("pk_sdbx_project_key", "https://sandbox-api.polygon.technology"),
-        ("pk_live_project_key", "https://api.polygon.technology")
+        (
+            "pk_dev_sdbx_project_key",
+            "https://sandbox-api.dev.polygon-dev.technology",
+            String(repeating: "0", count: 96)
+        ),
+        (
+            "pk_dev_live_project_key",
+            "https://api.dev.polygon-dev.technology",
+            String(repeating: "0", count: 96)
+        ),
+        (
+            "pk_stg_sdbx_project_key",
+            "https://sandbox-api.stg.polygon-dev.technology",
+            "e4da1f70f6e781d7196dff36d21e57bb5603ec4bcacefb7061493049292b76b620b0ad23b82e280d6130f67384051e9f"
+        ),
+        (
+            "pk_stg_live_project_key",
+            "https://api.stg.polygon-dev.technology",
+            "e4da1f70f6e781d7196dff36d21e57bb5603ec4bcacefb7061493049292b76b620b0ad23b82e280d6130f67384051e9f"
+        ),
+        (
+            "pk_sdbx_project_key",
+            "https://sandbox-api.polygon.technology",
+            "671f22183eed852f4051a50ee54b45153499501538cbd64a277b8ff22a012b37f1905ebfcf7a6be8ce00ec0c8db7bbd2"
+        ),
+        (
+            "pk_live_project_key",
+            "https://api.polygon.technology",
+            "671f22183eed852f4051a50ee54b45153499501538cbd64a277b8ff22a012b37f1905ebfcf7a6be8ce00ec0c8db7bbd2"
+        )
     ]
 
-    for (publishableKey, apiUrl) in routes {
+    for (publishableKey, apiUrl, walletImportPcr0) in routes {
         let parsedKey = try parsePublishableKey(publishableKey)
         #expect(parsedKey.projectId == "prj_project")
         #expect(parsedKey.walletApiUrl == apiUrl)
         #expect(parsedKey.indexerGatewayUrl == "\(apiUrl)/v1/IndexerGateway/")
+        #expect(parsedKey.walletImportTrustedPcr0s == Set([walletImportPcr0]))
 
         let oms = try OMSWallet(publishableKey: publishableKey)
         #expect(oms.wallet.projectId == "prj_project")

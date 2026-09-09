@@ -25,9 +25,8 @@ private enum WalletImportActivationContext {
 extension WalletClient {
     /// Imports and activates an Ethereum or Solana private key.
     ///
-    /// Wallet import must be configured with trusted Nitro Enclave PCR0 measurements when
-    /// constructing `OMSWallet`. The plaintext key is sealed locally and is never sent over
-    /// the ordinary WaaS transport.
+    /// The plaintext key is sealed locally to a recipient key from an attested WaaS enclave and is
+    /// never sent over the ordinary WaaS transport.
     @discardableResult
     public func importWallet(
         privateKey: WalletImportPrivateKey,
@@ -209,7 +208,7 @@ extension WalletClient {
         guard let walletImportClient else {
             throw OMSWalletError(
                 code: .validationError,
-                message: "Wallet import requires walletImport.trustedPcr0s configuration"
+                message: "Wallet import is unavailable for this WaaS environment"
             )
         }
         return walletImportClient
