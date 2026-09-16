@@ -294,8 +294,8 @@ public enum WalletType: Codable, Equatable, Hashable, Sendable {
     case unknown(String)
     public var wireValue: String { get }
     public init(wireValue: String)
-    public init(from decoder: any Decoder) throws
-    public func encode(to encoder: any Encoder) throws
+    public init(from decoder: Decoder) throws
+    public func encode(to encoder: Encoder) throws
 }
 ```
 
@@ -308,8 +308,8 @@ public enum WalletKeyOrigin: Codable, Equatable, Hashable, Sendable {
     case unknown(String)
     public var wireValue: String { get }
     public init(wireValue: String)
-    public init(from decoder: any Decoder) throws
-    public func encode(to encoder: any Encoder) throws
+    public init(from decoder: Decoder) throws
+    public func encode(to encoder: Encoder) throws
 }
 ```
 
@@ -561,8 +561,8 @@ public enum OMSWalletSessionAuth: Codable, Equatable, Sendable {
     case email(OMSWalletEmailSessionAuth)
     case oidc(OMSWalletOidcSessionAuth)
     public var email: String? { get }
-    public init(from decoder: any Decoder) throws
-    public func encode(to encoder: any Encoder) throws
+    public init(from decoder: Decoder) throws
+    public func encode(to encoder: Encoder) throws
 }
 ```
 
@@ -572,8 +572,8 @@ public enum OMSWalletSessionAuth: Codable, Equatable, Sendable {
 public struct OMSWalletEmailSessionAuth: Codable, Equatable, Sendable {
     public let email: String
     public init(email: String)
-    public init(from decoder: any Decoder) throws
-    public func encode(to encoder: any Encoder) throws
+    public init(from decoder: Decoder) throws
+    public func encode(to encoder: Encoder) throws
 }
 ```
 
@@ -587,8 +587,8 @@ public struct OMSWalletOidcSessionAuth: Codable, Equatable, Sendable {
     public let providerLabel: String?
     public let email: String?
     public init(flow: OMSWalletOidcSessionAuthFlow, issuer: String, provider: String? = nil, providerLabel: String? = nil, email: String? = nil)
-    public init(from decoder: any Decoder) throws
-    public func encode(to encoder: any Encoder) throws
+    public init(from decoder: Decoder) throws
+    public func encode(to encoder: Encoder) throws
 }
 ```
 
@@ -625,7 +625,7 @@ public final class OMSWalletSessionExpiredObservation: @unchecked Sendable {
 ```swift
 public struct ListAccessPages: AsyncSequence {
     public typealias Element = AccessGrantPage
-    public func makeAsyncIterator() -> ListAccessPages.AsyncIterator
+    public func makeAsyncIterator() -> AsyncIterator
     public struct AsyncIterator: AsyncIteratorProtocol {
         public mutating func next() async throws -> AccessGrantPage?
     }
@@ -738,8 +738,8 @@ public enum TransactionMode: Codable, Equatable, Hashable, Sendable {
     case unknown(String)
     public var wireValue: String { get }
     public init(wireValue: String)
-    public init(from decoder: any Decoder) throws
-    public func encode(to encoder: any Encoder) throws
+    public init(from decoder: Decoder) throws
+    public func encode(to encoder: Encoder) throws
 }
 ```
 
@@ -777,8 +777,8 @@ public enum TransactionStatus: Codable, Equatable, Hashable, Sendable {
     case unknown(String)
     public var wireValue: String { get }
     public init(wireValue: String)
-    public init(from decoder: any Decoder) throws
-    public func encode(to encoder: any Encoder) throws
+    public init(from decoder: Decoder) throws
+    public func encode(to encoder: Encoder) throws
 }
 ```
 
@@ -799,12 +799,12 @@ public enum TransactionStatusResolution: String, Codable, Sendable, Equatable {
 public struct FeeOptionSelector: Sendable {
     /// Sponsored transactions pass an empty array. Returning `nil` acknowledges the free fee;
     /// throw to stop execution.
-    public typealias Select = @Sendable ([FeeOptionWithBalance]) async throws -> FeeOptionSelection?
-    public init(_ select: @escaping FeeOptionSelector.Select)
+    public typealias Select = @Sendable (_ options: [FeeOptionWithBalance]) async throws -> FeeOptionSelection?
+    public init(_ select: @escaping Select)
     public func callAsFunction(_ options: [FeeOptionWithBalance]) async throws -> FeeOptionSelection?
     public func callAsFunction(_ options: [FeeOption]) async throws -> FeeOptionSelection?
     public static let firstAvailable: FeeOptionSelector
-    public static func custom(_ pick: @escaping FeeOptionSelector.Select) -> FeeOptionSelector
+    public static func custom(_ pick: @escaping Select) -> FeeOptionSelector
 }
 ```
 
@@ -930,7 +930,7 @@ public struct SolanaBalancesResult: Sendable {
 public enum SolanaBalance: Decodable, Sendable {
     case native(SolanaNativeBalance)
     case fungibleToken(SolanaFungibleTokenBalance)
-    public init(from decoder: any Decoder) throws
+    public init(from decoder: Decoder) throws
 }
 ```
 
@@ -1063,8 +1063,8 @@ public struct NativeTokenBalance: Codable, Sendable {
     public let priceUSD: String?
     public let priceUpdatedAt: String?
     public init(accountAddress: String, name: String, symbol: String, balance: String, chainId: Int64, balanceUSD: String? = nil, priceUSD: String? = nil, priceUpdatedAt: String? = nil)
-    public init(from decoder: any Decoder) throws
-    public func encode(to encoder: any Encoder) throws
+    public init(from decoder: Decoder) throws
+    public func encode(to encoder: Encoder) throws
 }
 ```
 
@@ -1088,8 +1088,8 @@ public struct ContractTokenBalance: Codable, Sendable {
     public let contractInfo: TokenContractInfo?
     public let tokenMetadata: TokenMetadata?
     public init(contractType: String, contractAddress: String, accountAddress: String, tokenId: String, balance: String, blockHash: String, blockNumber: Int64, chainId: Int64, balanceUSD: String? = nil, priceUSD: String? = nil, priceUpdatedAt: String? = nil, uniqueCollectibles: String? = nil, isSummary: Bool? = nil, contractInfo: TokenContractInfo? = nil, tokenMetadata: TokenMetadata? = nil)
-    public init(from decoder: any Decoder) throws
-    public func encode(to encoder: any Encoder) throws
+    public init(from decoder: Decoder) throws
+    public func encode(to encoder: Encoder) throws
 }
 ```
 
@@ -1189,8 +1189,8 @@ public struct TokenMetadata: Codable, Sendable {
     public let queuedAt: String?
     public let lastFetched: String?
     public init(chainId: Int64? = nil, contractAddress: String? = nil, tokenId: String, source: String, name: String, description: String? = nil, image: String? = nil, video: String? = nil, audio: String? = nil, properties: [String : JSONValue]? = nil, attributes: [[String : JSONValue]], imageData: String? = nil, externalUrl: String? = nil, backgroundColor: String? = nil, animationUrl: String? = nil, decimals: Int? = nil, updatedAt: String? = nil, assets: [TokenMetadataAsset]? = nil, status: String, queuedAt: String? = nil, lastFetched: String? = nil)
-    public init(from decoder: any Decoder) throws
-    public func encode(to encoder: any Encoder) throws
+    public init(from decoder: Decoder) throws
+    public func encode(to encoder: Encoder) throws
 }
 ```
 
@@ -1210,8 +1210,8 @@ public struct TokenMetadataAsset: Codable, Sendable {
     public let height: Int?
     public let updatedAt: String?
     public init(id: Int64? = nil, collectionId: Int64? = nil, tokenId: String? = nil, url: String? = nil, metadataField: String? = nil, name: String? = nil, filesize: Int64? = nil, mimeType: String? = nil, width: Int? = nil, height: Int? = nil, updatedAt: String? = nil)
-    public init(from decoder: any Decoder) throws
-    public func encode(to encoder: any Encoder) throws
+    public init(from decoder: Decoder) throws
+    public func encode(to encoder: Encoder) throws
 }
 ```
 
@@ -1259,8 +1259,8 @@ public struct Transaction: Codable, Sendable {
     public let transfers: [TransactionTransfer]
     public let timestamp: String
     public init(txnHash: String, blockNumber: Int64, blockHash: String, chainId: Int64, metaTxnId: String? = nil, transfers: [TransactionTransfer] = [], timestamp: String)
-    public init(from decoder: any Decoder) throws
-    public func encode(to encoder: any Encoder) throws
+    public init(from decoder: Decoder) throws
+    public func encode(to encoder: Encoder) throws
 }
 ```
 
@@ -1281,8 +1281,8 @@ public struct TransactionTransfer: Codable, Sendable {
     public let contractInfo: TokenContractInfo?
     public let tokenMetadata: [String : TokenMetadata]?
     public init(transferType: String, contractAddress: String, contractType: String, from: String, to: String, tokenIds: [String]? = nil, amounts: [String], logIndex: Int, amountsUSD: [String]? = nil, pricesUSD: [String]? = nil, contractInfo: TokenContractInfo? = nil, tokenMetadata: [String : TokenMetadata]? = nil)
-    public init(from decoder: any Decoder) throws
-    public func encode(to encoder: any Encoder) throws
+    public init(from decoder: Decoder) throws
+    public func encode(to encoder: Encoder) throws
 }
 ```
 
@@ -1422,8 +1422,8 @@ public enum JSONValue: Codable, Equatable, Sendable {
     case number(Double)
     case bool(Bool)
     case null
-    public init(from decoder: any Decoder) throws
-    public func encode(to encoder: any Encoder) throws
+    public init(from decoder: Decoder) throws
+    public func encode(to encoder: Encoder) throws
 }
 ```
 
