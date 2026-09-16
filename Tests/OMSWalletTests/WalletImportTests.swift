@@ -1,6 +1,5 @@
 import CryptoKit
 import Foundation
-import SwiftCBOR
 import Testing
 @testable import OMSWallet
 
@@ -156,28 +155,30 @@ private func verifySyntheticAttestation(
     let path = "/v1/Waas/GetRecipientKey"
     let preimage = "\(method) \(path)\n\(requestBody)\n\(responseBody)"
     let hash = Data(SHA256.hash(data: Data(preimage.utf8))).base64EncodedString()
-    let protectedHeader = CBOR.map([.unsignedInt(1): .negativeInt(34)]).encode()
-    let payload = CBOR.map([
-        "digest": "SHA384",
-        "timestamp": .unsignedInt(UInt64(timestamp.timeIntervalSince1970 * 1_000)),
-        "pcrs": .map([.unsignedInt(0): .byteString([UInt8](pcr0))]),
-        "certificate": .byteString([1]),
-        "cabundle": .array([.byteString([2])]),
-        "user_data": .byteString([UInt8]("Sequence/1:\(hash)".utf8)),
-        "nonce": .byteString([UInt8](nonce.utf8))
-    ]).encode()
-    let document = CBOR.tagged(
-        .init(rawValue: 18),
+    let protectedHeader = try AttestationCBOR.encode(.map([
+        (.unsigned(1), .negative(34))
+    ]))
+    let payload = try AttestationCBOR.encode(.map([
+        (.textString("digest"), .textString("SHA384")),
+        (.textString("timestamp"), .unsigned(UInt64(timestamp.timeIntervalSince1970 * 1_000))),
+        (.textString("pcrs"), .map([(.unsigned(0), .byteString(pcr0))])),
+        (.textString("certificate"), .byteString(Data([1]))),
+        (.textString("cabundle"), .array([.byteString(Data([2]))])),
+        (.textString("user_data"), .byteString(Data("Sequence/1:\(hash)".utf8))),
+        (.textString("nonce"), .byteString(Data(nonce.utf8)))
+    ]))
+    let document = AttestationCBOR.Value.tagged(
+        18,
         .array([
             .byteString(protectedHeader),
-            .map([:]),
+            .map([]),
             .byteString(payload),
-            .byteString([UInt8](repeating: 0, count: 96))
+            .byteString(Data(repeating: 0, count: 96))
         ])
     )
 
     try AttestationVerifier.verify(
-        encodedDocument: Data(document.encode()).base64EncodedString(),
+        encodedDocument: try AttestationCBOR.encode(document).base64EncodedString(),
         method: method,
         path: path,
         requestBody: requestBody,

@@ -22,8 +22,9 @@ documentation over training-data recall. If context7 is unavailable, use officia
 package sources and note the fallback; do not block ordinary repo work just to install extra
 tooling.
 
-Wallet-import attestation decoding uses `SwiftCBOR`, pinned in `Package.swift`; consult the
-SwiftCBOR 0.6.0 source when changing CBOR or COSE parsing behavior.
+Wallet-import attestation decoding uses the private, strict `AttestationCBOR` codec. Keep it scoped
+to the CBOR and COSE forms emitted by AWS Nitro attestations, and preserve its input-size,
+collection-count, nesting-depth, duplicate-key, and trailing-data checks.
 
 ---
 

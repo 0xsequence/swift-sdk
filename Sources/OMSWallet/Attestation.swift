@@ -1,7 +1,6 @@
 import CryptoKit
 import Foundation
 import Security
-import SwiftCBOR
 
 enum WalletImportAttestationError {
     static let transportPrefix = "WaaS attestation verification failed: "
@@ -117,10 +116,23 @@ enum AttestationVerifier {
         now: Date = Date()
     ) throws {
         guard let documentBytes = Data(base64Encoded: encodedDocument),
-              documentBytes.base64EncodedString() == encodedDocument,
-              let decoded = try CBOR.decode([UInt8](documentBytes)),
-              case .tagged(let tag, .array(let cose)) = decoded,
-              tag.rawValue == 18,
+              documentBytes.base64EncodedString() == encodedDocument else {
+            throw attestationError("WaaS attestation has an invalid COSE_Sign1 structure")
+        }
+        let decoded: AttestationCBOR.Value
+        do {
+            decoded = try AttestationCBOR.decode(documentBytes)
+        } catch {
+            throw attestationError("WaaS attestation has an invalid COSE_Sign1 structure")
+        }
+        let cose: [AttestationCBOR.Value]
+        switch decoded {
+        case .tagged(18, .array(let values)), .array(let values):
+            cose = values
+        default:
+            throw attestationError("WaaS attestation has an invalid COSE_Sign1 structure")
+        }
+        guard
               cose.count == 4,
               case .byteString(let protectedHeader) = cose[0],
               case .map(let unprotectedHeader) = cose[1], unprotectedHeader.isEmpty,
@@ -128,21 +140,31 @@ enum AttestationVerifier {
               case .byteString(let signature) = cose[3], signature.count == 96 else {
             throw attestationError("WaaS attestation has an invalid COSE_Sign1 structure")
         }
-        guard let protected = try CBOR.decode(protectedHeader),
-              case .map(let protectedMap) = protected,
-              protectedMap[.unsignedInt(1)] == .negativeInt(34) else {
+        let protected: AttestationCBOR.Value
+        do {
+            protected = try AttestationCBOR.decode(protectedHeader)
+        } catch {
             throw attestationError("WaaS attestation does not use COSE ES384")
         }
-        guard let payloadValue = try CBOR.decode(payload), case .map(let fields) = payloadValue else {
+        guard case .negative(34)? = protected.value(forUnsignedKey: 1) else {
+            throw attestationError("WaaS attestation does not use COSE ES384")
+        }
+        let payloadValue: AttestationCBOR.Value
+        do {
+            payloadValue = try AttestationCBOR.decode(payload)
+        } catch {
             throw attestationError("WaaS attestation payload is not a CBOR map")
         }
-        guard fields["digest"] == .utf8String("SHA384"),
-              case .unsignedInt(let timestamp) = fields["timestamp"],
-              case .map(let pcrs) = fields["pcrs"],
-              case .byteString(let certificate) = fields["certificate"],
-              case .array(let bundleValues) = fields["cabundle"],
-              case .byteString(let userData) = fields["user_data"],
-              case .byteString(let documentNonce) = fields["nonce"] else {
+        guard case .map = payloadValue else {
+            throw attestationError("WaaS attestation payload is not a CBOR map")
+        }
+        guard case .textString("SHA384")? = payloadValue.value(forTextKey: "digest"),
+              case .unsigned(let timestamp)? = payloadValue.value(forTextKey: "timestamp"),
+              case .map(let pcrs)? = payloadValue.value(forTextKey: "pcrs"),
+              case .byteString(let certificate)? = payloadValue.value(forTextKey: "certificate"),
+              case .array(let bundleValues)? = payloadValue.value(forTextKey: "cabundle"),
+              case .byteString(let userData)? = payloadValue.value(forTextKey: "user_data"),
+              case .byteString(let documentNonce)? = payloadValue.value(forTextKey: "nonce") else {
             throw attestationError("WaaS attestation payload is missing required fields")
         }
         let timestampDate = Date(timeIntervalSince1970: TimeInterval(timestamp) / 1_000)
@@ -153,38 +175,42 @@ enum AttestationVerifier {
             throw attestationError("WaaS attestation contains an invalid PCR measurement")
         }
         for (index, measurement) in pcrs {
-            guard case .unsignedInt(let index) = index, index < 32,
+            guard case .unsigned(let index) = index, index < 32,
                   case .byteString(let bytes) = measurement,
                   [32, 48, 64].contains(bytes.count) else {
                 throw attestationError("WaaS attestation contains an invalid PCR measurement")
             }
         }
-        guard case .byteString(let pcr0)? = pcrs[.unsignedInt(0)],
-              trustedPcr0s.contains(Data(pcr0).hexString) else {
+        let pcr0 = pcrs.first { entry in
+            guard case .unsigned(0) = entry.0 else { return false }
+            return true
+        }?.1
+        guard case .byteString(let pcr0)? = pcr0,
+              trustedPcr0s.contains(pcr0.hexString) else {
             throw attestationError("WaaS attestation PCR0 is not trusted")
         }
-        guard Data(documentNonce) == Data(nonce.utf8) else {
+        guard documentNonce == Data(nonce.utf8) else {
             throw attestationError("WaaS attestation nonce does not match the request")
         }
         let preimage = "\(method.uppercased()) \(path)\n\(requestBody)\n\(responseBody)"
         let hash = Data(SHA256.hash(data: Data(preimage.utf8))).base64EncodedString()
-        guard Data(userData) == Data("Sequence/1:\(hash)".utf8) else {
+        guard userData == Data("Sequence/1:\(hash)".utf8) else {
             throw attestationError("WaaS attestation is not bound to the request and response")
         }
         let bundle = try bundleValues.map { value -> Data in
             guard case .byteString(let bytes) = value else {
                 throw attestationError("WaaS attestation certificate bundle is invalid")
             }
-            return Data(bytes)
+            return bytes
         }
-        let leafKey = try verifyCertificateChain(leaf: Data(certificate), bundle: bundle, now: now)
-        let signatureInput = Data(CBOR.encode(CBOR.array([
-            .utf8String("Signature1"),
+        let leafKey = try verifyCertificateChain(leaf: certificate, bundle: bundle, now: now)
+        let signatureInput = try AttestationCBOR.encode(.array([
+            .textString("Signature1"),
             .byteString(protectedHeader),
-            .byteString([]),
+            .byteString(Data()),
             .byteString(payload)
-        ])))
-        let derSignature = try rawEcdsaSignatureToDer(Data(signature), componentSize: 48)
+        ]))
+        let derSignature = try rawEcdsaSignatureToDer(signature, componentSize: 48)
         guard SecKeyVerifySignature(
             leafKey,
             .ecdsaSignatureMessageX962SHA384,
