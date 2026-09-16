@@ -30,5 +30,6 @@ jobs:
           path: |
             .build/out/symbolgraph/OMSWallet.symbols.json
             .build/*/symbolgraph/OMSWallet.symbols.json
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 1
