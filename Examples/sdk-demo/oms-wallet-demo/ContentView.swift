@@ -258,7 +258,7 @@ final class AppViewModel: ObservableObject {
     @Published var loginEmail: String = ""
     @Published var sessionLifetimeText: String = "604800"
     @Published var omsWallet: OMSWallet = try! OMSWallet(
-        publishableKey: "pk_dev_sdbx_01kqa06hyyetj_01kv5zt5s3eke9038q8y67jdvj"
+        publishableKey: "pk_sdbx_01m2mwxcn8p59_01m2n33tshe52vt5jyjyt0kc6g"
     )
     private var sessionExpiredObservation: OMSWalletSessionExpiredObservation?
 
