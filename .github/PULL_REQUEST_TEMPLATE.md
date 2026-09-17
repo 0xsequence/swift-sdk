@@ -15,8 +15,8 @@
 
 - [ ] `swift build` passes
 - [ ] `swift test` passes
-- [ ] SDK demo app builds (`xcodebuild -project Examples/sdk-demo/oms-wallet-demo.xcodeproj -scheme oms-wallet-demo build CODE_SIGNING_ALLOWED=NO`)
-- [ ] Trails Actions demo app builds (`xcodebuild -project Examples/trails-actions/trails-actions.xcodeproj -scheme trails-actions build CODE_SIGNING_ALLOWED=NO`)
+- [ ] SDK demo app builds (`xcodebuild -project Examples/sdk-demo/oms-wallet-demo.xcodeproj -scheme oms-wallet-demo -destination "generic/platform=iOS Simulator" build`)
+- [ ] Trails Actions demo app builds (`xcodebuild -project Examples/trails-actions/trails-actions.xcodeproj -scheme trails-actions -destination "generic/platform=iOS Simulator" build`)
 
 ## Related
 

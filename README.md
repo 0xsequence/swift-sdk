@@ -279,8 +279,9 @@ let imported = try await omsWallet.wallet.importWallet(
 print(imported.wallet.keyOrigin == .imported)
 ```
 
-Ethereum imports accept 32 raw bytes or hexadecimal text. Solana imports accept a 32-byte seed,
-64-byte keypair, or base58 text. The SDK does not persist plaintext imported keys. For
+Ethereum imports accept a 32-byte raw scalar or 64 hexadecimal digits, optionally prefixed with
+`0x`. Solana imports accept a 32-byte seed or 64-byte keypair as raw bytes, or the base58 encoding
+of either. The SDK does not persist plaintext imported keys. For
 caller-managed HPKE flows, use `getWalletImportRecipientKey(cipherSuite:)` and then
 `importEncryptedWallet(walletType:keyMaterial:reference:)`; both responses remain attestation
 verified.
@@ -309,9 +310,11 @@ For a selected Solana wallet, use the Solana-specific message methods; off-chain
 require a cluster:
 
 ```swift
+guard let solanaWalletAddress = omsWallet.wallet.walletAddress else { return }
+
 let signature = try await omsWallet.wallet.signSolanaMessage(message: "hello from Solana")
 let valid = try await omsWallet.wallet.isValidSolanaMessageSignature(
-    walletAddress: wallet.address,
+    walletAddress: solanaWalletAddress,
     message: "hello from Solana",
     signature: signature
 )
@@ -686,25 +689,41 @@ let scopedIdToken = try await omsWallet.wallet.getIdToken(
 ### Manage Wallet Access
 
 ```swift
-let credentials = try await omsWallet.wallet.listAccess()
+let grants = try await omsWallet.wallet.listAccess()
 
 for try await page in omsWallet.wallet.listAccessPages(pageSize: 25) {
     print(page.grants)
 }
 
-if let grant = credentials.first {
-    try await omsWallet.wallet.revokeAccess(credentialId: grant.credential.credentialId)
+if let grant = grants.first(where: { !$0.credential.isCaller }) {
+    switch grant {
+    case .direct(let credential):
+        try await omsWallet.wallet.revokeAccess(credentialId: credential.credentialId)
+    case .remote(let remote):
+        try await omsWallet.wallet.revokeAccess(
+            credentialId: remote.credential.credentialId,
+            sessionId: remote.sessionId
+        )
+    }
 }
 ```
 
 For an owner-approved smart session, inspect the remote credential before showing consent, then
 authorize bounded EVM transfer grants. The returned wallet and session IDs can be shared with the
-remote application; backend credential registration and execution stay outside this SDK surface.
+remote backend; backend credential registration and execution stay outside this SDK surface. WaaS
+caps the requested session expiry at the remote credential's expiry.
 
 ```swift
+import Foundation
+
 let credentialId = "remote-credential-id"
 let metadata = try await omsWallet.wallet.inspectRemoteCredential(credentialId: credentialId)
-showConsentScreen(metadata)
+// Render these returned public fields in your app's consent UI before authorizing access.
+print(metadata.appName, metadata.appUrl)
+
+let requestedExpiry = ISO8601DateFormatter().string(
+    from: Date().addingTimeInterval(3_600)
+)
 
 let session = try await omsWallet.wallet.authorizeRemoteAccess(
     credentialId: credentialId,
@@ -715,7 +734,7 @@ let session = try await omsWallet.wallet.authorizeRemoteAccess(
             limit: "1000000000000000"
         )
     ],
-    expiresAt: "2099-01-01T00:00:00Z"
+    expiresAt: requestedExpiry
 )
 
 let details = try await omsWallet.wallet.getRemoteAccessSession(sessionId: session.sessionId)

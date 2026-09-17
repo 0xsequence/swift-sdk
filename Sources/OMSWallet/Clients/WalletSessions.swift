@@ -302,7 +302,10 @@ extension WalletClient {
         }
     }
 
-    /// Authorizes owner-approved EVM smart-session grants for a remote credential.
+    /// Authorizes owner-approved EVM smart-session grants for a remote credential. Omit `sessionId`
+    /// to create a session; pass an existing session ID to replace that session's grants and
+    /// requested expiry without changing its signer. WaaS caps the effective expiry at the remote
+    /// credential's expiry.
     public func authorizeRemoteAccess(
         credentialId: String,
         network: Network,
@@ -381,6 +384,7 @@ extension WalletClient {
         }
     }
 
+    /// Returns one owner-visible remote session and verifies that it belongs to the selected wallet.
     public func getRemoteAccessSession(sessionId: String) async throws -> RemoteAccessSession {
         try await runOMSWalletOperation(.walletGetRemoteAccessSession) {
             guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -399,6 +403,7 @@ extension WalletClient {
         }
     }
 
+    /// Returns the current usage for each bounded grant in an owner-visible remote session.
     public func getRemoteAccessSessionUsage(
         sessionId: String,
         network: Network
@@ -440,15 +445,14 @@ extension WalletClient {
         }
     }
 
-    /// Revokes access for a specific credential, preventing it from interacting
-    /// with this wallet going forward.
-    ///
-    /// Use `listAccess()` or `listAccessPage(pageSize:cursor:)` first to retrieve
-    /// the credential IDs available to revoke.
-    /// This action cannot be undone — the credential will need to be re-authorized
-    /// to regain access.
+    /// Revokes one access grant from the selected wallet. Use `listAccess()` or
+    /// `listAccessPage(pageSize:cursor:type:)` first to retrieve the direct or remote grant. Omit
+    /// `sessionId` for a direct grant; for a remote grant, pass its session ID to revoke exactly
+    /// that session.
     ///
     /// - Parameter credentialId: The unique identifier of the credential to revoke.
+    /// - Parameter sessionId: The required session identifier for a remote grant, or `nil` for a
+    ///   direct grant.
     public func revokeAccess(credentialId: String, sessionId: String? = nil) async throws {
         try await runOMSWalletOperation(.walletRevokeAccess) {
             let walletId = try requireActiveWalletId()

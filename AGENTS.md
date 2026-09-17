@@ -68,9 +68,9 @@ swift test
 scripts/verify.sh
 scripts/check-public-api-does-not-expose-generated-waas.sh
 xcodebuild -list -project Examples/sdk-demo/oms-wallet-demo.xcodeproj
-xcodebuild -project Examples/sdk-demo/oms-wallet-demo.xcodeproj -scheme oms-wallet-demo build
+xcodebuild -project Examples/sdk-demo/oms-wallet-demo.xcodeproj -scheme oms-wallet-demo -destination "generic/platform=iOS Simulator" build
 xcodebuild -list -project Examples/trails-actions/trails-actions.xcodeproj
-xcodebuild -project Examples/trails-actions/trails-actions.xcodeproj -scheme trails-actions build
+xcodebuild -project Examples/trails-actions/trails-actions.xcodeproj -scheme trails-actions -destination "generic/platform=iOS Simulator" build
 ```
 
 For README/API/docs-only edits, use source-backed spot checks plus
@@ -81,7 +81,7 @@ Run `swift test` for SDK changes. Run
 `scripts/check-public-api-does-not-expose-generated-waas.sh` when public API
 surfaces may be affected; it verifies the checked-in interface baseline,
 external compile probes, and generated-WaaS isolation. For demo app changes,
-also build the relevant Xcode project with signing disabled when feasible.
+also build the relevant Xcode project for an iOS Simulator with normal automatic signing.
 
 ## Testing
 

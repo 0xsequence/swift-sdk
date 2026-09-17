@@ -533,6 +533,35 @@ private final class MissingAttestationURLProtocol: URLProtocol, @unchecked Senda
         )
     )
 
+    let solanaSignatureFixture = makeRestoredWalletClient()
+    solanaSignatureFixture.transport.enqueueRawHTTPError(
+        statusCode: 500,
+        body: Data(#"{"error":"WebrpcBadRequest","code":-4,"msg":"signature backend failed","status":500}"#.utf8),
+        for: WaasPublicAPI.IsValidMessageSignature.urlPath
+    )
+
+    await expectPublicError(
+        try await solanaSignatureFixture.client.isValidSolanaMessageSignature(
+            walletAddress: "solana-wallet-address",
+            message: "hello",
+            signature: "solana-signature"
+        ),
+        equals: error(
+            code: .httpError,
+            operation: .walletIsValidSolanaMessageSignature,
+            message: "signature backend failed",
+            status: 500,
+            retryable: true,
+            upstreamError: upstream(
+                service: .waas,
+                name: "WebrpcBadRequest",
+                code: "-4",
+                message: "signature backend failed",
+                status: 500
+            )
+        )
+    )
+
     let accessFixture = makeRestoredWalletClient()
     accessFixture.transport.enqueueRawHTTPError(
         statusCode: 500,

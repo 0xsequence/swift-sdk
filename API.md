@@ -167,7 +167,10 @@ Returns display metadata for a remote credential before the owner approves acces
 public func authorizeRemoteAccess(credentialId: String, network: Network, grants: [SmartSessionGrant], expiresAt: String, sessionId: String? = nil) async throws -> AuthorizedRemoteAccess
 ```
 
-Authorizes owner-approved EVM smart-session grants for a remote credential.
+Authorizes owner-approved EVM smart-session grants for a remote credential. Omit `sessionId`
+to create a session; pass an existing session ID to replace that session's grants and
+requested expiry without changing its signer. WaaS caps the effective expiry at the remote
+credential's expiry.
 
 ### `WalletClient.listAccess(pageSize:type:)`
 
@@ -199,11 +202,15 @@ Returns credential-access pages for this wallet until WaaS stops returning a cur
 public func getRemoteAccessSession(sessionId: String) async throws -> RemoteAccessSession
 ```
 
+Returns one owner-visible remote session and verifies that it belongs to the selected wallet.
+
 ### `WalletClient.getRemoteAccessSessionUsage(sessionId:network:)`
 
 ```swift
 public func getRemoteAccessSessionUsage(sessionId: String, network: Network) async throws -> [SmartSessionGrantUsage]
 ```
+
+Returns the current usage for each bounded grant in an owner-visible remote session.
 
 ### `WalletClient.revokeAccess(credentialId:sessionId:)`
 
@@ -211,8 +218,10 @@ public func getRemoteAccessSessionUsage(sessionId: String, network: Network) asy
 public func revokeAccess(credentialId: String, sessionId: String? = nil) async throws
 ```
 
-Revokes access for a specific credential, preventing it from interacting
-with this wallet going forward.
+Revokes one access grant from the selected wallet. Use `listAccess()` or
+`listAccessPage(pageSize:cursor:type:)` first to retrieve the direct or remote grant. Omit
+`sessionId` for a direct grant; for a remote grant, pass its session ID to revoke exactly
+that session.
 
 ### `WalletClient.signOut()`
 
