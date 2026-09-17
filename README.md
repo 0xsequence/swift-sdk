@@ -22,14 +22,14 @@ Add the package in Xcode with **File -> Add Package Dependencies** and enter the
 https://github.com/0xsequence/swift-sdk.git
 ```
 
-Use the dependency rule **Up to Next Major Version** with version `0.2.0`.
+Use the dependency rule **Up to Next Major Version** with version `0.3.0`.
 
 ### CocoaPods
 
 Add the pod to your `Podfile`:
 
 ```ruby
-pod 'oms-wallet-swift-sdk', '0.2.0'
+pod 'oms-wallet-swift-sdk', '0.3.0'
 ```
 
 ## Quick Start
