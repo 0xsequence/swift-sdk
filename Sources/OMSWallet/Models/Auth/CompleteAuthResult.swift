@@ -6,11 +6,11 @@ public enum CompleteAuthResult: Sendable {
         walletAddress: String,
         wallet: Wallet,
         wallets: [Wallet],
-        credential: CredentialInfo
+        credential: WalletCredential
     )
     case walletSelection(PendingWalletSelection)
 
-    public var credential: CredentialInfo {
+    public var credential: WalletCredential {
         switch self {
         case .walletSelected(_, _, _, let credential):
             return credential

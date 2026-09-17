@@ -200,7 +200,7 @@ enum TrailsCompleteAuthResult: Sendable {
         walletAddress: String,
         wallet: Wallet,
         wallets: [Wallet],
-        credential: CredentialInfo
+        credential: WalletCredential
     )
     case walletSelection(TrailsPendingWalletSelection)
 }
@@ -214,7 +214,7 @@ enum TrailsOIDCRedirectAuthResult: Sendable {
 final class TrailsPendingWalletSelection: @unchecked Sendable {
     let walletType: WalletType
     let wallets: [Wallet]
-    let credential: CredentialInfo
+    let credential: WalletCredential
 
     private let pendingSelection: PendingWalletSelection
     private let client: TrailsOMSWallet

@@ -26,6 +26,39 @@ import Testing
     )
 }
 
+@Test func TestPublicErrorContractsAttestationFailuresRemainNonRetryable() async throws {
+    let signer = MockCredentialSigner()
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MissingAttestationURLProtocol.self]
+    let session = URLSession(configuration: configuration)
+    let transport = AttestedSignedWaasTransport(
+        publishableKey: "test-publishable-key",
+        scope: "test-project-id",
+        signer: signer,
+        trustedPcr0s: Set([String(repeating: "a", count: 96)]),
+        session: session
+    )
+    let fixture = makeMockWalletClient(
+        signer: signer,
+        walletImportClient: WaasClient(
+            baseURL: "https://wallet-import.test",
+            transport: transport
+        )
+    )
+    fixture.client.walletId = "wallet-main"
+    fixture.client.walletAddress = "0x1111111111111111111111111111111111111111"
+
+    await expectPublicError(
+        try await fixture.client.getWalletImportRecipientKey(cipherSuite: .p256Sha256Aes256Gcm),
+        equals: error(
+            code: .attestationVerificationFailed,
+            operation: .walletGetImportRecipientKey,
+            message: "WaaS response is missing its attestation document",
+            retryable: false
+        )
+    )
+}
+
 @Test func TestPublicErrorContractsWaasDomainErrorsHaveUpstreamDetails() async throws {
     let fixture = makeMockWalletClient()
     fixture.transport.enqueueRawHTTPError(
@@ -260,6 +293,15 @@ import Testing
     )
 
     await expectPublicError(
+        try await missingFixture.client.signSolanaMessage(message: "hello"),
+        equals: error(
+            code: .sessionMissing,
+            operation: .walletSignSolanaMessage,
+            message: "No authenticated wallet session."
+        )
+    )
+
+    await expectPublicError(
         try await missingFixture.client.getTransactionStatus(txnId: "txn-missing"),
         equals: error(
             code: .sessionMissing,
@@ -304,6 +346,30 @@ import Testing
             message: "No authenticated wallet session."
         )
     )
+}
+
+private final class MissingAttestationURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(#"{"keyId":"key-id"}"#.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }
 
 @Test func TestPublicErrorContractsOidcLocalErrorsHaveNoUpstreamDetails() async throws {
@@ -454,6 +520,35 @@ import Testing
         equals: error(
             code: .httpError,
             operation: .walletIsValidMessageSignature,
+            message: "signature backend failed",
+            status: 500,
+            retryable: true,
+            upstreamError: upstream(
+                service: .waas,
+                name: "WebrpcBadRequest",
+                code: "-4",
+                message: "signature backend failed",
+                status: 500
+            )
+        )
+    )
+
+    let solanaSignatureFixture = makeRestoredWalletClient()
+    solanaSignatureFixture.transport.enqueueRawHTTPError(
+        statusCode: 500,
+        body: Data(#"{"error":"WebrpcBadRequest","code":-4,"msg":"signature backend failed","status":500}"#.utf8),
+        for: WaasPublicAPI.IsValidMessageSignature.urlPath
+    )
+
+    await expectPublicError(
+        try await solanaSignatureFixture.client.isValidSolanaMessageSignature(
+            walletAddress: "solana-wallet-address",
+            message: "hello",
+            signature: "solana-signature"
+        ),
+        equals: error(
+            code: .httpError,
+            operation: .walletIsValidSolanaMessageSignature,
             message: "signature backend failed",
             status: 500,
             retryable: true,

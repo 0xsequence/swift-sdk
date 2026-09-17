@@ -54,8 +54,7 @@ run \
         -project Examples/sdk-demo/oms-wallet-demo.xcodeproj \
         -scheme oms-wallet-demo \
         -destination "generic/platform=iOS Simulator" \
-        build \
-        CODE_SIGNING_ALLOWED=NO
+        build
 run \
     "Build Trails Actions demo" \
     xcodebuild \
@@ -63,7 +62,6 @@ run \
         -project Examples/trails-actions/trails-actions.xcodeproj \
         -scheme trails-actions \
         -destination "generic/platform=iOS Simulator" \
-        build \
-        CODE_SIGNING_ALLOWED=NO
+        build
 
 printf '\nVerified Swift SDK %s.\n' "$version"
