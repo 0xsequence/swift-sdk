@@ -59,8 +59,8 @@ place them in `Tests/OMSWalletIntegrationTests/` and document prerequisites here
 | Check public API baseline, compile probes, and generated-type boundaries | `scripts/check-public-api-does-not-expose-generated-waas.sh` |
 | Run tests matching a filter | `swift test --filter <TestNamePattern>` |
 | Verbose output | `swift test --verbose` |
-| Build SDK demo app | `xcodebuild -project Examples/sdk-demo/oms-wallet-demo.xcodeproj -scheme oms-wallet-demo build CODE_SIGNING_ALLOWED=NO` |
-| Build Trails Actions demo app | `xcodebuild -project Examples/trails-actions/trails-actions.xcodeproj -scheme trails-actions build CODE_SIGNING_ALLOWED=NO` |
+| Build SDK demo app | `xcodebuild -project Examples/sdk-demo/oms-wallet-demo.xcodeproj -scheme oms-wallet-demo build` |
+| Build Trails Actions demo app | `xcodebuild -project Examples/trails-actions/trails-actions.xcodeproj -scheme trails-actions build` |
 
 When an intentional public API change has been reviewed, regenerate the checked-in
 symbol/interface baseline with

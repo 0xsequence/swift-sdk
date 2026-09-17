@@ -27,6 +27,8 @@ such as `0.2.0`, not `v0.2.0`, because the podspec source tag is
 - Update the CocoaPods install snippet in `README.md` to the same version.
 - If `README.md` includes an exact-version Swift Package Manager snippet, update it to the same version.
 - If public APIs, behavior, setup, or examples changed, update `API.md` and the relevant README sections in the same PR.
+- If the release contains breaking changes, update `MIGRATION.md` with steps from the previous
+  published version.
 
 3. Validate the release branch.
 
@@ -38,7 +40,8 @@ scripts/verify.sh
 
 This is the same command CI runs. It checks release version alignment, builds
 and tests the Swift package, checks the public API baseline, lints the local
-podspec, and builds both example apps for the iOS Simulator without signing.
+podspec, and builds both example apps for the iOS Simulator with normal
+automatic simulator signing.
 
 4. Push the branch and open the PR.
 

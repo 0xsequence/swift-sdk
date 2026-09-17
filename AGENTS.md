@@ -68,9 +68,9 @@ swift test
 scripts/verify.sh
 scripts/check-public-api-does-not-expose-generated-waas.sh
 xcodebuild -list -project Examples/sdk-demo/oms-wallet-demo.xcodeproj
-xcodebuild -project Examples/sdk-demo/oms-wallet-demo.xcodeproj -scheme oms-wallet-demo build CODE_SIGNING_ALLOWED=NO
+xcodebuild -project Examples/sdk-demo/oms-wallet-demo.xcodeproj -scheme oms-wallet-demo build
 xcodebuild -list -project Examples/trails-actions/trails-actions.xcodeproj
-xcodebuild -project Examples/trails-actions/trails-actions.xcodeproj -scheme trails-actions build CODE_SIGNING_ALLOWED=NO
+xcodebuild -project Examples/trails-actions/trails-actions.xcodeproj -scheme trails-actions build
 ```
 
 For README/API/docs-only edits, use source-backed spot checks plus

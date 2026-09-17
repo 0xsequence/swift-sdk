@@ -733,6 +733,9 @@ try await omsWallet.wallet.revokeAccess(
 
 See [API.md](./API.md) for the full method and type reference.
 
+When upgrading from `0.2.0`, see [MIGRATION.md](./MIGRATION.md) for the breaking changes in
+`0.3.0`.
+
 ## Publishing
 
 See [publishing.md](./publishing.md) for release PR, tag, Swift Package Manager, and CocoaPods publishing steps.
