@@ -15,15 +15,8 @@ How testing works in this repo. `AGENTS.md` points here so agents know how to ve
 - **Location:** `Tests/OMSWalletTests/`
 - **Run:** `swift test`
 
-Current test files:
-- `RequestsTests.swift` — HTTP request building and signing
-- `MockWalletTests.swift` — wallet auth and session logic with mocked dependencies
-- `IndexerTests.swift` — indexer client pagination and response handling
-- `WaasRequestSigningTests.swift` — generated WaaS request payload signing
-- `PublicErrorContractsTests.swift` — public `OMSWalletError` field, upstream, and recovery contracts
-- `WalletImportTests.swift`: wallet import validation, attestation handling, and model mapping
-- `AttestationCBORTests.swift`: strict CBOR/COSE decoding for wallet-import attestations
-- `WaasGeneratedAliases.swift`: shared typealiases for generated WaaS types (helper, no tests)
+Test files are organized one per area, for example `MockWalletTests.swift` for wallet auth and
+session logic and `PublicErrorContractsTests.swift` for public error contracts.
 
 ## Public error contract tests
 

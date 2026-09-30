@@ -39,10 +39,7 @@ typed-data signing, signature verification, token balances, and unit formatting.
 
 - `Package.swift` defines the Swift package, the `"OMSWallet"` library target, and
   the `"OMSWalletTests"` test target.
-- `Sources/OMSWallet/` contains the SDK implementation. Top-level files include
-  `OMSWallet.swift`, `OMSWalletEnvironment.swift`, `PublishableKey.swift`, `Network.swift`,
-  `HttpClient.swift`, `SignedWaasTransport.swift`, `KeychainManager.swift`,
-  `WalletImport.swift`, and `Attestation.swift` / `AttestationCBOR.swift`.
+- `Sources/OMSWallet/` contains the SDK implementation.
 - `Sources/OMSWallet/Clients/` contains `WalletClient` and `IndexerClient`.
 - `Sources/OMSWallet/Signer/` contains Keychain/P-256 signing and credential
   session code.
