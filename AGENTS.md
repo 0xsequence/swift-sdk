@@ -39,13 +39,16 @@ typed-data signing, signature verification, token balances, and unit formatting.
 
 - `Package.swift` defines the Swift package, the `"OMSWallet"` library target, and
   the `"OMSWalletTests"` test target.
-- `Sources/OMSWallet/` contains the SDK implementation.
+- `Sources/OMSWallet/` contains the SDK implementation. Top-level files include
+  `OMSWallet.swift`, `OMSWalletEnvironment.swift`, `PublishableKey.swift`, `Network.swift`,
+  `HttpClient.swift`, `SignedWaasTransport.swift`, `KeychainManager.swift`,
+  `WalletImport.swift`, and `Attestation.swift` / `AttestationCBOR.swift`.
 - `Sources/OMSWallet/Clients/` contains `WalletClient` and `IndexerClient`.
 - `Sources/OMSWallet/Signer/` contains Keychain/P-256 signing and credential
   session code.
 - `Sources/OMSWallet/Models/` contains public model types and auth/session
   state.
-- `Sources/OMSWallet/Utils/` contains encoding, hashing, request, time, byte, and
+- `Sources/OMSWallet/Utils/` contains encoding, hashing, request, byte, constants, and
   unit helpers.
 - `Sources/OMSWallet/Generated/waas.gen.swift` is generated WebRPC client code.
   Do not edit it by hand unless the user explicitly asks for a generated-code

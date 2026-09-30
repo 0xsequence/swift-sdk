@@ -75,7 +75,7 @@ final class Keccak256 {
     // MARK: - Public API
 
     /// Computes the Keccak-256 hash of the input string.
-    /// Returns a 64-character lowercase hex string.
+    /// Returns a `0x`-prefixed lowercase hex string (66 characters: `0x` plus 64 hex digits).
     static func Keccak256(data: String) -> String {
         let input = Array(data.utf8)
         let hash = keccak256Bytes(input)

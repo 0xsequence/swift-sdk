@@ -214,7 +214,7 @@ extension WalletClient {
     /// Clears the wallet session from the device keychain.
     ///
     /// After calling this, any attempt to restore the session on the next launch will fail
-    /// and the user will need to sign in again via `startEmailAuth(email:)`. Navigate to your
+    /// and the user will need to sign in again via `startEmailAuth(email:sessionLifetimeSeconds:)`. Navigate to your
     /// sign-in screen after calling this.
     public func signOut() throws {
         try runOMSWalletOperation(.walletSignOut) {

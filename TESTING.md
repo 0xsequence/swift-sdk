@@ -21,6 +21,9 @@ Current test files:
 - `IndexerTests.swift` — indexer client pagination and response handling
 - `WaasRequestSigningTests.swift` — generated WaaS request payload signing
 - `PublicErrorContractsTests.swift` — public `OMSWalletError` field, upstream, and recovery contracts
+- `WalletImportTests.swift`: wallet import validation, attestation handling, and model mapping
+- `AttestationCBORTests.swift`: strict CBOR/COSE decoding for wallet-import attestations
+- `WaasGeneratedAliases.swift`: shared typealiases for generated WaaS types (helper, no tests)
 
 ## Public error contract tests
 
@@ -43,7 +46,7 @@ place them in `Tests/OMSWalletIntegrationTests/` and document prerequisites here
 
 ## Conventions
 
-- Test function names use the `Test...` style matching existing tests (e.g. `TestWalletAuth`).
+- Test function names use the `Test...` style matching existing tests (e.g. `TestWalletCompleteEmailAuthUsesSessionLifetimeFromStart`).
 - Every bugfix should include a regression test that reproduces the failure before the fix.
 - Fixtures must be deterministic — no timestamps, random data, or live service calls.
 - Use mocked transport, Keychain, and indexer stubs rather than live services to keep the suite

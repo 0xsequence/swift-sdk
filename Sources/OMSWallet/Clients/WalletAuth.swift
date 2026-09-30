@@ -769,7 +769,9 @@ extension WalletClient {
     /// Call this after `completeEmailAuth(code:walletSelection:walletType:)` returns
     /// `.walletSelection`, or when an authenticated session already exists.
     ///
-    /// - Parameter walletType: The wallet type to create (e.g. `.ethereumEoa`).
+    /// - Parameters:
+    ///   - walletType: The wallet type to create: `.ethereum` (default), `.solana`, or `.unknown`.
+    ///   - reference: An optional caller-supplied reference string to associate with the new wallet.
     @discardableResult
     public func createWallet(
         walletType: WalletType = WalletType.ethereum,
@@ -824,13 +826,13 @@ extension WalletClient {
         )
     }
 
-    /// Loads an existing wallet of the specified type for the authenticated user and persists
+    /// Loads an existing wallet by ID for the authenticated user and persists
     /// its address and signer metadata to the keychain.
     ///
     /// Called internally by auth completion when the user already has
-    /// a wallet of the requested type on their account.
+    /// a wallet on their account.
     ///
-    /// - Parameter walletType: The wallet type to load (e.g. `.ethereumEoa`).
+    /// - Parameter walletId: The ID of the wallet to load.
     private func useWallet(
         walletId: String,
         sessionMetadata: SessionMetadata,

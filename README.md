@@ -22,7 +22,24 @@ Add the package in Xcode with **File -> Add Package Dependencies** and enter the
 https://github.com/0xsequence/swift-sdk.git
 ```
 
-Use the dependency rule **Up to Next Major Version** with version `0.3.0`.
+Use the dependency rule **Up to Next Minor Version** with version `0.3.0`. While the SDK is
+pre-1.0, minor releases can contain breaking changes (see [MIGRATION.md](MIGRATION.md)).
+
+To add the package from a `Package.swift` manifest instead:
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/0xsequence/swift-sdk.git", .upToNextMinor(from: "0.3.0"))
+],
+targets: [
+    .target(
+        name: "YourApp",
+        dependencies: [
+            .product(name: "OMSWallet", package: "swift-sdk")
+        ]
+    )
+]
+```
 
 ### CocoaPods
 
@@ -609,6 +626,15 @@ let katana = Network.findByName("katana")
 | `43113` | Avalanche Testnet | `.avalancheTestnet` | `avalanche-testnet` | `AVAX` |
 | `747474` | Katana | `.katana` | `katana` | `ETH` |
 
+Solana uses the separate `SolanaNetwork` type, not `Network`:
+
+| Swift case | Raw value |
+|---|---|
+| `SolanaNetwork.devnet` | `solana:devnet` |
+| `SolanaNetwork.mainnet` | `solana:mainnet` |
+
+`SolanaNetwork.mainnet` is distinct from `Network.mainnet`, which is Ethereum mainnet.
+
 ## Unit Formatting
 
 Use the top-level helpers to convert between display amounts and base-unit integer strings without floating-point precision loss. Fractional precision beyond `decimals` is rounded to the nearest base unit.
@@ -638,7 +664,9 @@ For transaction writes, `.transactionExecutionUnconfirmed` means the SDK has a
 `txnId` from preparation, but execute failed before the SDK could confirm
 whether the transaction was submitted; do not blindly resend the same write.
 `.transactionStatusLookupFailed` means the transaction was submitted, but status
-polling failed, so retry status lookup with the returned `txnId`. `retryable`
+polling failed, so retry status lookup with the returned `txnId`.
+`.walletSelectionInFlight` means another action on the same `PendingWalletSelection`
+is still running; wait for it to finish before starting another. `retryable`
 describes the failed SDK operation, not the whole user intent.
 
 ```swift
