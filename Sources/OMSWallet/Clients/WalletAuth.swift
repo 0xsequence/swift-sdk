@@ -770,7 +770,7 @@ extension WalletClient {
     /// `.walletSelection`, or when an authenticated session already exists.
     ///
     /// - Parameters:
-    ///   - walletType: The wallet type to create: `.ethereum` (default), `.solana`, or `.unknown`.
+    ///   - walletType: The wallet type to create: `.ethereum` (default) or `.solana`.
     ///   - reference: An optional caller-supplied reference string to associate with the new wallet.
     @discardableResult
     public func createWallet(

@@ -30,6 +30,10 @@ if ! grep -Fq "pod 'oms-wallet-swift-sdk', '$version'" README.md; then
     echo "README.md must use podspec version $version in the CocoaPods instructions." >&2
     exit 1
 fi
+if ! grep -Fq "from: \"$version\"" README.md; then
+    echo "README.md must use podspec version $version in the Package.swift example." >&2
+    exit 1
+fi
 
 run "Build Swift package" swift build
 run "Test Swift package" swift test
