@@ -27,12 +27,13 @@ jobs:
         with:
           fetch-depth: 1
 
-      - uses: anthropics/claude-code-action@beta
+      - uses: anthropics/claude-code-action@fd1c128679612beff4ca259c78021c506e8aa7a7 # v1.0.237
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY_GITHUB_ACTIONS }}
           github_token: ${{ github.token }}
-          model: "claude-opus-4-8"
-          direct_prompt: |
+          claude_args: "--model claude-opus-4-8"
+          track_progress: true
+          prompt: |
             Review this pull request. Focus on:
             - Correctness against the OMS Wallet conventions in AGENTS.md
             - Security: no private key material in session storage, P-256 credential must remain non-extractable
@@ -56,9 +57,9 @@ jobs:
         with:
           fetch-depth: 1
 
-      - uses: anthropics/claude-code-action@beta
+      - uses: anthropics/claude-code-action@fd1c128679612beff4ca259c78021c506e8aa7a7 # v1.0.237
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY_GITHUB_ACTIONS }}
           github_token: ${{ github.token }}
-          model: "claude-opus-4-8"
+          claude_args: "--model claude-opus-4-8"
           trigger_phrase: "@claude review"
