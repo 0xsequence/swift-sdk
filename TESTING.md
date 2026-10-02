@@ -15,12 +15,8 @@ How testing works in this repo. `AGENTS.md` points here so agents know how to ve
 - **Location:** `Tests/OMSWalletTests/`
 - **Run:** `swift test`
 
-Current test files:
-- `RequestsTests.swift` — HTTP request building and signing
-- `MockWalletTests.swift` — wallet auth and session logic with mocked dependencies
-- `IndexerTests.swift` — indexer client pagination and response handling
-- `WaasRequestSigningTests.swift` — generated WaaS request payload signing
-- `PublicErrorContractsTests.swift` — public `OMSWalletError` field, upstream, and recovery contracts
+Test files are organized one per area, for example `MockWalletTests.swift` for wallet auth and
+session logic and `PublicErrorContractsTests.swift` for public error contracts.
 
 ## Public error contract tests
 
@@ -43,7 +39,7 @@ place them in `Tests/OMSWalletIntegrationTests/` and document prerequisites here
 
 ## Conventions
 
-- Test function names use the `Test...` style matching existing tests (e.g. `TestWalletAuth`).
+- Test function names use the `Test...` style matching existing tests (e.g. `TestWalletCompleteEmailAuthUsesSessionLifetimeFromStart`).
 - Every bugfix should include a regression test that reproduces the failure before the fix.
 - Fixtures must be deterministic — no timestamps, random data, or live service calls.
 - Use mocked transport, Keychain, and indexer stubs rather than live services to keep the suite

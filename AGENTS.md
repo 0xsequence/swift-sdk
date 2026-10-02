@@ -45,7 +45,7 @@ typed-data signing, signature verification, token balances, and unit formatting.
   session code.
 - `Sources/OMSWallet/Models/` contains public model types and auth/session
   state.
-- `Sources/OMSWallet/Utils/` contains encoding, hashing, request, time, byte, and
+- `Sources/OMSWallet/Utils/` contains encoding, hashing, request, byte, constants, and
   unit helpers.
 - `Sources/OMSWallet/Generated/waas.gen.swift` is generated WebRPC client code.
   Do not edit it by hand unless the user explicitly asks for a generated-code
@@ -171,6 +171,6 @@ happens.
 | Public API methods or models | `API.md`, `README.md` (if user-facing), tests |
 | Test commands | `TESTING.md`, `ci.yml`, `AGENTS.md` Common Commands |
 | Repository structure | `AGENTS.md` Repository Layout |
-| Swift version or platform targets | `Package.swift`, `ci.yml`, `README.md` |
+| Swift version or platform targets | `Package.swift`, `oms-wallet-swift-sdk.podspec` (`deployment_target`, `swift_version`), `ci.yml`, `README.md`. The React Native SDK depends on this SDK, so raising iOS or Swift/Xcode requirements also raises its supported minimum: check its iOS requirements and Expo minimum fixture (`0xPolygon/oms-wallet-react-native-sdk`, `compatibility-tests/expo-min`) before releasing |
 | New third-party dependency added | `Package.swift`, `AGENTS.md` third-party docs guidance |
 | Demo app flows change | `README.md`, `Examples/` |

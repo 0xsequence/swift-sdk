@@ -5,7 +5,7 @@ extension WalletClient {
     /// Signs an arbitrary message using the wallet's session key.
     ///
     /// - Parameters:
-    ///   - network: The network identifier for the signing context (e.g. `"mainnet"`, `"polygon"`).
+    ///   - network: The `Network` for the signing context (e.g. `.mainnet`, `.polygon`).
     ///   - message: The plaintext message to sign.
     /// - Returns: A hex-encoded signature string.
     public func signMessage(network: Network, message: String) async throws -> String {
