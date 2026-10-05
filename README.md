@@ -22,14 +22,14 @@ Add the package in Xcode with **File -> Add Package Dependencies** and enter the
 https://github.com/0xsequence/swift-sdk.git
 ```
 
-Use the dependency rule **Up to Next Minor Version** with version `0.3.0`. While the SDK is
+Use the dependency rule **Up to Next Minor Version** with version `0.3.1`. While the SDK is
 pre-1.0, minor releases can contain breaking changes (see [MIGRATION.md](MIGRATION.md)).
 
 To add the package from a `Package.swift` manifest instead:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/0xsequence/swift-sdk.git", .upToNextMinor(from: "0.3.0"))
+    .package(url: "https://github.com/0xsequence/swift-sdk.git", .upToNextMinor(from: "0.3.1"))
 ],
 targets: [
     .target(
@@ -46,7 +46,7 @@ targets: [
 Add the pod to your `Podfile`:
 
 ```ruby
-pod 'oms-wallet-swift-sdk', '0.3.0'
+pod 'oms-wallet-swift-sdk', '0.3.1'
 ```
 
 ## Quick Start
