@@ -44,41 +44,47 @@ import Testing
         (
             "pk_dev_sdbx_project_key",
             "https://sandbox-api.dev.polygon-dev.technology",
-            String(repeating: "0", count: 96)
+            [String(repeating: "0", count: 96)]
         ),
         (
             "pk_dev_live_project_key",
             "https://api.dev.polygon-dev.technology",
-            String(repeating: "0", count: 96)
+            [String(repeating: "0", count: 96)]
         ),
         (
             "pk_stg_sdbx_project_key",
             "https://sandbox-api.stg.polygon-dev.technology",
-            "e271fe4b26c9d58d6089b908ab713f888e6107e2cb4782ddaceea950bbec9971ccd9159e7a099bd506e04ce55c3da696"
+            ["3d21c70519a0ea3d5e6af43c5323234d90755d1ca08431064bd9687ddde4a4788a0a4736701513eee6008f1ec17e0d23"]
         ),
         (
             "pk_stg_live_project_key",
             "https://api.stg.polygon-dev.technology",
-            "e271fe4b26c9d58d6089b908ab713f888e6107e2cb4782ddaceea950bbec9971ccd9159e7a099bd506e04ce55c3da696"
+            ["3d21c70519a0ea3d5e6af43c5323234d90755d1ca08431064bd9687ddde4a4788a0a4736701513eee6008f1ec17e0d23"]
         ),
         (
             "pk_sdbx_project_key",
             "https://sandbox-api.polygon.technology",
-            "1935cbc713f0b43060315689e87285f6ba76bcf06f26d0719735e8d674b71e0eff71dcf77fe90ab32870ef3c954973b7"
+            [
+                "1935cbc713f0b43060315689e87285f6ba76bcf06f26d0719735e8d674b71e0eff71dcf77fe90ab32870ef3c954973b7",
+                "66d0d20073ec8549b6eb1cd3cd53311495225ec79d68f168ab734b24a69a8ed0f890f85ff31d5f0a79486a4e3a303b3c"
+            ]
         ),
         (
             "pk_live_project_key",
             "https://api.polygon.technology",
-            "1935cbc713f0b43060315689e87285f6ba76bcf06f26d0719735e8d674b71e0eff71dcf77fe90ab32870ef3c954973b7"
+            [
+                "1935cbc713f0b43060315689e87285f6ba76bcf06f26d0719735e8d674b71e0eff71dcf77fe90ab32870ef3c954973b7",
+                "66d0d20073ec8549b6eb1cd3cd53311495225ec79d68f168ab734b24a69a8ed0f890f85ff31d5f0a79486a4e3a303b3c"
+            ]
         )
     ]
 
-    for (publishableKey, apiUrl, walletImportPcr0) in routes {
+    for (publishableKey, apiUrl, walletImportPcr0s) in routes {
         let parsedKey = try parsePublishableKey(publishableKey)
         #expect(parsedKey.projectId == "prj_project")
         #expect(parsedKey.walletApiUrl == apiUrl)
         #expect(parsedKey.indexerGatewayUrl == "\(apiUrl)/v1/IndexerGateway/")
-        #expect(parsedKey.walletImportTrustedPcr0s == Set([walletImportPcr0]))
+        #expect(parsedKey.walletImportTrustedPcr0s == Set(walletImportPcr0s))
 
         let oms = try OMSWallet(publishableKey: publishableKey)
         #expect(oms.wallet.projectId == "prj_project")
