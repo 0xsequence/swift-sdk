@@ -830,13 +830,14 @@ extension WalletClient {
             }
             return walletAddress
         }
-        try requireActiveWalletType(walletType)
-        _ = try requireActiveWalletId()
-        return try requireActiveWalletAddress()
+        return try requireActiveWalletType(walletType).address
     }
 
-    /// Checks the stored wallet type, not the address shape.
-    func requireActiveWalletType(_ type: WalletType) throws {
+    /// Checks the session (expiring it if due) before the stored wallet type; the address shape is
+    /// not checked.
+    @discardableResult
+    func requireActiveWalletType(_ type: WalletType) throws -> Wallet {
+        _ = try requireActiveWalletId()
         guard let activeWallet else {
             throw OMSWalletError.sessionMissing()
         }
@@ -846,6 +847,7 @@ extension WalletClient {
                 message: "An active \(type.displayName) wallet is required"
             )
         }
+        return activeWallet
     }
 }
 
