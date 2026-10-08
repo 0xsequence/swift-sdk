@@ -52,36 +52,6 @@ extension Dictionary where Key == String, Value == JSONValue {
     }
 }
 
-extension WalletType {
-    var waasValue: WaasGenerated.WalletType {
-        switch self {
-        case .ethereum:
-            return .ethereum
-        case .solana:
-            return .solana
-        case .tron:
-            return .tron
-        case .unknown(let value):
-            return .unknown(value)
-        }
-    }
-}
-
-extension WaasGenerated.WalletType {
-    var sdkValue: WalletType {
-        switch self {
-        case .ethereum:
-            return .ethereum
-        case .solana:
-            return .solana
-        case .tron:
-            return .tron
-        case .unknown(let value):
-            return .unknown(value)
-        }
-    }
-}
-
 extension WaasGenerated.NetworkFamily {
     var sdkWalletType: WalletType? {
         switch self {
