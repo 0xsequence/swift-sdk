@@ -259,24 +259,13 @@ enum P256HPKE {
     }
 
     private static func hkdfExtract(salt: Data, ikm: Data) -> Data {
-        let key = SymmetricKey(data: salt.isEmpty ? Data(repeating: 0, count: 32) : salt)
-        return Data(HMAC<SHA256>.authenticationCode(for: ikm, using: key))
+        Data(HKDF<SHA256>.extract(inputKeyMaterial: SymmetricKey(data: ikm), salt: salt))
     }
 
     private static func hkdfExpand(prk: Data, info: Data, length: Int) throws -> Data {
         guard length <= 255 * 32 else { throw OMSWalletError(code: .validationError, message: "HPKE output is too long") }
-        var output = Data()
-        var previous = Data()
-        var counter: UInt8 = 1
-        while output.count < length {
-            previous = Data(HMAC<SHA256>.authenticationCode(
-                for: previous + info + Data([counter]),
-                using: SymmetricKey(data: prk)
-            ))
-            output += previous
-            counter &+= 1
-        }
-        return output.prefix(length)
+        return HKDF<SHA256>.expand(pseudoRandomKey: prk, info: info, outputByteCount: length)
+            .withUnsafeBytes { Data($0) }
     }
 
     private static func uint16(_ value: UInt16) -> Data {
