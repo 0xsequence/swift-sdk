@@ -35,6 +35,17 @@ case .walletSelected(let wallet, let wallets, let credential):
     let walletAddress = wallet.address
 ```
 
+The computed `CompleteAuthResult.walletAddress` property was removed too; use
+`result.wallet?.address`:
+
+```swift
+// 0.3.x
+let walletAddress = result.walletAddress
+
+// 0.4.0
+let walletAddress = result.wallet?.address
+```
+
 ### `session` is `nil` when signed out
 
 `OMSWalletSessionState` was renamed to `OMSWalletSession`, and `omsWallet.wallet.session` is now
