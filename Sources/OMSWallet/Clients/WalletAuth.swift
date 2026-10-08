@@ -585,13 +585,8 @@ extension WalletClient {
             }
         }
 
-        let wallets: [Wallet]
-        if oidcRedirectAuthOwnership == nil {
-            wallets = try await signOutOnFailure {
-                try await walletsFromAuthResponse(response)
-            }
-        } else {
-            wallets = try await walletsFromAuthResponse(response)
+        let wallets = try await signOutOnFailure(unlessOwnedBy: oidcRedirectAuthOwnership) {
+            try await walletsFromAuthResponse(response)
         }
         try withOptionalOIDCRedirectAuthOwnership(oidcRedirectAuthOwnership) {
             try requireCurrentSessionRevision(requiredSessionRevision)
@@ -614,41 +609,21 @@ extension WalletClient {
             )
         }
 
-        let activated: WalletActivationResult
-        if let selectedWallet = candidateWallets.first {
-            if oidcRedirectAuthOwnership == nil {
-                activated = try await signOutOnFailure {
-                    try await useWallet(
-                        walletId: selectedWallet.id,
-                        sessionMetadata: sessionMetadata,
-                        requiredSessionRevision: requiredSessionRevision
-                    )
-                }
-            } else {
-                activated = try await useWallet(
+        let activated = try await signOutOnFailure(unlessOwnedBy: oidcRedirectAuthOwnership) {
+            if let selectedWallet = candidateWallets.first {
+                return try await useWallet(
                     walletId: selectedWallet.id,
                     sessionMetadata: sessionMetadata,
                     requiredSessionRevision: requiredSessionRevision,
                     oidcRedirectAuthOwnership: oidcRedirectAuthOwnership
                 )
             }
-        } else {
-            if oidcRedirectAuthOwnership == nil {
-                activated = try await signOutOnFailure {
-                    try await createWallet(
-                        walletType: walletType,
-                        sessionMetadata: sessionMetadata,
-                        requiredSessionRevision: requiredSessionRevision
-                    )
-                }
-            } else {
-                activated = try await createWallet(
-                    walletType: walletType,
-                    sessionMetadata: sessionMetadata,
-                    requiredSessionRevision: requiredSessionRevision,
-                    oidcRedirectAuthOwnership: oidcRedirectAuthOwnership
-                )
-            }
+            return try await createWallet(
+                walletType: walletType,
+                sessionMetadata: sessionMetadata,
+                requiredSessionRevision: requiredSessionRevision,
+                oidcRedirectAuthOwnership: oidcRedirectAuthOwnership
+            )
         }
 
         return .walletSelected(
@@ -743,7 +718,15 @@ extension WalletClient {
         }
     }
 
-    private func signOutOnFailure<T>(_ operation: () async throws -> T) async throws -> T {
+    /// Signs out when `operation` fails, except during an OIDC redirect callback (`ownership`
+    /// non-`nil`), whose caller clears the session itself.
+    private func signOutOnFailure<T>(
+        unlessOwnedBy ownership: PendingOIDCRedirectAuth?,
+        _ operation: () async throws -> T
+    ) async throws -> T {
+        guard ownership == nil else {
+            return try await operation()
+        }
         do {
             return try await operation()
         } catch let error as CancellationError {
