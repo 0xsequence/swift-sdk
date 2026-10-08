@@ -31,12 +31,6 @@ public internal(set) var activeWallet: Wallet? { get set }
 The active wallet, or `nil` until auth completes or a session is restored, and after
 sign-out or session expiry. Same shape as `listWallets()` entries.
 
-### `WalletClient.walletId`
-
-```swift
-public internal(set) var walletId: String { get set }
-```
-
 ### `WalletClient.session`
 
 ```swift
@@ -45,6 +39,23 @@ public var session: OMSWalletSession? { get }
 
 Expiry and auth metadata for the active wallet session. Non-`nil` exactly when
 `activeWallet` is.
+
+### `WalletClient.defaultSessionLifetimeSeconds`
+
+```swift
+public static let defaultSessionLifetimeSeconds: UInt32
+```
+
+The session lifetime used when a sign-in call does not pass `sessionLifetimeSeconds`
+(7 days).
+
+### `WalletClient.maxSessionLifetimeSeconds`
+
+```swift
+public static let maxSessionLifetimeSeconds: UInt32
+```
+
+The longest session lifetime the wallet API accepts (30 days).
 
 ### `WalletClient.addSessionExpiredObserver(_:)`
 
@@ -55,7 +66,7 @@ Expiry and auth metadata for the active wallet session. Non-`nil` exactly when
 ### `WalletClient.startEmailAuth(email:sessionLifetimeSeconds:)`
 
 ```swift
-public func startEmailAuth(email: String, sessionLifetimeSeconds: UInt32 = 604_800) async throws
+public func startEmailAuth(email: String, sessionLifetimeSeconds: UInt32 = WalletClient.defaultSessionLifetimeSeconds) async throws
 ```
 
 Initiates email-based OTP authentication by sending a one-time code to the given address.
@@ -71,23 +82,23 @@ Completes the email OTP authentication flow.
 ### `WalletClient.signInWithOidcIdToken(idToken:issuer:audience:walletType:walletSelection:sessionLifetimeSeconds:provider:providerLabel:)`
 
 ```swift
-@discardableResult public func signInWithOidcIdToken(idToken: String, issuer: String, audience: String, walletType: WalletType = WalletType.ethereum, walletSelection: WalletSelectionBehavior = .automatic, sessionLifetimeSeconds: UInt32 = 604_800, provider: String? = nil, providerLabel: String? = nil) async throws -> CompleteAuthResult
+@discardableResult public func signInWithOidcIdToken(idToken: String, issuer: String, audience: String, walletType: WalletType = WalletType.ethereum, walletSelection: WalletSelectionBehavior = .automatic, sessionLifetimeSeconds: UInt32 = WalletClient.defaultSessionLifetimeSeconds, provider: String? = nil, providerLabel: String? = nil) async throws -> CompleteAuthResult
 ```
 
 Signs in with an OIDC ID token.
 
-### `WalletClient.startOIDCRedirectAuth(provider:walletType:loginHint:authorizeParams:walletSelection:sessionLifetimeSeconds:)`
+### `WalletClient.startOIDCRedirectAuth(provider:walletType:walletSelection:sessionLifetimeSeconds:loginHint:authorizeParams:)`
 
 ```swift
-public func startOIDCRedirectAuth(provider: CustomOIDCProviderConfiguration, walletType: WalletType = WalletType.ethereum, loginHint: String? = nil, authorizeParams: [String : String] = [:], walletSelection: WalletSelectionBehavior? = nil, sessionLifetimeSeconds: UInt32? = nil) async throws -> StartOIDCRedirectAuthResult
+public func startOIDCRedirectAuth(provider: CustomOIDCProviderConfiguration, walletType: WalletType = WalletType.ethereum, walletSelection: WalletSelectionBehavior? = nil, sessionLifetimeSeconds: UInt32? = nil, loginHint: String? = nil, authorizeParams: [String : String] = [:]) async throws -> StartOIDCRedirectAuthResult
 ```
 
 Starts OIDC authorization-code redirect authentication.
 
-### `WalletClient.startOIDCRedirectAuth(provider:omsRelayReturnURI:walletType:loginHint:walletSelection:sessionLifetimeSeconds:)`
+### `WalletClient.startOIDCRedirectAuth(provider:omsRelayReturnURI:walletType:walletSelection:sessionLifetimeSeconds:loginHint:)`
 
 ```swift
-public func startOIDCRedirectAuth(provider: OMSRelayOIDCProvider, omsRelayReturnURI: String, walletType: WalletType = WalletType.ethereum, loginHint: String? = nil, walletSelection: WalletSelectionBehavior? = nil, sessionLifetimeSeconds: UInt32? = nil) async throws -> StartOIDCRedirectAuthResult
+public func startOIDCRedirectAuth(provider: OMSRelayOIDCProvider, omsRelayReturnURI: String, walletType: WalletType = WalletType.ethereum, walletSelection: WalletSelectionBehavior? = nil, sessionLifetimeSeconds: UInt32? = nil, loginHint: String? = nil) async throws -> StartOIDCRedirectAuthResult
 ```
 
 Starts OIDC authorization-code redirect authentication through the built-in
@@ -112,7 +123,7 @@ Lists all wallets available to the authenticated credential.
 ### `WalletClient.useWallet(walletId:)`
 
 ```swift
-@discardableResult public func useWallet(walletId: String) async throws -> WalletSelectionResult
+@discardableResult public func useWallet(walletId: String) async throws -> WalletActivationResult
 ```
 
 Activates an existing wallet by its WaaS wallet ID and persists its address and
@@ -121,7 +132,7 @@ signer metadata to the keychain.
 ### `WalletClient.createWallet(walletType:reference:)`
 
 ```swift
-@discardableResult public func createWallet(walletType: WalletType = WalletType.ethereum, reference: String? = nil) async throws -> WalletSelectionResult
+@discardableResult public func createWallet(walletType: WalletType = WalletType.ethereum, reference: String? = nil) async throws -> WalletActivationResult
 ```
 
 Creates a new wallet of the specified type for the authenticated user and persists
@@ -130,7 +141,7 @@ its address and signer metadata to the keychain.
 ### `WalletClient.importWallet(privateKey:reference:)`
 
 ```swift
-@discardableResult public func importWallet(privateKey: WalletImportPrivateKey, reference: String? = nil) async throws -> WalletSelectionResult
+@discardableResult public func importWallet(privateKey: WalletImportPrivateKey, reference: String? = nil) async throws -> WalletActivationResult
 ```
 
 Imports and activates an Ethereum, Solana, or Tron private key.
@@ -146,7 +157,7 @@ Fetches an attested recipient key for advanced wallet-import encryption flows.
 ### `WalletClient.importEncryptedWallet(walletType:keyMaterial:reference:)`
 
 ```swift
-@discardableResult public func importEncryptedWallet(walletType: WalletType, keyMaterial: EncryptedWalletImportKeyMaterial, reference: String? = nil) async throws -> WalletSelectionResult
+@discardableResult public func importEncryptedWallet(walletType: WalletType, keyMaterial: EncryptedWalletImportKeyMaterial, reference: String? = nil) async throws -> WalletActivationResult
 ```
 
 Imports and activates key material encrypted by the caller for an attested WaaS recipient key.
@@ -267,15 +278,15 @@ public final class PendingWalletSelection: @unchecked Sendable {
     public let walletType: WalletType
     public let wallets: [Wallet]
     public let credential: WalletCredential
-    @discardableResult public func selectWallet(walletId: String) async throws -> WalletSelectionResult
-    @discardableResult public func createAndSelectWallet(reference: String? = nil) async throws -> WalletSelectionResult
+    @discardableResult public func selectWallet(walletId: String) async throws -> WalletActivationResult
+    @discardableResult public func createAndSelectWallet(reference: String? = nil) async throws -> WalletActivationResult
 }
 ```
 
-### `WalletSelectionResult`
+### `WalletActivationResult`
 
 ```swift
-public struct WalletSelectionResult: Sendable {
+public struct WalletActivationResult: Sendable {
     public let wallet: Wallet
     public init(wallet: Wallet)
 }
@@ -349,6 +360,7 @@ public enum WalletImportPrivateKey: Sendable {
     case tron(String)
     /// A 32-byte secp256k1 private key.
     case tronBytes(Data)
+    public var walletType: WalletType { get }
 }
 ```
 
@@ -560,11 +572,12 @@ Result of handling an incoming OIDC authorization-code redirect callback.
 
 ```swift
 public struct OMSWalletSession: Equatable, Sendable {
-    /// Expiration time for the active wallet session.
-    public let expiresAt: Date
+    /// Expiration time for the active wallet session, as the ISO-8601 timestamp returned by the
+    /// wallet API (the same value as `WalletCredential.expiresAt`).
+    public let expiresAt: String
     /// Auth metadata for the active wallet session.
     public let auth: OMSWalletSessionAuth
-    public init(expiresAt: Date, auth: OMSWalletSessionAuth)
+    public init(expiresAt: String, auth: OMSWalletSessionAuth)
 }
 ```
 
@@ -627,8 +640,9 @@ public struct OMSWalletSessionExpiredEvent: Equatable, Sendable {
     /// while a manual wallet selection was still pending.
     public let wallet: Wallet?
     public let session: OMSWalletSession
-    public let expiredAt: Date
-    public init(wallet: Wallet?, session: OMSWalletSession, expiredAt: Date)
+    /// The ISO-8601 expiry timestamp of the session that expired.
+    public let expiredAt: String
+    public init(wallet: Wallet?, session: OMSWalletSession, expiredAt: String)
 }
 ```
 
@@ -689,31 +703,31 @@ public func signTronTypedData(typedData: JSONValue) async throws -> String
 ### `WalletClient.isValidMessageSignature(network:walletAddress:message:signature:)`
 
 ```swift
-public func isValidMessageSignature(network: Network, walletAddress: String, message: String, signature: String) async throws -> Bool
+public func isValidMessageSignature(network: Network, walletAddress: String? = nil, message: String, signature: String) async throws -> Bool
 ```
 
 ### `WalletClient.isValidSolanaMessageSignature(walletAddress:message:signature:)`
 
 ```swift
-public func isValidSolanaMessageSignature(walletAddress: String, message: String, signature: String) async throws -> Bool
+public func isValidSolanaMessageSignature(walletAddress: String? = nil, message: String, signature: String) async throws -> Bool
 ```
 
 ### `WalletClient.isValidTypedDataSignature(network:walletAddress:typedData:signature:)`
 
 ```swift
-public func isValidTypedDataSignature(network: Network, walletAddress: String, typedData: JSONValue, signature: String) async throws -> Bool
+public func isValidTypedDataSignature(network: Network, walletAddress: String? = nil, typedData: JSONValue, signature: String) async throws -> Bool
 ```
 
 ### `WalletClient.isValidTronMessageSignature(walletAddress:message:signature:)`
 
 ```swift
-public func isValidTronMessageSignature(walletAddress: String, message: String, signature: String) async throws -> Bool
+public func isValidTronMessageSignature(walletAddress: String? = nil, message: String, signature: String) async throws -> Bool
 ```
 
 ### `WalletClient.isValidTronTypedDataSignature(walletAddress:typedData:signature:)`
 
 ```swift
-public func isValidTronTypedDataSignature(walletAddress: String, typedData: JSONValue, signature: String) async throws -> Bool
+public func isValidTronTypedDataSignature(walletAddress: String? = nil, typedData: JSONValue, signature: String) async throws -> Bool
 ```
 
 ### `WalletClient.sendTransaction(network:to:value:selectFeeOption:mode:waitForStatus:statusPolling:)`
@@ -740,16 +754,16 @@ public func sendSolanaTransfer(network: SolanaNetwork, asset: String, to: String
 public func sendTronTransaction(network: TronNetwork, to: String, value: String = "0", data: String? = nil, selectFeeOption: FeeOptionSelector? = nil, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
 ```
 
-### `WalletClient.callContract(network:contract:method:args:selectFeeOption:mode:waitForStatus:statusPolling:)`
+### `WalletClient.callContract(network:contractAddress:method:args:selectFeeOption:mode:waitForStatus:statusPolling:)`
 
 ```swift
-public func callContract(network: Network, contract: String, method: String, args: [AbiArg]?, selectFeeOption: FeeOptionSelector? = nil, mode: TransactionMode = .relayer, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
+public func callContract(network: Network, contractAddress: String, method: String, args: [AbiArg]? = nil, selectFeeOption: FeeOptionSelector? = nil, mode: TransactionMode = .relayer, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
 ```
 
-### `WalletClient.callTronContract(network:contract:method:args:selectFeeOption:waitForStatus:statusPolling:)`
+### `WalletClient.callTronContract(network:contractAddress:method:args:selectFeeOption:waitForStatus:statusPolling:)`
 
 ```swift
-public func callTronContract(network: TronNetwork, contract: String, method: String, args: [AbiArg]? = nil, selectFeeOption: FeeOptionSelector? = nil, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
+public func callTronContract(network: TronNetwork, contractAddress: String, method: String, args: [AbiArg]? = nil, selectFeeOption: FeeOptionSelector? = nil, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
 ```
 
 ### `WalletClient.getTransactionStatus(txnId:)`
@@ -987,6 +1001,19 @@ public enum SolanaBalance: Decodable, Sendable {
     case native(SolanaNativeBalance)
     case fungibleToken(SolanaFungibleTokenBalance)
     public init(from decoder: Decoder) throws
+    public var network: SolanaNetwork { get }
+    public var accountAddress: String { get }
+    public var name: String { get }
+    public var symbol: String { get }
+    public var decimals: Int { get }
+    public var balance: String { get }
+    public var formattedBalance: String { get }
+    public var imageUrl: String? { get }
+    public var metadataUri: String? { get }
+    public var verificationStatus: SolanaVerificationStatus { get }
+    public var verificationSource: SolanaVerificationSource { get }
+    public var priceUSD: String? { get }
+    public var balanceUSD: String? { get }
 }
 ```
 
@@ -1116,6 +1143,19 @@ public enum TronBalance: Decodable, Sendable {
     case native(TronNativeBalance)
     case fungibleToken(TronFungibleTokenBalance)
     public init(from decoder: Decoder) throws
+    public var network: TronNetwork { get }
+    public var accountAddress: String { get }
+    public var name: String { get }
+    public var symbol: String { get }
+    public var decimals: Int { get }
+    public var balance: String { get }
+    public var formattedBalance: String { get }
+    public var imageUrl: String? { get }
+    public var metadataUri: String? { get }
+    public var verificationStatus: TronVerificationStatus { get }
+    public var verificationSource: String { get }
+    public var priceUSD: String? { get }
+    public var balanceUSD: String? { get }
 }
 ```
 
@@ -1539,7 +1579,7 @@ public enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
     case mainnet
     case sepolia
     case polygon
-    case polygonAmoy = "amoy"
+    case amoy
     case arbitrum
     case arbitrumSepolia = "arbitrum-sepolia"
     case optimism
@@ -1552,9 +1592,7 @@ public enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
     case avalanche
     case avalancheTestnet = "avalanche-testnet"
     case katana
-    public static let amoy: Network
     public var id: Int { get }
-    public var chainId: String { get }
     public var name: String { get }
     public var nativeTokenSymbol: String { get }
     public var explorerUrl: String { get }
@@ -1660,6 +1698,7 @@ public enum OMSWalletErrorCode: String, Sendable {
     case validationError = "OMS_VALIDATION_ERROR"
     case storageError = "OMS_STORAGE_ERROR"
     case attestationVerificationFailed = "OMS_ATTESTATION_VERIFICATION_FAILED"
+    case walletAddressAlreadyImported = "OMS_WALLET_ADDRESS_ALREADY_IMPORTED"
     public init?(rawValue: String)
 }
 ```
@@ -1674,8 +1713,8 @@ public enum OMSWalletOperation: String, Sendable {
     case walletStartEmailAuth = "wallet.startEmailAuth"
     case walletCompleteEmailAuth = "wallet.completeEmailAuth"
     case walletSignInWithOidcIdToken = "wallet.signInWithOidcIdToken"
-    case walletStartOIDCRedirectAuth = "wallet.startOIDCRedirectAuth"
-    case walletHandleOIDCRedirectCallback = "wallet.handleOIDCRedirectCallback"
+    case walletStartOIDCRedirectAuth = "wallet.startOidcRedirectAuth"
+    case walletHandleOIDCRedirectCallback = "wallet.handleOidcRedirectCallback"
     case walletUseWallet = "wallet.useWallet"
     case walletCreateWallet = "wallet.createWallet"
     case walletImportWallet = "wallet.importWallet"
@@ -1734,8 +1773,8 @@ public struct OMSWalletUpstreamError: Equatable, Sendable {
 
 ```swift
 public enum OMSWalletUpstreamService: String, Sendable {
-    case waas = "Waas"
-    case indexer = "Indexer"
+    case waas = "waas"
+    case indexer = "indexer"
     public init?(rawValue: String)
 }
 ```
@@ -1753,11 +1792,11 @@ public enum UnitConversionError: Error, Equatable {
 ### `parseUnits(value:decimals:)`
 
 ```swift
-public func parseUnits(value: String, decimals: Int = 18) throws -> String
+public func parseUnits(value: String, decimals: Int) throws -> String
 ```
 
 ### `formatUnits(value:decimals:)`
 
 ```swift
-public func formatUnits(value: String, decimals: Int = 18) throws -> String
+public func formatUnits(value: String, decimals: Int) throws -> String
 ```

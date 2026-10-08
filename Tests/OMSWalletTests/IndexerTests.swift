@@ -7,7 +7,7 @@ import Testing
         .mainnet,
         .sepolia,
         .polygon,
-        .polygonAmoy,
+        .amoy,
         .arbitrum,
         .arbitrumSepolia,
         .optimism,
@@ -25,9 +25,12 @@ import Testing
     #expect(Network.findById(8453) == .base)
     #expect(Network.findById(747474) == .katana)
     #expect(Network.findByName("optimism-sepolia") == .optimismSepolia)
-    #expect(Network.findByName("polygonamoy") == .polygonAmoy)
+    #expect(Network.findByName("amoy") == .amoy)
+    #expect(Network.findByName(" AMOY ") == .amoy)
+    #expect(Network.findByName("polygonamoy") == nil)
+    #expect(Network.findByName("polygonAmoy") == nil)
     #expect(Network(rawValue: "arbitrum-sepolia") == .arbitrumSepolia)
-    #expect(Network(rawValue: "amoy") == .polygonAmoy)
+    #expect(Network(rawValue: "amoy") == .amoy)
 
     #expect(Network.polygon.displayName == "Polygon")
     #expect(Network.polygon.description == "Polygon")
@@ -35,8 +38,10 @@ import Testing
     #expect(Network.polygon.name == "polygon")
     #expect(Network.polygon.nativeTokenSymbol == "POL")
     #expect(Network.polygon.explorerUrl == "https://polygonscan.com")
-    #expect(Network.polygonAmoy.name == "amoy")
-    #expect(Network.amoy == .polygonAmoy)
+    #expect(Network.amoy.name == "amoy")
+    #expect(Network.amoy.id == 80002)
+    #expect(Network.amoy.displayName == "Polygon Amoy")
+    #expect(Network.findById(80002) == .amoy)
 }
 
 @Test func TestPublishableKeyRoutingDerivesProjectAndApiUrls() throws {
@@ -208,6 +213,27 @@ import Testing
     }
     #expect(token.mintAddress == "usdc-mint")
     #expect(result.errors.first?.network == .devnet)
+
+    let native = result.balances[0]
+    let fungible = result.balances[1]
+    #expect(native.network == .mainnet)
+    #expect(native.accountAddress == "solana-wallet")
+    #expect(native.name == "Solana")
+    #expect(native.symbol == "SOL")
+    #expect(native.decimals == 9)
+    #expect(native.balance == "4679287")
+    #expect(native.formattedBalance == "0.004679287")
+    #expect(native.imageUrl == nil)
+    #expect(native.metadataUri == nil)
+    #expect(native.verificationStatus == .unknown)
+    #expect(native.verificationSource == SolanaVerificationSource.none)
+    #expect(native.priceUSD == nil)
+    #expect(native.balanceUSD == nil)
+    #expect(fungible.symbol == "USDC")
+    #expect(fungible.decimals == 6)
+    #expect(fungible.balance == "4208117429")
+    #expect(fungible.verificationStatus == .verified)
+    #expect(fungible.verificationSource == .jupiter)
 }
 
 @Test func TestGetTronBalancesUsesTronGatewayAndDecodesStrictAssets() async throws {
@@ -319,6 +345,22 @@ import Testing
     #expect(native.metadataUri == nil)
     #expect(native.priceUSD == "0.27")
     #expect(native.balanceUSD == "265.44")
+    let tokenBalance = result.balances[0]
+    let nativeBalance = result.balances[1]
+    #expect(tokenBalance.network == .nile)
+    #expect(tokenBalance.accountAddress == wallet)
+    #expect(tokenBalance.name == "Tether USD")
+    #expect(tokenBalance.symbol == "USDT")
+    #expect(tokenBalance.decimals == 6)
+    #expect(tokenBalance.balance == "999000000")
+    #expect(tokenBalance.formattedBalance == "999")
+    #expect(tokenBalance.verificationStatus == .unknown)
+    #expect(tokenBalance.verificationSource == "none")
+    #expect(nativeBalance.symbol == "TRX")
+    #expect(nativeBalance.imageUrl == nil)
+    #expect(nativeBalance.metadataUri == nil)
+    #expect(nativeBalance.priceUSD == "0.27")
+    #expect(nativeBalance.balanceUSD == "265.44")
     #expect(result.errors.map(\.network) == [.mainnet])
     #expect(result.errors.map(\.reason) == ["RPC unavailable"])
 }

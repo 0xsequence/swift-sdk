@@ -31,7 +31,7 @@ extension WalletClient {
     public func importWallet(
         privateKey: WalletImportPrivateKey,
         reference: String? = nil
-    ) async throws -> WalletSelectionResult {
+    ) async throws -> WalletActivationResult {
         try await runOMSWalletOperation(.walletImportWallet) {
             let context = try walletImportActivationContext(for: privateKey.walletType)
             try WalletImportValidation.validateReference(reference)
@@ -82,7 +82,7 @@ extension WalletClient {
         walletType: WalletType,
         keyMaterial: EncryptedWalletImportKeyMaterial,
         reference: String? = nil
-    ) async throws -> WalletSelectionResult {
+    ) async throws -> WalletActivationResult {
         try await runOMSWalletOperation(.walletImportEncryptedWallet) {
             let context = try walletImportActivationContext(for: walletType)
             try WalletImportValidation.validateReference(reference)
@@ -191,7 +191,7 @@ extension WalletClient {
     private func activateImportedWallet(
         _ wallet: Wallet,
         context: WalletImportActivationContext
-    ) throws -> WalletSelectionResult {
+    ) throws -> WalletActivationResult {
         try createSequenceWallet(
             wallet: wallet,
             sessionMetadata: context.metadata,
@@ -200,7 +200,7 @@ extension WalletClient {
         if case .pending = context {
             activePendingWalletSelection = nil
         }
-        return WalletSelectionResult(wallet: wallet)
+        return WalletActivationResult(wallet: wallet)
     }
 
     private func requireWalletImportClient() throws -> WaasClient {

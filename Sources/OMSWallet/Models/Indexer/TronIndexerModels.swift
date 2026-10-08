@@ -121,6 +121,97 @@ public enum TronBalance: Decodable, Sendable {
             throw DecodingError.dataCorruptedError(forKey: .assetType, in: container, debugDescription: "Unsupported Tron asset type")
         }
     }
+
+    public var network: TronNetwork {
+        switch self {
+        case .native(let balance): balance.network
+        case .fungibleToken(let balance): balance.network
+        }
+    }
+
+    public var accountAddress: String {
+        switch self {
+        case .native(let balance): balance.accountAddress
+        case .fungibleToken(let balance): balance.accountAddress
+        }
+    }
+
+    public var name: String {
+        switch self {
+        case .native(let balance): balance.name
+        case .fungibleToken(let balance): balance.name
+        }
+    }
+
+    public var symbol: String {
+        switch self {
+        case .native(let balance): balance.symbol
+        case .fungibleToken(let balance): balance.symbol
+        }
+    }
+
+    public var decimals: Int {
+        switch self {
+        case .native(let balance): balance.decimals
+        case .fungibleToken(let balance): balance.decimals
+        }
+    }
+
+    public var balance: String {
+        switch self {
+        case .native(let balance): balance.balance
+        case .fungibleToken(let balance): balance.balance
+        }
+    }
+
+    public var formattedBalance: String {
+        switch self {
+        case .native(let balance): balance.formattedBalance
+        case .fungibleToken(let balance): balance.formattedBalance
+        }
+    }
+
+    public var imageUrl: String? {
+        switch self {
+        case .native(let balance): balance.imageUrl
+        case .fungibleToken(let balance): balance.imageUrl
+        }
+    }
+
+    public var metadataUri: String? {
+        switch self {
+        case .native(let balance): balance.metadataUri
+        case .fungibleToken(let balance): balance.metadataUri
+        }
+    }
+
+    public var verificationStatus: TronVerificationStatus {
+        switch self {
+        case .native(let balance): balance.verificationStatus
+        case .fungibleToken(let balance): balance.verificationStatus
+        }
+    }
+
+    public var verificationSource: String {
+        switch self {
+        case .native(let balance): balance.verificationSource
+        case .fungibleToken(let balance): balance.verificationSource
+        }
+    }
+
+    public var priceUSD: String? {
+        switch self {
+        case .native(let balance): balance.priceUSD
+        case .fungibleToken(let balance): balance.priceUSD
+        }
+    }
+
+    public var balanceUSD: String? {
+        switch self {
+        case .native(let balance): balance.balanceUSD
+        case .fungibleToken(let balance): balance.balanceUSD
+        }
+    }
 }
 
 public struct TronNetworkError: Codable, Sendable {

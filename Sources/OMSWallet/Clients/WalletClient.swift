@@ -17,6 +17,12 @@ public final class WalletClient: @unchecked Sendable {
         event: OMSWalletSessionExpiredEvent
     )
 
+    /// The session lifetime used when a sign-in call does not pass `sessionLifetimeSeconds`
+    /// (7 days).
+    public static let defaultSessionLifetimeSeconds: UInt32 = 604_800
+    /// The longest session lifetime the wallet API accepts (30 days).
+    public static let maxSessionLifetimeSeconds: UInt32 = 2_592_000
+
     static let defaultTransactionStatusPollTimeoutMs: UInt64 = 60_000
     static let defaultFastTransactionStatusPollIntervalMs: UInt64 = 400
     static let defaultFastTransactionStatusPollCount = 5
@@ -107,7 +113,7 @@ public final class WalletClient: @unchecked Sendable {
             withSessionLock { _activeWallet = newValue }
         }
     }
-    public internal(set) var walletId: String {
+    var walletId: String {
         get {
             withSessionLock { _walletId }
         }

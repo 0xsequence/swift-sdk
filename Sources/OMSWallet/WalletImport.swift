@@ -19,7 +19,7 @@ public enum WalletImportPrivateKey: Sendable {
     /// A 32-byte secp256k1 private key.
     case tronBytes(Data)
 
-    var walletType: WalletType {
+    public var walletType: WalletType {
         switch self {
         case .ethereum, .ethereumBytes: .ethereum
         case .solana, .solanaBytes: .solana

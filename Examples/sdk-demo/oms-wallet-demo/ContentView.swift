@@ -525,7 +525,7 @@ final class AppViewModel: ObservableObject {
     }
 
     private func completeWalletSelection(
-        _ operation: () async throws -> WalletSelectionResult
+        _ operation: () async throws -> WalletActivationResult
     ) async {
         isLoading = true
         defer { isLoading = false }
@@ -1101,7 +1101,7 @@ struct WalletWindow: View {
     @State private var usdcBalance: String = "—"
     @State private var usdcBalanceRaw: String = ""
     @State private var isFetchingBalance: Bool = false
-    @State private var selectedNetwork: Network = Network.polygonAmoy
+    @State private var selectedNetwork: Network = Network.amoy
 
     private func clearBalance() {
         nativeBalance = "—"
@@ -1759,7 +1759,7 @@ private struct TronSendWindow: View {
                 // TRC-20 transfers are contract calls; the wallet service ABI-encodes the arguments.
                 transaction = try await vm.omsWallet.wallet.callTronContract(
                     network: .nile,
-                    contract: contract,
+                    contractAddress: contract,
                     method: "transfer",
                     args: [
                         AbiArg(type: "address", value: .string(recipient)),
@@ -1853,7 +1853,7 @@ struct SignMessageWindow: View {
     var showsCloseButton: Bool = true
 
     @State private var messageText: String = ""
-    @State private var network: Network = Network.polygonAmoy
+    @State private var network: Network = Network.amoy
     @State private var signature: String = ""
     @State private var isSigning: Bool = false
     @State private var error: GenericAppError?
@@ -1918,7 +1918,7 @@ struct SendTransactionWindow: View {
 
     @State private var toText: String = ""
     @State private var amountText: String = "1000"
-    @State private var network: Network = Network.polygonAmoy
+    @State private var network: Network = Network.amoy
     @State private var result: SendTransactionResponse?
     @State private var isSending: Bool = false
     @State private var error: GenericAppError?
@@ -2047,7 +2047,7 @@ struct CallContractWindow: View {
 
     @State private var contractText: String = "0x41e94eb019c0762f9bfcf9fb1e58725bfb0e7582"
     @State private var methodText: String = "transfer"
-    @State private var network: Network = Network.polygonAmoy
+    @State private var network: Network = Network.amoy
     @State private var args: [AbiArgInput] = [
         AbiArgInput(type: "address", value: "0xE5E8B483FfC05967FcFed58cc98D053265af6D99"),
         AbiArgInput(type: "uint256", value: "1000000"),
@@ -2127,7 +2127,7 @@ struct CallContractWindow: View {
                             .map { AbiArg(type: $0.type, value: parseAbiValue($0.value)) }
                         let txResult = try await vm.omsWallet.wallet.callContract(
                             network: network,
-                            contract: contractText,
+                            contractAddress: contractText,
                             method: methodText,
                             args: abiArgs.isEmpty ? nil : abiArgs,
                             selectFeeOption: .custom { options in

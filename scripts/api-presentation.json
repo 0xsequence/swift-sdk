@@ -17,10 +17,13 @@
         "path": "WalletClient.activeWallet"
       },
       {
-        "path": "WalletClient.walletId"
+        "path": "WalletClient.session"
       },
       {
-        "path": "WalletClient.session"
+        "path": "WalletClient.defaultSessionLifetimeSeconds"
+      },
+      {
+        "path": "WalletClient.maxSessionLifetimeSeconds"
       },
       {
         "path": "WalletClient.addSessionExpiredObserver(_:)"
@@ -35,10 +38,10 @@
         "path": "WalletClient.signInWithOidcIdToken(idToken:issuer:audience:walletType:walletSelection:sessionLifetimeSeconds:provider:providerLabel:)"
       },
       {
-        "path": "WalletClient.startOIDCRedirectAuth(provider:walletType:loginHint:authorizeParams:walletSelection:sessionLifetimeSeconds:)"
+        "path": "WalletClient.startOIDCRedirectAuth(provider:walletType:walletSelection:sessionLifetimeSeconds:loginHint:authorizeParams:)"
       },
       {
-        "path": "WalletClient.startOIDCRedirectAuth(provider:omsRelayReturnURI:walletType:loginHint:walletSelection:sessionLifetimeSeconds:)"
+        "path": "WalletClient.startOIDCRedirectAuth(provider:omsRelayReturnURI:walletType:walletSelection:sessionLifetimeSeconds:loginHint:)"
       },
       {
         "path": "WalletClient.handleOIDCRedirectCallback(_:walletSelection:sessionLifetimeSeconds:)"
@@ -101,7 +104,7 @@
         "path": "PendingWalletSelection"
       },
       {
-        "path": "WalletSelectionResult"
+        "path": "WalletActivationResult"
       },
       {
         "path": "Wallet"
@@ -244,10 +247,10 @@
         "path": "WalletClient.sendTronTransaction(network:to:value:data:selectFeeOption:waitForStatus:statusPolling:)"
       },
       {
-        "path": "WalletClient.callContract(network:contract:method:args:selectFeeOption:mode:waitForStatus:statusPolling:)"
+        "path": "WalletClient.callContract(network:contractAddress:method:args:selectFeeOption:mode:waitForStatus:statusPolling:)"
       },
       {
-        "path": "WalletClient.callTronContract(network:contract:method:args:selectFeeOption:waitForStatus:statusPolling:)"
+        "path": "WalletClient.callTronContract(network:contractAddress:method:args:selectFeeOption:waitForStatus:statusPolling:)"
       },
       {
         "path": "WalletClient.getTransactionStatus(txnId:)"

@@ -276,6 +276,7 @@ conformance	Wallet	Swift.Decodable
 conformance	Wallet	Swift.Encodable
 conformance	Wallet	Swift.Equatable
 conformance	Wallet	Swift.Sendable
+conformance	WalletActivationResult	Swift.Sendable
 conformance	WalletClient	Swift.Sendable
 conformance	WalletCredential	Swift.Decodable
 conformance	WalletCredential	Swift.Encodable
@@ -300,7 +301,6 @@ conformance	WalletSelectionBehavior	Swift.Equatable
 conformance	WalletSelectionBehavior	Swift.Hashable
 conformance	WalletSelectionBehavior	Swift.RawRepresentable
 conformance	WalletSelectionBehavior	Swift.Sendable
-conformance	WalletSelectionResult	Swift.Sendable
 conformance	WalletType	Swift.Decodable
 conformance	WalletType	Swift.Encodable
 conformance	WalletType	Swift.Equatable
@@ -369,6 +369,7 @@ symbol	swift.enum.case	JSONValue.number(_:)	case number(Double)
 symbol	swift.enum.case	JSONValue.object(_:)	case object([String : JSONValue])
 symbol	swift.enum.case	JSONValue.string(_:)	case string(String)
 symbol	swift.enum.case	JSONValue.unsignedInteger(_:)	case unsignedInteger(UInt64)
+symbol	swift.enum.case	Network.amoy	case amoy
 symbol	swift.enum.case	Network.arbitrum	case arbitrum
 symbol	swift.enum.case	Network.arbitrumNova	case arbitrumNova
 symbol	swift.enum.case	Network.arbitrumSepolia	case arbitrumSepolia
@@ -383,7 +384,6 @@ symbol	swift.enum.case	Network.mainnet	case mainnet
 symbol	swift.enum.case	Network.optimism	case optimism
 symbol	swift.enum.case	Network.optimismSepolia	case optimismSepolia
 symbol	swift.enum.case	Network.polygon	case polygon
-symbol	swift.enum.case	Network.polygonAmoy	case polygonAmoy
 symbol	swift.enum.case	Network.sepolia	case sepolia
 symbol	swift.enum.case	OIDCAuthMode.authCode	case authCode
 symbol	swift.enum.case	OIDCAuthMode.authCodePKCE	case authCodePKCE
@@ -401,6 +401,7 @@ symbol	swift.enum.case	OMSWalletErrorCode.storageError	case storageError
 symbol	swift.enum.case	OMSWalletErrorCode.transactionExecutionUnconfirmed	case transactionExecutionUnconfirmed
 symbol	swift.enum.case	OMSWalletErrorCode.transactionStatusLookupFailed	case transactionStatusLookupFailed
 symbol	swift.enum.case	OMSWalletErrorCode.validationError	case validationError
+symbol	swift.enum.case	OMSWalletErrorCode.walletAddressAlreadyImported	case walletAddressAlreadyImported
 symbol	swift.enum.case	OMSWalletErrorCode.walletSelectionInFlight	case walletSelectionInFlight
 symbol	swift.enum.case	OMSWalletErrorCode.walletSelectionStale	case walletSelectionStale
 symbol	swift.enum.case	OMSWalletErrorCode.walletSelectionUnavailable	case walletSelectionUnavailable
@@ -515,8 +516,8 @@ symbol	swift.enum.case	WalletType.ethereum	case ethereum
 symbol	swift.enum.case	WalletType.solana	case solana
 symbol	swift.enum.case	WalletType.tron	case tron
 symbol	swift.enum.case	WalletType.unknown(_:)	case unknown(String)
-symbol	swift.func	formatUnits(value:decimals:)	func formatUnits(value: String, decimals: Int = 18) throws -> String
-symbol	swift.func	parseUnits(value:decimals:)	func parseUnits(value: String, decimals: Int = 18) throws -> String
+symbol	swift.func	formatUnits(value:decimals:)	func formatUnits(value: String, decimals: Int) throws -> String
+symbol	swift.func	parseUnits(value:decimals:)	func parseUnits(value: String, decimals: Int) throws -> String
 symbol	swift.init	AbiArg.init(from:)	init(from decoder: any Decoder) throws
 symbol	swift.init	AbiArg.init(type:value:)	init(type: String, value: JSONValue)
 symbol	swift.init	AccessGrantPage.init(grants:page:)	init(grants: [AccessGrant], page: Page? = nil)
@@ -556,9 +557,9 @@ symbol	swift.init	OMSWalletOidcSessionAuth.init(flow:issuer:provider:providerLab
 symbol	swift.init	OMSWalletOidcSessionAuth.init(from:)	init(from decoder: Decoder) throws
 symbol	swift.init	OMSWalletOidcSessionAuthFlow.init(rawValue:)	init?(rawValue: String)
 symbol	swift.init	OMSWalletOperation.init(rawValue:)	init?(rawValue: String)
-symbol	swift.init	OMSWalletSession.init(expiresAt:auth:)	init(expiresAt: Date, auth: OMSWalletSessionAuth)
+symbol	swift.init	OMSWalletSession.init(expiresAt:auth:)	init(expiresAt: String, auth: OMSWalletSessionAuth)
 symbol	swift.init	OMSWalletSessionAuth.init(from:)	init(from decoder: Decoder) throws
-symbol	swift.init	OMSWalletSessionExpiredEvent.init(wallet:session:expiredAt:)	init(wallet: Wallet?, session: OMSWalletSession, expiredAt: Date)
+symbol	swift.init	OMSWalletSessionExpiredEvent.init(wallet:session:expiredAt:)	init(wallet: Wallet?, session: OMSWalletSession, expiredAt: String)
 symbol	swift.init	OMSWalletUpstreamService.init(rawValue:)	init?(rawValue: String)
 symbol	swift.init	Page.init(from:)	init(from decoder: any Decoder) throws
 symbol	swift.init	Page.init(limit:cursor:)	init(limit: UInt32? = nil, cursor: String? = nil)
@@ -612,6 +613,7 @@ symbol	swift.init	TronTokenStandard.init(rawValue:)	init?(rawValue: String)
 symbol	swift.init	TronVerificationStatus.init(rawValue:)	init?(rawValue: String)
 symbol	swift.init	Wallet.init(from:)	init(from decoder: any Decoder) throws
 symbol	swift.init	Wallet.init(id:type:address:reference:keyOrigin:)	init(id: String, type: WalletType, address: String, reference: String? = nil, keyOrigin: WalletKeyOrigin)
+symbol	swift.init	WalletActivationResult.init(wallet:)	init(wallet: Wallet)
 symbol	swift.init	WalletCredential.init(credentialId:expiresAt:isCaller:)	init(credentialId: String, expiresAt: String, isCaller: Bool)
 symbol	swift.init	WalletCredential.init(from:)	init(from decoder: any Decoder) throws
 symbol	swift.init	WalletImportCipherSuite.init(rawValue:)	init?(rawValue: String)
@@ -619,7 +621,6 @@ symbol	swift.init	WalletImportRecipientKey.init(keyId:cipherSuite:publicKey:)	in
 symbol	swift.init	WalletKeyOrigin.init(from:)	init(from decoder: Decoder) throws
 symbol	swift.init	WalletKeyOrigin.init(wireValue:)	init(wireValue: String)
 symbol	swift.init	WalletSelectionBehavior.init(rawValue:)	init?(rawValue: String)
-symbol	swift.init	WalletSelectionResult.init(wallet:)	init(wallet: Wallet)
 symbol	swift.init	WalletType.init(from:)	init(from decoder: Decoder) throws
 symbol	swift.init	WalletType.init(wireValue:)	init(wireValue: String)
 symbol	swift.method	ContractTokenBalance.encode(to:)	func encode(to encoder: Encoder) throws
@@ -637,8 +638,8 @@ symbol	swift.method	OMSWalletEmailSessionAuth.encode(to:)	func encode(to encoder
 symbol	swift.method	OMSWalletOidcSessionAuth.encode(to:)	func encode(to encoder: Encoder) throws
 symbol	swift.method	OMSWalletSessionAuth.encode(to:)	func encode(to encoder: Encoder) throws
 symbol	swift.method	OMSWalletSessionExpiredObservation.cancel()	func cancel()
-symbol	swift.method	PendingWalletSelection.createAndSelectWallet(reference:)	@discardableResult func createAndSelectWallet(reference: String? = nil) async throws -> WalletSelectionResult
-symbol	swift.method	PendingWalletSelection.selectWallet(walletId:)	@discardableResult func selectWallet(walletId: String) async throws -> WalletSelectionResult
+symbol	swift.method	PendingWalletSelection.createAndSelectWallet(reference:)	@discardableResult func createAndSelectWallet(reference: String? = nil) async throws -> WalletActivationResult
+symbol	swift.method	PendingWalletSelection.selectWallet(walletId:)	@discardableResult func selectWallet(walletId: String) async throws -> WalletActivationResult
 symbol	swift.method	TokenMetadata.encode(to:)	func encode(to encoder: Encoder) throws
 symbol	swift.method	TokenMetadataAsset.encode(to:)	func encode(to encoder: Encoder) throws
 symbol	swift.method	Transaction.encode(to:)	func encode(to encoder: Encoder) throws
@@ -647,24 +648,24 @@ symbol	swift.method	TransactionStatus.encode(to:)	func encode(to encoder: Encode
 symbol	swift.method	TransactionTransfer.encode(to:)	func encode(to encoder: Encoder) throws
 symbol	swift.method	WalletClient.addSessionExpiredObserver(_:)	@discardableResult func addSessionExpiredObserver(_ observer: @escaping @MainActor @Sendable (OMSWalletSessionExpiredEvent) -> Void) -> OMSWalletSessionExpiredObservation
 symbol	swift.method	WalletClient.authorizeRemoteAccess(credentialId:network:grants:expiresAt:sessionId:)	func authorizeRemoteAccess(credentialId: String, network: Network, grants: [SmartSessionGrant], expiresAt: String, sessionId: String? = nil) async throws -> AuthorizedRemoteAccess
-symbol	swift.method	WalletClient.callContract(network:contract:method:args:selectFeeOption:mode:waitForStatus:statusPolling:)	func callContract(network: Network, contract: String, method: String, args: [AbiArg]?, selectFeeOption: FeeOptionSelector? = nil, mode: TransactionMode = .relayer, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
-symbol	swift.method	WalletClient.callTronContract(network:contract:method:args:selectFeeOption:waitForStatus:statusPolling:)	func callTronContract(network: TronNetwork, contract: String, method: String, args: [AbiArg]? = nil, selectFeeOption: FeeOptionSelector? = nil, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
+symbol	swift.method	WalletClient.callContract(network:contractAddress:method:args:selectFeeOption:mode:waitForStatus:statusPolling:)	func callContract(network: Network, contractAddress: String, method: String, args: [AbiArg]? = nil, selectFeeOption: FeeOptionSelector? = nil, mode: TransactionMode = .relayer, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
+symbol	swift.method	WalletClient.callTronContract(network:contractAddress:method:args:selectFeeOption:waitForStatus:statusPolling:)	func callTronContract(network: TronNetwork, contractAddress: String, method: String, args: [AbiArg]? = nil, selectFeeOption: FeeOptionSelector? = nil, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
 symbol	swift.method	WalletClient.completeEmailAuth(code:walletSelection:walletType:)	@discardableResult func completeEmailAuth(code: String, walletSelection: WalletSelectionBehavior = .automatic, walletType: WalletType = WalletType.ethereum) async throws -> CompleteAuthResult
-symbol	swift.method	WalletClient.createWallet(walletType:reference:)	@discardableResult func createWallet(walletType: WalletType = WalletType.ethereum, reference: String? = nil) async throws -> WalletSelectionResult
+symbol	swift.method	WalletClient.createWallet(walletType:reference:)	@discardableResult func createWallet(walletType: WalletType = WalletType.ethereum, reference: String? = nil) async throws -> WalletActivationResult
 symbol	swift.method	WalletClient.getIdToken(ttlSeconds:customClaims:)	func getIdToken(ttlSeconds: UInt32? = nil, customClaims: [String : JSONValue]? = nil) async throws -> String
 symbol	swift.method	WalletClient.getRemoteAccessSession(sessionId:)	func getRemoteAccessSession(sessionId: String) async throws -> RemoteAccessSession
 symbol	swift.method	WalletClient.getRemoteAccessSessionUsage(sessionId:network:)	func getRemoteAccessSessionUsage(sessionId: String, network: Network) async throws -> [SmartSessionGrantUsage]
 symbol	swift.method	WalletClient.getTransactionStatus(txnId:)	func getTransactionStatus(txnId: String) async throws -> TransactionStatusResponse
 symbol	swift.method	WalletClient.getWalletImportRecipientKey(cipherSuite:)	func getWalletImportRecipientKey(cipherSuite: WalletImportCipherSuite) async throws -> WalletImportRecipientKey
 symbol	swift.method	WalletClient.handleOIDCRedirectCallback(_:walletSelection:sessionLifetimeSeconds:)	func handleOIDCRedirectCallback(_ callbackURL: String?, walletSelection: WalletSelectionBehavior? = nil, sessionLifetimeSeconds: UInt32? = nil) async throws -> OIDCRedirectAuthResult
-symbol	swift.method	WalletClient.importEncryptedWallet(walletType:keyMaterial:reference:)	@discardableResult func importEncryptedWallet(walletType: WalletType, keyMaterial: EncryptedWalletImportKeyMaterial, reference: String? = nil) async throws -> WalletSelectionResult
-symbol	swift.method	WalletClient.importWallet(privateKey:reference:)	@discardableResult func importWallet(privateKey: WalletImportPrivateKey, reference: String? = nil) async throws -> WalletSelectionResult
+symbol	swift.method	WalletClient.importEncryptedWallet(walletType:keyMaterial:reference:)	@discardableResult func importEncryptedWallet(walletType: WalletType, keyMaterial: EncryptedWalletImportKeyMaterial, reference: String? = nil) async throws -> WalletActivationResult
+symbol	swift.method	WalletClient.importWallet(privateKey:reference:)	@discardableResult func importWallet(privateKey: WalletImportPrivateKey, reference: String? = nil) async throws -> WalletActivationResult
 symbol	swift.method	WalletClient.inspectRemoteCredential(credentialId:)	func inspectRemoteCredential(credentialId: String) async throws -> RemoteCredentialMetadata
-symbol	swift.method	WalletClient.isValidMessageSignature(network:walletAddress:message:signature:)	func isValidMessageSignature(network: Network, walletAddress: String, message: String, signature: String) async throws -> Bool
-symbol	swift.method	WalletClient.isValidSolanaMessageSignature(walletAddress:message:signature:)	func isValidSolanaMessageSignature(walletAddress: String, message: String, signature: String) async throws -> Bool
-symbol	swift.method	WalletClient.isValidTronMessageSignature(walletAddress:message:signature:)	func isValidTronMessageSignature(walletAddress: String, message: String, signature: String) async throws -> Bool
-symbol	swift.method	WalletClient.isValidTronTypedDataSignature(walletAddress:typedData:signature:)	func isValidTronTypedDataSignature(walletAddress: String, typedData: JSONValue, signature: String) async throws -> Bool
-symbol	swift.method	WalletClient.isValidTypedDataSignature(network:walletAddress:typedData:signature:)	func isValidTypedDataSignature(network: Network, walletAddress: String, typedData: JSONValue, signature: String) async throws -> Bool
+symbol	swift.method	WalletClient.isValidMessageSignature(network:walletAddress:message:signature:)	func isValidMessageSignature(network: Network, walletAddress: String? = nil, message: String, signature: String) async throws -> Bool
+symbol	swift.method	WalletClient.isValidSolanaMessageSignature(walletAddress:message:signature:)	func isValidSolanaMessageSignature(walletAddress: String? = nil, message: String, signature: String) async throws -> Bool
+symbol	swift.method	WalletClient.isValidTronMessageSignature(walletAddress:message:signature:)	func isValidTronMessageSignature(walletAddress: String? = nil, message: String, signature: String) async throws -> Bool
+symbol	swift.method	WalletClient.isValidTronTypedDataSignature(walletAddress:typedData:signature:)	func isValidTronTypedDataSignature(walletAddress: String? = nil, typedData: JSONValue, signature: String) async throws -> Bool
+symbol	swift.method	WalletClient.isValidTypedDataSignature(network:walletAddress:typedData:signature:)	func isValidTypedDataSignature(network: Network, walletAddress: String? = nil, typedData: JSONValue, signature: String) async throws -> Bool
 symbol	swift.method	WalletClient.listAccess(pageSize:type:)	func listAccess(pageSize: UInt32? = nil, type: AccessGrantType? = nil) async throws -> [AccessGrant]
 symbol	swift.method	WalletClient.listAccessPage(pageSize:cursor:type:)	func listAccessPage(pageSize: UInt32? = nil, cursor: String? = nil, type: AccessGrantType? = nil) async throws -> AccessGrantPage
 symbol	swift.method	WalletClient.listAccessPages(pageSize:type:)	func listAccessPages(pageSize: UInt32? = nil, type: AccessGrantType? = nil) -> ListAccessPages
@@ -674,17 +675,17 @@ symbol	swift.method	WalletClient.sendSolanaTransfer(network:asset:to:amount:sele
 symbol	swift.method	WalletClient.sendTransaction(network:request:selectFeeOption:waitForStatus:statusPolling:)	func sendTransaction(network: Network, request: SendTransactionRequest, selectFeeOption: FeeOptionSelector? = nil, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
 symbol	swift.method	WalletClient.sendTransaction(network:to:value:selectFeeOption:mode:waitForStatus:statusPolling:)	func sendTransaction(network: Network, to: String, value: String, selectFeeOption: FeeOptionSelector? = nil, mode: TransactionMode = .relayer, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
 symbol	swift.method	WalletClient.sendTronTransaction(network:to:value:data:selectFeeOption:waitForStatus:statusPolling:)	func sendTronTransaction(network: TronNetwork, to: String, value: String = "0", data: String? = nil, selectFeeOption: FeeOptionSelector? = nil, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
-symbol	swift.method	WalletClient.signInWithOidcIdToken(idToken:issuer:audience:walletType:walletSelection:sessionLifetimeSeconds:provider:providerLabel:)	@discardableResult func signInWithOidcIdToken(idToken: String, issuer: String, audience: String, walletType: WalletType = WalletType.ethereum, walletSelection: WalletSelectionBehavior = .automatic, sessionLifetimeSeconds: UInt32 = 604_800, provider: String? = nil, providerLabel: String? = nil) async throws -> CompleteAuthResult
+symbol	swift.method	WalletClient.signInWithOidcIdToken(idToken:issuer:audience:walletType:walletSelection:sessionLifetimeSeconds:provider:providerLabel:)	@discardableResult func signInWithOidcIdToken(idToken: String, issuer: String, audience: String, walletType: WalletType = WalletType.ethereum, walletSelection: WalletSelectionBehavior = .automatic, sessionLifetimeSeconds: UInt32 = WalletClient.defaultSessionLifetimeSeconds, provider: String? = nil, providerLabel: String? = nil) async throws -> CompleteAuthResult
 symbol	swift.method	WalletClient.signMessage(network:message:)	func signMessage(network: Network, message: String) async throws -> String
 symbol	swift.method	WalletClient.signOut()	func signOut() throws
 symbol	swift.method	WalletClient.signSolanaMessage(message:)	func signSolanaMessage(message: String) async throws -> String
 symbol	swift.method	WalletClient.signTronMessage(message:)	func signTronMessage(message: String) async throws -> String
 symbol	swift.method	WalletClient.signTronTypedData(typedData:)	func signTronTypedData(typedData: JSONValue) async throws -> String
 symbol	swift.method	WalletClient.signTypedData(network:typedData:)	func signTypedData(network: Network, typedData: JSONValue) async throws -> String
-symbol	swift.method	WalletClient.startEmailAuth(email:sessionLifetimeSeconds:)	func startEmailAuth(email: String, sessionLifetimeSeconds: UInt32 = 604_800) async throws
-symbol	swift.method	WalletClient.startOIDCRedirectAuth(provider:omsRelayReturnURI:walletType:loginHint:walletSelection:sessionLifetimeSeconds:)	func startOIDCRedirectAuth(provider: OMSRelayOIDCProvider, omsRelayReturnURI: String, walletType: WalletType = WalletType.ethereum, loginHint: String? = nil, walletSelection: WalletSelectionBehavior? = nil, sessionLifetimeSeconds: UInt32? = nil) async throws -> StartOIDCRedirectAuthResult
-symbol	swift.method	WalletClient.startOIDCRedirectAuth(provider:walletType:loginHint:authorizeParams:walletSelection:sessionLifetimeSeconds:)	func startOIDCRedirectAuth(provider: CustomOIDCProviderConfiguration, walletType: WalletType = WalletType.ethereum, loginHint: String? = nil, authorizeParams: [String : String] = [:], walletSelection: WalletSelectionBehavior? = nil, sessionLifetimeSeconds: UInt32? = nil) async throws -> StartOIDCRedirectAuthResult
-symbol	swift.method	WalletClient.useWallet(walletId:)	@discardableResult func useWallet(walletId: String) async throws -> WalletSelectionResult
+symbol	swift.method	WalletClient.startEmailAuth(email:sessionLifetimeSeconds:)	func startEmailAuth(email: String, sessionLifetimeSeconds: UInt32 = WalletClient.defaultSessionLifetimeSeconds) async throws
+symbol	swift.method	WalletClient.startOIDCRedirectAuth(provider:omsRelayReturnURI:walletType:walletSelection:sessionLifetimeSeconds:loginHint:)	func startOIDCRedirectAuth(provider: OMSRelayOIDCProvider, omsRelayReturnURI: String, walletType: WalletType = WalletType.ethereum, walletSelection: WalletSelectionBehavior? = nil, sessionLifetimeSeconds: UInt32? = nil, loginHint: String? = nil) async throws -> StartOIDCRedirectAuthResult
+symbol	swift.method	WalletClient.startOIDCRedirectAuth(provider:walletType:walletSelection:sessionLifetimeSeconds:loginHint:authorizeParams:)	func startOIDCRedirectAuth(provider: CustomOIDCProviderConfiguration, walletType: WalletType = WalletType.ethereum, walletSelection: WalletSelectionBehavior? = nil, sessionLifetimeSeconds: UInt32? = nil, loginHint: String? = nil, authorizeParams: [String : String] = [:]) async throws -> StartOIDCRedirectAuthResult
+symbol	swift.method	WalletClient.useWallet(walletId:)	@discardableResult func useWallet(walletId: String) async throws -> WalletActivationResult
 symbol	swift.method	WalletKeyOrigin.encode(to:)	func encode(to encoder: Encoder) throws
 symbol	swift.method	WalletType.encode(to:)	func encode(to encoder: Encoder) throws
 symbol	swift.property	AbiArg.type	let type: String
@@ -794,7 +795,6 @@ symbol	swift.property	NativeTokenBalance.name	let name: String
 symbol	swift.property	NativeTokenBalance.priceUSD	let priceUSD: String?
 symbol	swift.property	NativeTokenBalance.priceUpdatedAt	let priceUpdatedAt: String?
 symbol	swift.property	NativeTokenBalance.symbol	let symbol: String
-symbol	swift.property	Network.chainId	var chainId: String { get }
 symbol	swift.property	Network.description	var description: String { get }
 symbol	swift.property	Network.displayName	var displayName: String { get }
 symbol	swift.property	Network.explorerURL	var explorerURL: URL { get }
@@ -819,9 +819,9 @@ symbol	swift.property	OMSWalletOidcSessionAuth.issuer	let issuer: String
 symbol	swift.property	OMSWalletOidcSessionAuth.provider	let provider: String?
 symbol	swift.property	OMSWalletOidcSessionAuth.providerLabel	let providerLabel: String?
 symbol	swift.property	OMSWalletSession.auth	let auth: OMSWalletSessionAuth
-symbol	swift.property	OMSWalletSession.expiresAt	let expiresAt: Date
+symbol	swift.property	OMSWalletSession.expiresAt	let expiresAt: String
 symbol	swift.property	OMSWalletSessionAuth.email	var email: String? { get }
-symbol	swift.property	OMSWalletSessionExpiredEvent.expiredAt	let expiredAt: Date
+symbol	swift.property	OMSWalletSessionExpiredEvent.expiredAt	let expiredAt: String
 symbol	swift.property	OMSWalletSessionExpiredEvent.session	let session: OMSWalletSession
 symbol	swift.property	OMSWalletSessionExpiredEvent.wallet	let wallet: Wallet?
 symbol	swift.property	OMSWalletUpstreamError.code	let code: String?
@@ -858,6 +858,19 @@ symbol	swift.property	SendTransactionResponse.txnHash	let txnHash: String?
 symbol	swift.property	SendTransactionResponse.txnId	let txnId: String
 symbol	swift.property	SmartSessionGrantUsage.grant	let grant: SmartSessionGrant
 symbol	swift.property	SmartSessionGrantUsage.used	let used: String?
+symbol	swift.property	SolanaBalance.accountAddress	var accountAddress: String { get }
+symbol	swift.property	SolanaBalance.balance	var balance: String { get }
+symbol	swift.property	SolanaBalance.balanceUSD	var balanceUSD: String? { get }
+symbol	swift.property	SolanaBalance.decimals	var decimals: Int { get }
+symbol	swift.property	SolanaBalance.formattedBalance	var formattedBalance: String { get }
+symbol	swift.property	SolanaBalance.imageUrl	var imageUrl: String? { get }
+symbol	swift.property	SolanaBalance.metadataUri	var metadataUri: String? { get }
+symbol	swift.property	SolanaBalance.name	var name: String { get }
+symbol	swift.property	SolanaBalance.network	var network: SolanaNetwork { get }
+symbol	swift.property	SolanaBalance.priceUSD	var priceUSD: String? { get }
+symbol	swift.property	SolanaBalance.symbol	var symbol: String { get }
+symbol	swift.property	SolanaBalance.verificationSource	var verificationSource: SolanaVerificationSource { get }
+symbol	swift.property	SolanaBalance.verificationStatus	var verificationStatus: SolanaVerificationStatus { get }
 symbol	swift.property	SolanaBalancesResult.balances	let balances: [SolanaBalance]
 symbol	swift.property	SolanaBalancesResult.errors	let errors: [SolanaNetworkError]
 symbol	swift.property	SolanaBalancesResult.status	let status: Int
@@ -991,6 +1004,19 @@ symbol	swift.property	TransactionTransfer.to	let to: String
 symbol	swift.property	TransactionTransfer.tokenIds	let tokenIds: [String]?
 symbol	swift.property	TransactionTransfer.tokenMetadata	let tokenMetadata: [String : TokenMetadata]?
 symbol	swift.property	TransactionTransfer.transferType	let transferType: String
+symbol	swift.property	TronBalance.accountAddress	var accountAddress: String { get }
+symbol	swift.property	TronBalance.balance	var balance: String { get }
+symbol	swift.property	TronBalance.balanceUSD	var balanceUSD: String? { get }
+symbol	swift.property	TronBalance.decimals	var decimals: Int { get }
+symbol	swift.property	TronBalance.formattedBalance	var formattedBalance: String { get }
+symbol	swift.property	TronBalance.imageUrl	var imageUrl: String? { get }
+symbol	swift.property	TronBalance.metadataUri	var metadataUri: String? { get }
+symbol	swift.property	TronBalance.name	var name: String { get }
+symbol	swift.property	TronBalance.network	var network: TronNetwork { get }
+symbol	swift.property	TronBalance.priceUSD	var priceUSD: String? { get }
+symbol	swift.property	TronBalance.symbol	var symbol: String { get }
+symbol	swift.property	TronBalance.verificationSource	var verificationSource: String { get }
+symbol	swift.property	TronBalance.verificationStatus	var verificationStatus: TronVerificationStatus { get }
 symbol	swift.property	TronBalancesResult.balances	let balances: [TronBalance]
 symbol	swift.property	TronBalancesResult.errors	let errors: [TronNetworkError]
 symbol	swift.property	TronBalancesResult.status	let status: Int
@@ -1030,17 +1056,17 @@ symbol	swift.property	Wallet.id	let id: String
 symbol	swift.property	Wallet.keyOrigin	let keyOrigin: WalletKeyOrigin
 symbol	swift.property	Wallet.reference	let reference: String?
 symbol	swift.property	Wallet.type	let type: WalletType
+symbol	swift.property	WalletActivationResult.wallet	let wallet: Wallet
 symbol	swift.property	WalletClient.activeWallet	var activeWallet: Wallet? { get set }
 symbol	swift.property	WalletClient.session	var session: OMSWalletSession? { get }
-symbol	swift.property	WalletClient.walletId	var walletId: String { get set }
 symbol	swift.property	WalletCredential.credentialId	let credentialId: String
 symbol	swift.property	WalletCredential.expiresAt	let expiresAt: String
 symbol	swift.property	WalletCredential.isCaller	let isCaller: Bool
+symbol	swift.property	WalletImportPrivateKey.walletType	var walletType: WalletType { get }
 symbol	swift.property	WalletImportRecipientKey.cipherSuite	let cipherSuite: WalletImportCipherSuite
 symbol	swift.property	WalletImportRecipientKey.keyId	let keyId: String
 symbol	swift.property	WalletImportRecipientKey.publicKey	let publicKey: String
 symbol	swift.property	WalletKeyOrigin.wireValue	var wireValue: String { get }
-symbol	swift.property	WalletSelectionResult.wallet	let wallet: Wallet
 symbol	swift.property	WalletType.wireValue	var wireValue: String { get }
 symbol	swift.struct	AbiArg	struct AbiArg
 symbol	swift.struct	AccessGrantPage	struct AccessGrantPage
@@ -1097,14 +1123,13 @@ symbol	swift.struct	TronFungibleTokenBalance	struct TronFungibleTokenBalance
 symbol	swift.struct	TronNativeBalance	struct TronNativeBalance
 symbol	swift.struct	TronNetworkError	struct TronNetworkError
 symbol	swift.struct	Wallet	struct Wallet
+symbol	swift.struct	WalletActivationResult	struct WalletActivationResult
 symbol	swift.struct	WalletCredential	struct WalletCredential
 symbol	swift.struct	WalletImportRecipientKey	struct WalletImportRecipientKey
-symbol	swift.struct	WalletSelectionResult	struct WalletSelectionResult
 symbol	swift.type.method	FeeOptionSelector.custom(_:)	static func custom(_ pick: @escaping Select) -> FeeOptionSelector
 symbol	swift.type.method	Network.findById(_:)	static func findById(_ chainId: Int) -> Network?
 symbol	swift.type.method	Network.findByName(_:)	static func findByName(_ name: String) -> Network?
 symbol	swift.type.property	FeeOptionSelector.firstAvailable	static let firstAvailable: FeeOptionSelector
-symbol	swift.type.property	Network.amoy	static let amoy: Network
 symbol	swift.type.property	Network.supportedNetworks	static var supportedNetworks: [Network] { get }
 symbol	swift.type.property	OMSRelayOIDCProviders.apple	static let apple: OMSRelayOIDCProvider
 symbol	swift.type.property	OMSRelayOIDCProviders.google	static let google: OMSRelayOIDCProvider
@@ -1112,5 +1137,7 @@ symbol	swift.type.property	SolanaNetworks.devnet	static let devnet: SolanaNetwor
 symbol	swift.type.property	SolanaNetworks.mainnet	static let mainnet: SolanaNetwork
 symbol	swift.type.property	TronNetworks.mainnet	static let mainnet: TronNetwork
 symbol	swift.type.property	TronNetworks.nile	static let nile: TronNetwork
+symbol	swift.type.property	WalletClient.defaultSessionLifetimeSeconds	static let defaultSessionLifetimeSeconds: UInt32
+symbol	swift.type.property	WalletClient.maxSessionLifetimeSeconds	static let maxSessionLifetimeSeconds: UInt32
 symbol	swift.typealias	FeeOptionSelector.Select	typealias Select = @Sendable (_ options: [FeeOptionWithBalance]) async throws -> FeeOptionSelection?
 symbol	swift.typealias	ListAccessPages.Element	typealias Element = AccessGrantPage

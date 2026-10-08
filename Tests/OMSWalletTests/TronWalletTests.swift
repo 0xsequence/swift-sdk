@@ -126,7 +126,7 @@ private func expectValidationError<T>(
 
     let result = try await fixture.client.callTronContract(
         network: .mainnet,
-        contract: tronUsdt,
+        contractAddress: tronUsdt,
         method: "transfer",
         args: [
             AbiArg(type: "address", value: .string(tronRecipient)),
@@ -157,7 +157,7 @@ func TestContractCallsRejectNonBareMethodNamesBeforeAnyRequest(method: String) a
     await expectValidationError(.walletCallTronContract) {
         try await tron.client.callTronContract(
             network: .nile,
-            contract: tronUsdt,
+            contractAddress: tronUsdt,
             method: method,
             args: [AbiArg(type: "uint256", value: .string("1"))]
         )
@@ -167,7 +167,7 @@ func TestContractCallsRejectNonBareMethodNamesBeforeAnyRequest(method: String) a
     await expectValidationError(.walletCallContract) {
         try await ethereum.client.callContract(
             network: .polygon,
-            contract: "0x1111111111111111111111111111111111111111",
+            contractAddress: "0x1111111111111111111111111111111111111111",
             method: method,
             args: nil
         )
@@ -184,7 +184,7 @@ func TestContractCallsRejectNonBareMethodNamesBeforeAnyRequest(method: String) a
         try fixture.transport.enqueue(ExecuteResponse(status: .pending), for: WaasAPI.Execute.urlPath)
         let result = try await fixture.client.callTronContract(
             network: .nile,
-            contract: tronUsdt,
+            contractAddress: tronUsdt,
             method: method,
             waitForStatus: false
         )
@@ -335,7 +335,7 @@ func TestContractCallsRejectNonBareMethodNamesBeforeAnyRequest(method: String) a
 
     _ = try await fixture.client.callTronContract(
         network: .nile,
-        contract: tronUsdt,
+        contractAddress: tronUsdt,
         method: "transfer",
         args: [
             AbiArg(type: "address", value: .string(tronRecipient)),
@@ -446,7 +446,7 @@ func TestTronOperationsRejectNonTronWalletsBeforeAnyRequest(type: WalletType, ad
         try await fixture.client.sendTronTransaction(network: .nile, to: tronRecipient, value: "1")
     }
     await expectValidationError(.walletCallTronContract) {
-        try await fixture.client.callTronContract(network: .nile, contract: tronUsdt, method: "transfer")
+        try await fixture.client.callTronContract(network: .nile, contractAddress: tronUsdt, method: "transfer")
     }
     await expectValidationError(.walletSignTronMessage) {
         try await fixture.client.signTronMessage(message: "hello")
@@ -465,7 +465,7 @@ func TestTronOperationsRejectNonTronWalletsBeforeAnyRequest(type: WalletType, ad
         try await fixture.client.sendTransaction(network: .polygon, to: tronWalletHex, value: "1")
     }
     await expectValidationError(.walletCallContract) {
-        try await fixture.client.callContract(network: .polygon, contract: tronWalletHex, method: "transfer", args: nil)
+        try await fixture.client.callContract(network: .polygon, contractAddress: tronWalletHex, method: "transfer", args: nil)
     }
     await expectValidationError(.walletSignMessage) {
         try await fixture.client.signMessage(network: .polygon, message: "hello")

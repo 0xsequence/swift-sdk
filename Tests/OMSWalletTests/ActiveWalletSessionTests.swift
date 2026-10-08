@@ -56,7 +56,7 @@ private func storedRecordJSON(version: Int = 2, walletJSON: String) -> String {
     )
     #expect(result.wallet == expected)
     #expect(fixture.client.activeWallet == expected)
-    #expect(fixture.client.session?.expiresAt == OMSWalletSession.parseDate("2099-01-01T00:00:00Z"))
+    #expect(fixture.client.session?.expiresAt == "2099-01-01T00:00:00Z")
     #expect(fixture.client.session?.auth == .email(OMSWalletEmailSessionAuth(email: "user@example.com")))
     #expect(try fixture.storedCredentials()?.wallet == expected)
 
@@ -227,6 +227,6 @@ func TestDiscardsStoredSessionsWithInvalidWallets(walletJSON: String) throws {
     let event = try #require(expiredEvent)
     #expect(event.wallet == nil)
     #expect(event.session.auth.email == "user@example.com")
-    #expect(event.expiredAt == Date(timeIntervalSince1970: 1_767_225_600))
+    #expect(event.expiredAt == "2026-01-01T00:00:00Z")
     #expect(fixture.transport.requestCount(for: WaasAPI.UseWallet.urlPath) == 0)
 }

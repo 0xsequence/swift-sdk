@@ -21,7 +21,8 @@ if let activeWallet = omsWallet.wallet.activeWallet, activeWallet.type == .ether
 }
 ```
 
-`walletAddress` was also removed from `WalletSelectionResult` and from
+`walletAddress` was also removed from `WalletSelectionResult` (now `WalletActivationResult`, see
+below) and from
 `CompleteAuthResult.walletSelected`, which is now `.walletSelected(wallet:wallets:credential:)`.
 Use `result.wallet.address`:
 
@@ -38,7 +39,8 @@ case .walletSelected(let wallet, let wallets, let credential):
 
 `OMSWalletSessionState` was renamed to `OMSWalletSession`, and `omsWallet.wallet.session` is now
 `OMSWalletSession?`. Previously it returned a value whose fields were all `nil`. The
-`walletAddress` field was removed, and `expiresAt` and `auth` are no longer optional. `session` is
+`walletAddress` field was removed, and `expiresAt` and `auth` are no longer optional (`expiresAt` is
+now an ISO-8601 `String`; see [Session expiry timestamps](#session-expiry-timestamps)). `session` is
 non-`nil` exactly when `activeWallet` is.
 
 ```swift
@@ -92,6 +94,171 @@ Ethereum wallets whose address is not `0x` followed by 40 hexadecimal digits are
 `.walletIsValidTronMessageSignature`, `.walletIsValidTronTypedDataSignature`,
 `.walletSendTronTransaction`, `.walletCallTronContract`, and `.indexerGetTronBalances`. Update
 exhaustive switches over these enums.
+
+### Signature verification
+
+Every `isValid…Signature` method (`isValidMessageSignature`, `isValidTypedDataSignature`,
+`isValidSolanaMessageSignature`, `isValidTronMessageSignature`, `isValidTronTypedDataSignature`)
+now takes an optional `walletAddress`, and verification requests never send a wallet ID:
+
+- With `walletAddress`, no session is required. Previously the EVM methods threw `.sessionMissing`
+  when signed out even though an address was passed.
+- Without `walletAddress`, the active wallet's address is used. Signed out, the call throws
+  `.sessionMissing`; if the active wallet belongs to another family (for example an Ethereum wallet
+  and `isValidSolanaMessageSignature`), it throws `.validationError` before any request.
+
+```swift
+// 0.3.x
+let isValid = try await omsWallet.wallet.isValidMessageSignature(
+    network: .amoy,
+    walletAddress: walletAddress,
+    message: message,
+    signature: signature
+)
+
+// 0.4.0: verify against the active wallet
+let isValid = try await omsWallet.wallet.isValidMessageSignature(
+    network: .amoy,
+    message: message,
+    signature: signature
+)
+```
+
+### Contract call parameters
+
+`callContract` and `callTronContract` label the contract `contractAddress:` instead of
+`contract:`. `callContract`'s `args` now defaults to `nil`, so a call without arguments can omit it.
+
+```swift
+// 0.3.x
+try await omsWallet.wallet.callContract(network: .amoy, contract: token, method: "mint", args: nil)
+
+// 0.4.0
+try await omsWallet.wallet.callContract(network: .amoy, contractAddress: token, method: "mint")
+```
+
+### `WalletActivationResult`
+
+`WalletSelectionResult` was renamed to `WalletActivationResult`. It is returned by `useWallet`,
+`createWallet`, `importWallet`, `importEncryptedWallet`, and `PendingWalletSelection`'s
+`selectWallet` and `createAndSelectWallet`. Its `wallet` property is unchanged.
+
+```swift
+// 0.3.x
+let result: WalletSelectionResult = try await omsWallet.wallet.createWallet()
+
+// 0.4.0
+let result: WalletActivationResult = try await omsWallet.wallet.createWallet()
+```
+
+### `walletId` removed from `WalletClient`
+
+`omsWallet.wallet.walletId` is no longer public. Read the ID from the active wallet:
+
+```swift
+// 0.3.x
+let walletId = omsWallet.wallet.walletId
+
+// 0.4.0
+let walletId = omsWallet.wallet.activeWallet?.id
+```
+
+### Session expiry timestamps
+
+`OMSWalletSession.expiresAt` and `OMSWalletSessionExpiredEvent.expiredAt` are now the ISO-8601
+`String` returned by the wallet API (the same value as `WalletCredential.expiresAt`) instead of a
+`Date`. `OMSWalletSession.init(expiresAt:auth:)` and `OMSWalletSessionExpiredEvent.init` take a
+`String`. Parse the value when you need a `Date`; the wallet API may include fractional seconds:
+
+```swift
+// 0.3.x
+let expiry: Date? = omsWallet.wallet.session.expiresAt
+
+// 0.4.0
+guard let session = omsWallet.wallet.session else { return }
+let formatter = ISO8601DateFormatter()
+formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+let expiry = formatter.date(from: session.expiresAt)
+    ?? ISO8601DateFormatter().date(from: session.expiresAt)
+```
+
+### Networks
+
+`Network.polygonAmoy` was renamed to `Network.amoy` (raw value `"amoy"`, chain ID `80002`), and the
+duplicate `Network.amoy` static alias was removed. `Network.findByName(_:)` no longer accepts the
+`"polygonamoy"` alias; pass `"amoy"`. `Network.chainId` (the chain ID as a `String`) was removed;
+use `id`.
+
+```swift
+// 0.3.x
+let network = Network.polygonAmoy
+let chainId = network.chainId
+
+// 0.4.0
+let network = Network.amoy
+let chainId = String(network.id)
+```
+
+### Unit helpers require `decimals`
+
+`parseUnits(value:decimals:)` and `formatUnits(value:decimals:)` no longer default `decimals` to
+`18`. Pass the token's decimals explicitly:
+
+```swift
+// 0.3.x
+let wei = try parseUnits(value: "0.001")
+
+// 0.4.0
+let wei = try parseUnits(value: "0.001", decimals: 18)
+```
+
+### OIDC redirect parameter order
+
+`startOIDCRedirectAuth` parameters now follow the order used by the other OMS Wallet SDKs. Defaults
+are unchanged. Calls that pass `loginHint` or `authorizeParams` together with `walletSelection` or
+`sessionLifetimeSeconds` must reorder those arguments:
+
+```swift
+// 0.3.x
+startOIDCRedirectAuth(provider:walletType:loginHint:authorizeParams:walletSelection:sessionLifetimeSeconds:)
+startOIDCRedirectAuth(provider:omsRelayReturnURI:walletType:loginHint:walletSelection:sessionLifetimeSeconds:)
+
+// 0.4.0
+startOIDCRedirectAuth(provider:walletType:walletSelection:sessionLifetimeSeconds:loginHint:authorizeParams:)
+startOIDCRedirectAuth(provider:omsRelayReturnURI:walletType:walletSelection:sessionLifetimeSeconds:loginHint:)
+```
+
+### Error and operation strings
+
+These changes compile without edits, so check code that stores, logs, or compares raw values:
+
+- `OMSWalletOperation.walletStartOIDCRedirectAuth.rawValue` is now `"wallet.startOidcRedirectAuth"`
+  (was `"wallet.startOIDCRedirectAuth"`), and `.walletHandleOIDCRedirectCallback.rawValue` is now
+  `"wallet.handleOidcRedirectCallback"` (was `"wallet.handleOIDCRedirectCallback"`). Case names are
+  unchanged.
+- `OMSWalletUpstreamService` raw values are now `"waas"` and `"indexer"` (were `"Waas"` and
+  `"Indexer"`).
+- `OMSWalletErrorCode` gained `.walletAddressAlreadyImported` (`OMS_WALLET_ADDRESS_ALREADY_IMPORTED`).
+  Importing a key whose address is already managed now throws it with `status` `409` and
+  `retryable == false`; it previously surfaced as `.requestFailed`. Update exhaustive switches over
+  `OMSWalletErrorCode`.
+
+```swift
+// 0.3.x
+if error.code == .requestFailed, error.upstreamError?.code == "7313" { /* already imported */ }
+
+// 0.4.0
+if error.code == .walletAddressAlreadyImported { /* already imported */ }
+```
+
+### New members that may shadow app extensions
+
+`TronBalance` and `SolanaBalance` now expose `network`, `accountAddress`, `name`, `symbol`,
+`decimals`, `balance`, `formattedBalance`, `imageUrl`, `metadataUri`, `verificationStatus`,
+`verificationSource`, `priceUSD`, and `balanceUSD` directly. `WalletImportPrivateKey.walletType`,
+`WalletClient.defaultSessionLifetimeSeconds` (604,800), and
+`WalletClient.maxSessionLifetimeSeconds` (2,592,000) are now public. Remove app extensions that
+declare members with these names on those types.
 
 ## 0.3.0
 

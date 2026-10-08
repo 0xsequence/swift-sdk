@@ -64,7 +64,7 @@ if let wallet = auth.wallet {
     print("Wallet address:", wallet.address)
 
     let signature = try await omsWallet.wallet.signMessage(
-        network: .polygonAmoy,
+        network: .amoy,
         message: "hello from OMS Wallet"
     )
     print("Signature:", signature)
@@ -97,7 +97,7 @@ Pass your OMS publishable key when creating the client. The SDK derives the wall
 
 ## Security Model
 
-Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. The credential remains Keychain-managed and is not serialized into SDK session storage.
+Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `ecdsa-p256-sha256` signing algorithm. The credential remains Keychain-managed and is not serialized into SDK session storage.
 
 Only completed wallet session metadata is restored automatically, including the active wallet (ID, type, address, reference, and key origin), expiry, and auth metadata such as email or OIDC issuer/provider details when available. The SDK checks the cached session expiry before restoring a session. Expired sessions are not activated, and invalid session metadata is cleared; expired session metadata remains in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it.
 
@@ -128,11 +128,14 @@ if let activeWallet = omsWallet.wallet.activeWallet,
 ```
 
 `activeWallet` is a `Wallet`, the same type `listWallets()` returns, or `nil` when signed out.
-`session` holds the expiry and auth metadata and is non-`nil` exactly when `activeWallet` is.
+`session` holds the expiry and auth metadata and is non-`nil` exactly when `activeWallet` is. Its
+`expiresAt` is the ISO-8601 timestamp returned by the wallet API, the same value as
+`WalletCredential.expiresAt`.
 
 Pass `sessionLifetimeSeconds` to `startEmailAuth` when you need a shorter or
-longer email session. The default is one week, and custom values must be from 1
-through 2,592,000 seconds (30 days). The SDK validates the value before sending
+longer email session. The default is `WalletClient.defaultSessionLifetimeSeconds` (one week), and
+custom values must be from 1 through `WalletClient.maxSessionLifetimeSeconds` (2,592,000 seconds,
+30 days). The SDK validates the value before sending
 the one-time code. Use `addSessionExpiredObserver` when your app needs to react
 to session expiry:
 
@@ -317,30 +320,30 @@ verified.
 
 ```swift
 let signature = try await omsWallet.wallet.signMessage(
-    network: .polygonAmoy,
+    network: .amoy,
     message: "hello from OMS Wallet"
 )
 
-guard let walletAddress = omsWallet.wallet.activeWallet?.address else { return }
-
+// Omit `walletAddress` to verify against the active wallet, or pass any address to verify
+// without a session.
 let isValid = try await omsWallet.wallet.isValidMessageSignature(
-    network: .polygonAmoy,
-    walletAddress: walletAddress,
+    network: .amoy,
     message: "hello from OMS Wallet",
     signature: signature
 )
 ```
 
+Every `isValid…Signature` method takes an optional `walletAddress`. With an address it needs no
+session and ignores the active wallet. Without one it uses the active wallet's address: it throws
+`.sessionMissing` when signed out and `.validationError` when the active wallet belongs to another
+chain family (for example an Ethereum wallet passed to `isValidSolanaMessageSignature`).
+
 For a selected Solana wallet, use the Solana-specific message methods; off-chain messages do not
 require a cluster:
 
 ```swift
-guard let activeWallet = omsWallet.wallet.activeWallet, activeWallet.type == .solana else { return }
-let solanaWalletAddress = activeWallet.address
-
 let signature = try await omsWallet.wallet.signSolanaMessage(message: "hello from Solana")
 let valid = try await omsWallet.wallet.isValidSolanaMessageSignature(
-    walletAddress: solanaWalletAddress,
     message: "hello from Solana",
     signature: signature
 )
@@ -370,15 +373,12 @@ let typedData: JSONValue = .object([
 ])
 
 let signature = try await omsWallet.wallet.signTypedData(
-    network: .polygonAmoy,
+    network: .amoy,
     typedData: typedData
 )
 
-guard let walletAddress = omsWallet.wallet.activeWallet?.address else { return }
-
 let typedDataValid = try await omsWallet.wallet.isValidTypedDataSignature(
-    network: .polygonAmoy,
-    walletAddress: walletAddress,
+    network: .amoy,
     typedData: typedData,
     signature: signature
 )
@@ -439,7 +439,7 @@ guard let walletAddress = omsWallet.wallet.activeWallet?.address else { return }
 let history = try await omsWallet.indexer.getTransactionHistory(
     GetTransactionHistoryParams(
         walletAddress: walletAddress,
-        networks: [.polygonAmoy],
+        networks: [.amoy],
         includeMetadata: true
     )
 )
@@ -471,7 +471,7 @@ transaction is sponsored. Transaction mode defaults to `.relayer`; pass
 ```swift
 let value = try parseUnits(value: "0.001", decimals: 18)
 let txResult = try await omsWallet.wallet.sendTransaction(
-    network: .polygonAmoy,
+    network: .amoy,
     to: "0x1111111111111111111111111111111111111111",
     value: value
 )
@@ -490,7 +490,7 @@ transaction hash, `.timedOut` when the polling deadline expires first, and
 ```swift
 let value = try parseUnits(value: "0.001", decimals: 18)
 let txResult = try await omsWallet.wallet.sendTransaction(
-    network: .polygonAmoy,
+    network: .amoy,
     request: SendTransactionRequest(
         to: "0x1111111111111111111111111111111111111111",
         value: value,
@@ -505,8 +505,8 @@ let txResult = try await omsWallet.wallet.sendTransaction(
 ```swift
 let amount = try parseUnits(value: "0.001", decimals: 18)
 let txResult = try await omsWallet.wallet.callContract(
-    network: .polygonAmoy,
-    contract: "0x3333333333333333333333333333333333333333",
+    network: .amoy,
+    contractAddress: "0x3333333333333333333333333333333333333333",
     method: "transfer",
     args: [
         AbiArg(type: "address", value: .string("0x1111111111111111111111111111111111111111")),
@@ -526,7 +526,7 @@ returned `txnId`. The immediate response has `statusResolution == .notRequested`
 ```swift
 let value = try parseUnits(value: "0.001", decimals: 18)
 let txResult = try await omsWallet.wallet.sendTransaction(
-    network: .polygonAmoy,
+    network: .amoy,
     to: "0x1111111111111111111111111111111111111111",
     value: value,
     waitForStatus: false
@@ -552,7 +552,7 @@ To tune polling, pass `statusPolling`:
 ```swift
 let value = try parseUnits(value: "0.001", decimals: 18)
 let txResult = try await omsWallet.wallet.sendTransaction(
-    network: .polygonAmoy,
+    network: .amoy,
     to: "0x1111111111111111111111111111111111111111",
     value: value,
     statusPolling: TransactionStatusPollingOptions(
@@ -568,7 +568,7 @@ from the returned fee options:
 ```swift
 let value = try parseUnits(value: "0.001", decimals: 18)
 let txResult = try await omsWallet.wallet.sendTransaction(
-    network: .polygonAmoy,
+    network: .amoy,
     to: "0x1111111111111111111111111111111111111111",
     value: value,
     selectFeeOption: .custom { options in
@@ -620,7 +620,7 @@ let trxTransfer = try await omsWallet.wallet.sendTronTransaction(
 // TRC-20 transfer. The wallet service ABI-encodes the call; address arguments accept `T…`.
 let trc20Transfer = try await omsWallet.wallet.callTronContract(
     network: .nile,
-    contract: "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf",
+    contractAddress: "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf",
     method: "transfer",
     args: [
         AbiArg(type: "address", value: .string("TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t")),
@@ -644,9 +644,12 @@ WaaS quotes the TRX to burn as a single native fee option, which a fee selector 
 other fee option.
 
 Use `getTronBalances` for TRX and TRC-20 balances. Omit `networks` to query both Tron Mainnet and
-Nile, or pass either network explicitly. Results have the same shape as `getSolanaBalances`:
+Nile, or pass either network explicitly. Results have the same structure as `getSolanaBalances`:
 precision-safe raw and formatted balance strings, with TRC-20 entries identified by
-`contractAddress`. Pass `contractAddresses` or `excludedContractAddresses` to filter tokens.
+`tokenStandard` and `contractAddress` where Solana token entries use `tokenProgram` and
+`mintAddress`. `TronBalance` and `SolanaBalance` expose the fields shared by both cases (`network`,
+`accountAddress`, `symbol`, `decimals`, `balance`, `formattedBalance`, and so on) directly, so you
+only need to switch for the token-specific fields. Pass `contractAddresses` or `excludedContractAddresses` to filter tokens.
 Individual network failures are reported in `errors` without discarding balances returned by the
 other requested network.
 
@@ -683,7 +686,8 @@ the target environment rather than passing custom endpoint defaults in app code.
 
 Use `Network.supportedNetworks`, `Network.findById(_:)`, and
 `Network.findByName(_:)` to bind numeric chain IDs and network names to SDK
-networks. `polygonamoy` is also accepted as a lookup alias for `.polygonAmoy`.
+networks. `findByName(_:)` matches the indexer value in the table below, ignoring case and
+surrounding whitespace.
 
 ```swift
 let networks = Network.supportedNetworks
@@ -698,7 +702,7 @@ let katana = Network.findByName("katana")
 | `1` | Ethereum | `.mainnet` | `mainnet` | `ETH` |
 | `11155111` | Sepolia | `.sepolia` | `sepolia` | `ETH` |
 | `137` | Polygon | `.polygon` | `polygon` | `POL` |
-| `80002` | Polygon Amoy | `.polygonAmoy` | `amoy` | `POL` |
+| `80002` | Polygon Amoy | `.amoy` | `amoy` | `POL` |
 | `42161` | Arbitrum | `.arbitrum` | `arbitrum` | `ETH` |
 | `421614` | Arbitrum Sepolia | `.arbitrumSepolia` | `arbitrum-sepolia` | `ETH` |
 | `10` | Optimism | `.optimism` | `optimism` | `ETH` |
@@ -762,11 +766,16 @@ polling failed, so retry status lookup with the returned `txnId`.
 is still running; wait for it to finish before starting another. `retryable`
 describes the failed SDK operation, not the whole user intent.
 
+`upstreamError.service` is `.waas` or `.indexer` (raw values `"waas"` and `"indexer"`), and
+`upstreamError.code` is a string; numeric WebRPC codes are stringified (for example `"7313"`).
+Wallet import reports an address that is already managed as `.walletAddressAlreadyImported`
+(status `409`, `retryable == false`); select the existing wallet or use a different key.
+
 ```swift
 let value = try parseUnits(value: "0.001", decimals: 18)
 do {
     let txResult = try await omsWallet.wallet.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         to: "0x1111111111111111111111111111111111111111",
         value: value
     )

@@ -136,7 +136,7 @@ actor TrailsOMSWallet {
     fileprivate func selectWallet(
         _ pendingSelection: PendingWalletSelection,
         walletId: String
-    ) async throws -> WalletSelectionResult {
+    ) async throws -> WalletActivationResult {
         try await performThrowing { _ in
             try await pendingSelection.selectWallet(walletId: walletId)
         }
@@ -145,7 +145,7 @@ actor TrailsOMSWallet {
     fileprivate func createAndSelectWallet(
         _ pendingSelection: PendingWalletSelection,
         reference: String?
-    ) async throws -> WalletSelectionResult {
+    ) async throws -> WalletActivationResult {
         try await performThrowing { _ in
             try await pendingSelection.createAndSelectWallet(reference: reference)
         }
@@ -239,11 +239,11 @@ final class TrailsPendingWalletSelection: @unchecked Sendable {
         self.client = client
     }
 
-    func selectWallet(walletId: String) async throws -> WalletSelectionResult {
+    func selectWallet(walletId: String) async throws -> WalletActivationResult {
         try await client.selectWallet(pendingSelection, walletId: walletId)
     }
 
-    func createAndSelectWallet(reference: String? = nil) async throws -> WalletSelectionResult {
+    func createAndSelectWallet(reference: String? = nil) async throws -> WalletActivationResult {
         try await client.createAndSelectWallet(pendingSelection, reference: reference)
     }
 }
@@ -885,7 +885,7 @@ final class TrailsDemoViewModel: ObservableObject {
         }
     }
 
-    private func handleWalletActivation(_ result: WalletSelectionResult, status: String) async {
+    private func handleWalletActivation(_ result: WalletActivationResult, status: String) async {
         pendingWalletSelection = nil
         authStatus = status
         redirectStatus = ""

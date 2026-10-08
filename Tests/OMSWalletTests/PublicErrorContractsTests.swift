@@ -90,6 +90,61 @@ import Testing
     )
 }
 
+@Test func TestPublicErrorContractsWalletImportAddressAlreadyImported() async throws {
+    let importTransport = MockWaasTransport()
+    let fixture = makeMockWalletClient(
+        walletImportClient: WaasClient(baseURL: "https://wallet-import.test", transport: importTransport)
+    )
+    fixture.client.walletId = "wallet-main"
+    fixture.client.activeWallet = activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main")
+    fixture.client.sessionExpiresAt = "2099-01-01T00:00:00Z"
+    fixture.client.sessionAuth = .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
+    importTransport.enqueueRawHTTPError(
+        statusCode: 400,
+        body: Data(
+            """
+            {"error":"AddressAlreadyImported","code":7313,"msg":"Address already imported","status":400}
+            """.utf8
+        ),
+        for: WaasAPI.ImportWallet.urlPath
+    )
+
+    await expectPublicError(
+        try await fixture.client.importEncryptedWallet(
+            walletType: .ethereum,
+            keyMaterial: EncryptedWalletImportKeyMaterial(
+                keyId: "recipient-key",
+                cipherSuite: .p256Sha256Aes256Gcm,
+                encapsulatedKey: Data([1, 2, 3]).base64EncodedString(),
+                ciphertext: Data([4, 5, 6]).base64EncodedString()
+            )
+        ),
+        equals: error(
+            code: .walletAddressAlreadyImported,
+            operation: .walletImportEncryptedWallet,
+            message: "Address already imported",
+            status: 409,
+            retryable: false,
+            upstreamError: upstream(
+                service: .waas,
+                name: "AddressAlreadyImported",
+                code: "7313",
+                message: "Address already imported",
+                status: 400
+            )
+        )
+    )
+    #expect(fixture.client.activeWallet?.id == "wallet-main")
+}
+
+@Test func TestPublicErrorContractsWireValues() {
+    #expect(OMSWalletErrorCode.walletAddressAlreadyImported.rawValue == "OMS_WALLET_ADDRESS_ALREADY_IMPORTED")
+    #expect(OMSWalletOperation.walletStartOIDCRedirectAuth.rawValue == "wallet.startOidcRedirectAuth")
+    #expect(OMSWalletOperation.walletHandleOIDCRedirectCallback.rawValue == "wallet.handleOidcRedirectCallback")
+    #expect(OMSWalletUpstreamService.waas.rawValue == "waas")
+    #expect(OMSWalletUpstreamService.indexer.rawValue == "indexer")
+}
+
 @Test func TestPublicErrorContractsWaasHttpAndBadResponsesHaveUpstreamDetails() async throws {
     let httpFixture = makeRestoredWalletClient()
     httpFixture.transport.enqueueRawHTTPError(

@@ -195,6 +195,43 @@ private func isOidcAuth(
     #expect(isEmailAuth(fixture.client.session?.auth))
 }
 
+@Test func TestWalletSessionLifetimeConstantsDriveDefaultAndLimit() async throws {
+    #expect(WalletClient.defaultSessionLifetimeSeconds == 604_800)
+    #expect(WalletClient.maxSessionLifetimeSeconds == 2_592_000)
+
+    let fixture = makeMockWalletClient()
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(verifier: "verifier", loginHint: "", challenge: "challenge"),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: [testWallet(id: "wallet-1", address: "0x1111111111111111111111111111111111111111")]),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: testWallet(id: "wallet-1", address: "0x1111111111111111111111111111111111111111")),
+        for: WaasAPI.UseWallet.urlPath
+    )
+
+    try await fixture.client.startEmailAuth(email: "user@example.com")
+    _ = try await fixture.client.completeEmailAuth(code: "123456")
+    let completeAuthRequest = try fixture.transport.decodedRequest(
+        CompleteAuthRequest.self,
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    #expect(completeAuthRequest.lifetime == WalletClient.defaultSessionLifetimeSeconds)
+
+    do {
+        try await fixture.client.startEmailAuth(
+            email: "user@example.com",
+            sessionLifetimeSeconds: WalletClient.maxSessionLifetimeSeconds + 1
+        )
+        Issue.record("Expected a validation error")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .validationError)
+    }
+}
+
 @Test func TestWalletStartEmailAuthRejectsInvalidSessionLifetimeBeforeRequestOrSignOut() async throws {
     let fixture = makeMockWalletClient()
     let wallet = testWallet(id: "wallet-existing", address: "0x1111111111111111111111111111111111111111")
@@ -335,9 +372,9 @@ private func isOidcAuth(
 
     let storedCredentials = try fixture.storedCredentials()
     #expect(expiredEvent?.wallet?.address == wallet.address)
-    #expect(expiredEvent?.session.expiresAt == Date(timeIntervalSince1970: 1_767_225_600))
+    #expect(expiredEvent?.session.expiresAt == expiresAt)
     #expect(isEmailAuth(expiredEvent?.session.auth))
-    #expect(expiredEvent?.expiredAt == Date(timeIntervalSince1970: 1_767_225_600))
+    #expect(expiredEvent?.expiredAt == expiresAt)
     #expect(secondExpiredEvent?.wallet?.address == wallet.address)
     #expect(canceledExpiredEvent == nil)
     #expect(fixture.client.session == nil)
@@ -372,7 +409,7 @@ private func isOidcAuth(
     #expect(fixture.client.session == nil)
     #expect(replayedEvent?.wallet?.address == storedCredentials.wallet.address)
     #expect(isEmailAuth(replayedEvent?.session.auth))
-    #expect(replayedEvent?.expiredAt == Date(timeIntervalSince1970: 1_767_225_600))
+    #expect(replayedEvent?.expiredAt == "2026-01-01T00:00:00Z")
     #expect(try fixture.storedCredentials()?.wallet.id == storedCredentials.wallet.id)
     #expect(fixture.signer.clearCallCount == 1)
 }
@@ -1915,44 +1952,42 @@ private func waitForSessionExpiredEvent(
         try await fixture.client.revokeAccess(credentialId: "credential-1")
     }
     await expectNoAuthenticatedWalletSession {
-        try await fixture.client.signMessage(network: .polygonAmoy, message: "hello")
+        try await fixture.client.signMessage(network: .amoy, message: "hello")
     }
     await expectNoAuthenticatedWalletSession {
-        try await fixture.client.signTypedData(network: .polygonAmoy, typedData: .object([:]))
+        try await fixture.client.signTypedData(network: .amoy, typedData: .object([:]))
     }
     await expectNoAuthenticatedWalletSession {
         try await fixture.client.isValidMessageSignature(
-            network: .polygonAmoy,
-            walletAddress: "0xwallet",
+            network: .amoy,
             message: "hello",
             signature: "0xsig"
         )
     }
     await expectNoAuthenticatedWalletSession {
         try await fixture.client.isValidTypedDataSignature(
-            network: .polygonAmoy,
-            walletAddress: "0xwallet",
+            network: .amoy,
             typedData: .object([:]),
             signature: "0xsig"
         )
     }
     await expectNoAuthenticatedWalletSession {
         try await fixture.client.sendTransaction(
-            network: .polygonAmoy,
+            network: .amoy,
             to: "0xabc",
             value: "0"
         )
     }
     await expectNoAuthenticatedWalletSession {
         try await fixture.client.sendTransaction(
-            network: .polygonAmoy,
+            network: .amoy,
             request: SendTransactionRequest(to: "0xabc", value: "0")
         )
     }
     await expectNoAuthenticatedWalletSession {
         try await fixture.client.callContract(
-            network: .polygonAmoy,
-            contract: "0xcontract",
+            network: .amoy,
+            contractAddress: "0xcontract",
             method: "mint",
             args: nil
         )
@@ -1977,7 +2012,7 @@ private func waitForSessionExpiredEvent(
     walletIdOnlyFixture.client.walletId = "wallet-main"
     await expectNoAuthenticatedWalletSession {
         try await walletIdOnlyFixture.client.sendTransaction(
-            network: .polygonAmoy,
+            network: .amoy,
             to: "0xabc",
             value: "0",
             selectFeeOption: .firstAvailable
@@ -1985,8 +2020,8 @@ private func waitForSessionExpiredEvent(
     }
     await expectNoAuthenticatedWalletSession {
         try await walletIdOnlyFixture.client.callContract(
-            network: .polygonAmoy,
-            contract: "0xcontract",
+            network: .amoy,
+            contractAddress: "0xcontract",
             method: "mint",
             args: nil,
             selectFeeOption: .firstAvailable
@@ -2378,7 +2413,7 @@ private func waitForSessionExpiredEvent(
     )
 
     let txResult = try await fixture.client.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         to: "0xabc",
         value: "0"
     )
@@ -2464,7 +2499,7 @@ private func waitForSessionExpiredEvent(
     )
 
     let txResult = try await fixture.client.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         to: "0xabc",
         value: "0",
         selectFeeOption: .firstAvailable
@@ -2523,7 +2558,7 @@ private func waitForSessionExpiredEvent(
 
     do {
         _ = try await fixture.client.sendTransaction(
-            network: .polygonAmoy,
+            network: .amoy,
             to: "0xabc",
             value: "0",
             selectFeeOption: .firstAvailable
@@ -2633,7 +2668,7 @@ private func waitForSessionExpiredEvent(
     )
 
     let txResult = try await fixture.client.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         request: SendTransactionRequest(to: "0xabc", value: "0", mode: .native),
         selectFeeOption: .custom { feeOptions in
             #expect(feeOptions.count == 2)
@@ -2686,7 +2721,7 @@ private func waitForSessionExpiredEvent(
 
     do {
         _ = try await fixture.client.sendTransaction(
-            network: .polygonAmoy,
+            network: .amoy,
             request: SendTransactionRequest(to: "0xabc", value: "0"),
             selectFeeOption: .custom { _ in nil }
         )
@@ -2727,7 +2762,7 @@ private func waitForSessionExpiredEvent(
     )
 
     let txResult = try await fixture.client.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         request: SendTransactionRequest(to: "0xabc", value: "0"),
         selectFeeOption: .custom { feeOptions in
             #expect(feeOptions.isEmpty)
@@ -2768,7 +2803,7 @@ private func waitForSessionExpiredEvent(
     )
 
     let result = try await fixture.client.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         request: SendTransactionRequest(to: "0xabc", value: "0"),
         selectFeeOption: .firstAvailable,
         waitForStatus: false
@@ -2796,7 +2831,7 @@ private func waitForSessionExpiredEvent(
 
     do {
         _ = try await fixture.client.sendTransaction(
-            network: .polygonAmoy,
+            network: .amoy,
             request: SendTransactionRequest(to: "0xabc", value: "0"),
             selectFeeOption: .custom { feeOptions in
                 #expect(feeOptions.isEmpty)
@@ -2836,8 +2871,8 @@ private func waitForSessionExpiredEvent(
     )
 
     let txResult = try await fixture.client.callContract(
-        network: .polygonAmoy,
-        contract: "0xcontract",
+        network: .amoy,
+        contractAddress: "0xcontract",
         method: "mint",
         args: [AbiArg(type: "address", value: .string("0xrecipient"))],
         mode: .native
@@ -2881,7 +2916,7 @@ private func waitForSessionExpiredEvent(
     )
 
     let txResult = try await fixture.client.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         request: SendTransactionRequest(to: "0xabc", value: "0"),
         waitForStatus: false
     )
@@ -2914,8 +2949,8 @@ private func waitForSessionExpiredEvent(
     )
 
     let txResult = try await fixture.client.callContract(
-        network: .polygonAmoy,
-        contract: "0xcontract",
+        network: .amoy,
+        contractAddress: "0xcontract",
         method: "mint",
         args: [AbiArg(type: "address", value: .string("0xrecipient"))],
         waitForStatus: false
@@ -2953,7 +2988,7 @@ private func waitForSessionExpiredEvent(
     )
 
     let txResult = try await fixture.client.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         request: SendTransactionRequest(to: "0xabc", value: "0"),
         statusPolling: TransactionStatusPollingOptions(
             timeoutMs: 0
@@ -2994,7 +3029,7 @@ private func waitForSessionExpiredEvent(
         )
 
         let result = try await fixture.client.sendTransaction(
-            network: .polygonAmoy,
+            network: .amoy,
             request: SendTransactionRequest(to: "0xabc", value: "0"),
             statusPolling: TransactionStatusPollingOptions(timeoutMs: 0)
         )
@@ -3029,7 +3064,7 @@ private func waitForSessionExpiredEvent(
 
         do {
             _ = try await fixture.client.sendTransaction(
-                network: .polygonAmoy,
+                network: .amoy,
                 request: SendTransactionRequest(to: "0xabc", value: "0"),
                 statusPolling: options
             )
@@ -3068,7 +3103,7 @@ private func waitForSessionExpiredEvent(
     )
 
     let txResult = try await fixture.client.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         request: SendTransactionRequest(to: "0xabc", value: "0")
     )
 
@@ -3104,7 +3139,7 @@ private func waitForSessionExpiredEvent(
     )
 
     let txResult = try await fixture.client.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         request: SendTransactionRequest(to: "0xabc", value: "0")
     )
 
@@ -3140,7 +3175,7 @@ private func waitForSessionExpiredEvent(
     )
 
     let txResult = try await fixture.client.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         request: SendTransactionRequest(to: "0xabc", value: "0")
     )
 
@@ -3169,7 +3204,7 @@ private func waitForSessionExpiredEvent(
 
     do {
         _ = try await fixture.client.sendTransaction(
-            network: .polygonAmoy,
+            network: .amoy,
             request: SendTransactionRequest(to: "0xabc", value: "0")
         )
         #expect(Bool(false), "Expected no fee options error")
@@ -3553,7 +3588,7 @@ final class MockIndexerBackend: @unchecked Sendable {
             let fallbackChainId = request.chainIds.first
                 ?? nativeBalance?.chainId
                 ?? tokenBalances.first?.chainId
-                ?? Int64(Network.polygonAmoy.id)
+                ?? Int64(Network.amoy.id)
             let response = GatewayBalancesResponse(
                 page: TokenBalancesPage(page: 0, pageSize: 40, more: false),
                 nativeBalances: nativeBalance.map {

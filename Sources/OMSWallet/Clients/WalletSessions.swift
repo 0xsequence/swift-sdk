@@ -15,16 +15,15 @@ extension WalletClient {
             return
         }
 
-        guard let storedExpiresAt = OMSWalletSession.parseDate(storedWallet.expiresAt) else {
+        guard let storedSession = WalletSessionSnapshot(
+            wallet: storedWallet.wallet,
+            expiresAt: storedWallet.expiresAt,
+            auth: storedWallet.auth
+        ) else {
             // An unreadable expiry is treated as expired; restore() discards the stored session.
             _ = credentialSession.restore()
             return
         }
-        let storedSession = WalletSessionSnapshot(
-            wallet: storedWallet.wallet,
-            expiresAt: storedExpiresAt,
-            auth: storedWallet.auth
-        )
         guard !isSessionExpired(storedSession) else {
             expireStoredSession(storedSession)
             return
@@ -43,7 +42,7 @@ extension WalletClient {
     }
 
     func isSessionExpired(_ session: WalletSessionSnapshot) -> Bool {
-        currentDate() >= session.expiresAt
+        currentDate() >= session.expiryDate
     }
 
     private func expireStoredSession(_ session: WalletSessionSnapshot) {
@@ -72,15 +71,13 @@ extension WalletClient {
     }
 
     private func currentSessionLocked() -> WalletSessionSnapshot? {
-        guard let activeWallet,
-              let expiresAt = OMSWalletSession.parseDate(sessionExpiresAt),
-              let sessionAuth else {
+        guard let activeWallet, let sessionAuth else {
             return nil
         }
 
         return WalletSessionSnapshot(
             wallet: activeWallet,
-            expiresAt: expiresAt,
+            expiresAt: sessionExpiresAt,
             auth: sessionAuth
         )
     }
@@ -138,7 +135,7 @@ extension WalletClient {
     }
 
     func scheduleSessionExpiry(_ session: WalletSessionSnapshot) {
-        let delay = max(0, session.expiresAt.timeIntervalSince(currentDate()))
+        let delay = max(0, session.expiryDate.timeIntervalSince(currentDate()))
         guard delay > 0 else {
             expireSessionFromTimer(session)
             return
@@ -326,7 +323,7 @@ extension WalletClient {
                     walletId: walletId,
                     grants: Grants(entries: grants.map(\.waasValue)),
                     expiry: expiresAt,
-                    chainId: network.chainId,
+                    chainId: network.waasChainId,
                     sessionId: sessionId
                 )
             )
@@ -415,7 +412,7 @@ extension WalletClient {
             let walletId = try requireActiveWalletId()
             try requireActiveCredential()
             let response = try await signedClient.getSessionUsage(
-                GetSessionUsageRequest(sessionId: sessionId, network: network.chainId)
+                GetSessionUsageRequest(sessionId: sessionId, network: network.waasChainId)
             )
             try requireSameActiveWalletSession(walletId)
             return try response.entries.map { entry in
