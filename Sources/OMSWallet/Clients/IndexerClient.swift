@@ -371,9 +371,7 @@ private func indexerResponseUpstreamError(
 private struct TokenBalancesFilter: Encodable {
     let accountAddresses: [String]
     let contractStatus: ContractVerificationStatus?
-    let contractTypes: [String]? = nil
     let contractWhitelist: [String]?
-    let contractBlacklist: [String]? = nil
     let omitNativeBalances: Bool
     let omitPrices: Bool?
     let tokenIDs: [String]?

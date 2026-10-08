@@ -513,10 +513,7 @@ extension WalletClient {
         }
 
         guard let feeOptionSelector else {
-            guard let feeOptionSelection = feeOptions.defaultSelection() else {
-                throw TransactionError.noFeeOptionsAvailable
-            }
-            return feeOptionSelection
+            return FeeOptionSelection(feeOption: feeOptions[0], index: 0)
         }
 
         let options: [FeeOptionWithBalance]
@@ -852,13 +849,6 @@ private func requireContractMethodName(_ method: String) throws {
 
 private func isASCIILetter(_ byte: UInt8) -> Bool {
     (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122)
-}
-
-@available(macOS 12.0, iOS 15.0, *)
-private extension Array where Element == FeeOption {
-    func defaultSelection() -> FeeOptionSelection? {
-        first.map { FeeOptionSelection(feeOption: $0, index: 0) }
-    }
 }
 
 private extension FeeToken {

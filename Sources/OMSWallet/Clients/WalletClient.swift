@@ -180,10 +180,6 @@ public final class WalletClient: @unchecked Sendable {
         }
     }
 
-    func clearAllPendingOIDCRedirectAuth() throws {
-        try withOIDCRedirectAuthProjectLock { try oidcRedirectAuthStore.clear() }
-    }
-
     func withOIDCRedirectAuthOwnership<T>(
         _ pending: PendingOIDCRedirectAuth,
         _ body: () throws -> T

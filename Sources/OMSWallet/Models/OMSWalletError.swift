@@ -413,15 +413,7 @@ private extension WebRPCError {
 private extension TransactionError {
     func toOMSWalletError(operation: OMSWalletOperation) -> OMSWalletError {
         switch self {
-        case .pollingTimedOut:
-            return OMSWalletError(
-                code: .transactionStatusLookupFailed,
-                message: localizedDescription,
-                operation: operation,
-                retryable: true,
-                underlyingError: self
-            )
-        case .noFeeOptionsAvailable, .noFeeOptionSelected, .missingTransactionHash, .invalidPollingOption:
+        case .noFeeOptionsAvailable, .noFeeOptionSelected, .invalidPollingOption:
             return OMSWalletError(
                 code: .validationError,
                 message: localizedDescription,

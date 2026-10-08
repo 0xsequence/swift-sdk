@@ -3224,9 +3224,7 @@ private func isTransactionError(_ error: (any Error)?, _ expected: TransactionEr
 
     switch (transactionError, expected) {
     case (.noFeeOptionsAvailable, .noFeeOptionsAvailable),
-         (.noFeeOptionSelected, .noFeeOptionSelected),
-         (.missingTransactionHash, .missingTransactionHash),
-         (.pollingTimedOut, .pollingTimedOut):
+         (.noFeeOptionSelected, .noFeeOptionSelected):
         return true
     case (.transactionFailed(let actual), .transactionFailed(let expected)):
         return actual == expected
