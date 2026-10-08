@@ -106,9 +106,10 @@ execution commands.
   persist private key material in SDK session storage.
 - Keep OIDC redirect state separate from completed wallet session state. Invalid
   or unrelated callbacks should not clear pending redirect auth.
-- Verification APIs require an explicit `walletAddress`. Public wallet methods
-  should validate active `walletId` and credential state before building signed
-  requests.
+- Verification APIs take an optional `walletAddress` and fall back to the active
+  wallet's address; they never send a wallet ID and do not require a session when
+  an address is given. Other public wallet methods should validate the active
+  wallet and credential state before building signed requests.
 - Avoid floating-point math for token amounts. Use or extend `parseUnits` and
   `formatUnits` for base-unit conversions.
 - Prefer `rg --files`, `rg`, `swift build`, and `swift test` from the repository root.
