@@ -225,65 +225,51 @@ extension WalletClient {
         requiredSessionRevision: UInt64? = nil
     ) throws -> Bool {
         let clearState = {
-            try self.withSessionLock {
-                if let requiredSessionRevision,
-                   self._sessionRevision != requiredSessionRevision {
-                    return false
+            do {
+                return try self.withSessionLock {
+                    if let requiredSessionRevision,
+                       self._sessionRevision != requiredSessionRevision {
+                        return false
+                    }
+                    self._sessionRevision += 1
+                    self.latestSessionExpiredEvent = nil
+                    self.sessionExpiryTask?.cancel()
+                    self.sessionExpiryTask = nil
+                    self.activePendingWalletSelection = nil
+                    try self.credentialSession.clear()
+                    self.activeWallet = nil
+                    self.verifier = ""
+                    self.challenge = ""
+                    self.pendingEmailAuth = nil
+                    self.sessionExpiresAt = nil
+                    self.sessionAuth = nil
+                    self.signedClient = self.signedClientFactory(self.credentialSession.signer)
+                    return true
                 }
-                self._sessionRevision += 1
-                self.latestSessionExpiredEvent = nil
-                self.sessionExpiryTask?.cancel()
-                self.sessionExpiryTask = nil
-                self.activePendingWalletSelection = nil
-                try self.credentialSession.clear()
-                self.activeWallet = nil
-                self.verifier = ""
-                self.challenge = ""
-                self.pendingEmailAuth = nil
-                self.sessionExpiresAt = nil
-                self.sessionAuth = nil
-                self.signedClient = self.signedClientFactory(self.credentialSession.signer)
-                return true
+            } catch {
+                throw OMSWalletError.storageError(
+                    message: "Wallet session cleanup failed.",
+                    underlyingError: error
+                )
             }
         }
-        if clearOidcRedirectAuth {
-            return try withOIDCRedirectAuthProjectLock {
-                let cleared: Bool
-                do {
-                    cleared = try clearState()
-                } catch {
-                    throw OMSWalletError.storageError(
-                        message: "Wallet session cleanup failed.",
-                        underlyingError: error
-                    )
-                }
-                guard cleared else {
-                    return false
-                }
-                do {
-                    try oidcRedirectAuthStore.clear()
-                } catch {
-                    throw OMSWalletError.storageError(
-                        message: "OIDC redirect auth state cleanup failed.",
-                        underlyingError: error
-                    )
-                }
-                return true
+        guard clearOidcRedirectAuth else {
+            return try clearState()
+        }
+        return try withOIDCRedirectAuthProjectLock {
+            guard try clearState() else {
+                return false
             }
+            do {
+                try oidcRedirectAuthStore.clear()
+            } catch {
+                throw OMSWalletError.storageError(
+                    message: "OIDC redirect auth state cleanup failed.",
+                    underlyingError: error
+                )
+            }
+            return true
         }
-        let cleared: Bool
-        do {
-            cleared = try clearState()
-        } catch {
-            throw OMSWalletError.storageError(
-                message: "Wallet session cleanup failed.",
-                underlyingError: error
-            )
-        }
-        guard cleared else {
-            return false
-        }
-        return true
     }
 
     /// Returns display metadata for a remote credential before the owner approves access.
