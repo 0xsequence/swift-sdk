@@ -564,6 +564,9 @@ extension WalletClient {
         requiredSessionRevision: UInt64,
         oidcRedirectAuthOwnership: PendingOIDCRedirectAuth? = nil
     ) async throws -> CompleteAuthResult {
+        guard OMSWalletSession.parseDate(response.credential.expiresAt) != nil else {
+            throw OMSWalletError(code: .invalidResponse, message: "Auth response has an invalid credential expiresAt")
+        }
         let sessionMetadata = SessionMetadata(
             expiresAt: response.credential.expiresAt,
             auth: sessionAuth
@@ -645,7 +648,6 @@ extension WalletClient {
         }
 
         return .walletSelected(
-            walletAddress: activated.walletAddress,
             wallet: activated.wallet,
             wallets: candidateWallets.isEmpty ? wallets + [activated.wallet] : wallets,
             credential: response.credential.walletCredential
@@ -719,14 +721,16 @@ extension WalletClient {
         guard activePendingWalletSelection?.id == selectionSession.id else {
             throw OMSWalletError.walletSelectionStale()
         }
-        let selectionSessionState = OMSWalletSessionState(
-            walletAddress: nil,
-            expiresAtString: selectionSession.metadata.expiresAt,
-            auth: selectionSession.metadata.auth
-        )
-        guard !isSessionExpired(selectionSessionState) else {
-            expireSession(selectionSessionState)
-            throw OMSWalletError.sessionExpired()
+        if let expiresAt = OMSWalletSession.parseDate(selectionSession.metadata.expiresAt) {
+            let selectionSessionState = WalletSessionSnapshot(
+                wallet: nil,
+                expiresAt: expiresAt,
+                auth: selectionSession.metadata.auth
+            )
+            guard !isSessionExpired(selectionSessionState) else {
+                expireSession(selectionSessionState)
+                throw OMSWalletError.sessionExpired()
+            }
         }
         try requireActiveCredential()
         let signerCredentialId = try credentialSession.signer.credentialId()
@@ -769,7 +773,7 @@ extension WalletClient {
     /// Call this after `completeEmailAuth(code:walletSelection:walletType:)` returns
     /// `.walletSelection`, or when an authenticated session already exists.
     ///
-    /// - Parameter walletType: The wallet type to create: `.ethereum` (default) or `.solana`.
+    /// - Parameter walletType: The wallet type to create: `.ethereum` (default), `.solana`, or `.tron`.
     @discardableResult
     public func createWallet(
         walletType: WalletType = WalletType.ethereum,
@@ -810,18 +814,15 @@ extension WalletClient {
         )
 
         let response = try await signedClient.createWallet(params)
+        let wallet = try response.wallet.sdkValue
         try createSequenceWallet(
-            walletAddress: response.wallet.address,
-            walletId: response.wallet.id,
+            wallet: wallet,
             sessionMetadata: sessionMetadata,
             requiredSessionRevision: requiredSessionRevision,
             oidcRedirectAuthOwnership: oidcRedirectAuthOwnership
         )
 
-        return WalletSelectionResult(
-            walletAddress: response.wallet.address,
-            wallet: try response.wallet.sdkValue
-        )
+        return WalletSelectionResult(wallet: wallet)
     }
 
     /// Loads an existing wallet by ID for the authenticated user and persists
@@ -842,18 +843,15 @@ extension WalletClient {
         )
 
         let response = try await signedClient.useWallet(params)
+        let wallet = try response.wallet.sdkValue
         try createSequenceWallet(
-            walletAddress: response.wallet.address,
-            walletId: response.wallet.id,
+            wallet: wallet,
             sessionMetadata: sessionMetadata,
             requiredSessionRevision: requiredSessionRevision,
             oidcRedirectAuthOwnership: oidcRedirectAuthOwnership
         )
 
-        return WalletSelectionResult(
-            walletAddress: response.wallet.address,
-            wallet: try response.wallet.sdkValue
-        )
+        return WalletSelectionResult(wallet: wallet)
     }
 
     private func walletsFromAuthResponse(_ response: CompleteAuthResponse) async throws -> [Wallet] {

@@ -97,37 +97,79 @@ import Testing
     #expect(try parseUnits(value: "0.0000000000000000005", decimals: 18) == "1")
 }
 
-@Test func TestOMSWalletSessionStateParsesExpiresAt() throws {
-    let state = OMSWalletSessionState(
-        walletAddress: "0xabc",
-        expiresAtString: "2026-01-01T00:00:00Z",
+@Test func TestOMSWalletSessionParsesExpiresAt() throws {
+    let expiresAt = try #require(OMSWalletSession.parseDate("2026-01-01T00:00:00Z"))
+    let session = OMSWalletSession(
+        expiresAt: expiresAt,
         auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
     )
 
-    #expect(state.walletAddress == "0xabc")
-    #expect(state.expiresAt == Date(timeIntervalSince1970: 1_767_225_600))
-    #expect(state.auth == .email(OMSWalletEmailSessionAuth(email: "user@example.com")))
-    #expect(state.auth?.email == "user@example.com")
+    #expect(session.expiresAt == Date(timeIntervalSince1970: 1_767_225_600))
+    #expect(OMSWalletSession.parseDate("2026-01-01T00:00:00.500Z") == Date(timeIntervalSince1970: 1_767_225_600.5))
+    #expect(OMSWalletSession.parseDate("not-a-date") == nil)
+    #expect(session.auth.email == "user@example.com")
 }
 
 @Test func TestStorableCredentialsRoundTripSessionMetadata() throws {
+    let wallet = Wallet(
+        id: "wallet-1",
+        type: .tron,
+        address: "TW39NT9SCCv7aomYYXgh4wcUWag4XtVe2H",
+        reference: "main",
+        keyOrigin: .imported
+    )
     let credentials = StorableCredentials(
-        walletId: "wallet-1",
-        walletAddress: "0xabc",
+        wallet: wallet,
         signerCredentialId: "0xsigner",
         alg: .ecdsaP256Sha256,
         expiresAt: "2026-01-01T00:00:00Z",
         auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
     )
 
-    let restored = try StorableCredentials.from(jsonString: credentials.jsonString())
+    let json = try credentials.jsonString()
+    let object = try #require(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+    let restored = try StorableCredentials.from(jsonString: json)
 
-    #expect(restored.walletId == "wallet-1")
-    #expect(restored.walletAddress == "0xabc")
+    #expect(object["version"] as? Int == 2)
+    #expect(object["walletId"] == nil)
+    #expect(object["walletAddress"] == nil)
+    #expect(restored.version == 2)
+    #expect(restored.wallet == wallet)
     #expect(restored.signerCredentialId == "0xsigner")
     #expect(restored.alg == .ecdsaP256Sha256)
     #expect(restored.expiresAt == "2026-01-01T00:00:00Z")
     #expect(restored.auth == .email(OMSWalletEmailSessionAuth(email: "user@example.com")))
+}
+
+@Test func TestStorableCredentialsRejectsVersionOneRecords() {
+    let versionOne = """
+    {"walletId":"wallet-1","walletAddress":"0x1111111111111111111111111111111111111111",\
+    "signerCredentialId":"0xsigner","alg":"ecdsa-p256-sha256","expiresAt":"2099-01-01T00:00:00Z",\
+    "auth":{"type":"email","email":"user@example.com"}}
+    """
+
+    #expect(throws: DecodingError.self) {
+        try StorableCredentials.from(jsonString: versionOne)
+    }
+}
+
+@Test(arguments: [
+    #"{"id":"wallet-1","type":"bitcoin","address":"bc1q","keyOrigin":"enclave"}"#,
+    #"{"id":"wallet-1","type":"ethereum","address":"0x1111111111111111111111111111111111111111","keyOrigin":"derived"}"#,
+    #"{"id":"wallet-1","type":"ethereum","address":"TW39NT9SCCv7aomYYXgh4wcUWag4XtVe2H","keyOrigin":"enclave"}"#,
+    #"{"id":"","type":"tron","address":"TW39NT9SCCv7aomYYXgh4wcUWag4XtVe2H","keyOrigin":"enclave"}"#,
+    #"{"id":"wallet-1","type":"tron","address":"","keyOrigin":"enclave"}"#,
+    #"{"id":"wallet-1","address":"TW39NT9SCCv7aomYYXgh4wcUWag4XtVe2H","keyOrigin":"enclave"}"#
+])
+func TestStorableCredentialsRejectsInvalidStoredWallets(walletJSON: String) {
+    let record = """
+    {"version":2,"wallet":\(walletJSON),"signerCredentialId":"0xsigner","alg":"ecdsa-p256-sha256",\
+    "expiresAt":"2099-01-01T00:00:00Z","auth":{"type":"email","email":"user@example.com"}}
+    """
+
+    #expect(throws: (any Error).self) {
+        try StorableCredentials.from(jsonString: record)
+    }
 }
 
 @Test func TestOidcRedirectAuthMatchesCustomSchemesWithoutAuthority() throws {

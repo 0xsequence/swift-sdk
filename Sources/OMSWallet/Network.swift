@@ -12,6 +12,18 @@ public enum SolanaNetworks {
     public static let mainnet: SolanaNetwork = .mainnet
 }
 
+public enum TronNetwork: String, CaseIterable, Codable, Sendable, CustomStringConvertible {
+    case mainnet = "tron:mainnet"
+    case nile = "tron:nile"
+
+    public var description: String { rawValue }
+}
+
+public enum TronNetworks {
+    public static let mainnet: TronNetwork = .mainnet
+    public static let nile: TronNetwork = .nile
+}
+
 public enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
     case mainnet
     case sepolia

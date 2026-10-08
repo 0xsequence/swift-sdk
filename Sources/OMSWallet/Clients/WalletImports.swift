@@ -23,7 +23,7 @@ private enum WalletImportActivationContext {
 
 @available(macOS 12.0, iOS 15.0, *)
 extension WalletClient {
-    /// Imports and activates an Ethereum or Solana private key.
+    /// Imports and activates an Ethereum, Solana, or Tron private key.
     ///
     /// The plaintext key is sealed locally to a recipient key from an attested WaaS enclave and is
     /// never sent over the ordinary WaaS transport.
@@ -193,15 +193,14 @@ extension WalletClient {
         context: WalletImportActivationContext
     ) throws -> WalletSelectionResult {
         try createSequenceWallet(
-            walletAddress: wallet.address,
-            walletId: wallet.id,
+            wallet: wallet,
             sessionMetadata: context.metadata,
             requiredSessionRevision: context.revision
         )
         if case .pending = context {
             activePendingWalletSelection = nil
         }
-        return WalletSelectionResult(walletAddress: wallet.address, wallet: wallet)
+        return WalletSelectionResult(wallet: wallet)
     }
 
     private func requireWalletImportClient() throws -> WaasClient {

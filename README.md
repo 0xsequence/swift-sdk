@@ -99,14 +99,14 @@ Pass your OMS publishable key when creating the client. The SDK derives the wall
 
 Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. The credential remains Keychain-managed and is not serialized into SDK session storage.
 
-Only completed wallet session metadata is restored automatically, including wallet address, expiry, and auth metadata such as email or OIDC issuer/provider details when available. The SDK checks the cached session expiry before restoring a session. Expired sessions are not activated, and invalid session metadata is cleared; expired session metadata remains in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it.
+Only completed wallet session metadata is restored automatically, including the active wallet (ID, type, address, reference, and key origin), expiry, and auth metadata such as email or OIDC issuer/provider details when available. The SDK checks the cached session expiry before restoring a session. Expired sessions are not activated, and invalid session metadata is cleared; expired session metadata remains in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it.
 
 ## Authentication Flow
 
 OMS supports email-based OTP, OIDC ID-token auth, and OIDC redirect auth. The email two-step flow is:
 
 1. **`startEmailAuth(email:sessionLifetimeSeconds:)`** validates the requested session lifetime and sends a one-time code to the user's inbox.
-2. **`completeEmailAuth(code:walletSelection:walletType:)`** verifies the code using the session lifetime chosen when the flow started. In the default `.automatic` mode it selects the first matching wallet or creates one. The wallet address, wallet ID, and signer metadata are saved to the device keychain.
+2. **`completeEmailAuth(code:walletSelection:walletType:)`** verifies the code using the session lifetime chosen when the flow started. In the default `.automatic` mode it selects the first matching wallet or creates one. The active wallet and signer metadata are saved to the device keychain.
 
 ```swift
 try await omsWallet.wallet.startEmailAuth(email: "user@example.com")
@@ -117,11 +117,18 @@ let result = try await omsWallet.wallet.completeEmailAuth(code: "123456")
 if let wallet = result.wallet {
     print(wallet.address)
 }
-let session = omsWallet.wallet.session
-print(session.walletAddress ?? "signed out")
-if let expiresAt = session.expiresAt { print(expiresAt) }
-print(session.auth?.email ?? "unknown")
+if let activeWallet = omsWallet.wallet.activeWallet,
+   let session = omsWallet.wallet.session {
+    print(activeWallet.type, activeWallet.address)
+    print(session.expiresAt)
+    print(session.auth.email ?? "unknown")
+} else {
+    print("signed out")
+}
 ```
+
+`activeWallet` is a `Wallet`, the same type `listWallets()` returns, or `nil` when signed out.
+`session` holds the expiry and auth metadata and is non-`nil` exactly when `activeWallet` is.
 
 Pass `sessionLifetimeSeconds` to `startEmailAuth` when you need a shorter or
 longer email session. The default is one week, and custom values must be from 1
@@ -131,7 +138,8 @@ to session expiry:
 
 ```swift
 let sessionExpiredObservation = omsWallet.wallet.addSessionExpiredObserver { event in
-    print("Session expired:", event.session.walletAddress ?? "unknown")
+    // `wallet` is nil when the credential expired during a pending manual wallet selection.
+    print("Session expired:", event.wallet?.address ?? "no wallet selected", event.expiredAt)
 }
 
 // Later, when the observer is no longer needed:
@@ -179,7 +187,7 @@ if let wallet = result.wallet {
 
 Use `walletSelection: .manual` when the app should present its own wallet
 picker. Pass `provider` and `providerLabel` for custom ID-token providers when
-those labels should be stored in `omsWallet.wallet.session.auth`.
+those labels should be stored in `omsWallet.wallet.session?.auth`.
 
 For OIDC authorization-code redirect flows, start the redirect, open the
 returned URL with your browser UI, then safely handle incoming app links.
@@ -199,7 +207,7 @@ do {
         callbackURLString
     )
     switch result {
-    case .completed(.walletSelected(_, let wallet, let wallets, let credential)):
+    case .completed(.walletSelected(let wallet, let wallets, let credential)):
         print(wallet.address, wallets.count, credential.credentialId)
     case .completed(.walletSelection(let pendingSelection)):
         // Show pendingSelection.wallets in your app UI.
@@ -296,8 +304,8 @@ let imported = try await omsWallet.wallet.importWallet(
 print(imported.wallet.keyOrigin == .imported)
 ```
 
-Ethereum imports accept a 32-byte raw scalar or 64 hexadecimal digits, optionally prefixed with
-`0x`. Solana imports accept a 32-byte seed or 64-byte keypair as raw bytes, or the base58 encoding
+Ethereum and Tron imports (both secp256k1) accept a 32-byte raw scalar or 64 hexadecimal digits,
+optionally prefixed with `0x`, through `.ethereum`/`.ethereumBytes` or `.tron`/`.tronBytes`. Solana imports accept a 32-byte seed or 64-byte keypair as raw bytes, or the base58 encoding
 of either. The SDK does not persist plaintext imported keys. For
 caller-managed HPKE flows, use `getWalletImportRecipientKey(cipherSuite:)` and then
 `importEncryptedWallet(walletType:keyMaterial:reference:)`; both responses remain attestation
@@ -313,7 +321,7 @@ let signature = try await omsWallet.wallet.signMessage(
     message: "hello from OMS Wallet"
 )
 
-guard let walletAddress = omsWallet.wallet.walletAddress else { return }
+guard let walletAddress = omsWallet.wallet.activeWallet?.address else { return }
 
 let isValid = try await omsWallet.wallet.isValidMessageSignature(
     network: .polygonAmoy,
@@ -327,7 +335,8 @@ For a selected Solana wallet, use the Solana-specific message methods; off-chain
 require a cluster:
 
 ```swift
-guard let solanaWalletAddress = omsWallet.wallet.walletAddress else { return }
+guard let activeWallet = omsWallet.wallet.activeWallet, activeWallet.type == .solana else { return }
+let solanaWalletAddress = activeWallet.address
 
 let signature = try await omsWallet.wallet.signSolanaMessage(message: "hello from Solana")
 let valid = try await omsWallet.wallet.isValidSolanaMessageSignature(
@@ -365,7 +374,7 @@ let signature = try await omsWallet.wallet.signTypedData(
     typedData: typedData
 )
 
-guard let walletAddress = omsWallet.wallet.walletAddress else { return }
+guard let walletAddress = omsWallet.wallet.activeWallet?.address else { return }
 
 let typedDataValid = try await omsWallet.wallet.isValidTypedDataSignature(
     network: .polygonAmoy,
@@ -378,7 +387,7 @@ let typedDataValid = try await omsWallet.wallet.isValidTypedDataSignature(
 ### Query Balances
 
 ```swift
-guard let walletAddress = omsWallet.wallet.walletAddress else { return }
+guard let walletAddress = omsWallet.wallet.activeWallet?.address else { return }
 
 let result = try await omsWallet.indexer.getBalances(
     GetBalancesParams(
@@ -425,7 +434,7 @@ print(balance?.balance ?? "0")
 ### Query Transaction History
 
 ```swift
-guard let walletAddress = omsWallet.wallet.walletAddress else { return }
+guard let walletAddress = omsWallet.wallet.activeWallet?.address else { return }
 
 let history = try await omsWallet.indexer.getTransactionHistory(
     GetTransactionHistoryParams(
@@ -498,13 +507,17 @@ let amount = try parseUnits(value: "0.001", decimals: 18)
 let txResult = try await omsWallet.wallet.callContract(
     network: .polygonAmoy,
     contract: "0x3333333333333333333333333333333333333333",
-    method: "transfer(address,uint256)",
+    method: "transfer",
     args: [
         AbiArg(type: "address", value: .string("0x1111111111111111111111111111111111111111")),
         AbiArg(type: "uint256", value: .string(amount)),
     ]
 )
 ```
+
+Pass the bare function name, such as `"transfer"`, not a signature such as
+`"transfer(address,uint256)"`. The wallet service builds the signature from the argument types, and
+the SDK rejects any other value with `.validationError` before sending a request.
 
 To return immediately after execute without status polling, pass
 `waitForStatus: false`. You can then call `getTransactionStatus` with the
@@ -570,14 +583,87 @@ let txResult = try await omsWallet.wallet.sendTransaction(
 ```
 
 Custom selectors receive `FeeOptionWithBalance` values. For Ethereum fees, `balance`
-contains the matching `TokenBalance` when available. For both Ethereum and Solana fees,
+contains the matching `TokenBalance` when available. For Ethereum, Solana, and Tron fees,
 `available` is formatted with the token decimals, `availableRaw` is the raw integer
 balance, and `decimals` is the token decimal count used for formatting. This lets
-`.firstAvailable` select the first affordable option on either network family. Unsponsored
+`.firstAvailable` select the first affordable option on any network family. Unsponsored
 transactions require the selector to return a fee selection. Sponsored transactions
 invoke the selector with an empty array; return `nil` after acknowledging the free fee,
 or throw to stop execution. `.firstAvailable` returns `nil` for that empty array and
 continues execution as before.
+
+### Tron Wallets
+
+Tron wallets are EOAs and always execute in native mode, so the Tron methods take no `mode`
+parameter. Create one with `createWallet(walletType: .tron)`, sign in with `walletType: .tron`, or
+import a secp256k1 private key with `.tron(_:)`. Tron addresses are Base58Check strings (`T…`).
+Supported networks are `TronNetwork.mainnet` and `TronNetwork.nile`. TRC-10 tokens are not
+supported.
+
+```swift
+let created = try await omsWallet.wallet.createWallet(walletType: .tron)
+
+let signature = try await omsWallet.wallet.signTronMessage(message: "some message to sign")
+let isValid = try await omsWallet.wallet.isValidTronMessageSignature(
+    walletAddress: created.wallet.address,
+    message: "some message to sign",
+    signature: signature
+)
+
+// TRX transfer. Values are in sun (1 TRX = 1,000,000 sun).
+let trxTransfer = try await omsWallet.wallet.sendTronTransaction(
+    network: .nile,
+    to: "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+    value: try parseUnits(value: "1", decimals: 6)
+)
+
+// TRC-20 transfer. The wallet service ABI-encodes the call; address arguments accept `T…`.
+let trc20Transfer = try await omsWallet.wallet.callTronContract(
+    network: .nile,
+    contract: "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf",
+    method: "transfer",
+    args: [
+        AbiArg(type: "address", value: .string("TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t")),
+        AbiArg(type: "uint256", value: .string("1000000")),
+    ]
+)
+```
+
+`signTronTypedData(typedData:)` and `isValidTronTypedDataSignature(walletAddress:typedData:signature:)`
+sign and verify TIP-712 typed data, whose address values may be Base58Check.
+
+Omitting `data` from `sendTronTransaction` sends a plain TRX transfer. Passing `data`, even `"0x"`,
+makes the transaction a contract call: `"0x"` calls the recipient contract's payable fallback.
+
+Tron transactions report `.pending` with a `txnHash` until the block is solidified (about a
+minute), so status polling returns as soon as the hash is available.
+
+Every Tron account gets a daily free bandwidth allowance (600 points, about two TRX transfers), so
+prepared Tron transactions are often sponsored even without a relayer. When the allowance is spent,
+WaaS quotes the TRX to burn as a single native fee option, which a fee selector receives like any
+other fee option.
+
+Use `getTronBalances` for TRX and TRC-20 balances. Omit `networks` to query both Tron Mainnet and
+Nile, or pass either network explicitly. Results have the same shape as `getSolanaBalances`:
+precision-safe raw and formatted balance strings, with TRC-20 entries identified by
+`contractAddress`. Pass `contractAddresses` or `excludedContractAddresses` to filter tokens.
+Individual network failures are reported in `errors` without discarding balances returned by the
+other requested network.
+
+```swift
+let balances = try await omsWallet.indexer.getTronBalances(
+    GetTronBalancesParams(walletAddress: created.wallet.address, networks: [.nile])
+)
+
+for balance in balances.balances {
+    switch balance {
+    case .native(let trx):
+        print(trx.network, trx.symbol, trx.formattedBalance)
+    case .fungibleToken(let token):
+        print(token.network, token.contractAddress, token.symbol, token.formattedBalance)
+    }
+}
+```
 
 ## Advanced Configuration
 
@@ -634,6 +720,13 @@ Solana uses the separate `SolanaNetwork` type, not `Network`:
 | `SolanaNetwork.mainnet` | `solana:mainnet` |
 
 `SolanaNetwork.mainnet` is distinct from `Network.mainnet`, which is Ethereum mainnet.
+
+Tron uses the separate `TronNetwork` type:
+
+| Swift case | Raw value |
+|---|---|
+| `TronNetwork.mainnet` | `tron:mainnet` |
+| `TronNetwork.nile` | `tron:nile` |
 
 ## Unit Formatting
 

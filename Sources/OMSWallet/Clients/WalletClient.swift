@@ -89,7 +89,7 @@ public final class WalletClient: @unchecked Sendable {
             withSessionLock { _latestSessionExpiredEvent = newValue }
         }
     }
-    private var _walletAddress: String
+    private var _activeWallet: Wallet?
     private var _walletId: String
     var _sessionRevision: UInt64 = 0
     private var _sessionExpiredObservers: [UUID: SessionExpiredObserver] = [:]
@@ -97,15 +97,14 @@ public final class WalletClient: @unchecked Sendable {
     private var _challenge = ""
     private var _pendingEmailAuth: PendingEmailAuth?
 
-    public internal(set) var walletAddress: String? {
+    /// The active wallet, or `nil` until auth completes or a session is restored, and after
+    /// sign-out or session expiry. Same shape as `listWallets()` entries.
+    public internal(set) var activeWallet: Wallet? {
         get {
-            withSessionLock {
-                let walletAddress = _walletAddress.trimmingCharacters(in: .whitespacesAndNewlines)
-                return walletAddress.isEmpty ? nil : walletAddress
-            }
+            withSessionLock { _activeWallet }
         }
         set {
-            withSessionLock { _walletAddress = newValue ?? "" }
+            withSessionLock { _activeWallet = newValue }
         }
     }
     public internal(set) var walletId: String {
@@ -241,7 +240,7 @@ public final class WalletClient: @unchecked Sendable {
         }
 
         self._walletId = ""
-        self._walletAddress = ""
+        self._activeWallet = nil
         self._sessionExpiresAt = nil
         self._sessionAuth = nil
         self.credentialSession = credentialSession
@@ -285,7 +284,7 @@ public final class WalletClient: @unchecked Sendable {
         self.signedClientFactory = makeSignedClient
 
         self._walletId = ""
-        self._walletAddress = ""
+        self._activeWallet = nil
         self._sessionExpiresAt = nil
         self._sessionAuth = nil
         self.credentialSession = credentialSession
@@ -404,10 +403,10 @@ public final class WalletClient: @unchecked Sendable {
     }
 
     func requireActiveWalletAddress() throws -> String {
-        guard let walletAddress else {
+        guard let activeWallet else {
             throw OMSWalletError.sessionMissing()
         }
-        return walletAddress
+        return activeWallet.address
     }
 
     func walletAddressIfNeeded(for selectFeeOption: FeeOptionSelector?) throws -> String? {
@@ -423,13 +422,12 @@ public final class WalletClient: @unchecked Sendable {
         }
     }
 
-    /// Persists the given wallet address and signer metadata to the keychain
+    /// Persists the given wallet and signer metadata to the keychain
     /// so the session can be restored on a later launch.
     ///
-    /// - Parameter address: The on-chain address returned by `createWallet` or `useWallet`.
+    /// - Parameter wallet: The wallet returned by `createWallet`, `useWallet`, or wallet import.
     func createSequenceWallet(
-        walletAddress: String,
-        walletId: String,
+        wallet: Wallet,
         sessionMetadata: SessionMetadata,
         requiredSessionRevision: UInt64,
         oidcRedirectAuthOwnership: PendingOIDCRedirectAuth? = nil
@@ -438,18 +436,19 @@ public final class WalletClient: @unchecked Sendable {
             try self.withSessionLock {
                 try self.requireCurrentSessionRevisionLocked(requiredSessionRevision)
                 try self.credentialSession.persist(
-                    walletId: walletId,
-                    walletAddress: walletAddress,
+                    wallet: wallet,
                     expiresAt: sessionMetadata.expiresAt,
                     auth: sessionMetadata.auth
                 )
                 self._latestSessionExpiredEvent = nil
-                self._walletAddress = walletAddress
-                self._walletId = walletId
+                self._activeWallet = wallet
+                self._walletId = wallet.id
                 self._sessionExpiresAt = sessionMetadata.expiresAt
                 self._sessionAuth = sessionMetadata.auth
             }
-            self.scheduleSessionExpiry(self.session)
+            if let snapshot = self.currentSessionSnapshot() {
+                self.scheduleSessionExpiry(snapshot)
+            }
         }
         if let oidcRedirectAuthOwnership {
             try withOIDCRedirectAuthOwnership(oidcRedirectAuthOwnership, persist)

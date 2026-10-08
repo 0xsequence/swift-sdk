@@ -3,8 +3,7 @@ import Foundation
 @available(macOS 12.0, iOS 15.0, *)
 final class WalletCredentialSession {
     struct WalletMetadata {
-        let walletId: String
-        let walletAddress: String
+        let wallet: Wallet
         let expiresAt: String?
         let auth: OMSWalletSessionAuth
     }
@@ -40,8 +39,7 @@ final class WalletCredentialSession {
             }
 
             return WalletMetadata(
-                walletId: credentials.walletId,
-                walletAddress: credentials.walletAddress,
+                wallet: credentials.wallet,
                 expiresAt: credentials.expiresAt,
                 auth: credentials.auth
             )
@@ -75,8 +73,7 @@ final class WalletCredentialSession {
             if try signerMatchesStoredCredential(candidateSigner, credentials: credentials) {
                 currentSigner = candidateSigner
                 return WalletMetadata(
-                    walletId: credentials.walletId,
-                    walletAddress: credentials.walletAddress,
+                    wallet: credentials.wallet,
                     expiresAt: credentials.expiresAt,
                     auth: credentials.auth
                 )
@@ -94,15 +91,13 @@ final class WalletCredentialSession {
     }
 
     func persist(
-        walletId: String,
-        walletAddress: String,
+        wallet: Wallet,
         expiresAt: String?,
         auth: OMSWalletSessionAuth
     ) throws {
         try withLock {
             let credentials = StorableCredentials(
-                walletId: walletId,
-                walletAddress: walletAddress,
+                wallet: wallet,
                 signerCredentialId: try currentSigner.credentialId(),
                 alg: currentSigner.alg,
                 expiresAt: expiresAt,

@@ -13,11 +13,17 @@ public enum WalletImportPrivateKey: Sendable {
     case ethereumBytes(Data)
     case solana(String)
     case solanaBytes(Data)
+    /// A secp256k1 private key as 64 hexadecimal characters, optionally `0x`-prefixed. Tron uses
+    /// the same private key format as Ethereum.
+    case tron(String)
+    /// A 32-byte secp256k1 private key.
+    case tronBytes(Data)
 
     var walletType: WalletType {
         switch self {
         case .ethereum, .ethereumBytes: .ethereum
         case .solana, .solanaBytes: .solana
+        case .tron, .tronBytes: .tron
         }
     }
 }
@@ -58,6 +64,7 @@ extension WalletType {
         switch self {
         case .ethereum: .evm
         case .solana: .solana
+        case .tron: .tron
         case .unknown(let value): .unknown(value)
         }
     }
@@ -75,19 +82,13 @@ enum WalletImportValidation {
     static func plaintext(_ privateKey: WalletImportPrivateKey) throws -> Data {
         switch privateKey {
         case .ethereum(let value):
-            let trimmed = trimAsciiWhitespace(value)
-            let hex = trimmed.hasPrefix("0x") ? String(trimmed.dropFirst(2)) : trimmed
-            guard hex.count == 64, hex.allSatisfy(\.isHexDigit), let bytes = Data(hexString: hex) else {
-                throw validation("Ethereum privateKey must be 32 bytes or 64 hexadecimal characters")
-            }
-            try requireValidEthereumScalar(bytes)
-            return Data(trimmed.utf8)
+            return try secp256k1PrivateKeyPlaintext(value, label: "Ethereum")
         case .ethereumBytes(let bytes):
-            guard bytes.count == 32 else {
-                throw validation("Ethereum privateKey must contain exactly 32 bytes")
-            }
-            try requireValidEthereumScalar(bytes)
-            return bytes
+            return try secp256k1PrivateKeyPlaintext(bytes, label: "Ethereum")
+        case .tron(let value):
+            return try secp256k1PrivateKeyPlaintext(value, label: "Tron")
+        case .tronBytes(let bytes):
+            return try secp256k1PrivateKeyPlaintext(bytes, label: "Tron")
         case .solana(let value):
             let trimmed = trimAsciiWhitespace(value)
             guard let decoded = decodeBase58(trimmed), decoded.count == 32 || decoded.count == 64 else {
@@ -119,10 +120,28 @@ enum WalletImportValidation {
         return value
     }
 
-    private static func requireValidEthereumScalar(_ value: Data) throws {
+    private static func secp256k1PrivateKeyPlaintext(_ value: String, label: String) throws -> Data {
+        let trimmed = trimAsciiWhitespace(value)
+        let hex = trimmed.hasPrefix("0x") ? String(trimmed.dropFirst(2)) : trimmed
+        guard hex.count == 64, hex.allSatisfy(\.isHexDigit), let bytes = Data(hexString: hex) else {
+            throw validation("\(label) privateKey must be 32 bytes or 64 hexadecimal characters")
+        }
+        try requireValidSecp256k1Scalar(bytes, label: label)
+        return Data(trimmed.utf8)
+    }
+
+    private static func secp256k1PrivateKeyPlaintext(_ bytes: Data, label: String) throws -> Data {
+        guard bytes.count == 32 else {
+            throw validation("\(label) privateKey must contain exactly 32 bytes")
+        }
+        try requireValidSecp256k1Scalar(bytes, label: label)
+        return bytes
+    }
+
+    private static func requireValidSecp256k1Scalar(_ value: Data, label: String) throws {
         let bytes = [UInt8](value)
         guard bytes.contains(where: { $0 != 0 }), bytes.lexicographicallyPrecedes(secp256k1Order) else {
-            throw validation("Ethereum privateKey is outside the valid secp256k1 scalar range")
+            throw validation("\(label) privateKey is outside the valid secp256k1 scalar range")
         }
     }
 

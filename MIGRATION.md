@@ -3,6 +3,96 @@
 This document records breaking changes and the steps to migrate between published
 versions of `oms-wallet-swift-sdk`.
 
+## 0.4.0
+
+### Active wallet replaces `walletAddress`
+
+`omsWallet.wallet.walletAddress` was removed. Read the active wallet from
+`omsWallet.wallet.activeWallet`, a `Wallet` (`id`, `type`, `address`, `reference`, `keyOrigin`) or
+`nil` when signed out. Check `type` before passing the address to family-specific code:
+
+```swift
+// 0.3.x
+let address = omsWallet.wallet.walletAddress
+
+// 0.4.0
+if let activeWallet = omsWallet.wallet.activeWallet, activeWallet.type == .ethereum {
+    let ethereumAddress = activeWallet.address
+}
+```
+
+`walletAddress` was also removed from `WalletSelectionResult` and from
+`CompleteAuthResult.walletSelected`, which is now `.walletSelected(wallet:wallets:credential:)`.
+Use `result.wallet.address`:
+
+```swift
+// 0.3.x
+case .walletSelected(let walletAddress, let wallet, let wallets, let credential):
+
+// 0.4.0
+case .walletSelected(let wallet, let wallets, let credential):
+    let walletAddress = wallet.address
+```
+
+### `session` is `nil` when signed out
+
+`OMSWalletSessionState` was renamed to `OMSWalletSession`, and `omsWallet.wallet.session` is now
+`OMSWalletSession?`. Previously it returned a value whose fields were all `nil`. The
+`walletAddress` field was removed, and `expiresAt` and `auth` are no longer optional. `session` is
+non-`nil` exactly when `activeWallet` is.
+
+```swift
+// 0.3.x
+let email = omsWallet.wallet.session.auth?.email
+
+// 0.4.0
+let email = omsWallet.wallet.session?.auth.email
+```
+
+`OMSWalletSessionExpiredEvent` gained `wallet: Wallet?`, and its `session` no longer carries
+`walletAddress`. `wallet` is `nil` when the credential expired while a manual wallet selection was
+still pending.
+
+```swift
+// 0.3.x
+print(event.session.walletAddress ?? "unknown")
+
+// 0.4.0
+print(event.wallet?.address ?? "no wallet selected")
+```
+
+### One-time sign-in after upgrading
+
+Saved sessions now record the full wallet, including its type. Sessions saved by 0.3.x do not, so
+0.4.0 discards them on launch and users sign in once after upgrading.
+
+### Contract method names
+
+`callContract` (and the new `callTronContract`) now reject a `method` that is not a bare function
+name, such as `"transfer(address,uint256)"`, with `.validationError` before sending a request. The
+wallet service builds the signature from the argument types, so pass only the name:
+
+```swift
+// 0.3.x
+method: "transfer(address,uint256)"
+
+// 0.4.0
+method: "transfer"
+```
+
+### Wallet responses
+
+Ethereum wallets whose address is not `0x` followed by 40 hexadecimal digits are now rejected with
+`.invalidResponse`. Checksum casing is not enforced.
+
+### Exhaustive switches
+
+`WalletType` gained `.tron`, and `WalletImportPrivateKey` gained `.tron(_:)` and `.tronBytes(_:)`.
+`OMSWalletOperation` gained `.walletSignTronMessage`, `.walletSignTronTypedData`,
+`.walletIsValidTronMessageSignature`, `.walletIsValidTronTypedDataSignature`,
+`.walletSendTronTransaction`, `.walletCallTronContract`, and `.indexerGetTronBalances`. Update
+exhaustive switches over these enums.
+
 ## 0.3.0
 
 ### Wallet types and key origin
