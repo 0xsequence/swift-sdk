@@ -50,8 +50,6 @@ struct SessionExpiredPrompt: Identifiable {
     }
 }
 
-private let maxSessionLifetimeSeconds: UInt32 = 2_592_000
-
 private enum DemoAuthError: Error, LocalizedError {
     case invalidAuthorizationURL
     case invalidSessionLifetime
@@ -198,10 +196,6 @@ private func formatUSDCBalance(_ raw: String) -> String {
     return "\(wholeOut).\(frac)"
 }
 
-private func nativeTokenSymbol(for network: Network) -> String {
-    network.nativeTokenSymbol
-}
-
 private func formatNativeTokenBalance(_ raw: String) -> String {
     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return "0" }
@@ -281,7 +275,7 @@ final class AppViewModel: ObservableObject {
         let trimmed = sessionLifetimeText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let seconds = UInt32(trimmed),
               seconds >= 1,
-              seconds <= maxSessionLifetimeSeconds else {
+              seconds <= WalletClient.maxSessionLifetimeSeconds else {
             return nil
         }
         return seconds
@@ -1352,7 +1346,7 @@ struct WalletWindow: View {
                     .foregroundStyle(DesignTokens.Color.primaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                Text(nativeTokenSymbol(for: selectedNetwork))
+                Text(selectedNetwork.nativeTokenSymbol)
                     .font(.caption)
                     .foregroundStyle(DesignTokens.Color.secondaryText)
             }
@@ -1369,7 +1363,7 @@ struct WalletWindow: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(DesignTokens.Color.primaryText)
                         .monospacedDigit()
-                    Text(nativeTokenSymbol(for: selectedNetwork))
+                    Text(selectedNetwork.nativeTokenSymbol)
                         .font(.caption)
                         .foregroundStyle(DesignTokens.Color.secondaryText)
                         .monospacedDigit()

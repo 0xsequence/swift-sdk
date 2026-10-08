@@ -17,10 +17,6 @@ struct GenericAppError: Identifiable {
 }
 
 private func errorMessage(for error: Error) -> String {
-    if isCancellation(error) {
-        return "The operation was cancelled."
-    }
-
     if let error = error as? OMSWalletError {
         return errorMessage(for: error)
     }
@@ -70,9 +66,7 @@ private func errorMessage(for error: OMSWalletError) -> String {
         details.append("Underlying error: \(String(describing: underlyingError))")
     }
 
-    if !details.isEmpty {
-        sections.append(details.joined(separator: "\n"))
-    }
+    sections.append(details.joined(separator: "\n"))
 
     return sections.joined(separator: "\n\n")
 }
