@@ -821,10 +821,13 @@ extension WalletClient {
         try requireActiveWalletType(.tron)
     }
 
-    /// Returns `walletAddress` when given; otherwise the active wallet's address, which must be of
+    /// Returns `walletAddress` when given (it must not be blank); otherwise the active wallet's address, which must be of
     /// `walletType`. Verification never sends a wallet ID.
     private func verificationWalletAddress(_ walletAddress: String?, walletType: WalletType) throws -> String {
         if let walletAddress {
+            guard !walletAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw OMSWalletError(code: .validationError, message: "walletAddress must not be empty")
+            }
             return walletAddress
         }
         try requireActiveWalletType(walletType)

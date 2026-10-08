@@ -53,7 +53,8 @@ struct StorableCredentials: Codable {
         self.auth = try container.decode(OMSWalletSessionAuth.self, forKey: .auth)
     }
 
-    private static func isValidStoredWallet(_ wallet: Wallet) -> Bool {
+    /// Sign-in uses the same rule, so it never activates a wallet that restore would discard.
+    static func isValidStoredWallet(_ wallet: Wallet) -> Bool {
         guard !wallet.id.isEmpty, !wallet.address.isEmpty else {
             return false
         }

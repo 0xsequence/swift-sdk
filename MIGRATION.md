@@ -85,7 +85,9 @@ method: "transfer"
 ### Wallet responses
 
 Ethereum wallets whose address is not `0x` followed by 40 hexadecimal digits are now rejected with
-`.invalidResponse`. Checksum casing is not enforced.
+`.invalidResponse`. Checksum casing is not enforced. Sign-in and wallet selection also reject, with
+`.invalidResponse`, a wallet whose network family or key origin the SDK does not recognize, instead
+of activating a wallet whose saved session would be discarded on the next launch.
 
 ### Exhaustive switches
 

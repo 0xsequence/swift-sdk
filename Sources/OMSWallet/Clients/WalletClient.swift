@@ -438,6 +438,12 @@ public final class WalletClient: @unchecked Sendable {
         requiredSessionRevision: UInt64,
         oidcRedirectAuthOwnership: PendingOIDCRedirectAuth? = nil
     ) throws {
+        guard StorableCredentials.isValidStoredWallet(wallet) else {
+            throw OMSWalletError(
+                code: .invalidResponse,
+                message: "Wallet response has an unsupported wallet type or key origin"
+            )
+        }
         let persist = {
             try self.withSessionLock {
                 try self.requireCurrentSessionRevisionLocked(requiredSessionRevision)

@@ -565,6 +565,10 @@ extension WalletClient {
         oidcRedirectAuthOwnership: PendingOIDCRedirectAuth? = nil
     ) async throws -> CompleteAuthResult {
         guard OMSWalletSession.parseDate(response.credential.expiresAt) != nil else {
+            // The redirect callback's caller clears its own session on failure.
+            if oidcRedirectAuthOwnership == nil {
+                try? signOut()
+            }
             throw OMSWalletError(code: .invalidResponse, message: "Auth response has an invalid credential expiresAt")
         }
         let sessionMetadata = SessionMetadata(

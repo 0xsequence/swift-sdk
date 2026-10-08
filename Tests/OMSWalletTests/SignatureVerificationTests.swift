@@ -195,3 +195,23 @@ func TestSignatureVerificationWithoutAddressRejectsMismatchedActiveWallet(
     }
     #expect(fixture.transport.requestCount(for: method.path) == 0)
 }
+
+@Test(arguments: SignatureVerificationMethod.allCases, ["", "  "])
+func TestSignatureVerificationRejectsBlankAddress(
+    _ method: SignatureVerificationMethod,
+    walletAddress: String
+) async throws {
+    let fixture = makeMockWalletClient()
+    activate(fixture, type: method.walletType, address: method.address)
+    try method.enqueueValidResponse(fixture.transport)
+
+    do {
+        _ = try await method.call(fixture.client, walletAddress: walletAddress)
+        Issue.record("Expected a validation error")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .validationError)
+        #expect(error.operation == method.operation)
+        #expect(error.localizedDescription == "walletAddress must not be empty")
+    }
+    #expect(fixture.transport.requestCount(for: method.path) == 0)
+}
