@@ -288,8 +288,11 @@ final class AppViewModel: ObservableObject {
     }
 
     func checkSession() async {
-        let hasSession = omsWallet.wallet.activeWallet != nil
-        screen = hasSession ? .wallet : .introduction
+        let activeWallet = omsWallet.wallet.activeWallet
+        if let walletType = DemoWalletType(activeWallet?.type) {
+            selectedWalletType = walletType
+        }
+        screen = activeWallet != nil ? .wallet : .introduction
     }
 
     func signOut() {
@@ -577,6 +580,10 @@ final class AppViewModel: ObservableObject {
         feeOptionSelectionRequest = nil
         if let email = event.session.auth.email {
             loginEmail = email
+        }
+        // Sign the user back in to the same wallet family.
+        if let walletType = DemoWalletType(event.wallet?.type) {
+            selectedWalletType = walletType
         }
         screen = .login
         sessionExpiredPrompt = SessionExpiredPrompt(event: event)
@@ -1006,6 +1013,15 @@ enum DemoWalletType: String, CaseIterable, Identifiable {
     case tron = "Tron"
 
     var id: String { rawValue }
+
+    init?(_ walletType: WalletType?) {
+        switch walletType {
+        case .ethereum: self = .ethereum
+        case .solana: self = .solana
+        case .tron: self = .tron
+        default: return nil
+        }
+    }
 
     var walletType: WalletType {
         switch self {
@@ -1578,6 +1594,8 @@ private struct TronBalancesWindow: View {
                 )
             )
             if let networkError = result.errors.first(where: { $0.network == .nile }) {
+                trxBalance = "—"
+                usdtBalance = "—"
                 balanceStatus = networkError.reason
                 return
             }
