@@ -176,11 +176,54 @@ enum WalletImportValidation {
 }
 
 enum P256HPKE {
+    /// RFC 9180 base-mode sender context for DHKEM(P-256, HKDF-SHA256), HKDF-SHA256, AES-256-GCM.
+    struct SenderContext {
+        let encapsulatedKey: Data
+        let sharedSecret: Data
+        let keyScheduleContext: Data
+        let secret: Data
+        let key: Data
+        let baseNonce: Data
+    }
+
     static func seal(recipientPublicKey: Data, plaintext: Data) throws -> (encapsulatedKey: Data, ciphertext: Data) {
+        try seal(
+            recipientPublicKey: recipientPublicKey,
+            plaintext: plaintext,
+            ephemeralPrivateKey: P256.KeyAgreement.PrivateKey()
+        )
+    }
+
+    // Internal so tests can supply the ephemeral key, info, and aad from RFC 9180 test vectors.
+    static func seal(
+        recipientPublicKey: Data,
+        plaintext: Data,
+        ephemeralPrivateKey: P256.KeyAgreement.PrivateKey,
+        info: Data = Data(),
+        aad: Data = Data()
+    ) throws -> (encapsulatedKey: Data, ciphertext: Data) {
+        let context = try setupBaseSender(
+            recipientPublicKey: recipientPublicKey,
+            ephemeralPrivateKey: ephemeralPrivateKey,
+            info: info
+        )
+        let sealed = try AES.GCM.seal(
+            plaintext,
+            using: SymmetricKey(data: context.key),
+            nonce: AES.GCM.Nonce(data: context.baseNonce),
+            authenticating: aad
+        )
+        return (context.encapsulatedKey, sealed.ciphertext + sealed.tag)
+    }
+
+    static func setupBaseSender(
+        recipientPublicKey: Data,
+        ephemeralPrivateKey: P256.KeyAgreement.PrivateKey,
+        info: Data
+    ) throws -> SenderContext {
         let recipient = try P256.KeyAgreement.PublicKey(derRepresentation: recipientPublicKey)
-        let ephemeral = P256.KeyAgreement.PrivateKey()
-        let encapsulatedKey = ephemeral.publicKey.x963Representation
-        let sharedSecret = try ephemeral.sharedSecretFromKeyAgreement(with: recipient)
+        let encapsulatedKey = ephemeralPrivateKey.publicKey.x963Representation
+        let sharedSecret = try ephemeralPrivateKey.sharedSecretFromKeyAgreement(with: recipient)
         let dh = sharedSecret.withUnsafeBytes { Data($0) }
 
         let kemSuiteId = Data("KEM".utf8) + uint16(0x0010)
@@ -190,19 +233,20 @@ enum P256HPKE {
 
         let suiteId = Data("HPKE".utf8) + uint16(0x0010) + uint16(0x0001) + uint16(0x0002)
         let pskIdHash = labeledExtract(salt: Data(), suiteId: suiteId, label: "psk_id_hash", ikm: Data())
-        let infoHash = labeledExtract(salt: Data(), suiteId: suiteId, label: "info_hash", ikm: Data())
+        let infoHash = labeledExtract(salt: Data(), suiteId: suiteId, label: "info_hash", ikm: info)
         let context = Data([0]) + pskIdHash + infoHash
         let secret = labeledExtract(salt: shared, suiteId: suiteId, label: "secret", ikm: Data())
         let key = try labeledExpand(prk: secret, suiteId: suiteId, label: "key", info: context, length: 32)
         let nonce = try labeledExpand(prk: secret, suiteId: suiteId, label: "base_nonce", info: context, length: 12)
 
-        let sealed = try AES.GCM.seal(
-            plaintext,
-            using: SymmetricKey(data: key),
-            nonce: AES.GCM.Nonce(data: nonce),
-            authenticating: Data()
+        return SenderContext(
+            encapsulatedKey: encapsulatedKey,
+            sharedSecret: shared,
+            keyScheduleContext: context,
+            secret: secret,
+            key: key,
+            baseNonce: nonce
         )
-        return (encapsulatedKey, sealed.ciphertext + sealed.tag)
     }
 
     private static func labeledExtract(salt: Data, suiteId: Data, label: String, ikm: Data) -> Data {
