@@ -91,15 +91,6 @@ private enum TronBalanceCodingKeys: String, CodingKey {
     case balanceUSD
 }
 
-private extension KeyedDecodingContainer where Key == TronBalanceCodingKeys {
-    func decodeNonEmptyString(forKey key: Key) throws -> String? {
-        guard let value = try decodeIfPresent(String.self, forKey: key), !value.isEmpty else {
-            return nil
-        }
-        return value
-    }
-}
-
 public enum TronBalance: Decodable, Sendable {
     case native(TronNativeBalance)
     case fungibleToken(TronFungibleTokenBalance)

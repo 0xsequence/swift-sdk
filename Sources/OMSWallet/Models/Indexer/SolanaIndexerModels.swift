@@ -51,6 +51,47 @@ public struct SolanaFungibleTokenBalance: Codable, Sendable {
     public let balanceUSD: String?
 }
 
+// Empty `imageUrl` and `metadataUri` decode as nil, matching the Tron balances.
+extension SolanaNativeBalance {
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        network = try container.decode(SolanaNetwork.self, forKey: .network)
+        accountAddress = try container.decode(String.self, forKey: .accountAddress)
+        name = try container.decode(String.self, forKey: .name)
+        symbol = try container.decode(String.self, forKey: .symbol)
+        decimals = try container.decode(Int.self, forKey: .decimals)
+        balance = try container.decode(String.self, forKey: .balance)
+        formattedBalance = try container.decode(String.self, forKey: .formattedBalance)
+        imageUrl = try container.decodeNonEmptyString(forKey: .imageUrl)
+        metadataUri = try container.decodeNonEmptyString(forKey: .metadataUri)
+        verificationStatus = try container.decode(SolanaVerificationStatus.self, forKey: .verificationStatus)
+        verificationSource = try container.decode(SolanaVerificationSource.self, forKey: .verificationSource)
+        priceUSD = try container.decodeIfPresent(String.self, forKey: .priceUSD)
+        balanceUSD = try container.decodeIfPresent(String.self, forKey: .balanceUSD)
+    }
+}
+
+extension SolanaFungibleTokenBalance {
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        network = try container.decode(SolanaNetwork.self, forKey: .network)
+        accountAddress = try container.decode(String.self, forKey: .accountAddress)
+        tokenProgram = try container.decode(SolanaTokenProgram.self, forKey: .tokenProgram)
+        mintAddress = try container.decode(String.self, forKey: .mintAddress)
+        name = try container.decode(String.self, forKey: .name)
+        symbol = try container.decode(String.self, forKey: .symbol)
+        decimals = try container.decode(Int.self, forKey: .decimals)
+        balance = try container.decode(String.self, forKey: .balance)
+        formattedBalance = try container.decode(String.self, forKey: .formattedBalance)
+        imageUrl = try container.decodeNonEmptyString(forKey: .imageUrl)
+        metadataUri = try container.decodeNonEmptyString(forKey: .metadataUri)
+        verificationStatus = try container.decode(SolanaVerificationStatus.self, forKey: .verificationStatus)
+        verificationSource = try container.decode(SolanaVerificationSource.self, forKey: .verificationSource)
+        priceUSD = try container.decodeIfPresent(String.self, forKey: .priceUSD)
+        balanceUSD = try container.decodeIfPresent(String.self, forKey: .balanceUSD)
+    }
+}
+
 public enum SolanaBalance: Decodable, Sendable {
     case native(SolanaNativeBalance)
     case fungibleToken(SolanaFungibleTokenBalance)

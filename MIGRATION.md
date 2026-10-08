@@ -273,6 +273,10 @@ if error.code == .walletAddressAlreadyImported { /* already imported */ }
 `WalletClient.maxSessionLifetimeSeconds` (2,592,000) are now public. Remove app extensions that
 declare members with these names on those types.
 
+### Empty Solana balance metadata
+
+`SolanaBalance` now decodes an empty `imageUrl` or `metadataUri` as `nil`, as `TronBalance` does.
+
 ## 0.3.0
 
 ### Wallet types and key origin

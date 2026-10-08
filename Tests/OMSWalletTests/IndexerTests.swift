@@ -181,7 +181,7 @@ import Testing
 @Test func TestGetSolanaBalancesUsesSolanaGatewayAndDecodesStrictAssets() async throws {
     let recorder = IndexerRequestRecorder(
         responseBody: Data(
-            #"{"balances":[{"network":"solana:mainnet","accountAddress":"solana-wallet","assetType":"native","name":"Solana","symbol":"SOL","decimals":9,"balance":"4679287","formattedBalance":"0.004679287","verificationStatus":"unknown","verificationSource":"none"},{"network":"solana:mainnet","accountAddress":"solana-wallet","assetType":"fungible-token","tokenProgram":"spl-token","mintAddress":"usdc-mint","name":"USD Coin","symbol":"USDC","decimals":6,"balance":"4208117429","formattedBalance":"4208.117429","verificationStatus":"verified","verificationSource":"jupiter"}],"errors":[{"network":"solana:devnet","reason":"RPC unavailable"}]}"#.utf8
+            #"{"balances":[{"network":"solana:mainnet","accountAddress":"solana-wallet","assetType":"native","name":"Solana","symbol":"SOL","decimals":9,"balance":"4679287","formattedBalance":"0.004679287","imageUrl":"","metadataUri":"","verificationStatus":"unknown","verificationSource":"none"},{"network":"solana:mainnet","accountAddress":"solana-wallet","assetType":"fungible-token","tokenProgram":"spl-token","mintAddress":"usdc-mint","name":"USD Coin","symbol":"USDC","decimals":6,"balance":"4208117429","formattedBalance":"4208.117429","verificationStatus":"verified","verificationSource":"jupiter"}],"errors":[{"network":"solana:devnet","reason":"RPC unavailable"}]}"#.utf8
         )
     )
     let client = makeRecordingIndexerClient(recorder: recorder)
