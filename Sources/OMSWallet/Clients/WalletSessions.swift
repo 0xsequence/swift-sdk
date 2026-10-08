@@ -32,7 +32,6 @@ extension WalletClient {
             return
         }
 
-        walletId = restoredWallet.wallet.id
         activeWallet = restoredWallet.wallet
         sessionExpiresAt = restoredWallet.expiresAt
         sessionAuth = restoredWallet.auth
@@ -100,7 +99,6 @@ extension WalletClient {
         activePendingWalletSelection = nil
         try? credentialSession.clearSignerKeepingCredentials()
         activeWallet = nil
-        walletId = ""
         verifier = ""
         challenge = ""
         pendingEmailAuth = nil
@@ -239,7 +237,6 @@ extension WalletClient {
                 self.activePendingWalletSelection = nil
                 try self.credentialSession.clear()
                 self.activeWallet = nil
-                self.walletId = ""
                 self.verifier = ""
                 self.challenge = ""
                 self.pendingEmailAuth = nil

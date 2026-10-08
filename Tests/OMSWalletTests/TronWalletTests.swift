@@ -28,7 +28,6 @@ private func makeActiveWalletFixture(
     address: String = tronWalletAddress
 ) -> MockWalletClientFixture {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-id"
     fixture.client.activeWallet = Wallet(id: "wallet-id", type: type, address: address, keyOrigin: .enclave)
     fixture.client.sessionExpiresAt = "2099-01-01T00:00:00Z"
     fixture.client.sessionAuth = .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
@@ -515,7 +514,6 @@ func TestTronOperationsRejectNonTronWalletsBeforeAnyRequest(type: WalletType, ad
     let fixture = makeMockWalletClient(
         walletImportClient: WaasClient(baseURL: "https://wallet-import.test", transport: importTransport)
     )
-    fixture.client.walletId = "wallet-main"
     fixture.client.activeWallet = activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main")
     fixture.client.sessionExpiresAt = "2099-01-01T00:00:00Z"
     fixture.client.sessionAuth = .email(OMSWalletEmailSessionAuth(email: "user@example.com"))

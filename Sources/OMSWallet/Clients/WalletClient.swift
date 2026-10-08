@@ -96,7 +96,6 @@ public final class WalletClient: @unchecked Sendable {
         }
     }
     private var _activeWallet: Wallet?
-    private var _walletId: String
     var _sessionRevision: UInt64 = 0
     private var _sessionExpiredObservers: [UUID: SessionExpiredObserver] = [:]
     private var _verifier = ""
@@ -113,13 +112,9 @@ public final class WalletClient: @unchecked Sendable {
             withSessionLock { _activeWallet = newValue }
         }
     }
+    /// The active wallet's ID, or `""` when there is none.
     var walletId: String {
-        get {
-            withSessionLock { _walletId }
-        }
-        set {
-            withSessionLock { _walletId = newValue }
-        }
+        withSessionLock { _activeWallet?.id ?? "" }
     }
     var verifier: String {
         get {
@@ -245,7 +240,6 @@ public final class WalletClient: @unchecked Sendable {
             )
         }
 
-        self._walletId = ""
         self._activeWallet = nil
         self._sessionExpiresAt = nil
         self._sessionAuth = nil
@@ -289,7 +283,6 @@ public final class WalletClient: @unchecked Sendable {
         let makeSignedClient = signedClientFactory ?? { _ in signedClient }
         self.signedClientFactory = makeSignedClient
 
-        self._walletId = ""
         self._activeWallet = nil
         self._sessionExpiresAt = nil
         self._sessionAuth = nil
@@ -385,7 +378,7 @@ public final class WalletClient: @unchecked Sendable {
             throw OMSWalletError.sessionExpired()
         }
         let hasActiveSession = withSessionLock { () -> Bool in
-            let hasWallet = !_walletId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let hasWallet = !(_activeWallet?.id ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             let hasVerifiedAuth = !(_sessionExpiresAt ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             return hasWallet || hasVerifiedAuth
         }
@@ -399,9 +392,7 @@ public final class WalletClient: @unchecked Sendable {
             deliverSessionExpiredNotification(notification)
             throw OMSWalletError.sessionExpired()
         }
-        let walletId = withSessionLock {
-            _walletId.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        let walletId = self.walletId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !walletId.isEmpty else {
             throw OMSWalletError.sessionMissing()
         }
@@ -454,7 +445,6 @@ public final class WalletClient: @unchecked Sendable {
                 )
                 self._latestSessionExpiredEvent = nil
                 self._activeWallet = wallet
-                self._walletId = wallet.id
                 self._sessionExpiresAt = sessionMetadata.expiresAt
                 self._sessionAuth = sessionMetadata.auth
             }

@@ -123,7 +123,6 @@ func TestDiscardsStoredSessionsWithInvalidWallets(walletJSON: String) throws {
 
 @Test func TestRejectsEthereumWalletResponsesWithNonHexAddresses() async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
     fixture.client.activeWallet = activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main")
     fixture.client.sessionExpiresAt = "2099-01-01T00:00:00Z"
     fixture.client.sessionAuth = .email(OMSWalletEmailSessionAuth(email: "user@example.com"))

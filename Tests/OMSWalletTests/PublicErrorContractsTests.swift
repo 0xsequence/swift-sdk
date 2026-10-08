@@ -45,8 +45,7 @@ import Testing
             transport: transport
         )
     )
-    fixture.client.walletId = "wallet-main"
-    fixture.client.activeWallet = activeTestWallet("0x1111111111111111111111111111111111111111")
+    fixture.client.activeWallet = activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main")
 
     await expectPublicError(
         try await fixture.client.getWalletImportRecipientKey(cipherSuite: .p256Sha256Aes256Gcm),
@@ -95,7 +94,6 @@ import Testing
     let fixture = makeMockWalletClient(
         walletImportClient: WaasClient(baseURL: "https://wallet-import.test", transport: importTransport)
     )
-    fixture.client.walletId = "wallet-main"
     fixture.client.activeWallet = activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main")
     fixture.client.sessionExpiresAt = "2099-01-01T00:00:00Z"
     fixture.client.sessionAuth = .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
@@ -377,8 +375,7 @@ import Testing
 
     let now = Date(timeIntervalSince1970: 1_800_000_000)
     let expiredFixture = makeMockWalletClient(currentDate: { now })
-    expiredFixture.client.walletId = "wallet-main"
-    expiredFixture.client.activeWallet = activeTestWallet("0xwallet")
+    expiredFixture.client.activeWallet = activeTestWallet("0xwallet", id: "wallet-main")
     expiredFixture.client.sessionExpiresAt = "2025-01-01T00:00:00Z"
     expiredFixture.client.sessionAuth = .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
 
@@ -950,8 +947,7 @@ private final class MissingAttestationURLProtocol: URLProtocol, @unchecked Senda
 
 private func makeRestoredWalletClient() -> MockWalletClientFixture {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.activeWallet = activeTestWallet("0x1111111111111111111111111111111111111111")
+    fixture.client.activeWallet = activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main")
     fixture.client.sessionExpiresAt = "2099-01-01T00:00:00Z"
     fixture.client.sessionAuth = .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
     return fixture
