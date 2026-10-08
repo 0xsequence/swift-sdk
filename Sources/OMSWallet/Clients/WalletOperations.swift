@@ -563,13 +563,7 @@ extension WalletClient {
         walletAddress: String,
         feeOptions: [FeeOption]
     ) async -> [FeeOptionWithBalance] {
-        let contractAddresses = feeOptions
-            .compactMap { normalizedAddress($0.token.contractAddress) }
-            .reduce(into: [String]()) { addresses, address in
-                if !addresses.contains(address) {
-                    addresses.append(address)
-                }
-            }
+        let contractAddresses = uniqued(feeOptions.compactMap { normalizedAddress($0.token.contractAddress) })
 
         let balances = try? await indexerClient.getBalances(
             GetBalancesParams(
@@ -584,7 +578,7 @@ extension WalletClient {
             ? balances?.nativeBalances.first { $0.chainId == Int64(network.id) }.map(TokenBalance.native)
             : nil
 
-        var balancesByContract: [String: TokenBalance?] = [:]
+        var balancesByContract: [String: TokenBalance] = [:]
         for contractAddress in contractAddresses {
             balancesByContract[contractAddress] = balances?.balances.first {
                     normalizedAddress($0.contractAddress) == contractAddress
@@ -597,7 +591,7 @@ extension WalletClient {
                 balance = nativeBalance
             } else {
                 balance = normalizedAddress(feeOption.token.contractAddress)
-                    .flatMap { balancesByContract[$0] ?? nil }
+                    .flatMap { balancesByContract[$0] }
             }
 
             let decimals = feeOption.token.balanceDecimals
@@ -617,50 +611,26 @@ extension WalletClient {
         walletAddress: String,
         feeOptions: [FeeOption]
     ) async -> [FeeOptionWithBalance] {
-        let mintAddresses = feeOptions
-            .filter { !$0.token.isNativeToken }
-            .compactMap { normalizedBase58Address($0.token.contractAddress) }
-            .reduce(into: [String]()) { addresses, address in
-                if !addresses.contains(address) {
-                    addresses.append(address)
-                }
-            }
-        let includesNative = feeOptions.contains { $0.token.isNativeToken }
         let balances = try? await indexerClient.getSolanaBalances(
             GetSolanaBalancesParams(
                 walletAddress: walletAddress,
                 networks: [network],
                 includeMetadata: false,
-                omitNativeBalances: !includesNative,
-                mintAddresses: mintAddresses
+                omitNativeBalances: !feeOptions.contains { $0.token.isNativeToken },
+                mintAddresses: gatewayFeeTokenAddresses(feeOptions)
             )
         )
-        let nativeBalance = balances?.balances.first { balance in
-            if case .native(let value) = balance {
-                return value.network == network
-            }
-            return false
-        }
-        var balancesByMint: [String: SolanaBalance] = [:]
-        for balance in balances?.balances ?? [] {
-            if case .fungibleToken(let value) = balance, value.network == network {
-                balancesByMint[value.mintAddress] = balance
+        var native: GatewayFeeBalance?
+        var byAddress: [String: GatewayFeeBalance] = [:]
+        for balance in balances?.balances ?? [] where balance.network == network {
+            switch balance {
+            case .native:
+                native = native ?? GatewayFeeBalance(balance: balance.balance, decimals: balance.decimals)
+            case .fungibleToken(let value):
+                byAddress[value.mintAddress] = GatewayFeeBalance(balance: balance.balance, decimals: balance.decimals)
             }
         }
-
-        return feeOptions.enumerated().map { index, feeOption in
-            let balance = feeOption.token.isNativeToken
-                ? nativeBalance
-                : normalizedBase58Address(feeOption.token.contractAddress).flatMap { balancesByMint[$0] }
-            let decimals = balance?.decimals ?? feeOption.token.decimals.map(Int.init)
-            return FeeOptionWithBalance(
-                feeOption: feeOption,
-                selection: FeeOptionSelection(feeOption: feeOption, index: UInt32(index)),
-                available: formatTokenAmount(balance?.balance, decimals: decimals),
-                availableRaw: balance?.balance,
-                decimals: decimals
-            )
-        }
+        return feeOptionsWithGatewayBalances(feeOptions, native: native, byAddress: byAddress)
     }
 
     private func enrichTronFeeOptionsWithBalances(
@@ -668,41 +638,46 @@ extension WalletClient {
         walletAddress: String,
         feeOptions: [FeeOption]
     ) async -> [FeeOptionWithBalance] {
-        let contractAddresses = feeOptions
-            .filter { !$0.token.isNativeToken }
-            .compactMap { normalizedBase58Address($0.token.contractAddress) }
-            .reduce(into: [String]()) { addresses, address in
-                if !addresses.contains(address) {
-                    addresses.append(address)
-                }
-            }
-        let includesNative = feeOptions.contains { $0.token.isNativeToken }
         let balances = try? await indexerClient.getTronBalances(
             GetTronBalancesParams(
                 walletAddress: walletAddress,
                 networks: [network],
                 includeMetadata: false,
-                omitNativeBalances: !includesNative,
-                contractAddresses: contractAddresses
+                omitNativeBalances: !feeOptions.contains { $0.token.isNativeToken },
+                contractAddresses: gatewayFeeTokenAddresses(feeOptions)
             )
         )
-        let nativeBalance = balances?.balances.first { balance in
-            if case .native(let value) = balance {
-                return value.network == network
-            }
-            return false
-        }
-        var balancesByContract: [String: TronBalance] = [:]
-        for balance in balances?.balances ?? [] {
-            if case .fungibleToken(let value) = balance, value.network == network {
-                balancesByContract[value.contractAddress] = balance
+        var native: GatewayFeeBalance?
+        var byAddress: [String: GatewayFeeBalance] = [:]
+        for balance in balances?.balances ?? [] where balance.network == network {
+            switch balance {
+            case .native:
+                native = native ?? GatewayFeeBalance(balance: balance.balance, decimals: balance.decimals)
+            case .fungibleToken(let value):
+                byAddress[value.contractAddress] = GatewayFeeBalance(balance: balance.balance, decimals: balance.decimals)
             }
         }
+        return feeOptionsWithGatewayBalances(feeOptions, native: native, byAddress: byAddress)
+    }
 
-        return feeOptions.enumerated().map { index, feeOption in
+    /// Non-native fee token addresses to request from the Solana or Tron indexer gateway.
+    private func gatewayFeeTokenAddresses(_ feeOptions: [FeeOption]) -> [String] {
+        uniqued(
+            feeOptions
+                .filter { !$0.token.isNativeToken }
+                .compactMap { normalizedBase58Address($0.token.contractAddress) }
+        )
+    }
+
+    private func feeOptionsWithGatewayBalances(
+        _ feeOptions: [FeeOption],
+        native: GatewayFeeBalance?,
+        byAddress: [String: GatewayFeeBalance]
+    ) -> [FeeOptionWithBalance] {
+        feeOptions.enumerated().map { index, feeOption in
             let balance = feeOption.token.isNativeToken
-                ? nativeBalance
-                : normalizedBase58Address(feeOption.token.contractAddress).flatMap { balancesByContract[$0] }
+                ? native
+                : normalizedBase58Address(feeOption.token.contractAddress).flatMap { byAddress[$0] }
             let decimals = balance?.decimals ?? feeOption.token.decimals.map(Int.init)
             return FeeOptionWithBalance(
                 feeOption: feeOption,
@@ -910,6 +885,18 @@ private func normalizedAddress(_ address: String?) -> String? {
         return nil
     }
     return trimmed.lowercased()
+}
+
+/// A Solana or Tron fee token balance in base units.
+private struct GatewayFeeBalance {
+    let balance: String
+    let decimals: Int
+}
+
+/// Removes duplicates, keeping the first occurrence of each value.
+private func uniqued(_ values: [String]) -> [String] {
+    var seen = Set<String>()
+    return values.filter { seen.insert($0).inserted }
 }
 
 private func normalizedBase58Address(_ address: String?) -> String? {
