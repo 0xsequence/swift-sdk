@@ -4,7 +4,7 @@ import Foundation
 final class WalletCredentialSession {
     struct WalletMetadata {
         let wallet: Wallet
-        let expiresAt: String?
+        let expiresAt: String
         let auth: OMSWalletSessionAuth
     }
 
@@ -92,7 +92,7 @@ final class WalletCredentialSession {
 
     func persist(
         wallet: Wallet,
-        expiresAt: String?,
+        expiresAt: String,
         auth: OMSWalletSessionAuth
     ) throws {
         try withLock {
@@ -164,7 +164,7 @@ final class WalletCredentialSession {
         return try body()
     }
 
-    private static func sessionIsExpired(expiresAt value: String?) -> Bool {
+    private static func sessionIsExpired(expiresAt value: String) -> Bool {
         guard let expiresAt = parseExpiresAt(value) else {
             return true
         }

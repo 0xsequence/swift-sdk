@@ -9,14 +9,14 @@ struct StorableCredentials: Codable {
     let wallet: Wallet
     let signerCredentialId: String
     let alg: SigningAlgorithm
-    let expiresAt: String?
+    let expiresAt: String
     let auth: OMSWalletSessionAuth
 
     init(
         wallet: Wallet,
         signerCredentialId: String,
         alg: SigningAlgorithm,
-        expiresAt: String? = nil,
+        expiresAt: String,
         auth: OMSWalletSessionAuth
     ) {
         self.version = Self.currentVersion
@@ -49,7 +49,7 @@ struct StorableCredentials: Codable {
         self.wallet = wallet
         self.signerCredentialId = try container.decode(String.self, forKey: .signerCredentialId)
         self.alg = try container.decode(SigningAlgorithm.self, forKey: .alg)
-        self.expiresAt = try container.decodeIfPresent(String.self, forKey: .expiresAt)
+        self.expiresAt = try container.decode(String.self, forKey: .expiresAt)
         self.auth = try container.decode(OMSWalletSessionAuth.self, forKey: .auth)
     }
 
@@ -72,14 +72,5 @@ struct StorableCredentials: Codable {
         case .unknown:
             return false
         }
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case version
-        case wallet
-        case signerCredentialId
-        case alg
-        case expiresAt
-        case auth
     }
 }
