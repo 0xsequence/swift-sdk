@@ -882,8 +882,8 @@ try await omsWallet.wallet.revokeAccess(
 
 See [API.md](./API.md) for the full method and type reference.
 
-When upgrading from `0.2.0`, see [MIGRATION.md](./MIGRATION.md) for the breaking changes in
-`0.3.0`.
+When upgrading from `0.3.x`, see [MIGRATION.md](./MIGRATION.md) for the breaking changes in
+`0.4.0`.
 
 ## Publishing
 

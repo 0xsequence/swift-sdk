@@ -277,6 +277,12 @@ declare members with these names on those types.
 
 `SolanaBalance` now decodes an empty `imageUrl` or `metadataUri` as `nil`, as `TronBalance` does.
 
+### Indexer model JSON keys
+
+Indexer models now encode and decode only the indexer gateway keys: `TransactionTransfer` uses
+`tokenIds`, `TokenMetadata` and `TokenMetadataAsset` use `tokenId`, `Transaction` uses `metaTxnID`,
+and `NativeTokenBalance` uses `balance`.
+
 ## 0.3.0
 
 ### Wallet types and key origin

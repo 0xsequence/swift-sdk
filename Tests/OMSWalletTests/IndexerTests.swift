@@ -453,14 +453,14 @@ func TestGetTronBalancesRejectsInvalidResponses(responseBody: String) async thro
                           "contractType": "ERC721",
                           "from": "0xwallet",
                           "to": "0xrecipient",
-                          "tokenIDs": ["7"],
+                          "tokenIds": ["7"],
                           "amounts": ["1"],
                           "logIndex": 0,
                           "tokenMetadata": {
                             "7": {
                               "chainId": 80002,
                               "contractAddress": "0xcontract",
-                              "tokenID": "7",
+                              "tokenId": "7",
                               "source": "metadata",
                               "name": "Token 7",
                               "attributes": [],
@@ -572,7 +572,7 @@ func TestGetTronBalancesRejectsInvalidResponses(responseBody: String) async thro
               {
                 "id": 1,
                 "collectionId": 2,
-                "tokenID": "asset-token",
+                "tokenId": "asset-token",
                 "url": "https://example.com/asset.png",
                 "metadataField": "image",
                 "name": "Asset",
