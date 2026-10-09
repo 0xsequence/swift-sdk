@@ -71,7 +71,6 @@ public struct TokenMetadata: Codable, Sendable {
         case chainId
         case contractAddress
         case tokenId
-        case tokenID
         case source
         case name
         case description
@@ -96,15 +95,7 @@ public struct TokenMetadata: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.chainId = try container.decodeIfPresent(Int64.self, forKey: .chainId)
         self.contractAddress = try container.decodeIfPresent(String.self, forKey: .contractAddress)
-        if let tokenId = try container.decodeIfPresent(String.self, forKey: .tokenId)
-            ?? container.decodeIfPresent(String.self, forKey: .tokenID) {
-            self.tokenId = tokenId
-        } else {
-            throw DecodingError.keyNotFound(
-                CodingKeys.tokenID,
-                DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Missing tokenId")
-            )
-        }
+        self.tokenId = try container.decode(String.self, forKey: .tokenId)
         self.source = try container.decode(String.self, forKey: .source)
         self.name = try container.decode(String.self, forKey: .name)
         self.description = try container.decodeIfPresent(String.self, forKey: .description)
@@ -129,7 +120,7 @@ public struct TokenMetadata: Codable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(chainId, forKey: .chainId)
         try container.encodeIfPresent(contractAddress, forKey: .contractAddress)
-        try container.encode(tokenId, forKey: .tokenID)
+        try container.encode(tokenId, forKey: .tokenId)
         try container.encode(source, forKey: .source)
         try container.encode(name, forKey: .name)
         try container.encodeIfPresent(description, forKey: .description)

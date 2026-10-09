@@ -1,61 +1,35 @@
 import Foundation
 
-public enum SolanaVerificationStatus: String, Codable, Sendable {
+public enum TronVerificationStatus: String, Codable, Sendable {
     case verified
     case unverified
     case unknown
 }
 
-public enum SolanaVerificationSource: String, Codable, Sendable {
-    case jupiter
-    case solflareUtl = "solflare-utl"
-    case none
+public enum TronTokenStandard: String, Codable, Sendable {
+    case trc20
 }
 
-public enum SolanaTokenProgram: String, Codable, Sendable {
-    case splToken = "spl-token"
-    case token2022 = "token-2022"
-}
-
-public struct SolanaNativeBalance: Codable, Sendable {
-    public let network: SolanaNetwork
+public struct TronNativeBalance: Codable, Sendable {
+    public let network: TronNetwork
+    /// Base58Check (`T…`) account address.
     public let accountAddress: String
     public let name: String
     public let symbol: String
     public let decimals: Int
+    /// Raw balance in sun (1 TRX = 1,000,000 sun).
     public let balance: String
     public let formattedBalance: String
     public let imageUrl: String?
     public let metadataUri: String?
-    public let verificationStatus: SolanaVerificationStatus
-    public let verificationSource: SolanaVerificationSource
+    public let verificationStatus: TronVerificationStatus
+    public let verificationSource: String
     public let priceUSD: String?
     public let balanceUSD: String?
-}
 
-public struct SolanaFungibleTokenBalance: Codable, Sendable {
-    public let network: SolanaNetwork
-    public let accountAddress: String
-    public let tokenProgram: SolanaTokenProgram
-    public let mintAddress: String
-    public let name: String
-    public let symbol: String
-    public let decimals: Int
-    public let balance: String
-    public let formattedBalance: String
-    public let imageUrl: String?
-    public let metadataUri: String?
-    public let verificationStatus: SolanaVerificationStatus
-    public let verificationSource: SolanaVerificationSource
-    public let priceUSD: String?
-    public let balanceUSD: String?
-}
-
-// Empty `imageUrl` and `metadataUri` decode as nil, matching the Tron balances.
-extension SolanaNativeBalance {
-    public init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        network = try container.decode(SolanaNetwork.self, forKey: .network)
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: TronBalanceCodingKeys.self)
+        network = try container.decode(TronNetwork.self, forKey: .network)
         accountAddress = try container.decode(String.self, forKey: .accountAddress)
         name = try container.decode(String.self, forKey: .name)
         symbol = try container.decode(String.self, forKey: .symbol)
@@ -64,20 +38,39 @@ extension SolanaNativeBalance {
         formattedBalance = try container.decode(String.self, forKey: .formattedBalance)
         imageUrl = try container.decodeNonEmptyString(forKey: .imageUrl)
         metadataUri = try container.decodeNonEmptyString(forKey: .metadataUri)
-        verificationStatus = try container.decode(SolanaVerificationStatus.self, forKey: .verificationStatus)
-        verificationSource = try container.decode(SolanaVerificationSource.self, forKey: .verificationSource)
+        verificationStatus = try container.decode(TronVerificationStatus.self, forKey: .verificationStatus)
+        verificationSource = try container.decode(String.self, forKey: .verificationSource)
         priceUSD = try container.decodeIfPresent(String.self, forKey: .priceUSD)
         balanceUSD = try container.decodeIfPresent(String.self, forKey: .balanceUSD)
     }
 }
 
-extension SolanaFungibleTokenBalance {
-    public init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        network = try container.decode(SolanaNetwork.self, forKey: .network)
+public struct TronFungibleTokenBalance: Codable, Sendable {
+    public let network: TronNetwork
+    /// Base58Check (`T…`) account address.
+    public let accountAddress: String
+    public let tokenStandard: TronTokenStandard
+    /// Base58Check (`T…`) TRC-20 contract address.
+    public let contractAddress: String
+    public let name: String
+    public let symbol: String
+    public let decimals: Int
+    /// Raw balance in the token's base units.
+    public let balance: String
+    public let formattedBalance: String
+    public let imageUrl: String?
+    public let metadataUri: String?
+    public let verificationStatus: TronVerificationStatus
+    public let verificationSource: String
+    public let priceUSD: String?
+    public let balanceUSD: String?
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: TronBalanceCodingKeys.self)
+        network = try container.decode(TronNetwork.self, forKey: .network)
         accountAddress = try container.decode(String.self, forKey: .accountAddress)
-        tokenProgram = try container.decode(SolanaTokenProgram.self, forKey: .tokenProgram)
-        mintAddress = try container.decode(String.self, forKey: .mintAddress)
+        tokenStandard = try container.decode(TronTokenStandard.self, forKey: .tokenStandard)
+        contractAddress = try container.decode(String.self, forKey: .contractAddress)
         name = try container.decode(String.self, forKey: .name)
         symbol = try container.decode(String.self, forKey: .symbol)
         decimals = try container.decode(Int.self, forKey: .decimals)
@@ -85,36 +78,42 @@ extension SolanaFungibleTokenBalance {
         formattedBalance = try container.decode(String.self, forKey: .formattedBalance)
         imageUrl = try container.decodeNonEmptyString(forKey: .imageUrl)
         metadataUri = try container.decodeNonEmptyString(forKey: .metadataUri)
-        verificationStatus = try container.decode(SolanaVerificationStatus.self, forKey: .verificationStatus)
-        verificationSource = try container.decode(SolanaVerificationSource.self, forKey: .verificationSource)
+        verificationStatus = try container.decode(TronVerificationStatus.self, forKey: .verificationStatus)
+        verificationSource = try container.decode(String.self, forKey: .verificationSource)
         priceUSD = try container.decodeIfPresent(String.self, forKey: .priceUSD)
         balanceUSD = try container.decodeIfPresent(String.self, forKey: .balanceUSD)
     }
 }
 
-public enum SolanaBalance: Decodable, Sendable {
-    case native(SolanaNativeBalance)
-    case fungibleToken(SolanaFungibleTokenBalance)
+private enum TronBalanceCodingKeys: String, CodingKey {
+    case network, accountAddress, tokenStandard, contractAddress, name, symbol, decimals, balance
+    case formattedBalance, imageUrl, metadataUri, verificationStatus, verificationSource, priceUSD
+    case balanceUSD
+}
 
-    private enum CodingKeys: String, CodingKey { case assetType, tokenProgram, mintAddress }
+public enum TronBalance: Decodable, Sendable {
+    case native(TronNativeBalance)
+    case fungibleToken(TronFungibleTokenBalance)
+
+    private enum CodingKeys: String, CodingKey { case assetType, tokenStandard, contractAddress }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(String.self, forKey: .assetType) {
         case "native":
-            guard try container.decodeIfPresent(String.self, forKey: .tokenProgram) == nil,
-                  try container.decodeIfPresent(String.self, forKey: .mintAddress) == nil else {
+            guard try container.decodeIfPresent(String.self, forKey: .tokenStandard) == nil,
+                  try container.decodeIfPresent(String.self, forKey: .contractAddress) == nil else {
                 throw DecodingError.dataCorruptedError(forKey: .assetType, in: container, debugDescription: "Native balance contains token fields")
             }
-            self = .native(try SolanaNativeBalance(from: decoder))
+            self = .native(try TronNativeBalance(from: decoder))
         case "fungible-token":
-            self = .fungibleToken(try SolanaFungibleTokenBalance(from: decoder))
+            self = .fungibleToken(try TronFungibleTokenBalance(from: decoder))
         default:
-            throw DecodingError.dataCorruptedError(forKey: .assetType, in: container, debugDescription: "Unsupported Solana asset type")
+            throw DecodingError.dataCorruptedError(forKey: .assetType, in: container, debugDescription: "Unsupported Tron asset type")
         }
     }
 
-    public var network: SolanaNetwork {
+    public var network: TronNetwork {
         switch self {
         case .native(let balance): balance.network
         case .fungibleToken(let balance): balance.network
@@ -177,14 +176,14 @@ public enum SolanaBalance: Decodable, Sendable {
         }
     }
 
-    public var verificationStatus: SolanaVerificationStatus {
+    public var verificationStatus: TronVerificationStatus {
         switch self {
         case .native(let balance): balance.verificationStatus
         case .fungibleToken(let balance): balance.verificationStatus
         }
     }
 
-    public var verificationSource: SolanaVerificationSource {
+    public var verificationSource: String {
         switch self {
         case .native(let balance): balance.verificationSource
         case .fungibleToken(let balance): balance.verificationSource
@@ -206,38 +205,41 @@ public enum SolanaBalance: Decodable, Sendable {
     }
 }
 
-public struct SolanaNetworkError: Codable, Sendable {
-    public let network: SolanaNetwork
+public struct TronNetworkError: Codable, Sendable {
+    public let network: TronNetwork
     public let reason: String
 }
 
-public struct GetSolanaBalancesParams: Sendable {
+public struct GetTronBalancesParams: Sendable {
+    /// Base58Check (`T…`) wallet address.
     public let walletAddress: String
-    public let networks: [SolanaNetwork]
+    public let networks: [TronNetwork]
     public let includeMetadata: Bool
     public let omitNativeBalances: Bool?
-    public let mintAddresses: [String]
-    public let excludedMintAddresses: [String]
+    /// Only return these TRC-20 contracts (`T…`).
+    public let contractAddresses: [String]
+    /// Exclude these TRC-20 contracts (`T…`).
+    public let excludedContractAddresses: [String]
 
     public init(
         walletAddress: String,
-        networks: [SolanaNetwork] = [.mainnet, .devnet],
+        networks: [TronNetwork] = [.mainnet, .nile],
         includeMetadata: Bool = true,
         omitNativeBalances: Bool? = nil,
-        mintAddresses: [String] = [],
-        excludedMintAddresses: [String] = []
+        contractAddresses: [String] = [],
+        excludedContractAddresses: [String] = []
     ) {
         self.walletAddress = walletAddress
         self.networks = networks
         self.includeMetadata = includeMetadata
         self.omitNativeBalances = omitNativeBalances
-        self.mintAddresses = mintAddresses
-        self.excludedMintAddresses = excludedMintAddresses
+        self.contractAddresses = contractAddresses
+        self.excludedContractAddresses = excludedContractAddresses
     }
 }
 
-public struct SolanaBalancesResult: Sendable {
+public struct TronBalancesResult: Sendable {
     public let status: Int
-    public let balances: [SolanaBalance]
-    public let errors: [SolanaNetworkError]
+    public let balances: [TronBalance]
+    public let errors: [TronNetworkError]
 }

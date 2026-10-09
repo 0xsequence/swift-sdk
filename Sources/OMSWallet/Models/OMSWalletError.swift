@@ -15,6 +15,7 @@ public enum OMSWalletErrorCode: String, Sendable {
     case validationError = "OMS_VALIDATION_ERROR"
     case storageError = "OMS_STORAGE_ERROR"
     case attestationVerificationFailed = "OMS_ATTESTATION_VERIFICATION_FAILED"
+    case walletAddressAlreadyImported = "OMS_WALLET_ADDRESS_ALREADY_IMPORTED"
 }
 
 public enum OMSWalletOperation: String, Sendable {
@@ -24,8 +25,8 @@ public enum OMSWalletOperation: String, Sendable {
     case walletStartEmailAuth = "wallet.startEmailAuth"
     case walletCompleteEmailAuth = "wallet.completeEmailAuth"
     case walletSignInWithOidcIdToken = "wallet.signInWithOidcIdToken"
-    case walletStartOIDCRedirectAuth = "wallet.startOIDCRedirectAuth"
-    case walletHandleOIDCRedirectCallback = "wallet.handleOIDCRedirectCallback"
+    case walletStartOIDCRedirectAuth = "wallet.startOidcRedirectAuth"
+    case walletHandleOIDCRedirectCallback = "wallet.handleOidcRedirectCallback"
     case walletUseWallet = "wallet.useWallet"
     case walletCreateWallet = "wallet.createWallet"
     case walletImportWallet = "wallet.importWallet"
@@ -48,20 +49,27 @@ public enum OMSWalletOperation: String, Sendable {
     case walletIsValidMessageSignature = "wallet.isValidMessageSignature"
     case walletIsValidSolanaMessageSignature = "wallet.isValidSolanaMessageSignature"
     case walletIsValidTypedDataSignature = "wallet.isValidTypedDataSignature"
+    case walletSignTronMessage = "wallet.signTronMessage"
+    case walletSignTronTypedData = "wallet.signTronTypedData"
+    case walletIsValidTronMessageSignature = "wallet.isValidTronMessageSignature"
+    case walletIsValidTronTypedDataSignature = "wallet.isValidTronTypedDataSignature"
     case walletSendTransaction = "wallet.sendTransaction"
     case walletSendSolanaTransfer = "wallet.sendSolanaTransfer"
+    case walletSendTronTransaction = "wallet.sendTronTransaction"
+    case walletCallTronContract = "wallet.callTronContract"
     case walletCallContract = "wallet.callContract"
     case walletExecute = "wallet.execute"
     case walletGetTransactionStatus = "wallet.getTransactionStatus"
     case walletTransactionStatus = "wallet.transactionStatus"
     case indexerGetBalances = "indexer.getBalances"
     case indexerGetSolanaBalances = "indexer.getSolanaBalances"
+    case indexerGetTronBalances = "indexer.getTronBalances"
     case indexerGetTransactionHistory = "indexer.getTransactionHistory"
 }
 
 public enum OMSWalletUpstreamService: String, Sendable {
-    case waas = "Waas"
-    case indexer = "Indexer"
+    case waas = "waas"
+    case indexer = "indexer"
 }
 
 public struct OMSWalletUpstreamError: Equatable, Sendable {
@@ -292,6 +300,18 @@ private extension WebRPCError {
         let upstreamError = toWaasUpstreamError(status: normalizedStatus)
         let normalizedMessage = normalizedMessage
 
+        if kind == .addressAlreadyImported || error == "AddressAlreadyImported" {
+            return OMSWalletError(
+                code: .walletAddressAlreadyImported,
+                message: normalizedMessage,
+                operation: operation,
+                status: 409,
+                retryable: false,
+                upstreamError: upstreamError,
+                underlyingError: self
+            )
+        }
+
         if kind == .commitmentConsumed {
             return OMSWalletError(
                 code: .authCommitmentConsumed,
@@ -393,15 +413,7 @@ private extension WebRPCError {
 private extension TransactionError {
     func toOMSWalletError(operation: OMSWalletOperation) -> OMSWalletError {
         switch self {
-        case .pollingTimedOut:
-            return OMSWalletError(
-                code: .transactionStatusLookupFailed,
-                message: localizedDescription,
-                operation: operation,
-                retryable: true,
-                underlyingError: self
-            )
-        case .noFeeOptionsAvailable, .noFeeOptionSelected, .missingTransactionHash, .invalidPollingOption:
+        case .noFeeOptionsAvailable, .noFeeOptionSelected, .invalidPollingOption:
             return OMSWalletError(
                 code: .validationError,
                 message: localizedDescription,

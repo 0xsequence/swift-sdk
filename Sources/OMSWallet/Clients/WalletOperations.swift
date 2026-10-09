@@ -14,7 +14,7 @@ extension WalletClient {
             let walletId = try requireActiveWalletId()
             try requireActiveCredential()
             let params = SignMessageRequest(
-                network: network.chainId,
+                network: network.waasChainId,
                 walletId: walletId,
                 message: message
             )
@@ -41,7 +41,7 @@ extension WalletClient {
             let walletId = try requireActiveWalletId()
             try requireActiveCredential()
             let params = SignTypedDataRequest(
-                network: network.chainId,
+                network: network.waasChainId,
                 walletId: walletId,
                 typedData: typedData.waasValue
             )
@@ -53,18 +53,17 @@ extension WalletClient {
 
     public func isValidMessageSignature(
         network: Network,
-        walletAddress: String,
+        walletAddress: String? = nil,
         message: String,
         signature: String
     ) async throws -> Bool {
         try await runOMSWalletOperation(.walletIsValidMessageSignature) {
-            let walletId = try requireActiveWalletId()
+            let walletAddress = try verificationWalletAddress(walletAddress, walletType: .ethereum)
             let response = try await publicClient.isValidMessageSignature(
                 IsValidMessageSignatureRequest(
-                    network: network.chainId,
+                    network: network.waasChainId,
                     networkFamily: .evm,
                     walletAddress: walletAddress,
-                    walletId: walletId,
                     message: message,
                     signature: signature
                 )
@@ -75,11 +74,12 @@ extension WalletClient {
     }
 
     public func isValidSolanaMessageSignature(
-        walletAddress: String,
+        walletAddress: String? = nil,
         message: String,
         signature: String
     ) async throws -> Bool {
         try await runOMSWalletOperation(.walletIsValidSolanaMessageSignature) {
+            let walletAddress = try verificationWalletAddress(walletAddress, walletType: .solana)
             let response = try await publicClient.isValidMessageSignature(
                 IsValidMessageSignatureRequest(
                     networkFamily: .solana,
@@ -94,23 +94,81 @@ extension WalletClient {
 
     public func isValidTypedDataSignature(
         network: Network,
-        walletAddress: String,
+        walletAddress: String? = nil,
         typedData: JSONValue,
         signature: String
     ) async throws -> Bool {
         try await runOMSWalletOperation(.walletIsValidTypedDataSignature) {
-            let walletId = try requireActiveWalletId()
+            let walletAddress = try verificationWalletAddress(walletAddress, walletType: .ethereum)
             let response = try await publicClient.isValidTypedDataSignature(
                 IsValidTypedDataSignatureRequest(
-                    network: network.chainId,
+                    network: network.waasChainId,
+                    networkFamily: .evm,
                     walletAddress: walletAddress,
-                    walletId: walletId,
                     typedData: typedData.waasValue,
                     signature: signature
                 )
             )
 
             return response.isValid
+        }
+    }
+
+    public func signTronMessage(message: String) async throws -> String {
+        try await runOMSWalletOperation(.walletSignTronMessage) {
+            try requireActiveTronWallet()
+            let walletId = try requireActiveWalletId()
+            try requireActiveCredential()
+            return try await signedClient.signMessage(
+                SignMessageRequest(network: "", walletId: walletId, message: message)
+            ).signature
+        }
+    }
+
+    public func signTronTypedData(typedData: JSONValue) async throws -> String {
+        try await runOMSWalletOperation(.walletSignTronTypedData) {
+            try requireActiveTronWallet()
+            let walletId = try requireActiveWalletId()
+            try requireActiveCredential()
+            return try await signedClient.signTypedData(
+                SignTypedDataRequest(network: "", walletId: walletId, typedData: typedData.waasValue)
+            ).signature
+        }
+    }
+
+    public func isValidTronMessageSignature(
+        walletAddress: String? = nil,
+        message: String,
+        signature: String
+    ) async throws -> Bool {
+        try await runOMSWalletOperation(.walletIsValidTronMessageSignature) {
+            let walletAddress = try verificationWalletAddress(walletAddress, walletType: .tron)
+            return try await publicClient.isValidMessageSignature(
+                IsValidMessageSignatureRequest(
+                    networkFamily: .tron,
+                    walletAddress: walletAddress,
+                    message: message,
+                    signature: signature
+                )
+            ).isValid
+        }
+    }
+
+    public func isValidTronTypedDataSignature(
+        walletAddress: String? = nil,
+        typedData: JSONValue,
+        signature: String
+    ) async throws -> Bool {
+        try await runOMSWalletOperation(.walletIsValidTronTypedDataSignature) {
+            let walletAddress = try verificationWalletAddress(walletAddress, walletType: .tron)
+            return try await publicClient.isValidTypedDataSignature(
+                IsValidTypedDataSignatureRequest(
+                    networkFamily: .tron,
+                    walletAddress: walletAddress,
+                    typedData: typedData.waasValue,
+                    signature: signature
+                )
+            ).isValid
         }
     }
 
@@ -205,6 +263,79 @@ extension WalletClient {
         }
     }
 
+    public func sendTronTransaction(
+        network: TronNetwork,
+        to: String,
+        value: String = "0",
+        data: String? = nil,
+        selectFeeOption: FeeOptionSelector? = nil,
+        waitForStatus: Bool = true,
+        statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()
+    ) async throws -> SendTransactionResponse {
+        try await runOMSWalletOperation(.walletSendTronTransaction) {
+            try requireActiveTronWallet()
+            let walletId = try requireActiveWalletId()
+            try requireActiveCredential()
+            let walletAddress = try walletAddressIfNeeded(for: selectFeeOption)
+            // `data` is forwarded as given: nil omits the field (a TRX transfer), while any value,
+            // even "0x", makes this a contract call.
+            let prepared = try await signedClient.prepareTronTransaction(
+                PrepareTronTransactionRequest(
+                    network: network.rawValue,
+                    walletId: walletId,
+                    to: to,
+                    value: value,
+                    data: data,
+                    mode: TransactionMode.native.waasValue
+                )
+            )
+            return try await execute(
+                feeBalanceNetwork: .tron(network),
+                prepareResponse: prepared,
+                feeOptionSelector: selectFeeOption,
+                waitForStatus: waitForStatus,
+                statusPolling: statusPolling,
+                walletAddress: walletAddress
+            )
+        }
+    }
+
+    public func callTronContract(
+        network: TronNetwork,
+        contractAddress: String,
+        method: String,
+        args: [AbiArg]? = nil,
+        selectFeeOption: FeeOptionSelector? = nil,
+        waitForStatus: Bool = true,
+        statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()
+    ) async throws -> SendTransactionResponse {
+        try await runOMSWalletOperation(.walletCallTronContract) {
+            try requireActiveTronWallet()
+            let walletId = try requireActiveWalletId()
+            try requireActiveCredential()
+            try requireContractMethodName(method)
+            let walletAddress = try walletAddressIfNeeded(for: selectFeeOption)
+            let prepared = try await signedClient.prepareTronContractCall(
+                PrepareTronContractCallRequest(
+                    network: network.rawValue,
+                    walletId: walletId,
+                    contract: contractAddress,
+                    method: method,
+                    args: args?.map { $0.waasValue },
+                    mode: TransactionMode.native.waasValue
+                )
+            )
+            return try await execute(
+                feeBalanceNetwork: .tron(network),
+                prepareResponse: prepared,
+                feeOptionSelector: selectFeeOption,
+                waitForStatus: waitForStatus,
+                statusPolling: statusPolling,
+                walletAddress: walletAddress
+            )
+        }
+    }
+
     private func sendTransaction(
         network: Network,
         request: SendTransactionRequest,
@@ -216,7 +347,7 @@ extension WalletClient {
     ) async throws -> SendTransactionResponse {
         let prepareResponse = try await signedClient.prepareEthereumTransaction(
             PrepareEthereumTransactionRequest(
-                network: network.chainId,
+                network: network.waasChainId,
                 walletId: walletId,
                 to: request.to,
                 value: request.value,
@@ -237,9 +368,9 @@ extension WalletClient {
 
     public func callContract(
         network: Network,
-        contract: String,
+        contractAddress: String,
         method: String,
-        args: [AbiArg]?,
+        args: [AbiArg]? = nil,
         selectFeeOption: FeeOptionSelector? = nil,
         mode: TransactionMode = .relayer,
         waitForStatus: Bool = true,
@@ -249,12 +380,13 @@ extension WalletClient {
             try requireActiveEthereumWallet()
             let walletId = try requireActiveWalletId()
             try requireActiveCredential()
+            try requireContractMethodName(method)
             let walletAddress = try walletAddressIfNeeded(for: selectFeeOption)
             let prepareResponse = try await signedClient.prepareEthereumContractCall(
                 PrepareEthereumContractCallRequest(
-                    network: network.chainId,
+                    network: network.waasChainId,
                     walletId: walletId,
-                    contract: contract,
+                    contract: contractAddress,
                     method: method,
                     args: args?.map { $0.waasValue },
                     mode: mode.waasValue
@@ -381,10 +513,7 @@ extension WalletClient {
         }
 
         guard let feeOptionSelector else {
-            guard let feeOptionSelection = feeOptions.defaultSelection() else {
-                throw TransactionError.noFeeOptionsAvailable
-            }
-            return feeOptionSelection
+            return FeeOptionSelection(feeOption: feeOptions[0], index: 0)
         }
 
         let options: [FeeOptionWithBalance]
@@ -398,6 +527,12 @@ extension WalletClient {
                 )
             case .solana(let network):
                 options = await enrichSolanaFeeOptionsWithBalances(
+                    network: network,
+                    walletAddress: walletAddress,
+                    feeOptions: feeOptions
+                )
+            case .tron(let network):
+                options = await enrichTronFeeOptionsWithBalances(
                     network: network,
                     walletAddress: walletAddress,
                     feeOptions: feeOptions
@@ -425,13 +560,7 @@ extension WalletClient {
         walletAddress: String,
         feeOptions: [FeeOption]
     ) async -> [FeeOptionWithBalance] {
-        let contractAddresses = feeOptions
-            .compactMap { normalizedAddress($0.token.contractAddress) }
-            .reduce(into: [String]()) { addresses, address in
-                if !addresses.contains(address) {
-                    addresses.append(address)
-                }
-            }
+        let contractAddresses = uniqued(feeOptions.compactMap { normalizedAddress($0.token.contractAddress) })
 
         let balances = try? await indexerClient.getBalances(
             GetBalancesParams(
@@ -446,7 +575,7 @@ extension WalletClient {
             ? balances?.nativeBalances.first { $0.chainId == Int64(network.id) }.map(TokenBalance.native)
             : nil
 
-        var balancesByContract: [String: TokenBalance?] = [:]
+        var balancesByContract: [String: TokenBalance] = [:]
         for contractAddress in contractAddresses {
             balancesByContract[contractAddress] = balances?.balances.first {
                     normalizedAddress($0.contractAddress) == contractAddress
@@ -459,7 +588,7 @@ extension WalletClient {
                 balance = nativeBalance
             } else {
                 balance = normalizedAddress(feeOption.token.contractAddress)
-                    .flatMap { balancesByContract[$0] ?? nil }
+                    .flatMap { balancesByContract[$0] }
             }
 
             let decimals = feeOption.token.balanceDecimals
@@ -479,47 +608,79 @@ extension WalletClient {
         walletAddress: String,
         feeOptions: [FeeOption]
     ) async -> [FeeOptionWithBalance] {
-        let mintAddresses = feeOptions
-            .filter { !$0.token.isNativeToken }
-            .compactMap { normalizedSolanaAddress($0.token.contractAddress) }
-            .reduce(into: [String]()) { addresses, address in
-                if !addresses.contains(address) {
-                    addresses.append(address)
-                }
-            }
-        let includesNative = feeOptions.contains { $0.token.isNativeToken }
         let balances = try? await indexerClient.getSolanaBalances(
             GetSolanaBalancesParams(
                 walletAddress: walletAddress,
                 networks: [network],
                 includeMetadata: false,
-                omitNativeBalances: !includesNative,
-                mintAddresses: mintAddresses
+                omitNativeBalances: !feeOptions.contains { $0.token.isNativeToken },
+                mintAddresses: gatewayFeeTokenAddresses(feeOptions)
             )
         )
-        let nativeBalance = balances?.balances.first { balance in
-            if case .native(let value) = balance {
-                return value.network == network
-            }
-            return false
-        }
-        var balancesByMint: [String: SolanaBalance] = [:]
-        for balance in balances?.balances ?? [] {
-            if case .fungibleToken(let value) = balance, value.network == network {
-                balancesByMint[value.mintAddress] = balance
+        var native: GatewayFeeBalance?
+        var byAddress: [String: GatewayFeeBalance] = [:]
+        for balance in balances?.balances ?? [] where balance.network == network {
+            switch balance {
+            case .native:
+                native = native ?? GatewayFeeBalance(balance: balance.balance, decimals: balance.decimals)
+            case .fungibleToken(let value):
+                byAddress[value.mintAddress] = GatewayFeeBalance(balance: balance.balance, decimals: balance.decimals)
             }
         }
+        return feeOptionsWithGatewayBalances(feeOptions, native: native, byAddress: byAddress)
+    }
 
-        return feeOptions.enumerated().map { index, feeOption in
+    private func enrichTronFeeOptionsWithBalances(
+        network: TronNetwork,
+        walletAddress: String,
+        feeOptions: [FeeOption]
+    ) async -> [FeeOptionWithBalance] {
+        let balances = try? await indexerClient.getTronBalances(
+            GetTronBalancesParams(
+                walletAddress: walletAddress,
+                networks: [network],
+                includeMetadata: false,
+                omitNativeBalances: !feeOptions.contains { $0.token.isNativeToken },
+                contractAddresses: gatewayFeeTokenAddresses(feeOptions)
+            )
+        )
+        var native: GatewayFeeBalance?
+        var byAddress: [String: GatewayFeeBalance] = [:]
+        for balance in balances?.balances ?? [] where balance.network == network {
+            switch balance {
+            case .native:
+                native = native ?? GatewayFeeBalance(balance: balance.balance, decimals: balance.decimals)
+            case .fungibleToken(let value):
+                byAddress[value.contractAddress] = GatewayFeeBalance(balance: balance.balance, decimals: balance.decimals)
+            }
+        }
+        return feeOptionsWithGatewayBalances(feeOptions, native: native, byAddress: byAddress)
+    }
+
+    /// Non-native fee token addresses to request from the Solana or Tron indexer gateway.
+    private func gatewayFeeTokenAddresses(_ feeOptions: [FeeOption]) -> [String] {
+        uniqued(
+            feeOptions
+                .filter { !$0.token.isNativeToken }
+                .compactMap { normalizedBase58Address($0.token.contractAddress) }
+        )
+    }
+
+    private func feeOptionsWithGatewayBalances(
+        _ feeOptions: [FeeOption],
+        native: GatewayFeeBalance?,
+        byAddress: [String: GatewayFeeBalance]
+    ) -> [FeeOptionWithBalance] {
+        feeOptions.enumerated().map { index, feeOption in
             let balance = feeOption.token.isNativeToken
-                ? nativeBalance
-                : normalizedSolanaAddress(feeOption.token.contractAddress).flatMap { balancesByMint[$0] }
+                ? native
+                : normalizedBase58Address(feeOption.token.contractAddress).flatMap { byAddress[$0] }
             let decimals = balance?.decimals ?? feeOption.token.decimals.map(Int.init)
             return FeeOptionWithBalance(
                 feeOption: feeOption,
                 selection: FeeOptionSelection(feeOption: feeOption, index: UInt32(index)),
-                available: formatTokenAmount(balance?.rawBalance, decimals: decimals),
-                availableRaw: balance?.rawBalance,
+                available: formatTokenAmount(balance?.balance, decimals: decimals),
+                availableRaw: balance?.balance,
                 decimals: decimals
             )
         }
@@ -621,39 +782,73 @@ extension WalletClient {
     }
 
     private func requireActiveEthereumWallet() throws {
-        guard let walletAddress else {
-            throw OMSWalletError.sessionMissing()
-        }
-        guard Self.isEthereumAddress(walletAddress) else {
-            throw OMSWalletError(
-                code: .validationError,
-                message: "An active Ethereum wallet is required"
-            )
-        }
+        try requireActiveWalletType(.ethereum)
     }
 
     private func requireActiveSolanaWallet() throws {
-        guard let walletAddress else {
-            throw OMSWalletError.sessionMissing()
-        }
-        guard !Self.isEthereumAddress(walletAddress) else {
-            throw OMSWalletError(
-                code: .validationError,
-                message: "An active Solana wallet is required"
-            )
-        }
+        try requireActiveWalletType(.solana)
     }
 
-    static func isEthereumAddress(_ value: String) -> Bool {
-        value.hasPrefix("0x")
+    private func requireActiveTronWallet() throws {
+        try requireActiveWalletType(.tron)
+    }
+
+    /// Returns `walletAddress` when given (it must not be blank); otherwise the active wallet's address, which must be of
+    /// `walletType`. Verification never sends a wallet ID.
+    private func verificationWalletAddress(_ walletAddress: String?, walletType: WalletType) throws -> String {
+        if let walletAddress {
+            guard !walletAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw OMSWalletError(code: .validationError, message: "walletAddress must not be empty")
+            }
+            return walletAddress
+        }
+        return try requireActiveWalletType(walletType).address
+    }
+
+    /// Checks the session (expiring it if due) before the stored wallet type; the address shape is
+    /// not checked.
+    @discardableResult
+    func requireActiveWalletType(_ type: WalletType) throws -> Wallet {
+        _ = try requireActiveWalletId()
+        guard let activeWallet else {
+            throw OMSWalletError.sessionMissing()
+        }
+        guard activeWallet.type == type else {
+            throw OMSWalletError(
+                code: .validationError,
+                message: "An active \(type.displayName) wallet is required"
+            )
+        }
+        return activeWallet
     }
 }
 
-@available(macOS 12.0, iOS 15.0, *)
-private extension Array where Element == FeeOption {
-    func defaultSelection() -> FeeOptionSelection? {
-        first.map { FeeOptionSelection(feeOption: $0, index: 0) }
+private extension WalletType {
+    var displayName: String {
+        switch self {
+        case .ethereum: "Ethereum"
+        case .solana: "Solana"
+        case .tron: "Tron"
+        case .unknown(let value): value
+        }
     }
+}
+
+// Mirrors the wallet service: it builds the signature from the argument types and accepts only a
+// bare function name.
+private func requireContractMethodName(_ method: String) throws {
+    let isBareName = method.utf8.first.map { $0 == 95 || isASCIILetter($0) } == true
+        && method.utf8.allSatisfy { $0 == 95 || isASCIILetter($0) || ($0 >= 48 && $0 <= 57) }
+    guard isBareName else {
+        throw OMSWalletError(
+            code: .validationError,
+            message: "method must be a function name such as 'transfer', not a signature; got '\(method)'"
+        )
+    }
+}
+
+private func isASCIILetter(_ byte: UInt8) -> Bool {
+    (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122)
 }
 
 private extension FeeToken {
@@ -671,22 +866,7 @@ private extension FeeToken {
 private enum FeeBalanceNetwork {
     case ethereum(Network)
     case solana(SolanaNetwork)
-}
-
-private extension SolanaBalance {
-    var rawBalance: String {
-        switch self {
-        case .native(let balance): balance.balance
-        case .fungibleToken(let balance): balance.balance
-        }
-    }
-
-    var decimals: Int {
-        switch self {
-        case .native(let balance): balance.decimals
-        case .fungibleToken(let balance): balance.decimals
-        }
-    }
+    case tron(TronNetwork)
 }
 
 private func normalizedAddress(_ address: String?) -> String? {
@@ -697,7 +877,19 @@ private func normalizedAddress(_ address: String?) -> String? {
     return trimmed.lowercased()
 }
 
-private func normalizedSolanaAddress(_ address: String?) -> String? {
+/// A Solana or Tron fee token balance in base units.
+private struct GatewayFeeBalance {
+    let balance: String
+    let decimals: Int
+}
+
+/// Removes duplicates, keeping the first occurrence of each value.
+private func uniqued(_ values: [String]) -> [String] {
+    var seen = Set<String>()
+    return values.filter { seen.insert($0).inserted }
+}
+
+private func normalizedBase58Address(_ address: String?) -> String? {
     guard let trimmed = address?.trimmingCharacters(in: .whitespacesAndNewlines),
           !trimmed.isEmpty else {
         return nil

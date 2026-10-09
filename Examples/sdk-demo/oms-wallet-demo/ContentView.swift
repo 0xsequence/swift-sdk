@@ -46,11 +46,9 @@ struct SessionExpiredPrompt: Identifiable {
     let event: OMSWalletSessionExpiredEvent
 
     var email: String? {
-        event.session.auth?.email
+        event.session.auth.email
     }
 }
-
-private let maxSessionLifetimeSeconds: UInt32 = 2_592_000
 
 private enum DemoAuthError: Error, LocalizedError {
     case invalidAuthorizationURL
@@ -198,10 +196,6 @@ private func formatUSDCBalance(_ raw: String) -> String {
     return "\(wholeOut).\(frac)"
 }
 
-private func nativeTokenSymbol(for network: Network) -> String {
-    network.nativeTokenSymbol
-}
-
 private func formatNativeTokenBalance(_ raw: String) -> String {
     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return "0" }
@@ -255,6 +249,7 @@ final class AppViewModel: ObservableObject {
     @Published var sessionExpiredPrompt: SessionExpiredPrompt?
     @Published fileprivate var feeOptionSelectionRequest: FeeOptionSelectionRequest?
     @Published var useManualWalletSelection: Bool = false
+    @Published var selectedWalletType: DemoWalletType = .ethereum
     @Published var loginEmail: String = ""
     @Published var sessionLifetimeText: String = "604800"
     @Published var omsWallet: OMSWallet = try! OMSWallet(
@@ -272,19 +267,26 @@ final class AppViewModel: ObservableObject {
         useManualWalletSelection ? .manual : .automatic
     }
 
+    private var walletType: WalletType {
+        selectedWalletType.walletType
+    }
+
     var sessionLifetimeSeconds: UInt32? {
         let trimmed = sessionLifetimeText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let seconds = UInt32(trimmed),
               seconds >= 1,
-              seconds <= maxSessionLifetimeSeconds else {
+              seconds <= WalletClient.maxSessionLifetimeSeconds else {
             return nil
         }
         return seconds
     }
 
     func checkSession() async {
-        let hasSession = omsWallet.wallet.walletAddress != nil
-        screen = hasSession ? .wallet : .introduction
+        let activeWallet = omsWallet.wallet.activeWallet
+        if let walletType = DemoWalletType(activeWallet?.type) {
+            selectedWalletType = walletType
+        }
+        screen = activeWallet != nil ? .wallet : .introduction
     }
 
     func signOut() {
@@ -343,6 +345,7 @@ final class AppViewModel: ObservableObject {
                 idToken: idToken,
                 issuer: googleIssuer,
                 audience: googleWebClientId,
+                walletType: walletType,
                 walletSelection: walletSelectionBehavior,
                 sessionLifetimeSeconds: lifetimeSeconds,
                 provider: "google",
@@ -432,6 +435,7 @@ final class AppViewModel: ObservableObject {
             let started = try await omsWallet.wallet.startOIDCRedirectAuth(
                 provider: provider,
                 omsRelayReturnURI: oidcRedirectUri,
+                walletType: walletType,
                 walletSelection: walletSelectionBehavior,
                 sessionLifetimeSeconds: lifetimeSeconds
             )
@@ -480,7 +484,8 @@ final class AppViewModel: ObservableObject {
         do {
             let result = try await omsWallet.wallet.completeEmailAuth(
                 code: code,
-                walletSelection: walletSelectionBehavior
+                walletSelection: walletSelectionBehavior,
+                walletType: walletType
             )
             switch result {
             case .walletSelected:
@@ -517,7 +522,7 @@ final class AppViewModel: ObservableObject {
     }
 
     private func completeWalletSelection(
-        _ operation: () async throws -> WalletSelectionResult
+        _ operation: () async throws -> WalletActivationResult
     ) async {
         isLoading = true
         defer { isLoading = false }
@@ -553,7 +558,7 @@ final class AppViewModel: ObservableObject {
             }
             loginEmail = email
             await submitLogin()
-        case .oidc, nil:
+        case .oidc:
             screen = .login
         }
     }
@@ -567,8 +572,12 @@ final class AppViewModel: ObservableObject {
         safariAuthSession = nil
         feeOptionSelectionRequest?.cancel()
         feeOptionSelectionRequest = nil
-        if let email = event.session.auth?.email {
+        if let email = event.session.auth.email {
             loginEmail = email
+        }
+        // Sign the user back in to the same wallet family.
+        if let walletType = DemoWalletType(event.wallet?.type) {
+            selectedWalletType = walletType
         }
         screen = .login
         sessionExpiredPrompt = SessionExpiredPrompt(event: event)
@@ -769,6 +778,9 @@ struct LoginWindow: View {
                 }
                 .padding(.top, 16)
 
+                WalletTypePicker()
+                    .padding(.top, 16)
+
                 ManualWalletSelectionToggle()
                     .padding(.top, 16)
 
@@ -914,7 +926,7 @@ struct WalletSelectionWindow: View {
                     WalletSelectionRow(
                         title: "No \(walletTypeLabel) wallets",
                         subtitle: "Create a wallet to continue",
-                        leadingText: "0x",
+                        leadingText: walletLeadingText,
                         isEnabled: false
                     )
                 } else {
@@ -925,7 +937,7 @@ struct WalletSelectionWindow: View {
                             WalletSelectionRow(
                                 title: shortWalletAddress(wallet.address),
                                 subtitle: walletSelectionSubtitle(wallet),
-                                leadingText: "0x"
+                                leadingText: walletLeadingText
                             )
                 }
                 .buttonStyle(.plain)
@@ -958,6 +970,14 @@ struct WalletSelectionWindow: View {
         pendingSelection.walletType.wireValue
     }
 
+    private var walletLeadingText: String {
+        switch pendingSelection.walletType {
+        case .tron: "T"
+        case .solana: "SOL"
+        default: "0x"
+        }
+    }
+
     private func walletSelectionSubtitle(_ wallet: Wallet) -> String {
         [
             nonEmpty(wallet.reference),
@@ -978,6 +998,47 @@ struct WalletSelectionWindow: View {
     private func shortWalletAddress(_ address: String) -> String {
         guard address.count > 18 else { return address }
         return "\(address.prefix(10))...\(address.suffix(6))"
+    }
+}
+
+enum DemoWalletType: String, CaseIterable, Identifiable {
+    case ethereum = "Ethereum"
+    case solana = "Solana"
+    case tron = "Tron"
+
+    var id: String { rawValue }
+
+    init?(_ walletType: WalletType?) {
+        switch walletType {
+        case .ethereum: self = .ethereum
+        case .solana: self = .solana
+        case .tron: self = .tron
+        default: return nil
+        }
+    }
+
+    var walletType: WalletType {
+        switch self {
+        case .ethereum: .ethereum
+        case .solana: .solana
+        case .tron: .tron
+        }
+    }
+}
+
+private struct WalletTypePicker: View {
+    @EnvironmentObject private var vm: AppViewModel
+
+    var body: some View {
+        FieldGroup(title: "Wallet type", titleStyle: .secondary) {
+            Picker("Wallet type", selection: $vm.selectedWalletType) {
+                ForEach(DemoWalletType.allCases) { type in
+                    Text(type.rawValue).tag(type)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+        }
     }
 }
 
@@ -1056,7 +1117,7 @@ struct WalletWindow: View {
     @State private var usdcBalance: String = "—"
     @State private var usdcBalanceRaw: String = ""
     @State private var isFetchingBalance: Bool = false
-    @State private var selectedNetwork: Network = Network.polygonAmoy
+    @State private var selectedNetwork: Network = Network.amoy
 
     private func clearBalance() {
         nativeBalance = "—"
@@ -1066,7 +1127,7 @@ struct WalletWindow: View {
     }
 
     private func refreshBalance() async {
-        guard let walletAddress = vm.omsWallet.wallet.walletAddress else { return }
+        guard let walletAddress = vm.omsWallet.wallet.activeWallet?.address else { return }
         isFetchingBalance = true
         clearBalance()
         defer { isFetchingBalance = false }
@@ -1105,6 +1166,17 @@ struct WalletWindow: View {
     }
 
     var body: some View {
+        switch vm.omsWallet.wallet.activeWallet?.type {
+        case .tron:
+            TronWalletWindow()
+        case .solana:
+            SolanaWalletWindow()
+        default:
+            evmWalletTabs
+        }
+    }
+
+    private var evmWalletTabs: some View {
         TabView {
             walletTab
                 .tabItem {
@@ -1183,7 +1255,7 @@ struct WalletWindow: View {
     private var walletAddressBar: some View {
         VStack(spacing: 8) {
             HStack(spacing: 6) {
-                Text(collapsedAddress(vm.omsWallet.wallet.walletAddress ?? ""))
+                Text(collapsedAddress(vm.omsWallet.wallet.activeWallet?.address ?? ""))
                     .font(.system(size: 22, weight: .semibold, design: .monospaced))
                     .foregroundStyle(DesignTokens.Color.primaryText)
                     .lineLimit(1)
@@ -1191,7 +1263,7 @@ struct WalletWindow: View {
                     .textSelection(.enabled)
 
                 Button {
-                    guard let walletAddress = vm.omsWallet.wallet.walletAddress else { return }
+                    guard let walletAddress = vm.omsWallet.wallet.activeWallet?.address else { return }
                     Clipboard.copy(walletAddress)
                     didCopy = true
                     Task {
@@ -1204,7 +1276,7 @@ struct WalletWindow: View {
                         .foregroundStyle(didCopy ? DesignTokens.Color.success : DesignTokens.Color.info)
                 }
                 .buttonStyle(.plain)
-                .disabled(vm.omsWallet.wallet.walletAddress == nil)
+                .disabled(vm.omsWallet.wallet.activeWallet == nil)
                 .help(didCopy ? "Copied" : "Copy address")
             }
 
@@ -1274,7 +1346,7 @@ struct WalletWindow: View {
                     .foregroundStyle(DesignTokens.Color.primaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                Text(nativeTokenSymbol(for: selectedNetwork))
+                Text(selectedNetwork.nativeTokenSymbol)
                     .font(.caption)
                     .foregroundStyle(DesignTokens.Color.secondaryText)
             }
@@ -1291,7 +1363,7 @@ struct WalletWindow: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(DesignTokens.Color.primaryText)
                         .monospacedDigit()
-                    Text(nativeTokenSymbol(for: selectedNetwork))
+                    Text(selectedNetwork.nativeTokenSymbol)
                         .font(.caption)
                         .foregroundStyle(DesignTokens.Color.secondaryText)
                         .monospacedDigit()
@@ -1352,7 +1424,7 @@ struct WalletWindow: View {
     }
 
     private var sessionSubtitle: String {
-        sessionAuthLabel(vm.omsWallet.wallet.session.auth)
+        sessionAuthLabel(vm.omsWallet.wallet.session?.auth)
     }
 
 }
@@ -1374,6 +1446,874 @@ private func sessionAuthLabel(_ auth: OMSWalletSessionAuth?) -> String {
     }
 }
 
+// MARK: - Tron Wallet Window
+
+private let tronscanNileURL = "https://nile.tronscan.org/#"
+private let nileFaucetURL = URL(string: "https://nileex.io/join/getJoinPage")!
+private let nileUsdtContract = "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
+private let nileUsdtDecimals = 6
+private let trxDecimals = 6
+
+private func tronTransactionExplorerURL(_ txnHash: String) -> URL? {
+    URL(string: "\(tronscanNileURL)/transaction/\(txnHash)")
+}
+
+private func tronAddressExplorerURL(_ address: String) -> URL? {
+    URL(string: "\(tronscanNileURL)/address/\(address)")
+}
+
+private func formatTokenAmount(_ raw: String, decimals: Int) -> String {
+    trimBalanceDisplay((try? formatUnits(value: raw, decimals: decimals)) ?? raw, maxFractionDigits: decimals)
+}
+
+struct TronWalletWindow: View {
+    @EnvironmentObject private var vm: AppViewModel
+
+    var body: some View {
+        TabView {
+            TronBalancesWindow()
+                .tabItem {
+                    Label("Wallet", systemImage: "wallet.pass")
+                }
+
+            TronSendWindow()
+                .tabItem {
+                    Label("Send", systemImage: "arrow.up.circle")
+                }
+
+            TronSignMessageWindow()
+                .tabItem {
+                    Label("Sign", systemImage: "signature")
+                }
+        }
+        .tint(DesignTokens.Color.info)
+        #if os(macOS)
+        .frame(minWidth: 640, minHeight: 560)
+        #endif
+    }
+}
+
+private struct TronBalancesWindow: View {
+    @EnvironmentObject private var vm: AppViewModel
+
+    @State private var trxBalance: String = "—"
+    @State private var usdtBalance: String = "—"
+    @State private var balanceStatus: String?
+    @State private var isFetchingBalance: Bool = false
+    @State private var error: GenericAppError?
+
+    var body: some View {
+        ModalContainer(
+            title: "Tron wallet",
+            subtitle: "Nile testnet. Tron wallets use native mode only. Transactions are often sponsored by each account's daily free bandwidth; once it is spent, the network fee is paid in TRX.",
+            showsCloseButton: false
+        ) {
+            if let address = vm.omsWallet.wallet.activeWallet?.address {
+                FieldGroup(title: "Address") {
+                    CopyableResult(text: address)
+                    if let url = tronAddressExplorerURL(address) {
+                        Link("View wallet on Tronscan", destination: url)
+                            .font(.caption.weight(.semibold))
+                    }
+                }
+            }
+
+            DesignText(sessionAuthLabel(vm.omsWallet.wallet.session?.auth), variant: .caption)
+
+            Panel {
+                tronBalanceRow(title: "Nile TRX balance", value: "\(trxBalance) TRX", faucetTitle: "Open TRX faucet")
+                tronBalanceRow(title: "Nile USDT balance", value: "\(usdtBalance) USDT", faucetTitle: "Open USDT faucet")
+
+                if let balanceStatus {
+                    DesignText(balanceStatus, variant: .error)
+                }
+            }
+
+            Button {
+                Task { await refreshBalances() }
+            } label: {
+                label(for: "Refresh balances", systemImage: "arrow.clockwise", loading: isFetchingBalance)
+            }
+            .buttonStyle(DesignButtonStyle(variant: .secondary))
+            .disabled(isFetchingBalance)
+
+            Button {
+                vm.signOut()
+            } label: {
+                label(for: "Sign out", systemImage: "rectangle.portrait.and.arrow.right", loading: false)
+            }
+            .buttonStyle(DesignButtonStyle(variant: .secondary))
+        }
+        .genericErrorWindow(error: $error)
+        .task {
+            await refreshBalances()
+        }
+    }
+
+    private func tronBalanceRow(title: String, value: String, faucetTitle: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                DesignText(title, variant: .caption)
+                Link(faucetTitle, destination: nileFaucetURL)
+                    .font(.caption.weight(.semibold))
+            }
+
+            Spacer()
+
+            if isFetchingBalance {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(DesignTokens.Color.info)
+            } else {
+                Text(value)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(DesignTokens.Color.primaryText)
+                    .monospacedDigit()
+            }
+        }
+    }
+
+    private func refreshBalances() async {
+        guard let address = vm.omsWallet.wallet.activeWallet?.address else { return }
+        isFetchingBalance = true
+        balanceStatus = nil
+        defer { isFetchingBalance = false }
+
+        do {
+            let result = try await vm.omsWallet.indexer.getTronBalances(
+                GetTronBalancesParams(
+                    walletAddress: address,
+                    networks: [.nile],
+                    contractAddresses: [nileUsdtContract]
+                )
+            )
+            if let networkError = result.errors.first(where: { $0.network == .nile }) {
+                trxBalance = "—"
+                usdtBalance = "—"
+                balanceStatus = networkError.reason
+                return
+            }
+
+            var trxRaw = "0"
+            var usdtRaw = "0"
+            for balance in result.balances {
+                switch balance {
+                case .native(let native):
+                    trxRaw = native.balance
+                case .fungibleToken(let token) where token.contractAddress == nileUsdtContract:
+                    usdtRaw = token.balance
+                case .fungibleToken:
+                    break
+                }
+            }
+            trxBalance = formatTokenAmount(trxRaw, decimals: trxDecimals)
+            usdtBalance = formatTokenAmount(usdtRaw, decimals: nileUsdtDecimals)
+        } catch {
+            trxBalance = "—"
+            usdtBalance = "—"
+            self.error = GenericAppError(error)
+        }
+    }
+}
+
+private enum TronTransferAsset: String, CaseIterable, Identifiable {
+    case trx = "TRX"
+    case usdt = "USDT"
+    case custom = "Custom TRC-20"
+
+    var id: String { rawValue }
+}
+
+private struct TronSendWindow: View {
+    @EnvironmentObject private var vm: AppViewModel
+
+    @State private var asset: TronTransferAsset = .trx
+    @State private var recipientText: String = ""
+    @State private var amountText: String = "1"
+    @State private var tokenContractText: String = ""
+    @State private var tokenDecimalsText: String = "6"
+    @State private var result: SendTransactionResponse?
+    @State private var transferStatus: String?
+    @State private var isSending: Bool = false
+    @State private var error: GenericAppError?
+
+    var body: some View {
+        ModalContainer(
+            title: "Send on Tron Nile",
+            subtitle: "Send TRX or TRC-20 tokens. TRX transfers use sendTronTransaction; token transfers call the contract's transfer method.",
+            showsCloseButton: false
+        ) {
+            FieldGroup(title: "Asset") {
+                Picker("Asset", selection: $asset) {
+                    ForEach(TronTransferAsset.allCases) { asset in
+                        Text(asset.rawValue).tag(asset)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+
+                if asset == .usdt {
+                    DesignText("USDT contract address: \(nileUsdtContract)", variant: .caption)
+                        .textSelection(.enabled)
+                }
+            }
+
+            if asset == .custom {
+                FieldGroup(title: "Token contract") {
+                    TextField("TRC-20 contract address (T...)", text: $tokenContractText)
+                        .tokenTextInput()
+                        .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                }
+
+                FieldGroup(title: "Token decimals") {
+                    TextField("6", text: $tokenDecimalsText)
+                        .tokenTextInput()
+                        #if os(iOS)
+                        .keyboardType(.numberPad)
+                        #endif
+                }
+            }
+
+            FieldGroup(title: "Recipient wallet") {
+                TextField("Tron wallet address (T...)", text: $recipientText)
+                    .tokenTextInput()
+                    .autocorrectionDisabled()
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+            }
+
+            FieldGroup(title: amountTitle) {
+                TextField("Enter amount", text: $amountText)
+                    .tokenTextInput()
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    #endif
+            }
+
+            Button {
+                Task { await sendTransfer() }
+            } label: {
+                label(for: "Send on Tron Nile", systemImage: "paperplane", loading: isSending)
+            }
+            .buttonStyle(DesignButtonStyle(variant: .primary))
+            .disabled(!canSend || isSending)
+
+            if let transferStatus {
+                DesignText(transferStatus, variant: .body)
+            }
+
+            if let result {
+                TransactionResultPanel(result: result)
+
+                if let txnHash = result.txnHash, !txnHash.isEmpty,
+                   let url = tronTransactionExplorerURL(txnHash) {
+                    Link("View on Tronscan", destination: url)
+                        .font(.caption.weight(.semibold))
+                }
+            }
+        }
+        .genericErrorWindow(error: $error)
+        .sheet(item: $vm.feeOptionSelectionRequest) { request in
+            FeeOptionSelectionWindow(request: request)
+                .environmentObject(vm)
+        }
+    }
+
+    private var amountTitle: String {
+        switch asset {
+        case .trx: "Amount (TRX)"
+        case .usdt: "Amount (USDT)"
+        case .custom: "Amount (token units)"
+        }
+    }
+
+    private var canSend: Bool {
+        let hasRequiredFields = !recipientText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !amountText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard asset == .custom else { return hasRequiredFields }
+        return hasRequiredFields
+            && !tokenContractText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && tokenDecimals != nil
+    }
+
+    private var tokenDecimals: Int? {
+        guard let decimals = Int(tokenDecimalsText.trimmingCharacters(in: .whitespacesAndNewlines)),
+              (0...255).contains(decimals) else {
+            return nil
+        }
+        return decimals
+    }
+
+    private func sendTransfer() async {
+        let recipient = recipientText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let amount = amountText.trimmingCharacters(in: .whitespacesAndNewlines)
+        isSending = true
+        result = nil
+        transferStatus = "Preparing transfer..."
+        defer { isSending = false }
+
+        let selectFeeOption = FeeOptionSelector.custom { options in
+            try await vm.selectFeeOption(options)
+        }
+        let statusPolling = TransactionStatusPollingOptions(timeoutMs: 120_000)
+
+        do {
+            let transaction: SendTransactionResponse
+            switch asset {
+            case .trx:
+                transaction = try await vm.omsWallet.wallet.sendTronTransaction(
+                    network: .nile,
+                    to: recipient,
+                    value: try parseUnits(value: amount, decimals: trxDecimals),
+                    selectFeeOption: selectFeeOption,
+                    statusPolling: statusPolling
+                )
+            case .usdt, .custom:
+                let contract = asset == .usdt
+                    ? nileUsdtContract
+                    : tokenContractText.trimmingCharacters(in: .whitespacesAndNewlines)
+                let decimals = asset == .usdt ? nileUsdtDecimals : (tokenDecimals ?? 0)
+                // TRC-20 transfers are contract calls; the wallet service ABI-encodes the arguments.
+                transaction = try await vm.omsWallet.wallet.callTronContract(
+                    network: .nile,
+                    contractAddress: contract,
+                    method: "transfer",
+                    args: [
+                        AbiArg(type: "address", value: .string(recipient)),
+                        AbiArg(type: "uint256", value: .string(try parseUnits(value: amount, decimals: decimals)))
+                    ],
+                    selectFeeOption: selectFeeOption,
+                    statusPolling: statusPolling
+                )
+            }
+
+            result = transaction
+            // Tron reports `pending` with a hash until the block is solidified (about a minute).
+            transferStatus = transaction.status == .executed || transaction.status == .failed
+                ? "Transfer \(transaction.status.wireValue)."
+                : "Transaction submitted."
+        } catch {
+            transferStatus = nil
+            self.error = GenericAppError(error)
+        }
+    }
+}
+
+private struct TronSignMessageWindow: View {
+    @EnvironmentObject private var vm: AppViewModel
+
+    @State private var messageText: String = "Sign in to OMS Wallet"
+    @State private var signature: String = ""
+    @State private var signStatus: String?
+    @State private var isSigning: Bool = false
+    @State private var error: GenericAppError?
+
+    var body: some View {
+        ModalContainer(
+            title: "Sign Tron message",
+            subtitle: "Sign a message with the Tron wallet and verify the signature.",
+            showsCloseButton: false
+        ) {
+            FieldGroup(title: "Message") {
+                TextField("Enter message", text: $messageText)
+                    .tokenTextInput()
+            }
+
+            Button {
+                Task { await signAndVerify() }
+            } label: {
+                label(for: "Sign Tron message", systemImage: "signature", loading: isSigning)
+            }
+            .buttonStyle(DesignButtonStyle(variant: .primary))
+            .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSigning)
+
+            if !signature.isEmpty {
+                ResultPanel(title: "Signature", text: signature)
+            }
+
+            if let signStatus {
+                DesignText(signStatus, variant: .body)
+            }
+        }
+        .genericErrorWindow(error: $error)
+    }
+
+    private func signAndVerify() async {
+        guard let walletAddress = vm.omsWallet.wallet.activeWallet?.address else { return }
+        let message = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        isSigning = true
+        signature = ""
+        signStatus = "Signing message..."
+        defer { isSigning = false }
+
+        do {
+            let signed = try await vm.omsWallet.wallet.signTronMessage(message: message)
+            signature = signed
+            signStatus = "Verifying signature..."
+            let isValid = try await vm.omsWallet.wallet.isValidTronMessageSignature(
+                walletAddress: walletAddress,
+                message: message,
+                signature: signed
+            )
+            signStatus = isValid ? "Message signed and verified." : "Signature verification failed."
+        } catch {
+            signStatus = nil
+            self.error = GenericAppError(error)
+        }
+    }
+}
+
+// MARK: - Solana Wallet Window
+
+private let solanaExplorerURL = "https://explorer.solana.com"
+private let solFaucetURL = URL(string: "https://faucet.solana.com/")!
+private let devnetUsdcFaucetURL = URL(string: "https://faucet.circle.com/")!
+private let devnetUsdcMint = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+private let devnetUsdcDecimals = 6
+private let solDecimals = 9
+
+private func solanaTransactionExplorerURL(_ signature: String) -> URL? {
+    URL(string: "\(solanaExplorerURL)/tx/\(signature)?cluster=devnet")
+}
+
+private func solanaAddressExplorerURL(_ address: String) -> URL? {
+    URL(string: "\(solanaExplorerURL)/address/\(address)?cluster=devnet")
+}
+
+private struct SolanaDemoError: LocalizedError {
+    let message: String
+
+    var errorDescription: String? { message }
+}
+
+/// Converts a decimal amount to base units, rejecting malformed and zero amounts.
+private func solanaBaseUnits(_ amount: String, decimals: Int, label: String) throws -> String {
+    let raw: String
+    do {
+        raw = try parseUnits(value: amount, decimals: decimals)
+    } catch {
+        throw SolanaDemoError(message: "Enter a valid \(label) amount.")
+    }
+    guard !raw.hasPrefix("-"), raw != "0" else {
+        throw SolanaDemoError(message: "Enter a \(label) amount greater than zero.")
+    }
+    return raw
+}
+
+struct SolanaWalletWindow: View {
+    @EnvironmentObject private var vm: AppViewModel
+
+    var body: some View {
+        TabView {
+            SolanaBalancesWindow()
+                .tabItem {
+                    Label("Wallet", systemImage: "wallet.pass")
+                }
+
+            SolanaSendWindow()
+                .tabItem {
+                    Label("Send", systemImage: "arrow.up.circle")
+                }
+
+            SolanaSignMessageWindow()
+                .tabItem {
+                    Label("Sign", systemImage: "signature")
+                }
+        }
+        .tint(DesignTokens.Color.info)
+        #if os(macOS)
+        .frame(minWidth: 640, minHeight: 560)
+        #endif
+    }
+}
+
+private struct SolanaBalancesWindow: View {
+    @EnvironmentObject private var vm: AppViewModel
+
+    @State private var solBalance: String = "—"
+    @State private var usdcBalance: String = "—"
+    @State private var balanceStatus: String?
+    @State private var isFetchingBalance: Bool = false
+    @State private var error: GenericAppError?
+
+    var body: some View {
+        ModalContainer(
+            title: "Solana wallet",
+            subtitle: "Devnet. Transfers are relayed, so the network fee is sponsored. Sending an SPL token to a wallet without a token account asks you to choose how to pay its rent.",
+            showsCloseButton: false
+        ) {
+            if let address = vm.omsWallet.wallet.activeWallet?.address {
+                FieldGroup(title: "Address") {
+                    CopyableResult(text: address)
+                    if let url = solanaAddressExplorerURL(address) {
+                        Link("View wallet on Solana Explorer", destination: url)
+                            .font(.caption.weight(.semibold))
+                    }
+                }
+            }
+
+            DesignText(sessionAuthLabel(vm.omsWallet.wallet.session?.auth), variant: .caption)
+
+            Panel {
+                solanaBalanceRow(
+                    title: "Devnet SOL balance",
+                    value: "\(solBalance) SOL",
+                    faucetTitle: "Open SOL faucet",
+                    faucetURL: solFaucetURL
+                )
+                solanaBalanceRow(
+                    title: "Devnet USDC balance",
+                    value: "\(usdcBalance) USDC",
+                    faucetTitle: "Open USDC faucet",
+                    faucetURL: devnetUsdcFaucetURL
+                )
+
+                if let balanceStatus {
+                    DesignText(balanceStatus, variant: .error)
+                }
+            }
+
+            Button {
+                Task { await refreshBalances() }
+            } label: {
+                label(for: "Refresh balances", systemImage: "arrow.clockwise", loading: isFetchingBalance)
+            }
+            .buttonStyle(DesignButtonStyle(variant: .secondary))
+            .disabled(isFetchingBalance)
+
+            Button {
+                vm.signOut()
+            } label: {
+                label(for: "Sign out", systemImage: "rectangle.portrait.and.arrow.right", loading: false)
+            }
+            .buttonStyle(DesignButtonStyle(variant: .secondary))
+        }
+        .genericErrorWindow(error: $error)
+        .task {
+            await refreshBalances()
+        }
+    }
+
+    private func solanaBalanceRow(title: String, value: String, faucetTitle: String, faucetURL: URL) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                DesignText(title, variant: .caption)
+                Link(faucetTitle, destination: faucetURL)
+                    .font(.caption.weight(.semibold))
+            }
+
+            Spacer()
+
+            if isFetchingBalance {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(DesignTokens.Color.info)
+            } else {
+                Text(value)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(DesignTokens.Color.primaryText)
+                    .monospacedDigit()
+            }
+        }
+    }
+
+    private func refreshBalances() async {
+        guard let address = vm.omsWallet.wallet.activeWallet?.address else { return }
+        isFetchingBalance = true
+        balanceStatus = nil
+        defer { isFetchingBalance = false }
+
+        do {
+            let result = try await vm.omsWallet.indexer.getSolanaBalances(
+                GetSolanaBalancesParams(
+                    walletAddress: address,
+                    networks: [.devnet],
+                    mintAddresses: [devnetUsdcMint]
+                )
+            )
+            if let networkError = result.errors.first(where: { $0.network == .devnet }) {
+                solBalance = "—"
+                usdcBalance = "—"
+                balanceStatus = networkError.reason
+                return
+            }
+
+            var solRaw = "0"
+            var usdcRaw = "0"
+            for balance in result.balances where balance.network == .devnet {
+                switch balance {
+                case .native:
+                    solRaw = balance.balance
+                case .fungibleToken(let token) where token.mintAddress == devnetUsdcMint:
+                    usdcRaw = balance.balance
+                case .fungibleToken:
+                    break
+                }
+            }
+            solBalance = formatTokenAmount(solRaw, decimals: solDecimals)
+            usdcBalance = formatTokenAmount(usdcRaw, decimals: devnetUsdcDecimals)
+        } catch {
+            solBalance = "—"
+            usdcBalance = "—"
+            self.error = GenericAppError(error)
+        }
+    }
+}
+
+private enum SolanaTransferAsset: String, CaseIterable, Identifiable {
+    case sol = "SOL"
+    case usdc = "USDC"
+    case custom = "Custom SPL"
+
+    var id: String { rawValue }
+}
+
+private struct SolanaSendWindow: View {
+    @EnvironmentObject private var vm: AppViewModel
+
+    @State private var asset: SolanaTransferAsset = .sol
+    @State private var recipientText: String = ""
+    @State private var amountText: String = "0.001"
+    @State private var mintText: String = ""
+    @State private var tokenDecimalsText: String = "6"
+    @State private var result: SendTransactionResponse?
+    @State private var transferStatus: String?
+    @State private var isSending: Bool = false
+    @State private var error: GenericAppError?
+
+    var body: some View {
+        ModalContainer(
+            title: "Send on Solana Devnet",
+            subtitle: "Send SOL or an SPL token with sendSolanaTransfer. Transfers are relayed; the wallet service creates the recipient's token account when needed.",
+            showsCloseButton: false
+        ) {
+            FieldGroup(title: "Asset") {
+                Picker("Asset", selection: $asset) {
+                    ForEach(SolanaTransferAsset.allCases) { asset in
+                        Text(asset.rawValue).tag(asset)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .disabled(isSending)
+
+                if asset == .usdc {
+                    DesignText("USDC mint address: \(devnetUsdcMint)", variant: .caption)
+                        .textSelection(.enabled)
+                }
+            }
+
+            if asset == .custom {
+                FieldGroup(title: "Token mint") {
+                    TextField("SPL or Token-2022 mint address", text: $mintText)
+                        .tokenTextInput()
+                        .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                }
+
+                FieldGroup(title: "Token decimals") {
+                    TextField("6", text: $tokenDecimalsText)
+                        .tokenTextInput()
+                        #if os(iOS)
+                        .keyboardType(.numberPad)
+                        #endif
+                }
+            }
+
+            FieldGroup(title: "Recipient wallet") {
+                TextField("Solana wallet address", text: $recipientText)
+                    .tokenTextInput()
+                    .autocorrectionDisabled()
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+            }
+
+            FieldGroup(title: amountTitle) {
+                TextField("Enter amount", text: $amountText)
+                    .tokenTextInput()
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    #endif
+            }
+
+            if asset != .sol {
+                DesignText("Enter the recipient's wallet address, not a token account. If the recipient has no token account yet, you choose how to pay its rent before the transfer is sent.", variant: .caption)
+            }
+
+            Button {
+                Task { await sendTransfer() }
+            } label: {
+                label(for: "Send on Solana Devnet", systemImage: "paperplane", loading: isSending)
+            }
+            .buttonStyle(DesignButtonStyle(variant: .primary))
+            .disabled(!canSend || isSending)
+
+            if let transferStatus {
+                DesignText(transferStatus, variant: .body)
+            }
+
+            if let result {
+                TransactionResultPanel(result: result)
+
+                if let signature = result.txnHash, !signature.isEmpty,
+                   let url = solanaTransactionExplorerURL(signature) {
+                    Link("View on Solana Explorer", destination: url)
+                        .font(.caption.weight(.semibold))
+                }
+            }
+        }
+        .genericErrorWindow(error: $error)
+        .sheet(item: $vm.feeOptionSelectionRequest) { request in
+            FeeOptionSelectionWindow(request: request)
+                .environmentObject(vm)
+        }
+        .onChange(of: asset) { asset in
+            amountText = asset == .sol ? "0.001" : "1"
+        }
+    }
+
+    private var amountTitle: String {
+        switch asset {
+        case .sol: "Amount (SOL)"
+        case .usdc: "Amount (USDC)"
+        case .custom: "Amount (token units)"
+        }
+    }
+
+    private var canSend: Bool {
+        let hasRequiredFields = !recipientText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !amountText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard asset == .custom else { return hasRequiredFields }
+        return hasRequiredFields
+            && !mintText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && tokenDecimals != nil
+    }
+
+    private var tokenDecimals: Int? {
+        guard let decimals = Int(tokenDecimalsText.trimmingCharacters(in: .whitespacesAndNewlines)),
+              (0...255).contains(decimals) else {
+            return nil
+        }
+        return decimals
+    }
+
+    private func sendTransfer() async {
+        let recipient = recipientText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let amount = amountText.trimmingCharacters(in: .whitespacesAndNewlines)
+        isSending = true
+        result = nil
+        transferStatus = "Preparing relayed transfer..."
+        defer { isSending = false }
+
+        let selectFeeOption = FeeOptionSelector.custom { options in
+            try await vm.selectFeeOption(options)
+        }
+
+        do {
+            let transferAsset: String
+            let baseUnits: String
+            switch asset {
+            case .sol:
+                transferAsset = "SOL"
+                baseUnits = try solanaBaseUnits(amount, decimals: solDecimals, label: "SOL")
+            case .usdc:
+                transferAsset = devnetUsdcMint
+                baseUnits = try solanaBaseUnits(amount, decimals: devnetUsdcDecimals, label: "USDC")
+            case .custom:
+                transferAsset = mintText.trimmingCharacters(in: .whitespacesAndNewlines)
+                baseUnits = try solanaBaseUnits(amount, decimals: tokenDecimals ?? 0, label: "token")
+            }
+
+            let transaction = try await vm.omsWallet.wallet.sendSolanaTransfer(
+                network: .devnet,
+                asset: transferAsset,
+                to: recipient,
+                amount: baseUnits,
+                selectFeeOption: selectFeeOption,
+                statusPolling: TransactionStatusPollingOptions(timeoutMs: 120_000)
+            )
+
+            result = transaction
+            transferStatus = transaction.status == .executed || transaction.status == .failed
+                ? "Transfer \(transaction.status.wireValue)."
+                : "Transaction submitted."
+        } catch {
+            transferStatus = nil
+            self.error = GenericAppError(error)
+        }
+    }
+}
+
+private struct SolanaSignMessageWindow: View {
+    @EnvironmentObject private var vm: AppViewModel
+
+    @State private var messageText: String = "Sign in to OMS Wallet"
+    @State private var signature: String = ""
+    @State private var signStatus: String?
+    @State private var isSigning: Bool = false
+    @State private var error: GenericAppError?
+
+    var body: some View {
+        ModalContainer(
+            title: "Sign Solana message",
+            subtitle: "Sign an off-chain message with the Solana wallet and verify the signature against the active wallet.",
+            showsCloseButton: false
+        ) {
+            FieldGroup(title: "Message") {
+                TextField("Enter message", text: $messageText)
+                    .tokenTextInput()
+            }
+
+            Button {
+                Task { await signAndVerify() }
+            } label: {
+                label(for: "Sign Solana message", systemImage: "signature", loading: isSigning)
+            }
+            .buttonStyle(DesignButtonStyle(variant: .primary))
+            .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSigning)
+
+            if !signature.isEmpty {
+                ResultPanel(title: "Signature", text: signature)
+            }
+
+            if let signStatus {
+                DesignText(signStatus, variant: .body)
+            }
+        }
+        .genericErrorWindow(error: $error)
+    }
+
+    private func signAndVerify() async {
+        let message = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        isSigning = true
+        signature = ""
+        signStatus = "Signing message..."
+        defer { isSigning = false }
+
+        do {
+            let signed = try await vm.omsWallet.wallet.signSolanaMessage(message: message)
+            signature = signed
+            signStatus = "Verifying signature..."
+            // Without `walletAddress`, the SDK verifies against the active Solana wallet.
+            let isValid = try await vm.omsWallet.wallet.isValidSolanaMessageSignature(
+                message: message,
+                signature: signed
+            )
+            signStatus = isValid ? "Message signed and verified." : "Signature verification failed."
+        } catch {
+            signStatus = nil
+            self.error = GenericAppError(error)
+        }
+    }
+}
+
 // MARK: - Sign Message Window
 
 struct SignMessageWindow: View {
@@ -1381,7 +2321,7 @@ struct SignMessageWindow: View {
     var showsCloseButton: Bool = true
 
     @State private var messageText: String = ""
-    @State private var network: Network = Network.polygonAmoy
+    @State private var network: Network = Network.amoy
     @State private var signature: String = ""
     @State private var isSigning: Bool = false
     @State private var error: GenericAppError?
@@ -1446,7 +2386,7 @@ struct SendTransactionWindow: View {
 
     @State private var toText: String = ""
     @State private var amountText: String = "1000"
-    @State private var network: Network = Network.polygonAmoy
+    @State private var network: Network = Network.amoy
     @State private var result: SendTransactionResponse?
     @State private var isSending: Bool = false
     @State private var error: GenericAppError?
@@ -1521,7 +2461,7 @@ struct SendTransactionWindow: View {
                 .environmentObject(vm)
         }
         .onAppear {
-            if toText.isEmpty, let walletAddress = vm.omsWallet.wallet.walletAddress {
+            if toText.isEmpty, let walletAddress = vm.omsWallet.wallet.activeWallet?.address {
                 toText = walletAddress
             }
         }
@@ -1575,7 +2515,7 @@ struct CallContractWindow: View {
 
     @State private var contractText: String = "0x41e94eb019c0762f9bfcf9fb1e58725bfb0e7582"
     @State private var methodText: String = "transfer"
-    @State private var network: Network = Network.polygonAmoy
+    @State private var network: Network = Network.amoy
     @State private var args: [AbiArgInput] = [
         AbiArgInput(type: "address", value: "0xE5E8B483FfC05967FcFed58cc98D053265af6D99"),
         AbiArgInput(type: "uint256", value: "1000000"),
@@ -1655,7 +2595,7 @@ struct CallContractWindow: View {
                             .map { AbiArg(type: $0.type, value: parseAbiValue($0.value)) }
                         let txResult = try await vm.omsWallet.wallet.callContract(
                             network: network,
-                            contract: contractText,
+                            contractAddress: contractText,
                             method: methodText,
                             args: abiArgs.isEmpty ? nil : abiArgs,
                             selectFeeOption: .custom { options in

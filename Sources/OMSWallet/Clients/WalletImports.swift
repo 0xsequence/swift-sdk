@@ -23,7 +23,7 @@ private enum WalletImportActivationContext {
 
 @available(macOS 12.0, iOS 15.0, *)
 extension WalletClient {
-    /// Imports and activates an Ethereum or Solana private key.
+    /// Imports and activates an Ethereum, Solana, or Tron private key.
     ///
     /// The plaintext key is sealed locally to a recipient key from an attested WaaS enclave and is
     /// never sent over the ordinary WaaS transport.
@@ -31,7 +31,7 @@ extension WalletClient {
     public func importWallet(
         privateKey: WalletImportPrivateKey,
         reference: String? = nil
-    ) async throws -> WalletSelectionResult {
+    ) async throws -> WalletActivationResult {
         try await runOMSWalletOperation(.walletImportWallet) {
             let context = try walletImportActivationContext(for: privateKey.walletType)
             try WalletImportValidation.validateReference(reference)
@@ -82,7 +82,7 @@ extension WalletClient {
         walletType: WalletType,
         keyMaterial: EncryptedWalletImportKeyMaterial,
         reference: String? = nil
-    ) async throws -> WalletSelectionResult {
+    ) async throws -> WalletActivationResult {
         try await runOMSWalletOperation(.walletImportEncryptedWallet) {
             let context = try walletImportActivationContext(for: walletType)
             try WalletImportValidation.validateReference(reference)
@@ -191,17 +191,16 @@ extension WalletClient {
     private func activateImportedWallet(
         _ wallet: Wallet,
         context: WalletImportActivationContext
-    ) throws -> WalletSelectionResult {
+    ) throws -> WalletActivationResult {
         try createSequenceWallet(
-            walletAddress: wallet.address,
-            walletId: wallet.id,
+            wallet: wallet,
             sessionMetadata: context.metadata,
             requiredSessionRevision: context.revision
         )
         if case .pending = context {
             activePendingWalletSelection = nil
         }
-        return WalletSelectionResult(walletAddress: wallet.address, wallet: wallet)
+        return WalletActivationResult(wallet: wallet)
     }
 
     private func requireWalletImportClient() throws -> WaasClient {

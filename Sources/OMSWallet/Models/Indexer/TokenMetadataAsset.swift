@@ -41,7 +41,6 @@ public struct TokenMetadataAsset: Codable, Sendable {
         case id
         case collectionId
         case tokenId
-        case tokenID
         case url
         case metadataField
         case name
@@ -57,7 +56,6 @@ public struct TokenMetadataAsset: Codable, Sendable {
         self.id = try container.decodeIfPresent(Int64.self, forKey: .id)
         self.collectionId = try container.decodeIfPresent(Int64.self, forKey: .collectionId)
         self.tokenId = try container.decodeIfPresent(String.self, forKey: .tokenId)
-            ?? container.decodeIfPresent(String.self, forKey: .tokenID)
         self.url = try container.decodeIfPresent(String.self, forKey: .url)
         self.metadataField = try container.decodeIfPresent(String.self, forKey: .metadataField)
         self.name = try container.decodeIfPresent(String.self, forKey: .name)
@@ -72,7 +70,7 @@ public struct TokenMetadataAsset: Codable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(id, forKey: .id)
         try container.encodeIfPresent(collectionId, forKey: .collectionId)
-        try container.encodeIfPresent(tokenId, forKey: .tokenID)
+        try container.encodeIfPresent(tokenId, forKey: .tokenId)
         try container.encodeIfPresent(url, forKey: .url)
         try container.encodeIfPresent(metadataField, forKey: .metadataField)
         try container.encodeIfPresent(name, forKey: .name)

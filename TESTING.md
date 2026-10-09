@@ -27,9 +27,9 @@ error behavior. It serializes `OMSWalletError` into stable public fields:
 
 When a public SDK method gains, removes, or intentionally changes error
 behavior, update the test, [docs/error-contracts.md](docs/error-contracts.md),
-`API.md`, and user-facing README examples together. Keep the tests
-representative by covering each backend/transport/local failure family through
-real public methods rather than duplicating the same assertion for every method.
+the generated `API.md` (`scripts/generate-api.sh`), and user-facing README
+examples together. Keep the tests representative by covering each
+backend/transport/local failure family through real public methods rather than duplicating the same assertion for every method.
 
 ## Integration tests
 

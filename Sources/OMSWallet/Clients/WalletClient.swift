@@ -17,6 +17,12 @@ public final class WalletClient: @unchecked Sendable {
         event: OMSWalletSessionExpiredEvent
     )
 
+    /// The session lifetime used when a sign-in call does not pass `sessionLifetimeSeconds`
+    /// (7 days).
+    public static let defaultSessionLifetimeSeconds: UInt32 = 604_800
+    /// The longest session lifetime the wallet API accepts (30 days).
+    public static let maxSessionLifetimeSeconds: UInt32 = 2_592_000
+
     static let defaultTransactionStatusPollTimeoutMs: UInt64 = 60_000
     static let defaultFastTransactionStatusPollIntervalMs: UInt64 = 400
     static let defaultFastTransactionStatusPollCount = 5
@@ -89,32 +95,26 @@ public final class WalletClient: @unchecked Sendable {
             withSessionLock { _latestSessionExpiredEvent = newValue }
         }
     }
-    private var _walletAddress: String
-    private var _walletId: String
+    private var _activeWallet: Wallet?
     var _sessionRevision: UInt64 = 0
     private var _sessionExpiredObservers: [UUID: SessionExpiredObserver] = [:]
     private var _verifier = ""
     private var _challenge = ""
     private var _pendingEmailAuth: PendingEmailAuth?
 
-    public internal(set) var walletAddress: String? {
+    /// The active wallet, or `nil` until auth completes or a session is restored, and after
+    /// sign-out or session expiry. Same shape as `listWallets()` entries.
+    public internal(set) var activeWallet: Wallet? {
         get {
-            withSessionLock {
-                let walletAddress = _walletAddress.trimmingCharacters(in: .whitespacesAndNewlines)
-                return walletAddress.isEmpty ? nil : walletAddress
-            }
+            withSessionLock { _activeWallet }
         }
         set {
-            withSessionLock { _walletAddress = newValue ?? "" }
+            withSessionLock { _activeWallet = newValue }
         }
     }
-    public internal(set) var walletId: String {
-        get {
-            withSessionLock { _walletId }
-        }
-        set {
-            withSessionLock { _walletId = newValue }
-        }
+    /// The active wallet's ID, or `""` when there is none.
+    var walletId: String {
+        withSessionLock { _activeWallet?.id ?? "" }
     }
     var verifier: String {
         get {
@@ -180,10 +180,6 @@ public final class WalletClient: @unchecked Sendable {
         }
     }
 
-    func clearAllPendingOIDCRedirectAuth() throws {
-        try withOIDCRedirectAuthProjectLock { try oidcRedirectAuthStore.clear() }
-    }
-
     func withOIDCRedirectAuthOwnership<T>(
         _ pending: PendingOIDCRedirectAuth,
         _ body: () throws -> T
@@ -240,8 +236,7 @@ public final class WalletClient: @unchecked Sendable {
             )
         }
 
-        self._walletId = ""
-        self._walletAddress = ""
+        self._activeWallet = nil
         self._sessionExpiresAt = nil
         self._sessionAuth = nil
         self.credentialSession = credentialSession
@@ -284,8 +279,7 @@ public final class WalletClient: @unchecked Sendable {
         let makeSignedClient = signedClientFactory ?? { _ in signedClient }
         self.signedClientFactory = makeSignedClient
 
-        self._walletId = ""
-        self._walletAddress = ""
+        self._activeWallet = nil
         self._sessionExpiresAt = nil
         self._sessionAuth = nil
         self.credentialSession = credentialSession
@@ -380,7 +374,7 @@ public final class WalletClient: @unchecked Sendable {
             throw OMSWalletError.sessionExpired()
         }
         let hasActiveSession = withSessionLock { () -> Bool in
-            let hasWallet = !_walletId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let hasWallet = !(_activeWallet?.id ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             let hasVerifiedAuth = !(_sessionExpiresAt ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             return hasWallet || hasVerifiedAuth
         }
@@ -394,9 +388,7 @@ public final class WalletClient: @unchecked Sendable {
             deliverSessionExpiredNotification(notification)
             throw OMSWalletError.sessionExpired()
         }
-        let walletId = withSessionLock {
-            _walletId.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        let walletId = self.walletId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !walletId.isEmpty else {
             throw OMSWalletError.sessionMissing()
         }
@@ -404,10 +396,10 @@ public final class WalletClient: @unchecked Sendable {
     }
 
     func requireActiveWalletAddress() throws -> String {
-        guard let walletAddress else {
+        guard let activeWallet else {
             throw OMSWalletError.sessionMissing()
         }
-        return walletAddress
+        return activeWallet.address
     }
 
     func walletAddressIfNeeded(for selectFeeOption: FeeOptionSelector?) throws -> String? {
@@ -423,33 +415,38 @@ public final class WalletClient: @unchecked Sendable {
         }
     }
 
-    /// Persists the given wallet address and signer metadata to the keychain
+    /// Persists the given wallet and signer metadata to the keychain
     /// so the session can be restored on a later launch.
     ///
-    /// - Parameter address: The on-chain address returned by `createWallet` or `useWallet`.
+    /// - Parameter wallet: The wallet returned by `createWallet`, `useWallet`, or wallet import.
     func createSequenceWallet(
-        walletAddress: String,
-        walletId: String,
+        wallet: Wallet,
         sessionMetadata: SessionMetadata,
         requiredSessionRevision: UInt64,
         oidcRedirectAuthOwnership: PendingOIDCRedirectAuth? = nil
     ) throws {
+        guard StorableCredentials.isValidStoredWallet(wallet) else {
+            throw OMSWalletError(
+                code: .invalidResponse,
+                message: "Wallet response has an unsupported wallet type or key origin"
+            )
+        }
         let persist = {
             try self.withSessionLock {
                 try self.requireCurrentSessionRevisionLocked(requiredSessionRevision)
                 try self.credentialSession.persist(
-                    walletId: walletId,
-                    walletAddress: walletAddress,
+                    wallet: wallet,
                     expiresAt: sessionMetadata.expiresAt,
                     auth: sessionMetadata.auth
                 )
                 self._latestSessionExpiredEvent = nil
-                self._walletAddress = walletAddress
-                self._walletId = walletId
+                self._activeWallet = wallet
                 self._sessionExpiresAt = sessionMetadata.expiresAt
                 self._sessionAuth = sessionMetadata.auth
             }
-            self.scheduleSessionExpiry(self.session)
+            if let snapshot = self.currentSessionSnapshot() {
+                self.scheduleSessionExpiry(snapshot)
+            }
         }
         if let oidcRedirectAuthOwnership {
             try withOIDCRedirectAuthOwnership(oidcRedirectAuthOwnership, persist)

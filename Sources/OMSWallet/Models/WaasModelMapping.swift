@@ -52,32 +52,6 @@ extension Dictionary where Key == String, Value == JSONValue {
     }
 }
 
-extension WalletType {
-    var waasValue: WaasGenerated.WalletType {
-        switch self {
-        case .ethereum:
-            return .ethereum
-        case .solana:
-            return .solana
-        case .unknown(let value):
-            return .unknown(value)
-        }
-    }
-}
-
-extension WaasGenerated.WalletType {
-    var sdkValue: WalletType {
-        switch self {
-        case .ethereum:
-            return .ethereum
-        case .solana:
-            return .solana
-        case .unknown(let value):
-            return .unknown(value)
-        }
-    }
-}
-
 extension WaasGenerated.NetworkFamily {
     var sdkWalletType: WalletType? {
         switch self {
@@ -85,6 +59,8 @@ extension WaasGenerated.NetworkFamily {
             return .ethereum
         case .solana:
             return .solana
+        case .tron:
+            return .tron
         case .unknown(let value):
             return .unknown(value)
         }
@@ -162,6 +138,10 @@ extension Wallet {
                     debugDescription: "Wallet response is missing or has an invalid keyOrigin"
                 )
             )
+        }
+        // Checks the shape only; EIP-55 checksum casing is not enforced.
+        if type == .ethereum && !isEthereumAddressValue(waasValue.address) {
+            throw OMSWalletError(code: .invalidResponse, message: "Ethereum wallet response has an invalid address")
         }
         self.init(
             id: waasValue.id,
@@ -370,7 +350,7 @@ private func isCanonicalUnsignedDecimal(_ value: String) -> Bool {
         && (value == "0" || !value.hasPrefix("0"))
 }
 
-private func isEthereumAddressValue(_ value: String) -> Bool {
+func isEthereumAddressValue(_ value: String) -> Bool {
     value.count == 42
         && value.hasPrefix("0x")
         && value.dropFirst(2).allSatisfy { $0.isASCII && $0.isHexDigit }

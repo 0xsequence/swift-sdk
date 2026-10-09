@@ -2,10 +2,11 @@ import Foundation
 
 @available(macOS 12.0, iOS 15.0, *)
 extension WalletClient {
-    /// Snapshot of the current durable wallet-session state.
-    public var session: OMSWalletSessionState {
+    /// Expiry and auth metadata for the active wallet session. Non-`nil` exactly when
+    /// `activeWallet` is.
+    public var session: OMSWalletSession? {
         withSessionLock {
-            currentSessionLocked()
+            currentSessionLocked()?.session
         }
     }
 
@@ -14,11 +15,15 @@ extension WalletClient {
             return
         }
 
-        let storedSession = OMSWalletSessionState(
-            walletAddress: storedWallet.walletAddress,
-            expiresAtString: storedWallet.expiresAt,
+        guard let storedSession = WalletSessionSnapshot(
+            wallet: storedWallet.wallet,
+            expiresAt: storedWallet.expiresAt,
             auth: storedWallet.auth
-        )
+        ) else {
+            // An unreadable expiry is treated as expired; restore() discards the stored session.
+            _ = credentialSession.restore()
+            return
+        }
         guard !isSessionExpired(storedSession) else {
             expireStoredSession(storedSession)
             return
@@ -27,21 +32,19 @@ extension WalletClient {
             return
         }
 
-        walletId = restoredWallet.walletId
-        walletAddress = restoredWallet.walletAddress
+        activeWallet = restoredWallet.wallet
         sessionExpiresAt = restoredWallet.expiresAt
         sessionAuth = restoredWallet.auth
-        scheduleSessionExpiry(session)
-    }
-
-    func isSessionExpired(_ session: OMSWalletSessionState) -> Bool {
-        guard let expiresAt = session.expiresAt else {
-            return false
+        if let snapshot = currentSessionSnapshot() {
+            scheduleSessionExpiry(snapshot)
         }
-        return currentDate() >= expiresAt
     }
 
-    private func expireStoredSession(_ session: OMSWalletSessionState) {
+    func isSessionExpired(_ session: WalletSessionSnapshot) -> Bool {
+        currentDate() >= session.expiryDate
+    }
+
+    private func expireStoredSession(_ session: WalletSessionSnapshot) {
         deliverSessionExpiredNotification(
             withSessionLock {
                 try? credentialSession.clearSignerKeepingCredentials()
@@ -51,7 +54,7 @@ extension WalletClient {
         )
     }
 
-    func expireSession(_ session: OMSWalletSessionState) {
+    func expireSession(_ session: WalletSessionSnapshot) {
         deliverSessionExpiredNotification(
             withSessionLock {
                 clearActiveSessionForExpiryLocked()
@@ -60,22 +63,28 @@ extension WalletClient {
         )
     }
 
-    private func currentSessionLocked() -> OMSWalletSessionState {
-        guard let walletAddress else {
-            return OMSWalletSessionState(walletAddress: nil)
+    func currentSessionSnapshot() -> WalletSessionSnapshot? {
+        withSessionLock {
+            currentSessionLocked()
+        }
+    }
+
+    private func currentSessionLocked() -> WalletSessionSnapshot? {
+        guard let activeWallet, let sessionAuth else {
+            return nil
         }
 
-        return OMSWalletSessionState(
-            walletAddress: walletAddress,
-            expiresAtString: sessionExpiresAt,
+        return WalletSessionSnapshot(
+            wallet: activeWallet,
+            expiresAt: sessionExpiresAt,
             auth: sessionAuth
         )
     }
 
     func expireCurrentSessionIfNeeded() -> SessionExpiredNotification? {
         withSessionLock {
-            let currentSession = currentSessionLocked()
-            guard isSessionExpired(currentSession) else {
+            guard let currentSession = currentSessionLocked(),
+                  isSessionExpired(currentSession) else {
                 return nil
             }
             clearActiveSessionForExpiryLocked()
@@ -89,8 +98,7 @@ extension WalletClient {
         sessionExpiryTask = nil
         activePendingWalletSelection = nil
         try? credentialSession.clearSignerKeepingCredentials()
-        walletAddress = nil
-        walletId = ""
+        activeWallet = nil
         verifier = ""
         challenge = ""
         pendingEmailAuth = nil
@@ -99,11 +107,12 @@ extension WalletClient {
         signedClient = signedClientFactory(credentialSession.signer)
     }
 
-    private func makeSessionExpiredNotificationLocked(_ session: OMSWalletSessionState) -> SessionExpiredNotification? {
-        guard let expiredAt = session.expiresAt else {
-            return nil
-        }
-        let event = OMSWalletSessionExpiredEvent(session: session, expiredAt: expiredAt)
+    private func makeSessionExpiredNotificationLocked(_ session: WalletSessionSnapshot) -> SessionExpiredNotification {
+        let event = OMSWalletSessionExpiredEvent(
+            wallet: session.wallet,
+            session: session.session,
+            expiredAt: session.expiresAt
+        )
         latestSessionExpiredEvent = event
         return (sessionExpiredObserversLocked(), event)
     }
@@ -123,18 +132,8 @@ extension WalletClient {
         }
     }
 
-    func scheduleSessionExpiry(_ session: OMSWalletSessionState) {
-        guard let expiresAt = session.expiresAt else {
-            withSessionLock {
-                guard isCurrentSessionSnapshotLocked(session) else {
-                    return
-                }
-                sessionExpiryTask?.cancel()
-                sessionExpiryTask = nil
-            }
-            return
-        }
-        let delay = max(0, expiresAt.timeIntervalSince(currentDate()))
+    func scheduleSessionExpiry(_ session: WalletSessionSnapshot) {
+        let delay = max(0, session.expiryDate.timeIntervalSince(currentDate()))
         guard delay > 0 else {
             expireSessionFromTimer(session)
             return
@@ -164,10 +163,10 @@ extension WalletClient {
         }
     }
 
-    private func expireSessionFromTimer(_ session: OMSWalletSessionState) {
+    private func expireSessionFromTimer(_ session: WalletSessionSnapshot) {
         let transition = withSessionLock { () -> (
             notification: SessionExpiredNotification?,
-            reschedule: OMSWalletSessionState?
+            reschedule: WalletSessionSnapshot?
         ) in
             guard isCurrentSessionSnapshotLocked(session) else {
                 return (nil, nil)
@@ -184,24 +183,22 @@ extension WalletClient {
         deliverSessionExpiredNotification(transition.notification)
     }
 
-    private func isCurrentSessionSnapshotLocked(_ session: OMSWalletSessionState) -> Bool {
-        guard let sessionWalletAddress = session.walletAddress else {
+    private func isCurrentSessionSnapshotLocked(_ session: WalletSessionSnapshot) -> Bool {
+        guard session.wallet != nil else {
             return false
         }
-        return walletAddress == sessionWalletAddress
-            && OMSWalletSessionState.parseDate(sessionExpiresAt) == session.expiresAt
-            && sessionAuth == session.auth
+        return currentSessionLocked() == session
     }
 
     func reauthenticationSessionEmail() -> String? {
         withSessionLock {
-            currentSessionLocked().auth?.email ?? latestSessionExpiredEvent?.session.auth?.email
+            currentSessionLocked()?.auth.email ?? latestSessionExpiredEvent?.session.auth.email
         }
     }
 
     func currentSessionMetadata() throws -> SessionMetadata {
         try withSessionLock {
-            guard let sessionAuth else {
+            guard let sessionAuth, let sessionExpiresAt else {
                 throw OMSWalletError.sessionMissing()
             }
             return SessionMetadata(
@@ -228,66 +225,51 @@ extension WalletClient {
         requiredSessionRevision: UInt64? = nil
     ) throws -> Bool {
         let clearState = {
-            try self.withSessionLock {
-                if let requiredSessionRevision,
-                   self._sessionRevision != requiredSessionRevision {
-                    return false
+            do {
+                return try self.withSessionLock {
+                    if let requiredSessionRevision,
+                       self._sessionRevision != requiredSessionRevision {
+                        return false
+                    }
+                    self._sessionRevision += 1
+                    self.latestSessionExpiredEvent = nil
+                    self.sessionExpiryTask?.cancel()
+                    self.sessionExpiryTask = nil
+                    self.activePendingWalletSelection = nil
+                    try self.credentialSession.clear()
+                    self.activeWallet = nil
+                    self.verifier = ""
+                    self.challenge = ""
+                    self.pendingEmailAuth = nil
+                    self.sessionExpiresAt = nil
+                    self.sessionAuth = nil
+                    self.signedClient = self.signedClientFactory(self.credentialSession.signer)
+                    return true
                 }
-                self._sessionRevision += 1
-                self.latestSessionExpiredEvent = nil
-                self.sessionExpiryTask?.cancel()
-                self.sessionExpiryTask = nil
-                self.activePendingWalletSelection = nil
-                try self.credentialSession.clear()
-                self.walletAddress = nil
-                self.walletId = ""
-                self.verifier = ""
-                self.challenge = ""
-                self.pendingEmailAuth = nil
-                self.sessionExpiresAt = nil
-                self.sessionAuth = nil
-                self.signedClient = self.signedClientFactory(self.credentialSession.signer)
-                return true
+            } catch {
+                throw OMSWalletError.storageError(
+                    message: "Wallet session cleanup failed.",
+                    underlyingError: error
+                )
             }
         }
-        if clearOidcRedirectAuth {
-            return try withOIDCRedirectAuthProjectLock {
-                let cleared: Bool
-                do {
-                    cleared = try clearState()
-                } catch {
-                    throw OMSWalletError.storageError(
-                        message: "Wallet session cleanup failed.",
-                        underlyingError: error
-                    )
-                }
-                guard cleared else {
-                    return false
-                }
-                do {
-                    try oidcRedirectAuthStore.clear()
-                } catch {
-                    throw OMSWalletError.storageError(
-                        message: "OIDC redirect auth state cleanup failed.",
-                        underlyingError: error
-                    )
-                }
-                return true
+        guard clearOidcRedirectAuth else {
+            return try clearState()
+        }
+        return try withOIDCRedirectAuthProjectLock {
+            guard try clearState() else {
+                return false
             }
+            do {
+                try oidcRedirectAuthStore.clear()
+            } catch {
+                throw OMSWalletError.storageError(
+                    message: "OIDC redirect auth state cleanup failed.",
+                    underlyingError: error
+                )
+            }
+            return true
         }
-        let cleared: Bool
-        do {
-            cleared = try clearState()
-        } catch {
-            throw OMSWalletError.storageError(
-                message: "Wallet session cleanup failed.",
-                underlyingError: error
-            )
-        }
-        guard cleared else {
-            return false
-        }
-        return true
     }
 
     /// Returns display metadata for a remote credential before the owner approves access.
@@ -316,9 +298,7 @@ extension WalletClient {
         try await runOMSWalletOperation(.walletAuthorizeRemoteAccess) {
             let walletId = try requireActiveWalletId()
             try requireActiveCredential()
-            guard let walletAddress, Self.isEthereumAddress(walletAddress) else {
-                throw OMSWalletError(code: .validationError, message: "An active Ethereum wallet is required")
-            }
+            try requireActiveWalletType(.ethereum)
             try validateSmartSessionGrants(grants)
             let response = try await signedClient.authorizeRemoteAccess(
                 AuthorizeRemoteAccessRequest(
@@ -326,7 +306,7 @@ extension WalletClient {
                     walletId: walletId,
                     grants: Grants(entries: grants.map(\.waasValue)),
                     expiry: expiresAt,
-                    chainId: network.chainId,
+                    chainId: network.waasChainId,
                     sessionId: sessionId
                 )
             )
@@ -415,7 +395,7 @@ extension WalletClient {
             let walletId = try requireActiveWalletId()
             try requireActiveCredential()
             let response = try await signedClient.getSessionUsage(
-                GetSessionUsageRequest(sessionId: sessionId, network: network.chainId)
+                GetSessionUsageRequest(sessionId: sessionId, network: network.waasChainId)
             )
             try requireSameActiveWalletSession(walletId)
             return try response.entries.map { entry in
@@ -515,14 +495,6 @@ private extension AccessGrantType {
 private func isCanonicalUnsignedDecimal(_ value: String) -> Bool {
     guard !value.isEmpty, value.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }) else { return false }
     return value == "0" || !value.hasPrefix("0")
-}
-
-private func isEthereumAddressValue(_ value: String) -> Bool {
-    value.count == 42
-        && value.hasPrefix("0x")
-        && value.dropFirst(2).allSatisfy { character in
-            character.isASCII && character.isHexDigit
-        }
 }
 
 @available(macOS 12.0, iOS 15.0, *)

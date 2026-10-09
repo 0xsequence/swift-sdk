@@ -35,7 +35,6 @@ public struct NativeTokenBalance: Codable, Sendable {
         case name
         case symbol
         case balance
-        case balanceWei
         case chainId
         case balanceUSD
         case priceUSD
@@ -48,8 +47,7 @@ public struct NativeTokenBalance: Codable, Sendable {
         self.accountAddress = try container.decode(String.self, forKey: .accountAddress)
         self.name = try container.decode(String.self, forKey: .name)
         self.symbol = try container.decode(String.self, forKey: .symbol)
-        self.balance = try container.decodeIfPresent(String.self, forKey: .balance)
-            ?? container.decode(String.self, forKey: .balanceWei)
+        self.balance = try container.decode(String.self, forKey: .balance)
         self.chainId = try container.decode(Int64.self, forKey: .chainId)
         self.balanceUSD = try container.decodeIfPresent(String.self, forKey: .balanceUSD)
         self.priceUSD = try container.decodeIfPresent(String.self, forKey: .priceUSD)
@@ -124,7 +122,6 @@ public struct ContractTokenBalance: Codable, Sendable {
         case contractType
         case contractAddress
         case accountAddress
-        case tokenId
         case tokenID
         case balance
         case balanceUSD
@@ -144,18 +141,7 @@ public struct ContractTokenBalance: Codable, Sendable {
         self.contractType = try container.decode(String.self, forKey: .contractType)
         self.contractAddress = try container.decode(String.self, forKey: .contractAddress)
         self.accountAddress = try container.decode(String.self, forKey: .accountAddress)
-        if let tokenId = try container.decodeIfPresent(String.self, forKey: .tokenId)
-            ?? container.decodeIfPresent(String.self, forKey: .tokenID) {
-            self.tokenId = tokenId
-        } else {
-            throw DecodingError.keyNotFound(
-                CodingKeys.tokenID,
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Missing tokenId"
-                )
-            )
-        }
+        self.tokenId = try container.decode(String.self, forKey: .tokenID)
         self.balance = try container.decode(String.self, forKey: .balance)
         self.balanceUSD = try container.decodeIfPresent(String.self, forKey: .balanceUSD)
         self.priceUSD = try container.decodeIfPresent(String.self, forKey: .priceUSD)
