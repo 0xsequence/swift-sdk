@@ -737,7 +737,7 @@ extension WalletClient {
         }
     }
 
-    /// Activates an existing wallet by its WaaS wallet ID and persists its address and
+    /// Activates an existing wallet by its WaaS wallet ID and persists the wallet and
     /// signer metadata to the keychain.
     @discardableResult
     public func useWallet(walletId: String) async throws -> WalletActivationResult {
@@ -754,7 +754,7 @@ extension WalletClient {
     }
 
     /// Creates a new wallet of the specified type for the authenticated user and persists
-    /// its address and signer metadata to the keychain.
+    /// the wallet and signer metadata to the keychain.
     ///
     /// Call this after `completeEmailAuth(code:walletSelection:walletType:)` returns
     /// `.walletSelection`, or when an authenticated session already exists.

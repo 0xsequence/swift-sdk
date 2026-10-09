@@ -126,7 +126,7 @@ Lists all wallets available to the authenticated credential.
 @discardableResult public func useWallet(walletId: String) async throws -> WalletActivationResult
 ```
 
-Activates an existing wallet by its WaaS wallet ID and persists its address and
+Activates an existing wallet by its WaaS wallet ID and persists the wallet and
 signer metadata to the keychain.
 
 ### `WalletClient.createWallet(walletType:reference:)`
@@ -136,7 +136,7 @@ signer metadata to the keychain.
 ```
 
 Creates a new wallet of the specified type for the authenticated user and persists
-its address and signer metadata to the keychain.
+the wallet and signer metadata to the keychain.
 
 ### `WalletClient.importWallet(privateKey:reference:)`
 

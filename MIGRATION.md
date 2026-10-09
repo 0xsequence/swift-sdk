@@ -98,7 +98,9 @@ method: "transfer"
 Ethereum wallets whose address is not `0x` followed by 40 hexadecimal digits are now rejected with
 `.invalidResponse`. Checksum casing is not enforced. Sign-in and wallet selection also reject, with
 `.invalidResponse`, a wallet whose network family or key origin the SDK does not recognize, instead
-of activating a wallet whose saved session would be discarded on the next launch.
+of activating a wallet whose saved session would be discarded on the next launch. An auth response
+whose credential `expiresAt` is not a valid ISO-8601 timestamp now fails with `.invalidResponse` and
+leaves the user signed out. Previously the session was activated without an expiry.
 
 ### Exhaustive switches
 
@@ -119,6 +121,9 @@ now takes an optional `walletAddress`, and verification requests never send a wa
 - Without `walletAddress`, the active wallet's address is used. Signed out, the call throws
   `.sessionMissing`; if the active wallet belongs to another family (for example an Ethereum wallet
   and `isValidSolanaMessageSignature`), it throws `.validationError` before any request.
+- An empty or whitespace-only `walletAddress` now throws `.validationError` ("walletAddress must not
+  be empty") before any request. It does not fall back to the active wallet. Previously the SDK sent
+  it to the wallet API, which rejected it with a request error.
 
 ```swift
 // 0.3.x
@@ -280,8 +285,8 @@ declare members with these names on those types.
 ### Indexer model JSON keys
 
 Indexer models now encode and decode only the indexer gateway keys: `TransactionTransfer` uses
-`tokenIds`, `TokenMetadata` and `TokenMetadataAsset` use `tokenId`, `Transaction` uses `metaTxnID`,
-and `NativeTokenBalance` uses `balance`.
+`tokenIds`, `TokenMetadata` and `TokenMetadataAsset` use `tokenId`, `ContractTokenBalance` uses
+`tokenID`, `Transaction` uses `metaTxnID`, and `NativeTokenBalance` uses `balance`.
 
 ## 0.3.0
 

@@ -27,7 +27,7 @@ such as `0.2.0`, not `v0.2.0`, because the podspec source tag is
 - Update the CocoaPods install snippet in `README.md` to the same version.
 - Update the exact-version Swift Package Manager text (the literal text "version" followed by the backticked version) in `README.md` to the same version. This is mandatory: `scripts/verify.sh` fails without it.
 - Update the `Package.swift` example in `README.md` (`.upToNextMinor(from: "...")`) to the same version. `scripts/verify.sh` also fails without it.
-- If public APIs, behavior, setup, or examples changed, update `API.md` and the relevant README sections in the same PR.
+- If public APIs, behavior, setup, or examples changed, regenerate `API.md` with `scripts/generate-api.sh` and update the relevant README sections in the same PR.
 - If the release contains breaking changes, update `MIGRATION.md` with steps from the previous
   published version.
 

@@ -126,10 +126,12 @@ requested later with `@claude review` in a PR comment.
 
 ## Documentation
 
-Update `README.md` when user-facing setup or flow examples change. Update
-`API.md` when public methods, parameters, models, or behavior change. Keep docs
-aligned with the actual Swift names, labels, return types, and the `OMSWallet`
-import name. Avoid adding method descriptions in source code.
+Update `README.md` when user-facing setup or flow examples change. `API.md` is
+generated: when public methods, parameters, models, or doc comments change, run
+`scripts/generate-api.sh` (CI checks it with `--check`), regenerate the baseline
+with `UPDATE_PUBLIC_API_BASELINE=1 scripts/check-public-api-does-not-expose-generated-waas.sh`,
+and add a `MIGRATION.md` entry for breaking changes. Keep docs aligned with the
+actual Swift names, labels, return types, and the `OMSWallet` import name.
 
 ## Demo App
 

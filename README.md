@@ -387,7 +387,8 @@ let typedDataValid = try await omsWallet.wallet.isValidTypedDataSignature(
 ### Query Balances
 
 ```swift
-guard let walletAddress = omsWallet.wallet.activeWallet?.address else { return }
+guard let activeWallet = omsWallet.wallet.activeWallet, activeWallet.type == .ethereum else { return }
+let walletAddress = activeWallet.address
 
 let result = try await omsWallet.indexer.getBalances(
     GetBalancesParams(
@@ -434,7 +435,8 @@ print(balance?.balance ?? "0")
 ### Query Transaction History
 
 ```swift
-guard let walletAddress = omsWallet.wallet.activeWallet?.address else { return }
+guard let activeWallet = omsWallet.wallet.activeWallet, activeWallet.type == .ethereum else { return }
+let walletAddress = activeWallet.address
 
 let history = try await omsWallet.indexer.getTransactionHistory(
     GetTransactionHistoryParams(
@@ -610,10 +612,13 @@ let isValid = try await omsWallet.wallet.isValidTronMessageSignature(
     signature: signature
 )
 
+// Replace with the Base58Check (`T…`) address that should receive the funds.
+let recipient = "<recipient T… address>"
+
 // TRX transfer. Values are in sun (1 TRX = 1,000,000 sun).
 let trxTransfer = try await omsWallet.wallet.sendTronTransaction(
     network: .nile,
-    to: "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+    to: recipient,
     value: try parseUnits(value: "1", decimals: 6)
 )
 
@@ -623,7 +628,7 @@ let trc20Transfer = try await omsWallet.wallet.callTronContract(
     contractAddress: "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf",
     method: "transfer",
     args: [
-        AbiArg(type: "address", value: .string("TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t")),
+        AbiArg(type: "address", value: .string(recipient)),
         AbiArg(type: "uint256", value: .string("1000000")),
     ]
 )
