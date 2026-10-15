@@ -1448,18 +1448,81 @@ private func sessionAuthLabel(_ auth: OMSWalletSessionAuth?) -> String {
 
 // MARK: - Tron Wallet Window
 
-private let tronscanNileURL = "https://nile.tronscan.org/#"
-private let nileFaucetURL = URL(string: "https://nileex.io/join/getJoinPage")!
-private let nileUsdtContract = "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
-private let nileUsdtDecimals = 6
+private let usdtDecimals = 6
 private let trxDecimals = 6
 
-private func tronTransactionExplorerURL(_ txnHash: String) -> URL? {
-    URL(string: "\(tronscanNileURL)/transaction/\(txnHash)")
+private struct TronNetworkConfig {
+    let network: TronNetwork
+    let label: String
+    let explorerURL: String
+    let usdtContract: String
+    let faucetURL: URL?
 }
 
-private func tronAddressExplorerURL(_ address: String) -> URL? {
-    URL(string: "\(tronscanNileURL)/address/\(address)")
+/// Networks the Tron panel can switch between. Nile is the default.
+private enum TronDemoNetwork: String, CaseIterable, Identifiable {
+    case nile = "Nile testnet"
+    case mainnet = "Mainnet"
+
+    var id: Self { self }
+
+    var config: TronNetworkConfig {
+        switch self {
+        case .nile:
+            TronNetworkConfig(
+                network: .nile,
+                label: "Nile",
+                explorerURL: "https://nile.tronscan.org/#",
+                usdtContract: "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf",
+                faucetURL: URL(string: "https://nileex.io/join/getJoinPage")
+            )
+        case .mainnet:
+            TronNetworkConfig(
+                network: .mainnet,
+                label: "Mainnet",
+                explorerURL: "https://tronscan.org/#",
+                usdtContract: "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+                faucetURL: nil
+            )
+        }
+    }
+
+    var sendTitle: String {
+        self == .mainnet ? "Send on Tron mainnet" : "Send on Tron Nile"
+    }
+}
+
+private func tronTransactionExplorerURL(_ txnHash: String, config: TronNetworkConfig) -> URL? {
+    URL(string: "\(config.explorerURL)/transaction/\(txnHash)")
+}
+
+private func tronAddressExplorerURL(_ address: String, config: TronNetworkConfig) -> URL? {
+    URL(string: "\(config.explorerURL)/address/\(address)")
+}
+
+/// Network selector shared by the Solana and Tron wallet screens.
+private struct DemoNetworkPicker<Option: Hashable & Identifiable & RawRepresentable & CaseIterable>: View
+where Option.RawValue == String, Option.AllCases: RandomAccessCollection {
+    @Binding var selection: Option
+    let isMainnet: Bool
+    let isDisabled: Bool
+
+    var body: some View {
+        FieldGroup(title: "Network") {
+            Picker("Network", selection: $selection) {
+                ForEach(Option.allCases) { option in
+                    Text(option.rawValue).tag(option)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .disabled(isDisabled)
+
+            if isMainnet {
+                DesignText("Mainnet transfers move real funds.", variant: .caption)
+            }
+        }
+    }
 }
 
 private func formatTokenAmount(_ raw: String, decimals: Int) -> String {
@@ -1469,19 +1532,23 @@ private func formatTokenAmount(_ raw: String, decimals: Int) -> String {
 struct TronWalletWindow: View {
     @EnvironmentObject private var vm: AppViewModel
 
+    @State private var network: TronDemoNetwork = .nile
+    @State private var isSendBusy: Bool = false
+    @State private var isSignBusy: Bool = false
+
     var body: some View {
         TabView {
-            TronBalancesWindow()
+            TronBalancesWindow(network: $network, isBusy: isSendBusy || isSignBusy)
                 .tabItem {
                     Label("Wallet", systemImage: "wallet.pass")
                 }
 
-            TronSendWindow()
+            TronSendWindow(network: $network, isSendBusy: $isSendBusy, isSignBusy: isSignBusy)
                 .tabItem {
                     Label("Send", systemImage: "arrow.up.circle")
                 }
 
-            TronSignMessageWindow()
+            TronSignMessageWindow(isBusy: $isSignBusy)
                 .tabItem {
                     Label("Sign", systemImage: "signature")
                 }
@@ -1495,23 +1562,34 @@ struct TronWalletWindow: View {
 
 private struct TronBalancesWindow: View {
     @EnvironmentObject private var vm: AppViewModel
+    @Binding var network: TronDemoNetwork
+    let isBusy: Bool
 
     @State private var trxBalance: String = "—"
     @State private var usdtBalance: String = "—"
     @State private var balanceStatus: String?
     @State private var isFetchingBalance: Bool = false
+    @State private var balanceRequest: Int = 0
     @State private var error: GenericAppError?
+
+    private var config: TronNetworkConfig { network.config }
 
     var body: some View {
         ModalContainer(
             title: "Tron wallet",
-            subtitle: "Nile testnet. Tron wallets use native mode only. Transactions are often sponsored by each account's daily free bandwidth; once it is spent, the network fee is paid in TRX.",
+            subtitle: "Tron wallets use native mode only. Transactions are often sponsored by each account's daily free bandwidth; once it is spent, the network fee is paid in TRX.",
             showsCloseButton: false
         ) {
+            DemoNetworkPicker(
+                selection: $network,
+                isMainnet: network == .mainnet,
+                isDisabled: isBusy || vm.feeOptionSelectionRequest != nil
+            )
+
             if let address = vm.omsWallet.wallet.activeWallet?.address {
                 FieldGroup(title: "Address") {
                     CopyableResult(text: address)
-                    if let url = tronAddressExplorerURL(address) {
+                    if let url = tronAddressExplorerURL(address, config: config) {
                         Link("View wallet on Tronscan", destination: url)
                             .font(.caption.weight(.semibold))
                     }
@@ -1521,8 +1599,8 @@ private struct TronBalancesWindow: View {
             DesignText(sessionAuthLabel(vm.omsWallet.wallet.session?.auth), variant: .caption)
 
             Panel {
-                tronBalanceRow(title: "Nile TRX balance", value: "\(trxBalance) TRX", faucetTitle: "Open TRX faucet")
-                tronBalanceRow(title: "Nile USDT balance", value: "\(usdtBalance) USDT", faucetTitle: "Open USDT faucet")
+                tronBalanceRow(title: "\(config.label) TRX balance", value: "\(trxBalance) TRX", faucetTitle: "Open TRX faucet")
+                tronBalanceRow(title: "\(config.label) USDT balance", value: "\(usdtBalance) USDT", faucetTitle: "Open USDT faucet")
 
                 if let balanceStatus {
                     DesignText(balanceStatus, variant: .error)
@@ -1545,7 +1623,12 @@ private struct TronBalancesWindow: View {
             .buttonStyle(DesignButtonStyle(variant: .secondary))
         }
         .genericErrorWindow(error: $error)
-        .task {
+        .onChange(of: network) { _ in
+            trxBalance = "—"
+            usdtBalance = "—"
+            balanceStatus = nil
+        }
+        .task(id: network) {
             await refreshBalances()
         }
     }
@@ -1554,8 +1637,10 @@ private struct TronBalancesWindow: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 DesignText(title, variant: .caption)
-                Link(faucetTitle, destination: nileFaucetURL)
-                    .font(.caption.weight(.semibold))
+                if let faucetURL = config.faucetURL {
+                    Link(faucetTitle, destination: faucetURL)
+                        .font(.caption.weight(.semibold))
+                }
             }
 
             Spacer()
@@ -1575,19 +1660,26 @@ private struct TronBalancesWindow: View {
 
     private func refreshBalances() async {
         guard let address = vm.omsWallet.wallet.activeWallet?.address else { return }
+        let config = config
+        balanceRequest += 1
+        let request = balanceRequest
         isFetchingBalance = true
         balanceStatus = nil
-        defer { isFetchingBalance = false }
+        defer {
+            if request == balanceRequest { isFetchingBalance = false }
+        }
 
         do {
             let result = try await vm.omsWallet.indexer.getTronBalances(
                 GetTronBalancesParams(
                     walletAddress: address,
-                    networks: [.nile],
-                    contractAddresses: [nileUsdtContract]
+                    networks: [config.network],
+                    contractAddresses: [config.usdtContract]
                 )
             )
-            if let networkError = result.errors.first(where: { $0.network == .nile }) {
+            // Ignore a response for a network the screen has already moved away from.
+            guard request == balanceRequest else { return }
+            if let networkError = result.errors.first(where: { $0.network == config.network }) {
                 trxBalance = "—"
                 usdtBalance = "—"
                 balanceStatus = networkError.reason
@@ -1600,15 +1692,16 @@ private struct TronBalancesWindow: View {
                 switch balance {
                 case .native(let native):
                     trxRaw = native.balance
-                case .fungibleToken(let token) where token.contractAddress == nileUsdtContract:
+                case .fungibleToken(let token) where token.contractAddress == config.usdtContract:
                     usdtRaw = token.balance
                 case .fungibleToken:
                     break
                 }
             }
             trxBalance = formatTokenAmount(trxRaw, decimals: trxDecimals)
-            usdtBalance = formatTokenAmount(usdtRaw, decimals: nileUsdtDecimals)
+            usdtBalance = formatTokenAmount(usdtRaw, decimals: usdtDecimals)
         } catch {
+            guard request == balanceRequest else { return }
             trxBalance = "—"
             usdtBalance = "—"
             self.error = GenericAppError(error)
@@ -1626,6 +1719,9 @@ private enum TronTransferAsset: String, CaseIterable, Identifiable {
 
 private struct TronSendWindow: View {
     @EnvironmentObject private var vm: AppViewModel
+    @Binding var network: TronDemoNetwork
+    @Binding var isSendBusy: Bool
+    let isSignBusy: Bool
 
     @State private var asset: TronTransferAsset = .trx
     @State private var recipientText: String = ""
@@ -1639,10 +1735,16 @@ private struct TronSendWindow: View {
 
     var body: some View {
         ModalContainer(
-            title: "Send on Tron Nile",
+            title: network.sendTitle,
             subtitle: "Send TRX or TRC-20 tokens. TRX transfers use sendTronTransaction; token transfers call the contract's transfer method.",
             showsCloseButton: false
         ) {
+            DemoNetworkPicker(
+                selection: $network,
+                isMainnet: network == .mainnet,
+                isDisabled: isSending || isSignBusy || vm.feeOptionSelectionRequest != nil
+            )
+
             FieldGroup(title: "Asset") {
                 Picker("Asset", selection: $asset) {
                     ForEach(TronTransferAsset.allCases) { asset in
@@ -1653,7 +1755,7 @@ private struct TronSendWindow: View {
                 .labelsHidden()
 
                 if asset == .usdt {
-                    DesignText("USDT contract address: \(nileUsdtContract)", variant: .caption)
+                    DesignText("USDT contract address: \(network.config.usdtContract)", variant: .caption)
                         .textSelection(.enabled)
                 }
             }
@@ -1697,7 +1799,7 @@ private struct TronSendWindow: View {
             Button {
                 Task { await sendTransfer() }
             } label: {
-                label(for: "Send on Tron Nile", systemImage: "paperplane", loading: isSending)
+                label(for: network.sendTitle, systemImage: "paperplane", loading: isSending)
             }
             .buttonStyle(DesignButtonStyle(variant: .primary))
             .disabled(!canSend || isSending)
@@ -1710,7 +1812,7 @@ private struct TronSendWindow: View {
                 TransactionResultPanel(result: result)
 
                 if let txnHash = result.txnHash, !txnHash.isEmpty,
-                   let url = tronTransactionExplorerURL(txnHash) {
+                   let url = tronTransactionExplorerURL(txnHash, config: network.config) {
                     Link("View on Tronscan", destination: url)
                         .font(.caption.weight(.semibold))
                 }
@@ -1721,6 +1823,11 @@ private struct TronSendWindow: View {
             FeeOptionSelectionWindow(request: request)
                 .environmentObject(vm)
         }
+        .onChange(of: network) { _ in
+            result = nil
+            transferStatus = nil
+        }
+        .onChange(of: isSending) { isSendBusy = $0 }
     }
 
     private var amountTitle: String {
@@ -1760,13 +1867,14 @@ private struct TronSendWindow: View {
             try await vm.selectFeeOption(options)
         }
         let statusPolling = TransactionStatusPollingOptions(timeoutMs: 120_000)
+        let config = network.config
 
         do {
             let transaction: SendTransactionResponse
             switch asset {
             case .trx:
                 transaction = try await vm.omsWallet.wallet.sendTronTransaction(
-                    network: .nile,
+                    network: config.network,
                     to: recipient,
                     value: try parseUnits(value: amount, decimals: trxDecimals),
                     selectFeeOption: selectFeeOption,
@@ -1774,12 +1882,12 @@ private struct TronSendWindow: View {
                 )
             case .usdt, .custom:
                 let contract = asset == .usdt
-                    ? nileUsdtContract
+                    ? config.usdtContract
                     : tokenContractText.trimmingCharacters(in: .whitespacesAndNewlines)
-                let decimals = asset == .usdt ? nileUsdtDecimals : (tokenDecimals ?? 0)
+                let decimals = asset == .usdt ? usdtDecimals : (tokenDecimals ?? 0)
                 // TRC-20 transfers are contract calls; the wallet service ABI-encodes the arguments.
                 transaction = try await vm.omsWallet.wallet.callTronContract(
-                    network: .nile,
+                    network: config.network,
                     contractAddress: contract,
                     method: "transfer",
                     args: [
@@ -1805,6 +1913,7 @@ private struct TronSendWindow: View {
 
 private struct TronSignMessageWindow: View {
     @EnvironmentObject private var vm: AppViewModel
+    @Binding var isBusy: Bool
 
     @State private var messageText: String = "Sign in to OMS Wallet"
     @State private var signature: String = ""
@@ -1840,6 +1949,7 @@ private struct TronSignMessageWindow: View {
             }
         }
         .genericErrorWindow(error: $error)
+        .onChange(of: isSigning) { isBusy = $0 }
     }
 
     private func signAndVerify() async {
@@ -1870,18 +1980,57 @@ private struct TronSignMessageWindow: View {
 // MARK: - Solana Wallet Window
 
 private let solanaExplorerURL = "https://explorer.solana.com"
-private let solFaucetURL = URL(string: "https://faucet.solana.com/")!
-private let devnetUsdcFaucetURL = URL(string: "https://faucet.circle.com/")!
-private let devnetUsdcMint = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
-private let devnetUsdcDecimals = 6
+private let usdcDecimals = 6
 private let solDecimals = 9
 
-private func solanaTransactionExplorerURL(_ signature: String) -> URL? {
-    URL(string: "\(solanaExplorerURL)/tx/\(signature)?cluster=devnet")
+private struct SolanaNetworkConfig {
+    let network: SolanaNetwork
+    let label: String
+    let usdcMint: String
+    /// Solana Explorer `cluster` query parameter; mainnet is the explorer default.
+    let explorerCluster: String?
+    let solFaucetURL: URL?
+    let usdcFaucetURL: URL?
 }
 
-private func solanaAddressExplorerURL(_ address: String) -> URL? {
-    URL(string: "\(solanaExplorerURL)/address/\(address)?cluster=devnet")
+/// Networks the Solana panel can switch between. Devnet is the default.
+private enum SolanaDemoNetwork: String, CaseIterable, Identifiable {
+    case devnet = "Devnet"
+    case mainnet = "Mainnet"
+
+    var id: Self { self }
+
+    var config: SolanaNetworkConfig {
+        switch self {
+        case .devnet:
+            SolanaNetworkConfig(
+                network: .devnet,
+                label: "Devnet",
+                usdcMint: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+                explorerCluster: "devnet",
+                solFaucetURL: URL(string: "https://faucet.solana.com/"),
+                usdcFaucetURL: URL(string: "https://faucet.circle.com/")
+            )
+        case .mainnet:
+            SolanaNetworkConfig(
+                network: .mainnet,
+                label: "Mainnet",
+                usdcMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+                explorerCluster: nil,
+                solFaucetURL: nil,
+                usdcFaucetURL: nil
+            )
+        }
+    }
+
+    var sendTitle: String {
+        self == .mainnet ? "Send on Solana mainnet" : "Send on Solana Devnet"
+    }
+}
+
+private func solanaExplorerURL(_ path: String, config: SolanaNetworkConfig) -> URL? {
+    let cluster = config.explorerCluster.map { "?cluster=\($0)" } ?? ""
+    return URL(string: "\(solanaExplorerURL)/\(path)\(cluster)")
 }
 
 private struct SolanaDemoError: LocalizedError {
@@ -1907,19 +2056,23 @@ private func solanaBaseUnits(_ amount: String, decimals: Int, label: String) thr
 struct SolanaWalletWindow: View {
     @EnvironmentObject private var vm: AppViewModel
 
+    @State private var network: SolanaDemoNetwork = .devnet
+    @State private var isSendBusy: Bool = false
+    @State private var isSignBusy: Bool = false
+
     var body: some View {
         TabView {
-            SolanaBalancesWindow()
+            SolanaBalancesWindow(network: $network, isBusy: isSendBusy || isSignBusy)
                 .tabItem {
                     Label("Wallet", systemImage: "wallet.pass")
                 }
 
-            SolanaSendWindow()
+            SolanaSendWindow(network: $network, isSendBusy: $isSendBusy, isSignBusy: isSignBusy)
                 .tabItem {
                     Label("Send", systemImage: "arrow.up.circle")
                 }
 
-            SolanaSignMessageWindow()
+            SolanaSignMessageWindow(isBusy: $isSignBusy)
                 .tabItem {
                     Label("Sign", systemImage: "signature")
                 }
@@ -1933,23 +2086,34 @@ struct SolanaWalletWindow: View {
 
 private struct SolanaBalancesWindow: View {
     @EnvironmentObject private var vm: AppViewModel
+    @Binding var network: SolanaDemoNetwork
+    let isBusy: Bool
 
     @State private var solBalance: String = "—"
     @State private var usdcBalance: String = "—"
     @State private var balanceStatus: String?
     @State private var isFetchingBalance: Bool = false
+    @State private var balanceRequest: Int = 0
     @State private var error: GenericAppError?
+
+    private var config: SolanaNetworkConfig { network.config }
 
     var body: some View {
         ModalContainer(
             title: "Solana wallet",
-            subtitle: "Devnet. Transfers are relayed, so the network fee is sponsored. Sending an SPL token to a wallet without a token account asks you to choose how to pay its rent.",
+            subtitle: "Transfers are relayed, so the network fee is sponsored. Sending an SPL token to a wallet without a token account asks you to choose how to pay its rent.",
             showsCloseButton: false
         ) {
+            DemoNetworkPicker(
+                selection: $network,
+                isMainnet: network == .mainnet,
+                isDisabled: isBusy || vm.feeOptionSelectionRequest != nil
+            )
+
             if let address = vm.omsWallet.wallet.activeWallet?.address {
                 FieldGroup(title: "Address") {
                     CopyableResult(text: address)
-                    if let url = solanaAddressExplorerURL(address) {
+                    if let url = solanaExplorerURL("address/\(address)", config: config) {
                         Link("View wallet on Solana Explorer", destination: url)
                             .font(.caption.weight(.semibold))
                     }
@@ -1960,16 +2124,16 @@ private struct SolanaBalancesWindow: View {
 
             Panel {
                 solanaBalanceRow(
-                    title: "Devnet SOL balance",
+                    title: "\(config.label) SOL balance",
                     value: "\(solBalance) SOL",
                     faucetTitle: "Open SOL faucet",
-                    faucetURL: solFaucetURL
+                    faucetURL: config.solFaucetURL
                 )
                 solanaBalanceRow(
-                    title: "Devnet USDC balance",
+                    title: "\(config.label) USDC balance",
                     value: "\(usdcBalance) USDC",
                     faucetTitle: "Open USDC faucet",
-                    faucetURL: devnetUsdcFaucetURL
+                    faucetURL: config.usdcFaucetURL
                 )
 
                 if let balanceStatus {
@@ -1993,17 +2157,24 @@ private struct SolanaBalancesWindow: View {
             .buttonStyle(DesignButtonStyle(variant: .secondary))
         }
         .genericErrorWindow(error: $error)
-        .task {
+        .onChange(of: network) { _ in
+            solBalance = "—"
+            usdcBalance = "—"
+            balanceStatus = nil
+        }
+        .task(id: network) {
             await refreshBalances()
         }
     }
 
-    private func solanaBalanceRow(title: String, value: String, faucetTitle: String, faucetURL: URL) -> some View {
+    private func solanaBalanceRow(title: String, value: String, faucetTitle: String, faucetURL: URL?) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 DesignText(title, variant: .caption)
-                Link(faucetTitle, destination: faucetURL)
-                    .font(.caption.weight(.semibold))
+                if let faucetURL {
+                    Link(faucetTitle, destination: faucetURL)
+                        .font(.caption.weight(.semibold))
+                }
             }
 
             Spacer()
@@ -2023,19 +2194,26 @@ private struct SolanaBalancesWindow: View {
 
     private func refreshBalances() async {
         guard let address = vm.omsWallet.wallet.activeWallet?.address else { return }
+        let config = config
+        balanceRequest += 1
+        let request = balanceRequest
         isFetchingBalance = true
         balanceStatus = nil
-        defer { isFetchingBalance = false }
+        defer {
+            if request == balanceRequest { isFetchingBalance = false }
+        }
 
         do {
             let result = try await vm.omsWallet.indexer.getSolanaBalances(
                 GetSolanaBalancesParams(
                     walletAddress: address,
-                    networks: [.devnet],
-                    mintAddresses: [devnetUsdcMint]
+                    networks: [config.network],
+                    mintAddresses: [config.usdcMint]
                 )
             )
-            if let networkError = result.errors.first(where: { $0.network == .devnet }) {
+            // Ignore a response for a network the screen has already moved away from.
+            guard request == balanceRequest else { return }
+            if let networkError = result.errors.first(where: { $0.network == config.network }) {
                 solBalance = "—"
                 usdcBalance = "—"
                 balanceStatus = networkError.reason
@@ -2044,19 +2222,20 @@ private struct SolanaBalancesWindow: View {
 
             var solRaw = "0"
             var usdcRaw = "0"
-            for balance in result.balances where balance.network == .devnet {
+            for balance in result.balances where balance.network == config.network {
                 switch balance {
                 case .native:
                     solRaw = balance.balance
-                case .fungibleToken(let token) where token.mintAddress == devnetUsdcMint:
+                case .fungibleToken(let token) where token.mintAddress == config.usdcMint:
                     usdcRaw = balance.balance
                 case .fungibleToken:
                     break
                 }
             }
             solBalance = formatTokenAmount(solRaw, decimals: solDecimals)
-            usdcBalance = formatTokenAmount(usdcRaw, decimals: devnetUsdcDecimals)
+            usdcBalance = formatTokenAmount(usdcRaw, decimals: usdcDecimals)
         } catch {
+            guard request == balanceRequest else { return }
             solBalance = "—"
             usdcBalance = "—"
             self.error = GenericAppError(error)
@@ -2074,6 +2253,9 @@ private enum SolanaTransferAsset: String, CaseIterable, Identifiable {
 
 private struct SolanaSendWindow: View {
     @EnvironmentObject private var vm: AppViewModel
+    @Binding var network: SolanaDemoNetwork
+    @Binding var isSendBusy: Bool
+    let isSignBusy: Bool
 
     @State private var asset: SolanaTransferAsset = .sol
     @State private var recipientText: String = ""
@@ -2087,10 +2269,16 @@ private struct SolanaSendWindow: View {
 
     var body: some View {
         ModalContainer(
-            title: "Send on Solana Devnet",
+            title: network.sendTitle,
             subtitle: "Send SOL or an SPL token with sendSolanaTransfer. Transfers are relayed; the wallet service creates the recipient's token account when needed.",
             showsCloseButton: false
         ) {
+            DemoNetworkPicker(
+                selection: $network,
+                isMainnet: network == .mainnet,
+                isDisabled: isSending || isSignBusy || vm.feeOptionSelectionRequest != nil
+            )
+
             FieldGroup(title: "Asset") {
                 Picker("Asset", selection: $asset) {
                     ForEach(SolanaTransferAsset.allCases) { asset in
@@ -2102,7 +2290,7 @@ private struct SolanaSendWindow: View {
                 .disabled(isSending)
 
                 if asset == .usdc {
-                    DesignText("USDC mint address: \(devnetUsdcMint)", variant: .caption)
+                    DesignText("USDC mint address: \(network.config.usdcMint)", variant: .caption)
                         .textSelection(.enabled)
                 }
             }
@@ -2150,7 +2338,7 @@ private struct SolanaSendWindow: View {
             Button {
                 Task { await sendTransfer() }
             } label: {
-                label(for: "Send on Solana Devnet", systemImage: "paperplane", loading: isSending)
+                label(for: network.sendTitle, systemImage: "paperplane", loading: isSending)
             }
             .buttonStyle(DesignButtonStyle(variant: .primary))
             .disabled(!canSend || isSending)
@@ -2163,7 +2351,7 @@ private struct SolanaSendWindow: View {
                 TransactionResultPanel(result: result)
 
                 if let signature = result.txnHash, !signature.isEmpty,
-                   let url = solanaTransactionExplorerURL(signature) {
+                   let url = solanaExplorerURL("tx/\(signature)", config: network.config) {
                     Link("View on Solana Explorer", destination: url)
                         .font(.caption.weight(.semibold))
                 }
@@ -2177,6 +2365,11 @@ private struct SolanaSendWindow: View {
         .onChange(of: asset) { asset in
             amountText = asset == .sol ? "0.001" : "1"
         }
+        .onChange(of: network) { _ in
+            result = nil
+            transferStatus = nil
+        }
+        .onChange(of: isSending) { isSendBusy = $0 }
     }
 
     private var amountTitle: String {
@@ -2215,6 +2408,7 @@ private struct SolanaSendWindow: View {
         let selectFeeOption = FeeOptionSelector.custom { options in
             try await vm.selectFeeOption(options)
         }
+        let config = network.config
 
         do {
             let transferAsset: String
@@ -2224,15 +2418,15 @@ private struct SolanaSendWindow: View {
                 transferAsset = "SOL"
                 baseUnits = try solanaBaseUnits(amount, decimals: solDecimals, label: "SOL")
             case .usdc:
-                transferAsset = devnetUsdcMint
-                baseUnits = try solanaBaseUnits(amount, decimals: devnetUsdcDecimals, label: "USDC")
+                transferAsset = config.usdcMint
+                baseUnits = try solanaBaseUnits(amount, decimals: usdcDecimals, label: "USDC")
             case .custom:
                 transferAsset = mintText.trimmingCharacters(in: .whitespacesAndNewlines)
                 baseUnits = try solanaBaseUnits(amount, decimals: tokenDecimals ?? 0, label: "token")
             }
 
             let transaction = try await vm.omsWallet.wallet.sendSolanaTransfer(
-                network: .devnet,
+                network: config.network,
                 asset: transferAsset,
                 to: recipient,
                 amount: baseUnits,
@@ -2253,6 +2447,7 @@ private struct SolanaSendWindow: View {
 
 private struct SolanaSignMessageWindow: View {
     @EnvironmentObject private var vm: AppViewModel
+    @Binding var isBusy: Bool
 
     @State private var messageText: String = "Sign in to OMS Wallet"
     @State private var signature: String = ""
@@ -2288,6 +2483,7 @@ private struct SolanaSignMessageWindow: View {
             }
         }
         .genericErrorWindow(error: $error)
+        .onChange(of: isSigning) { isBusy = $0 }
     }
 
     private func signAndVerify() async {
