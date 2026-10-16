@@ -3,6 +3,7 @@ import Foundation
 public enum WalletType: Codable, Equatable, Hashable, Sendable {
     case ethereum
     case solana
+    case tron
     case unknown(String)
 
     public var wireValue: String {
@@ -11,6 +12,8 @@ public enum WalletType: Codable, Equatable, Hashable, Sendable {
             return "ethereum"
         case .solana:
             return "solana"
+        case .tron:
+            return "tron"
         case .unknown(let value):
             return value
         }
@@ -22,6 +25,8 @@ public enum WalletType: Codable, Equatable, Hashable, Sendable {
             self = .ethereum
         case "solana":
             self = .solana
+        case "tron":
+            self = .tron
         default:
             self = .unknown(wireValue)
         }

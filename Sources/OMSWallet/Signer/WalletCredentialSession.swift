@@ -3,9 +3,8 @@ import Foundation
 @available(macOS 12.0, iOS 15.0, *)
 final class WalletCredentialSession {
     struct WalletMetadata {
-        let walletId: String
-        let walletAddress: String
-        let expiresAt: String?
+        let wallet: Wallet
+        let expiresAt: String
         let auth: OMSWalletSessionAuth
     }
 
@@ -40,8 +39,7 @@ final class WalletCredentialSession {
             }
 
             return WalletMetadata(
-                walletId: credentials.walletId,
-                walletAddress: credentials.walletAddress,
+                wallet: credentials.wallet,
                 expiresAt: credentials.expiresAt,
                 auth: credentials.auth
             )
@@ -64,7 +62,7 @@ final class WalletCredentialSession {
             return nil
         }
 
-        let candidateSigner = makeCredentialSigner()
+        let candidateSigner = signerFactory()
         do {
             guard try candidateSigner.hasCredential() else {
                 _ = try? keychain.delete(forKey: credentialsStorageKey)
@@ -75,8 +73,7 @@ final class WalletCredentialSession {
             if try signerMatchesStoredCredential(candidateSigner, credentials: credentials) {
                 currentSigner = candidateSigner
                 return WalletMetadata(
-                    walletId: credentials.walletId,
-                    walletAddress: credentials.walletAddress,
+                    wallet: credentials.wallet,
                     expiresAt: credentials.expiresAt,
                     auth: credentials.auth
                 )
@@ -94,15 +91,13 @@ final class WalletCredentialSession {
     }
 
     func persist(
-        walletId: String,
-        walletAddress: String,
-        expiresAt: String?,
+        wallet: Wallet,
+        expiresAt: String,
         auth: OMSWalletSessionAuth
     ) throws {
         try withLock {
             let credentials = StorableCredentials(
-                walletId: walletId,
-                walletAddress: walletAddress,
+                wallet: wallet,
                 signerCredentialId: try currentSigner.credentialId(),
                 alg: currentSigner.alg,
                 expiresAt: expiresAt,
@@ -140,10 +135,6 @@ final class WalletCredentialSession {
         }
     }
 
-    private func makeCredentialSigner() -> any CredentialSigner {
-        signerFactory()
-    }
-
     private func signerMatchesStoredCredential(
         _ signer: any CredentialSigner,
         credentials: StorableCredentials
@@ -156,7 +147,7 @@ final class WalletCredentialSession {
     }
 
     private func clearStoredSession() {
-        _ = try? makeCredentialSigner().clear()
+        _ = try? signerFactory().clear()
         _ = try? keychain.delete(forKey: credentialsStorageKey)
         currentSigner = signerFactory()
     }
@@ -169,26 +160,12 @@ final class WalletCredentialSession {
         return try body()
     }
 
-    private static func sessionIsExpired(expiresAt value: String?) -> Bool {
-        guard let expiresAt = parseExpiresAt(value) else {
+    private static func sessionIsExpired(expiresAt value: String) -> Bool {
+        guard let expiresAt = OMSWalletSession.parseDate(value) else {
             return true
         }
 
         return expiresAt <= Date()
-    }
-
-    private static func parseExpiresAt(_ value: String?) -> Date? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
-            return nil
-        }
-
-        let formatter = ISO8601DateFormatter()
-        if let date = formatter.date(from: value) {
-            return date
-        }
-
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.date(from: value)
     }
 
     private static func makeDefaultCredentialSigner(

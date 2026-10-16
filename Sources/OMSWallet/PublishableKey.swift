@@ -5,13 +5,15 @@ struct ParsedPublishableKey: Equatable, Sendable {
     let walletApiUrl: String
     let indexerGatewayUrl: String
     let solanaIndexerGatewayUrl: String
+    let tronIndexerGatewayUrl: String
     let walletImportTrustedPcr0s: Set<String>
 
     func environment() -> OMSWalletEnvironment {
         OMSWalletEnvironment(
             walletApiUrl: walletApiUrl,
             indexerGatewayUrl: indexerGatewayUrl,
-            solanaIndexerGatewayUrl: solanaIndexerGatewayUrl
+            solanaIndexerGatewayUrl: solanaIndexerGatewayUrl,
+            tronIndexerGatewayUrl: tronIndexerGatewayUrl
         )
     }
 }
@@ -84,6 +86,7 @@ func parsePublishableKey(_ publishableKey: String) throws -> ParsedPublishableKe
         walletApiUrl: route.apiUrl,
         indexerGatewayUrl: "\(route.apiUrl)/v1/IndexerGateway/",
         solanaIndexerGatewayUrl: "\(route.apiUrl)/v1/SolanaIndexerGateway/",
+        tronIndexerGatewayUrl: "\(route.apiUrl)/v1/TronIndexerGateway/",
         walletImportTrustedPcr0s: route.walletImportTrustedPcr0s
     )
 }

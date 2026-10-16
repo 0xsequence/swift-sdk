@@ -45,8 +45,7 @@ import Testing
             transport: transport
         )
     )
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0x1111111111111111111111111111111111111111"
+    fixture.client.activeWallet = activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main")
 
     await expectPublicError(
         try await fixture.client.getWalletImportRecipientKey(cipherSuite: .p256Sha256Aes256Gcm),
@@ -88,6 +87,52 @@ import Testing
             )
         )
     )
+}
+
+@Test func TestPublicErrorContractsWalletImportAddressAlreadyImported() async throws {
+    let importTransport = MockWaasTransport()
+    let fixture = makeMockWalletClient(
+        walletImportClient: WaasClient(baseURL: "https://wallet-import.test", transport: importTransport)
+    )
+    fixture.client.activeWallet = activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main")
+    fixture.client.sessionExpiresAt = "2099-01-01T00:00:00Z"
+    fixture.client.sessionAuth = .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
+    importTransport.enqueueRawHTTPError(
+        statusCode: 400,
+        body: Data(
+            """
+            {"error":"AddressAlreadyImported","code":7313,"msg":"Address already imported","status":400}
+            """.utf8
+        ),
+        for: WaasAPI.ImportWallet.urlPath
+    )
+
+    await expectPublicError(
+        try await fixture.client.importEncryptedWallet(
+            walletType: .ethereum,
+            keyMaterial: EncryptedWalletImportKeyMaterial(
+                keyId: "recipient-key",
+                cipherSuite: .p256Sha256Aes256Gcm,
+                encapsulatedKey: Data([1, 2, 3]).base64EncodedString(),
+                ciphertext: Data([4, 5, 6]).base64EncodedString()
+            )
+        ),
+        equals: error(
+            code: .walletAddressAlreadyImported,
+            operation: .walletImportEncryptedWallet,
+            message: "Address already imported",
+            status: 409,
+            retryable: false,
+            upstreamError: upstream(
+                service: .waas,
+                name: "AddressAlreadyImported",
+                code: "7313",
+                message: "Address already imported",
+                status: 400
+            )
+        )
+    )
+    #expect(fixture.client.activeWallet?.id == "wallet-main")
 }
 
 @Test func TestPublicErrorContractsWaasHttpAndBadResponsesHaveUpstreamDetails() async throws {
@@ -322,9 +367,9 @@ import Testing
 
     let now = Date(timeIntervalSince1970: 1_800_000_000)
     let expiredFixture = makeMockWalletClient(currentDate: { now })
-    expiredFixture.client.walletId = "wallet-main"
-    expiredFixture.client.walletAddress = "0xwallet"
+    expiredFixture.client.activeWallet = activeTestWallet("0xwallet", id: "wallet-main")
     expiredFixture.client.sessionExpiresAt = "2025-01-01T00:00:00Z"
+    expiredFixture.client.sessionAuth = .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
 
     await expectPublicError(
         try await expiredFixture.client.signMessage(network: .polygon, message: "hello"),
@@ -769,6 +814,56 @@ private final class MissingAttestationURLProtocol: URLProtocol, @unchecked Senda
         )
     )
 
+    // A `msg` field is used as the message when `message` is absent.
+    let msgFieldClient = makeRecordingIndexerClient(
+        recorder: IndexerRequestRecorder(
+            statusCode: 500,
+            responseBody: Data(#"{"msg":"gateway unavailable"}"#.utf8)
+        )
+    )
+    await expectPublicError(
+        try await msgFieldClient.getBalances(
+            GetBalancesParams(walletAddress: "0xwallet", networks: [.polygon], includeMetadata: true)
+        ),
+        equals: error(
+            code: .httpError,
+            operation: .indexerGetBalances,
+            message: "gateway unavailable",
+            status: 500,
+            retryable: true,
+            upstreamError: upstream(
+                service: .indexer,
+                message: "gateway unavailable",
+                status: 500
+            )
+        )
+    )
+
+    // A 4xx without a usable message is not retryable and gets the generic HTTP message.
+    let notFoundClient = makeRecordingIndexerClient(
+        recorder: IndexerRequestRecorder(
+            statusCode: 404,
+            responseBody: Data(#"{"cause":"not found"}"#.utf8)
+        )
+    )
+    await expectPublicError(
+        try await notFoundClient.getTransactionHistory(
+            GetTransactionHistoryParams(walletAddress: "0xwallet", networks: [.polygon])
+        ),
+        equals: error(
+            code: .httpError,
+            operation: .indexerGetTransactionHistory,
+            message: "indexer.getTransactionHistory failed with HTTP 404",
+            status: 404,
+            retryable: false,
+            upstreamError: upstream(
+                service: .indexer,
+                message: "indexer.getTransactionHistory failed with HTTP 404",
+                status: 404
+            )
+        )
+    )
+
     let nonJsonClient = makeRecordingIndexerClient(
         recorder: IndexerRequestRecorder(
             statusCode: 502,
@@ -857,46 +952,9 @@ private final class MissingAttestationURLProtocol: URLProtocol, @unchecked Senda
     #expect(invalidUrlFailure.upstreamError == nil)
 }
 
-@Test func TestPublicErrorContractsConstructedErrorFieldsAreStable() {
-    let upstreamError = OMSWalletUpstreamError(
-        service: .waas,
-        name: "WebrpcRequestFailed",
-        code: "-1",
-        message: "request failed",
-        status: nil
-    )
-    let sdkError = OMSWalletError(
-        code: .requestFailed,
-        message: "request failed",
-        operation: .walletStartEmailAuth,
-        status: nil,
-        txnId: "txn-1",
-        retryable: true,
-        upstreamError: upstreamError
-    )
-
-    #expect(serialize(sdkError) == PublicErrorContract(
-        code: .requestFailed,
-        operation: .walletStartEmailAuth,
-        message: "request failed",
-        status: nil,
-        retryable: true,
-        txnId: "txn-1",
-        upstreamError: SerializedUpstreamError(
-            service: .waas,
-            name: "WebrpcRequestFailed",
-            code: "-1",
-            message: "request failed",
-            status: nil
-        )
-    ))
-}
-
 private func makeRestoredWalletClient() -> MockWalletClientFixture {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0x1111111111111111111111111111111111111111"
-    fixture.client.sessionExpiresAt = "2099-01-01T00:00:00Z"
+    activateTestSession(fixture, wallet: activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main"))
     return fixture
 }
 

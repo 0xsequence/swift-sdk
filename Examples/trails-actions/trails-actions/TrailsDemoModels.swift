@@ -328,11 +328,6 @@ func collapsedAddress(_ value: String) -> String {
     return "\(value.prefix(6))...\(value.suffix(4))"
 }
 
-func formatSessionDate(_ date: Date?) -> String {
-    guard let date else { return "Unknown" }
-    return date.formatted(date: .abbreviated, time: .shortened)
-}
-
 func normalizedUnsignedInteger(_ value: String?) -> String? {
     guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
           !trimmed.isEmpty,

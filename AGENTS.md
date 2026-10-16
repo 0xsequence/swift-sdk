@@ -106,9 +106,10 @@ execution commands.
   persist private key material in SDK session storage.
 - Keep OIDC redirect state separate from completed wallet session state. Invalid
   or unrelated callbacks should not clear pending redirect auth.
-- Verification APIs require an explicit `walletAddress`. Public wallet methods
-  should validate active `walletId` and credential state before building signed
-  requests.
+- Verification APIs take an optional `walletAddress` and fall back to the active
+  wallet's address; they never send a wallet ID and do not require a session when
+  an address is given. Other public wallet methods should validate the active
+  wallet and credential state before building signed requests.
 - Avoid floating-point math for token amounts. Use or extend `parseUnits` and
   `formatUnits` for base-unit conversions.
 - Prefer `rg --files`, `rg`, `swift build`, and `swift test` from the repository root.
@@ -125,10 +126,12 @@ requested later with `@claude review` in a PR comment.
 
 ## Documentation
 
-Update `README.md` when user-facing setup or flow examples change. Update
-`API.md` when public methods, parameters, models, or behavior change. Keep docs
-aligned with the actual Swift names, labels, return types, and the `OMSWallet`
-import name. Avoid adding method descriptions in source code.
+Update `README.md` when user-facing setup or flow examples change. `API.md` is
+generated: when public methods, parameters, models, or doc comments change, run
+`scripts/generate-api.sh` (CI checks it with `--check`), regenerate the baseline
+with `UPDATE_PUBLIC_API_BASELINE=1 scripts/check-public-api-does-not-expose-generated-waas.sh`,
+and add a `MIGRATION.md` entry for breaking changes. Keep docs aligned with the
+actual Swift names, labels, return types, and the `OMSWallet` import name.
 
 ## Demo App
 

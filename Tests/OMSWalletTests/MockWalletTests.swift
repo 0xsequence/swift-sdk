@@ -70,8 +70,8 @@ private func isOidcAuth(
     #expect(request.verifier == "default-lifetime-verifier")
     #expect(request.lifetime == 604_800)
     #expect(fixture.client.walletId == "")
-    #expect(fixture.client.walletAddress == nil)
-    #expect(fixture.client.session.walletAddress == nil)
+    #expect(fixture.client.activeWallet?.address == nil)
+    #expect(fixture.client.session == nil)
     #expect(fixture.transport.requestCount(for: WaasAPI.UseWallet.urlPath) == 0)
     #expect(fixture.transport.requestCount(for: WaasAPI.CreateWallet.urlPath) == 0)
 }
@@ -95,7 +95,7 @@ private func isOidcAuth(
     )
 
     let result = try await fixture.client.completeEmailAuth(code: "123456")
-    guard case .walletSelected(_, let wallet, let wallets, _) = result else {
+    guard case .walletSelected(let wallet, let wallets, _) = result else {
         #expect(Bool(false))
         return
     }
@@ -110,10 +110,11 @@ private func isOidcAuth(
     #expect(wallets.map(\.id) == [firstWallet.id, secondWallet.id, otherTypeWallet.id])
     #expect(useWalletRequest.walletId == firstWallet.id)
     #expect(fixture.client.walletId == firstWallet.id)
-    #expect(fixture.client.walletAddress == firstWallet.address)
-    #expect(fixture.client.session.walletAddress == firstWallet.address)
-    #expect(storedCredentials?.walletId == firstWallet.id)
-    #expect(storedCredentials?.walletAddress == firstWallet.address)
+    #expect(fixture.client.activeWallet?.address == firstWallet.address)
+    #expect(fixture.client.session != nil)
+    #expect(fixture.client.activeWallet?.address == firstWallet.address)
+    #expect(storedCredentials?.wallet.id == firstWallet.id)
+    #expect(storedCredentials?.wallet.address == firstWallet.address)
     #expect(isEmailAuth(storedCredentials?.auth))
 }
 
@@ -158,7 +159,8 @@ private func isOidcAuth(
     let restoredWallets = try await restoredFixture.client.listWallets()
 
     #expect(activeWallets.map(\.id) == [wallet.id])
-    #expect(restoredFixture.client.session.walletAddress == wallet.address)
+    #expect(restoredFixture.client.session != nil)
+    #expect(restoredFixture.client.activeWallet?.address == wallet.address)
     #expect(restoredWallets.map(\.id) == [wallet.id])
 }
 
@@ -190,29 +192,102 @@ private func isOidcAuth(
     )
 
     #expect(completeAuthRequest.lifetime == 30)
-    #expect(isEmailAuth(fixture.client.session.auth))
+    #expect(isEmailAuth(fixture.client.session?.auth))
 }
 
-@Test func TestWalletStartEmailAuthRejectsInvalidSessionLifetimeBeforeRequestOrSignOut() async throws {
-    let fixture = makeMockWalletClient()
+enum SessionLifetimeEntryPoint: CaseIterable, CustomTestStringConvertible {
+    case startEmailAuth
+    case signInWithOidcIdToken
+    case startOIDCRedirectAuth
+    case handleOIDCRedirectCallback
+
+    var testDescription: String { "\(self)" }
+
+    var operation: OMSWalletOperation {
+        switch self {
+        case .startEmailAuth: .walletStartEmailAuth
+        case .signInWithOidcIdToken: .walletSignInWithOidcIdToken
+        case .startOIDCRedirectAuth: .walletStartOIDCRedirectAuth
+        case .handleOIDCRedirectCallback: .walletHandleOIDCRedirectCallback
+        }
+    }
+}
+
+@Test(arguments: SessionLifetimeEntryPoint.allCases, [UInt32(0), UInt32(2_592_001)])
+func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut(
+    _ entryPoint: SessionLifetimeEntryPoint,
+    sessionLifetimeSeconds: UInt32
+) async throws {
+    #expect(WalletClient.defaultSessionLifetimeSeconds == 604_800)
+    #expect(WalletClient.maxSessionLifetimeSeconds == 2_592_000)
+
+    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+    let provider = CustomOIDCProviderConfiguration(
+        issuer: "https://issuer.example",
+        clientID: "client-123",
+        authorizationURL: "https://issuer.example/oauth/authorize",
+        providerRedirectURI: "omsclientswiftdemo://auth/callback"
+    )
+    var started: StartOIDCRedirectAuthResult?
+    if entryPoint == .handleOIDCRedirectCallback {
+        try fixture.transport.enqueue(
+            CommitVerifierResponse(
+                verifier: "oidc-verifier-123",
+                loginHint: "user@example.com",
+                challenge: "pkce-challenge"
+            ),
+            for: WaasAPI.CommitVerifier.urlPath
+        )
+        started = try await fixture.client.startOIDCRedirectAuth(provider: provider)
+    }
     let wallet = testWallet(id: "wallet-existing", address: "0x1111111111111111111111111111111111111111")
-    fixture.client.walletId = wallet.id
-    fixture.client.walletAddress = wallet.address
+    fixture.client.activeWallet = activeTestWallet(wallet.address, id: wallet.id)
 
     do {
-        try await fixture.client.startEmailAuth(email: "user@example.com", sessionLifetimeSeconds: 0)
-        #expect(Bool(false))
+        switch entryPoint {
+        case .startEmailAuth:
+            try await fixture.client.startEmailAuth(
+                email: "user@example.com",
+                sessionLifetimeSeconds: sessionLifetimeSeconds
+            )
+        case .signInWithOidcIdToken:
+            _ = try await fixture.client.signInWithOidcIdToken(
+                idToken: try fakeOidcIdToken(),
+                issuer: "https://accounts.google.com",
+                audience: "demo-web-client-id",
+                sessionLifetimeSeconds: sessionLifetimeSeconds
+            )
+        case .startOIDCRedirectAuth:
+            _ = try await fixture.client.startOIDCRedirectAuth(
+                provider: provider,
+                sessionLifetimeSeconds: sessionLifetimeSeconds
+            )
+        case .handleOIDCRedirectCallback:
+            let state = try oidcState(try #require(started))
+            _ = try await fixture.client.handleOIDCRedirectCallback(
+                "omsclientswiftdemo://auth/callback?code=auth-code&state=\(state)",
+                sessionLifetimeSeconds: sessionLifetimeSeconds
+            )
+        }
+        Issue.record("Expected a validation error")
     } catch let error as OMSWalletError {
         #expect(error.code == .validationError)
-        #expect(error.operation == .walletStartEmailAuth)
+        #expect(error.operation == entryPoint.operation)
         #expect(error.localizedDescription == "sessionLifetimeSeconds must be an integer between 1 and 2592000")
-    } catch {
-        #expect(Bool(false))
     }
 
-    #expect(fixture.transport.requestCount(for: WaasAPI.CommitVerifier.urlPath) == 0)
-    #expect(fixture.client.walletId == wallet.id)
-    #expect(fixture.client.walletAddress == wallet.address)
+    let expectedCommitVerifierCount = entryPoint == .handleOIDCRedirectCallback ? 1 : 0
+    #expect(fixture.transport.requestCount(for: WaasAPI.CommitVerifier.urlPath) == expectedCommitVerifierCount)
+    #expect(fixture.transport.requestCount(for: WaasAPI.CompleteAuth.urlPath) == 0)
+    if entryPoint != .handleOIDCRedirectCallback {
+        // Start-style entry points validate before touching the current session. The callback
+        // has already consumed its pending flow, so its failure path clears the session.
+        #expect(fixture.client.walletId == wallet.id)
+        #expect(fixture.client.activeWallet?.address == wallet.address)
+    }
+    if entryPoint == .startOIDCRedirectAuth {
+        #expect(fixture.oidcRedirectAuthStore.pending == nil)
+    }
 }
 
 @Test func TestWalletStartingEmailAuthAgainReplacesPendingSessionLifetime() async throws {
@@ -332,15 +407,15 @@ private func isOidcAuth(
     _ = try await waitForSessionExpiredEvent { secondExpiredEvent }
 
     let storedCredentials = try fixture.storedCredentials()
-    #expect(expiredEvent?.session.walletAddress == wallet.address)
-    #expect(expiredEvent?.session.expiresAt == Date(timeIntervalSince1970: 1_767_225_600))
+    #expect(expiredEvent?.wallet?.address == wallet.address)
+    #expect(expiredEvent?.session.expiresAt == expiresAt)
     #expect(isEmailAuth(expiredEvent?.session.auth))
-    #expect(expiredEvent?.expiredAt == Date(timeIntervalSince1970: 1_767_225_600))
-    #expect(secondExpiredEvent?.session.walletAddress == wallet.address)
+    #expect(expiredEvent?.expiredAt == expiresAt)
+    #expect(secondExpiredEvent?.wallet?.address == wallet.address)
     #expect(canceledExpiredEvent == nil)
-    #expect(fixture.client.session == OMSWalletSessionState(walletAddress: nil))
-    #expect(storedCredentials?.walletId == wallet.id)
-    #expect(storedCredentials?.walletAddress == wallet.address)
+    #expect(fixture.client.session == nil)
+    #expect(storedCredentials?.wallet.id == wallet.id)
+    #expect(storedCredentials?.wallet.address == wallet.address)
     #expect(storedCredentials?.expiresAt == expiresAt)
     #expect(isEmailAuth(storedCredentials?.auth))
     #expect(fixture.signer.clearCallCount == 1)
@@ -349,8 +424,7 @@ private func isOidcAuth(
 
 @Test @MainActor func TestWalletRestoredExpiredSessionIsInactiveAndReplaysObserver() async throws {
     let storedCredentials = StorableCredentials(
-        walletId: "wallet-expired",
-        walletAddress: "0x1111111111111111111111111111111111111111",
+        wallet: activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-expired"),
         signerCredentialId: "0xmock-credential",
         alg: .ecdsaP256Sha256,
         expiresAt: "2026-01-01T00:00:00Z",
@@ -368,25 +442,21 @@ private func isOidcAuth(
     defer { observation.cancel() }
     let replayedEvent = try await waitForSessionExpiredEvent { expiredEvent }
 
-    #expect(fixture.client.session == OMSWalletSessionState(walletAddress: nil))
-    #expect(replayedEvent?.session.walletAddress == storedCredentials.walletAddress)
+    #expect(fixture.client.session == nil)
+    #expect(replayedEvent?.wallet?.address == storedCredentials.wallet.address)
     #expect(isEmailAuth(replayedEvent?.session.auth))
-    #expect(replayedEvent?.expiredAt == Date(timeIntervalSince1970: 1_767_225_600))
-    #expect(try fixture.storedCredentials()?.walletId == storedCredentials.walletId)
+    #expect(replayedEvent?.expiredAt == "2026-01-01T00:00:00Z")
+    #expect(try fixture.storedCredentials()?.wallet.id == storedCredentials.wallet.id)
     #expect(fixture.signer.clearCallCount == 1)
 }
 
 @Test func TestWalletCredentialSessionPurgesInvalidStoredAuthMetadata() throws {
-    let environment = OMSWalletEnvironment(
-        walletApiUrl: "https://wallet.example.test",
-        indexerGatewayUrl: "https://indexer.example.test/v1/IndexerGateway/"
-    )
+    let environment = testEnvironment
     let projectId = "project-invalid-session"
     let keychain = InMemoryKeychain()
     let signer = MockCredentialSigner()
     let credentials = StorableCredentials(
-        walletId: "wallet-id",
-        walletAddress: "0xwallet",
+        wallet: activeTestWallet("0xwallet", id: "wallet-id"),
         signerCredentialId: "0xmock-credential",
         alg: .ecdsaP256Sha256,
         expiresAt: "2099-01-01T00:00:00Z",
@@ -419,8 +489,7 @@ private func isOidcAuth(
 
 @Test @MainActor func TestWalletSessionExpiredReplayClearsOnNewAuthFlow() async throws {
     let storedCredentials = StorableCredentials(
-        walletId: "wallet-expired",
-        walletAddress: "0x1111111111111111111111111111111111111111",
+        wallet: activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-expired"),
         signerCredentialId: "0xmock-credential",
         alg: .ecdsaP256Sha256,
         expiresAt: "2026-01-01T00:00:00Z",
@@ -436,7 +505,7 @@ private func isOidcAuth(
     }
     let initialReplay = try await waitForSessionExpiredEvent { expiredEvent }
     expiredObservation.cancel()
-    #expect(initialReplay?.session.walletAddress == storedCredentials.walletAddress)
+    #expect(initialReplay?.wallet?.address == storedCredentials.wallet.address)
 
     try fixture.transport.enqueue(
         CommitVerifierResponse(
@@ -471,9 +540,12 @@ private func waitForSessionExpiredEvent(
     return event()
 }
 
-@Test @MainActor func TestWalletSessionExpiryTimerReplaysObserver() async throws {
+@Test @MainActor func TestWalletSessionExpiryTimerFiresAfterDelayAndNotifiesObserver() async throws {
+    // The credential expires at 1_767_225_600. Start shortly before it so the client schedules the
+    // delayed expiry task instead of taking the already-expired branch.
+    let now = LockedBox(Date(timeIntervalSince1970: 1_767_225_599.8))
     let fixture = makeMockWalletClient(
-        currentDate: { Date(timeIntervalSince1970: 1_767_225_601) }
+        currentDate: { now.withValue { $0 } }
     )
     let wallet = testWallet(id: "wallet-expired-timer", address: "0x2222222222222222222222222222222222222222")
     let credential = WaasCredentialInfo(
@@ -491,20 +563,27 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.UseWallet.urlPath
     )
 
-    _ = try await fixture.client.completeEmailAuth(code: "123456")
-    await Task.yield()
-    await Task.yield()
-    var expiredEvent: OMSWalletSessionExpiredEvent?
+    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
     let observation = fixture.client.addSessionExpiredObserver { event in
-        expiredEvent = event
+        expiredEvents.append(event)
     }
     defer { observation.cancel() }
-    let replayedEvent = try await waitForSessionExpiredEvent { expiredEvent }
 
-    #expect(replayedEvent?.session.walletAddress == wallet.address)
-    #expect(isEmailAuth(replayedEvent?.session.auth))
-    #expect(fixture.client.session == OMSWalletSessionState(walletAddress: nil))
-    #expect(try fixture.storedCredentials()?.walletId == wallet.id)
+    _ = try await fixture.client.completeEmailAuth(code: "123456")
+    await Task.yield()
+    #expect(fixture.client.session?.expiresAt == "2026-01-01T00:00:00Z")
+    #expect(fixture.client.activeWallet?.address == wallet.address)
+    #expect(expiredEvents.isEmpty)
+
+    now.withValue { $0 = Date(timeIntervalSince1970: 1_767_225_601) }
+    let expiredEvent = try await waitForSessionExpiredEvent { expiredEvents.first }
+
+    #expect(expiredEvents.count == 1)
+    #expect(expiredEvent?.wallet?.address == wallet.address)
+    #expect(isEmailAuth(expiredEvent?.session.auth))
+    #expect(fixture.client.session == nil)
+    #expect(fixture.client.activeWallet == nil)
+    #expect(try fixture.storedCredentials()?.wallet.id == wallet.id)
 }
 
 @Test func TestWalletCompleteEmailAuthFetchesPaginatedWallets() async throws {
@@ -682,7 +761,7 @@ private func waitForSessionExpiredEvent(
         #expect(error.operation == .pendingWalletSelectionCreateAndSelectWallet)
         #expect(fixture.transport.requestCount(for: WaasAPI.CreateWallet.urlPath) == 0)
         #expect(fixture.client.walletId == "")
-        #expect(fixture.client.walletAddress == nil)
+        #expect(fixture.client.activeWallet?.address == nil)
         #expect(try fixture.storedCredentials() == nil)
     } catch {
         #expect(Bool(false))
@@ -750,8 +829,8 @@ private func waitForSessionExpiredEvent(
     #expect(createWalletRequest.reference == "reference-1")
     #expect(created.wallet.id == createdWallet.id)
     #expect(fixture.client.walletId == createdWallet.id)
-    #expect(fixture.client.walletAddress == createdWallet.address)
-    #expect(isEmailAuth(fixture.client.session.auth))
+    #expect(fixture.client.activeWallet?.address == createdWallet.address)
+    #expect(isEmailAuth(fixture.client.session?.auth))
 }
 
 @Test func TestWalletCompleteEmailAuthSignsOutWhenActivationFails() async throws {
@@ -780,10 +859,10 @@ private func waitForSessionExpiredEvent(
     }
 
     #expect(fixture.client.walletId == "")
-    #expect(fixture.client.walletAddress == nil)
+    #expect(fixture.client.activeWallet?.address == nil)
     #expect(fixture.client.verifier == "")
     #expect(fixture.client.challenge == "")
-    #expect(fixture.client.session == OMSWalletSessionState(walletAddress: nil))
+    #expect(fixture.client.session == nil)
     #expect(fixture.signer.clearCallCount == 1)
     #expect(fixture.signer.hasStoredCredential == false)
     #expect(try fixture.storedCredentials() == nil)
@@ -792,7 +871,7 @@ private func waitForSessionExpiredEvent(
 @Test func TestWalletSignInWithOidcIdTokenCommitsCompletesAndResolvesWallet() async throws {
     let fixture = makeMockWalletClient()
     let idToken = try fakeOidcIdToken()
-    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
+    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef0000000000000000000000000000000000000")
     try fixture.transport.enqueue(
         CommitVerifierResponse(
             verifier: "oidc-verifier-123",
@@ -823,7 +902,7 @@ private func waitForSessionExpiredEvent(
         issuer: "https://accounts.google.com",
         audience: "demo-web-client-id"
     )
-    guard case .walletSelected(_, let wallet, _, _) = result else {
+    guard case .walletSelected(let wallet, _, _) = result else {
         #expect(Bool(false))
         return
     }
@@ -858,36 +937,14 @@ private func waitForSessionExpiredEvent(
     #expect(useWalletRequest.walletId == selectedWallet.id)
     #expect(wallet.id == selectedWallet.id)
     #expect(fixture.client.walletId == selectedWallet.id)
-    #expect(fixture.client.walletAddress == selectedWallet.address)
-    #expect(isOidcAuth(fixture.client.session.auth, flow: .idToken))
+    #expect(fixture.client.activeWallet?.address == selectedWallet.address)
+    #expect(isOidcAuth(fixture.client.session?.auth, flow: .idToken))
     #expect(isOidcAuth(storedCredentials?.auth, flow: .idToken))
-}
-
-@Test func TestWalletSignInWithOidcIdTokenRejectsInvalidSessionLifetimeBeforeRequest() async throws {
-    let fixture = makeMockWalletClient()
-
-    do {
-        _ = try await fixture.client.signInWithOidcIdToken(
-            idToken: try fakeOidcIdToken(),
-            issuer: "https://accounts.google.com",
-            audience: "demo-web-client-id",
-            sessionLifetimeSeconds: 2_592_001
-        )
-        #expect(Bool(false))
-    } catch let error as OMSWalletError {
-        #expect(error.code == .validationError)
-        #expect(error.operation == .walletSignInWithOidcIdToken)
-        #expect(error.localizedDescription == "sessionLifetimeSeconds must be an integer between 1 and 2592000")
-    } catch {
-        #expect(Bool(false))
-    }
-
-    #expect(fixture.transport.requestCount(for: WaasAPI.CommitVerifier.urlPath) == 0)
 }
 
 @Test func TestWalletSignInWithOidcIdTokenCanReturnManualWalletSelection() async throws {
     let fixture = makeMockWalletClient()
-    let availableWallet = testWallet(id: "wallet-def", address: "0xdef")
+    let availableWallet = testWallet(id: "wallet-def", address: "0xdef0000000000000000000000000000000000000")
     try fixture.transport.enqueue(
         CommitVerifierResponse(
             verifier: "oidc-verifier-123",
@@ -920,8 +977,8 @@ private func waitForSessionExpiredEvent(
     #expect(pendingSelection.wallets.map(\.id) == [availableWallet.id])
     #expect(pendingSelection.credential.credentialId == testCredential.credentialId)
     #expect(fixture.client.walletId == "")
-    #expect(fixture.client.walletAddress == nil)
-    #expect(fixture.client.session.walletAddress == nil)
+    #expect(fixture.client.activeWallet?.address == nil)
+    #expect(fixture.client.session == nil)
     #expect(try fixture.storedCredentials() == nil)
     #expect(fixture.transport.requestCount(for: WaasAPI.UseWallet.urlPath) == 0)
     #expect(fixture.transport.requestCount(for: WaasAPI.CreateWallet.urlPath) == 0)
@@ -929,7 +986,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletSignInWithOidcIdTokenStoresCustomProviderMetadata() async throws {
     let fixture = makeMockWalletClient()
-    let selectedWallet = testWallet(id: "wallet-custom-oidc", address: "0xcustomoidc")
+    let selectedWallet = testWallet(id: "wallet-custom-oidc", address: "0xc057000000000000000000000000000000000000")
     try fixture.transport.enqueue(
         CommitVerifierResponse(
             verifier: "oidc-verifier-123",
@@ -961,7 +1018,7 @@ private func waitForSessionExpiredEvent(
     let storedCredentials = try fixture.storedCredentials()
 
     #expect(isOidcAuth(
-        fixture.client.session.auth,
+        fixture.client.session?.auth,
         flow: .idToken,
         issuer: "https://issuer.example",
         provider: "custom",
@@ -996,7 +1053,7 @@ private func waitForSessionExpiredEvent(
             signerKeyType: .ecdsaP256Sha256
         )
     )
-    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
+    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef0000000000000000000000000000000000000")
     try fixture.transport.enqueue(
         CommitVerifierResponse(
             verifier: "oidc-verifier-123",
@@ -1059,24 +1116,12 @@ private func waitForSessionExpiredEvent(
     }
 
     #expect(fixture.client.walletId == "")
-    #expect(fixture.client.walletAddress == nil)
+    #expect(fixture.client.activeWallet?.address == nil)
     #expect(fixture.client.verifier == "")
     #expect(fixture.client.challenge == "")
-    #expect(fixture.client.session == OMSWalletSessionState(walletAddress: nil))
+    #expect(fixture.client.session == nil)
     #expect(fixture.signer.hasStoredCredential == false)
     #expect(try fixture.storedCredentials() == nil)
-}
-
-@Test func TestCustomOIDCProviderConfigurationDefaultsToNoScopesForCustomProviders() {
-    let provider = CustomOIDCProviderConfiguration(
-        issuer: "https://issuer.example",
-        clientID: "client-123",
-        authorizationURL: "https://issuer.example/oauth/authorize",
-        providerRedirectURI: "https://issuer.example/oauth/callback"
-    )
-
-    #expect(provider.scopes == [])
-    #expect(provider.authMode == .authCodePKCE)
 }
 
 @Test func TestWalletStartOIDCRedirectAuthCustomGoogleProviderUsesProviderRedirectURI() async throws {
@@ -1133,6 +1178,9 @@ private func waitForSessionExpiredEvent(
         providerRedirectURI: "https://provider.example/callback",
         authorizeParams: ["prompt": "consent"]
     )
+    // Custom providers default to no scopes and PKCE.
+    #expect(provider.scopes == [])
+    #expect(provider.authMode == .authCodePKCE)
 
     let result = try await fixture.client.startOIDCRedirectAuth(
         provider: provider,
@@ -1176,32 +1224,6 @@ private func waitForSessionExpiredEvent(
     #expect(fixture.oidcRedirectAuthStore.pending?.signerCredentialId == "0xmock-credential")
     #expect(fixture.oidcRedirectAuthStore.pending?.signerKeyType == .ecdsaP256Sha256)
     #expect(fixture.client.verifier == "oidc-verifier-123")
-}
-
-@Test func TestWalletStartOidcRedirectAuthRejectsInvalidSessionLifetimeBeforeRequest() async throws {
-    let fixture = makeMockWalletClient()
-
-    do {
-        _ = try await fixture.client.startOIDCRedirectAuth(
-            provider: CustomOIDCProviderConfiguration(
-                issuer: "https://issuer.example",
-                clientID: "client-123",
-                authorizationURL: "https://issuer.example/oauth/authorize",
-                providerRedirectURI: "omsclientswiftdemo://auth/callback"
-            ),
-            sessionLifetimeSeconds: 2_592_001
-        )
-        #expect(Bool(false))
-    } catch let error as OMSWalletError {
-        #expect(error.code == .validationError)
-        #expect(error.operation == .walletStartOIDCRedirectAuth)
-        #expect(error.localizedDescription == "sessionLifetimeSeconds must be an integer between 1 and 2592000")
-    } catch {
-        #expect(Bool(false))
-    }
-
-    #expect(fixture.transport.requestCount(for: WaasAPI.CommitVerifier.urlPath) == 0)
-    #expect(fixture.oidcRedirectAuthStore.pending == nil)
 }
 
 @Test func TestWalletStartOidcRedirectAuthUsesAppleDefaultsThroughRelay() async throws {
@@ -1278,8 +1300,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletStartOidcRedirectAuthUsesStoredEmailAsGoogleLoginHint() async throws {
     let storedCredentials = StorableCredentials(
-        walletId: "wallet-google",
-        walletAddress: "0x1111111111111111111111111111111111111111",
+        wallet: activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-google"),
         signerCredentialId: "0xmock-credential",
         alg: .ecdsaP256Sha256,
         expiresAt: "2099-01-01T00:00:00Z",
@@ -1321,7 +1342,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletOidcRedirectAuthCodeModeOmitsPkceAndUsesPendingAuthMode() async throws {
     let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
-    let selectedWallet = testWallet(id: "wallet-auth-code", address: "0xauthcode")
+    let selectedWallet = testWallet(id: "wallet-auth-code", address: "0xa7c0de0000000000000000000000000000000000")
     try fixture.transport.enqueue(
         CommitVerifierResponse(
             verifier: "oidc-verifier-123",
@@ -1372,7 +1393,7 @@ private func waitForSessionExpiredEvent(
     let result = try await fixture.client.handleOIDCRedirectCallback(
         "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))"
     )
-    guard case .completed(.walletSelected(_, let wallet, _, _)) = result else {
+    guard case .completed(.walletSelected(let wallet, _, _)) = result else {
         #expect(Bool(false))
         return
     }
@@ -1388,8 +1409,8 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletHandleOidcRedirectCallbackCompletesAuthActivatesWalletAndClearsPendingAuth() async throws {
     let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
-    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
-    let secondWallet = testWallet(id: "wallet-ghi", address: "0xghi")
+    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef0000000000000000000000000000000000000")
+    let secondWallet = testWallet(id: "wallet-ghi", address: "0x0b10000000000000000000000000000000000000")
     try fixture.transport.enqueue(
         CommitVerifierResponse(
             verifier: "oidc-verifier-123",
@@ -1421,7 +1442,7 @@ private func waitForSessionExpiredEvent(
     let result = try await fixture.client.handleOIDCRedirectCallback(
         "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))&scope=openid"
     )
-    guard case .completed(.walletSelected(_, let wallet, let wallets, let credential)) = result else {
+    guard case .completed(.walletSelected(let wallet, let wallets, let credential)) = result else {
         #expect(Bool(false))
         return
     }
@@ -1441,14 +1462,14 @@ private func waitForSessionExpiredEvent(
     #expect(completeAuthRequest.answer == "auth-code")
     #expect(completeAuthRequest.lifetime == 604_800)
     #expect(useWalletRequest.walletId == selectedWallet.id)
-    #expect(wallet.address == "0xdef")
+    #expect(wallet.address == "0xdef0000000000000000000000000000000000000")
     #expect(wallets.map(\.id) == [selectedWallet.id, secondWallet.id])
     #expect(credential.credentialId == testCredential.credentialId)
-    #expect(fixture.client.walletAddress == "0xdef")
+    #expect(fixture.client.activeWallet?.address == "0xdef0000000000000000000000000000000000000")
     #expect(fixture.client.walletId == "wallet-def")
     #expect(fixture.oidcRedirectAuthStore.pending == nil)
-    #expect(storedCredentials?.walletId == "wallet-def")
-    #expect(storedCredentials?.walletAddress == "0xdef")
+    #expect(storedCredentials?.wallet.id == "wallet-def")
+    #expect(storedCredentials?.wallet.address == "0xdef0000000000000000000000000000000000000")
     #expect(
         isOidcAuth(
             storedCredentials?.auth,
@@ -1462,7 +1483,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletHandleOidcRedirectCallbackCompletesAuthFromFragmentResponseMode() async throws {
     let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
-    let selectedWallet = testWallet(id: "wallet-fragment", address: "0xfragment")
+    let selectedWallet = testWallet(id: "wallet-fragment", address: "0xf4a6000000000000000000000000000000000000")
     try fixture.transport.enqueue(
         CommitVerifierResponse(
             verifier: "oidc-verifier-123",
@@ -1496,7 +1517,7 @@ private func waitForSessionExpiredEvent(
     let result = try await fixture.client.handleOIDCRedirectCallback(
         "omsclientswiftdemo://auth/callback#code=fragment-code&state=\(try oidcState(started))&scope=openid"
     )
-    guard case .completed(.walletSelected(_, let wallet, _, _)) = result else {
+    guard case .completed(.walletSelected(let wallet, _, _)) = result else {
         #expect(Bool(false))
         return
     }
@@ -1513,11 +1534,11 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletHandleOidcRedirectCallbackCanReturnPendingWalletSelectionWithoutActivatingWallet() async throws {
     let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
-    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
+    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef0000000000000000000000000000000000000")
     let otherTypeWallet = testWallet(
         id: "wallet-other",
         type: .solana,
-        address: "0xother"
+        address: "0x07e4000000000000000000000000000000000000"
     )
     try fixture.transport.enqueue(
         CommitVerifierResponse(
@@ -1556,8 +1577,8 @@ private func waitForSessionExpiredEvent(
     #expect(pendingSelection.wallets.map(\.id) == ["wallet-def"])
     #expect(pendingSelection.credential.credentialId == testCredential.credentialId)
     #expect(fixture.client.walletId == "")
-    #expect(fixture.client.walletAddress == nil)
-    #expect(fixture.client.session.walletAddress == nil)
+    #expect(fixture.client.activeWallet?.address == nil)
+    #expect(fixture.client.session == nil)
     #expect(fixture.oidcRedirectAuthStore.pending == nil)
     #expect(fixture.transport.requestCount(for: WaasAPI.UseWallet.urlPath) == 0)
     #expect(try fixture.storedCredentials() == nil)
@@ -1565,11 +1586,11 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletHandleOidcRedirectCallbackUsesPendingCompletionPreferences() async throws {
     let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
-    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
+    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef0000000000000000000000000000000000000")
     let otherTypeWallet = testWallet(
         id: "wallet-other",
         type: .solana,
-        address: "0xother"
+        address: "0x07e4000000000000000000000000000000000000"
     )
     try fixture.transport.enqueue(
         CommitVerifierResponse(
@@ -1620,7 +1641,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletHandleOidcRedirectCallbackOverridesPendingCompletionPreferences() async throws {
     let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
-    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
+    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef0000000000000000000000000000000000000")
     try fixture.transport.enqueue(
         CommitVerifierResponse(
             verifier: "oidc-verifier-123",
@@ -1656,7 +1677,7 @@ private func waitForSessionExpiredEvent(
         walletSelection: .automatic,
         sessionLifetimeSeconds: 300
     )
-    guard case .completed(.walletSelected(_, let wallet, _, _)) = result else {
+    guard case .completed(.walletSelected(let wallet, _, _)) = result else {
         #expect(Bool(false))
         return
     }
@@ -1671,37 +1692,37 @@ private func waitForSessionExpiredEvent(
     #expect(fixture.oidcRedirectAuthStore.pending == nil)
 }
 
-@Test func TestWalletHandleOidcRedirectCallbackRejectsInvalidSessionLifetimeBeforeRequest() async throws {
-    let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
+/// Follows an ignored callback with the real one and checks it still completes sign-in, which
+/// fails if the ignored callback consumed or cleared the pending redirect.
+private func expectRealOidcCallbackStillCompletes(
+    fixture: MockWalletClientFixture,
+    started: StartOIDCRedirectAuthResult
+) async throws {
+    let selectedWallet = testWallet(id: "wallet-oidc", address: "0x0dc0000000000000000000000000000000000000")
     try fixture.transport.enqueue(
-        CommitVerifierResponse(
-            verifier: "oidc-verifier-123",
-            loginHint: "user@example.com",
-            challenge: "pkce-challenge"
+        completeAuthResponse(
+            identity: Identity(type: .oidc, iss: "https://issuer.example", sub: "oidc-sub-123"),
+            wallets: [selectedWallet]
         ),
-        for: WaasAPI.CommitVerifier.urlPath
+        for: WaasAPI.CompleteAuth.urlPath
     )
-    let started = try await fixture.client.startOIDCRedirectAuth(
-        provider: CustomOIDCProviderConfiguration(
-            issuer: "https://issuer.example",
-            clientID: "client-123",
-            authorizationURL: "https://issuer.example/oauth/authorize",
-            providerRedirectURI: "omsclientswiftdemo://auth/callback"
-        )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: selectedWallet),
+        for: WaasAPI.UseWallet.urlPath
     )
 
-    do {
-        _ = try await fixture.client.handleOIDCRedirectCallback(
-            "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))",
-            sessionLifetimeSeconds: 0
-        )
-        Issue.record("Expected invalid session lifetime error")
-    } catch let error as OMSWalletError {
-        #expect(error.code == .validationError)
-        #expect(error.operation == .walletHandleOIDCRedirectCallback)
-        #expect(error.localizedDescription == "sessionLifetimeSeconds must be an integer between 1 and 2592000")
+    let result = try await fixture.client.handleOIDCRedirectCallback(
+        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))"
+    )
+
+    guard case .completed(.walletSelected(let wallet, _, _)) = result else {
+        Issue.record("Expected the real OIDC callback to complete, got \(result)")
+        return
     }
-    #expect(fixture.transport.requestCount(for: WaasAPI.CompleteAuth.urlPath) == 0)
+    #expect(wallet.id == selectedWallet.id)
+    #expect(fixture.client.activeWallet?.id == selectedWallet.id)
+    #expect(fixture.transport.requestCount(for: WaasAPI.CompleteAuth.urlPath) == 1)
+    #expect(fixture.oidcRedirectAuthStore.pending == nil)
 }
 
 @Test func TestWalletHandleOidcRedirectCallbackIgnoresUnrelatedCallbackWithoutClearingPendingAuth() async throws {
@@ -1732,7 +1753,10 @@ private func waitForSessionExpiredEvent(
         return
     }
     #expect(fixture.oidcRedirectAuthStore.pending?.verifier == "oidc-verifier-123")
+    #expect(fixture.oidcRedirectAuthStore.pending?.isConsumed == false)
     #expect(fixture.transport.requestCount(for: WaasAPI.CompleteAuth.urlPath) == 0)
+
+    try await expectRealOidcCallbackStillCompletes(fixture: fixture, started: started)
 }
 
 @Test func TestWalletHandleOidcRedirectCallbackIgnoresInvalidStateWithoutClearingPendingAuth() async throws {
@@ -1745,7 +1769,7 @@ private func waitForSessionExpiredEvent(
         ),
         for: WaasAPI.CommitVerifier.urlPath
     )
-    _ = try await fixture.client.startOIDCRedirectAuth(
+    let started = try await fixture.client.startOIDCRedirectAuth(
         provider: CustomOIDCProviderConfiguration(
             issuer: "https://issuer.example",
             clientID: "client-123",
@@ -1763,7 +1787,10 @@ private func waitForSessionExpiredEvent(
         return
     }
     #expect(fixture.oidcRedirectAuthStore.pending?.verifier == "oidc-verifier-123")
+    #expect(fixture.oidcRedirectAuthStore.pending?.isConsumed == false)
     #expect(fixture.transport.requestCount(for: WaasAPI.CompleteAuth.urlPath) == 0)
+
+    try await expectRealOidcCallbackStillCompletes(fixture: fixture, started: started)
 }
 
 @Test func TestWalletHandleOIDCRedirectCallbackReturnsNoPendingAuth() async throws {
@@ -1781,7 +1808,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletHandleOidcRedirectCallbackConsumesPendingAuthWhenCancelled() async throws {
     let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
-    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef")
+    let selectedWallet = testWallet(id: "wallet-def", address: "0xdef0000000000000000000000000000000000000")
     try fixture.transport.enqueue(
         CommitVerifierResponse(
             verifier: "oidc-verifier-123",
@@ -1819,7 +1846,7 @@ private func waitForSessionExpiredEvent(
     }
     #expect(fixture.oidcRedirectAuthStore.pending == nil)
     #expect(fixture.client.walletId == "")
-    #expect(fixture.client.walletAddress == nil)
+    #expect(fixture.client.activeWallet?.address == nil)
     #expect(fixture.signer.clearCallCount == 2)
     #expect(fixture.signer.hasStoredCredential == false)
 }
@@ -1854,7 +1881,7 @@ private func waitForSessionExpiredEvent(
         #expect(error.underlyingError as? OIDCRedirectAuthError == .providerError("User cancelled"))
     }
     #expect(fixture.client.walletId == "")
-    #expect(fixture.client.walletAddress == nil)
+    #expect(fixture.client.activeWallet?.address == nil)
     #expect(fixture.oidcRedirectAuthStore.pending == nil)
 }
 
@@ -1917,45 +1944,43 @@ private func waitForSessionExpiredEvent(
         try await fixture.client.revokeAccess(credentialId: "credential-1")
     }
     await expectNoAuthenticatedWalletSession {
-        try await fixture.client.signMessage(network: .polygonAmoy, message: "hello")
+        try await fixture.client.signMessage(network: .amoy, message: "hello")
     }
     await expectNoAuthenticatedWalletSession {
-        try await fixture.client.signTypedData(network: .polygonAmoy, typedData: .object([:]))
+        try await fixture.client.signTypedData(network: .amoy, typedData: .object([:]))
     }
     await expectNoAuthenticatedWalletSession {
         try await fixture.client.isValidMessageSignature(
-            network: .polygonAmoy,
-            walletAddress: "0xwallet",
+            network: .amoy,
             message: "hello",
             signature: "0xsig"
         )
     }
     await expectNoAuthenticatedWalletSession {
         try await fixture.client.isValidTypedDataSignature(
-            network: .polygonAmoy,
-            walletAddress: "0xwallet",
+            network: .amoy,
             typedData: .object([:]),
             signature: "0xsig"
         )
     }
     await expectNoAuthenticatedWalletSession {
         try await fixture.client.sendTransaction(
-            network: .polygonAmoy,
+            network: .amoy,
             to: "0xabc",
             value: "0"
         )
     }
     await expectNoAuthenticatedWalletSession {
         try await fixture.client.sendTransaction(
-            network: .polygonAmoy,
+            network: .amoy,
             request: SendTransactionRequest(to: "0xabc", value: "0")
         )
     }
     await expectNoAuthenticatedWalletSession {
         try await fixture.client.callContract(
-            network: .polygonAmoy,
-            contract: "0xcontract",
-            method: "mint(address)",
+            network: .amoy,
+            contractAddress: "0xcontract",
+            method: "mint",
             args: nil
         )
     }
@@ -1975,32 +2000,31 @@ private func waitForSessionExpiredEvent(
         #expect(fixture.transport.requestCount(for: path) == 0)
     }
 
-    let walletIdOnlyFixture = makeMockWalletClient()
-    walletIdOnlyFixture.client.walletId = "wallet-main"
+    let feeSelectorFixture = makeMockWalletClient()
     await expectNoAuthenticatedWalletSession {
-        try await walletIdOnlyFixture.client.sendTransaction(
-            network: .polygonAmoy,
+        try await feeSelectorFixture.client.sendTransaction(
+            network: .amoy,
             to: "0xabc",
             value: "0",
             selectFeeOption: .firstAvailable
         )
     }
     await expectNoAuthenticatedWalletSession {
-        try await walletIdOnlyFixture.client.callContract(
-            network: .polygonAmoy,
-            contract: "0xcontract",
-            method: "mint(address)",
+        try await feeSelectorFixture.client.callContract(
+            network: .amoy,
+            contractAddress: "0xcontract",
+            method: "mint",
             args: nil,
             selectFeeOption: .firstAvailable
         )
     }
-    #expect(walletIdOnlyFixture.transport.requestCount(for: WaasAPI.PrepareEthereumTransaction.urlPath) == 0)
-    #expect(walletIdOnlyFixture.transport.requestCount(for: WaasAPI.PrepareEthereumContractCall.urlPath) == 0)
+    #expect(feeSelectorFixture.transport.requestCount(for: WaasAPI.PrepareEthereumTransaction.urlPath) == 0)
+    #expect(feeSelectorFixture.transport.requestCount(for: WaasAPI.PrepareEthereumContractCall.urlPath) == 0)
 }
 
 @Test func TestWalletListAccessPaginationHelpersUseWaasPages() async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
+    fixture.client.activeWallet = activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main")
     let firstCredential = WaasCredentialInfo(
         credentialId: "credential-1",
         type: .direct,
@@ -2038,6 +2062,17 @@ private func waitForSessionExpiredEvent(
         pages.append(page)
     }
     let manualPage = try await fixture.client.listAccessPage(pageSize: 2, cursor: "manual")
+
+    // listAccess combines every page into one list.
+    try fixture.transport.enqueue(
+        WaasListAccessResponse(credentials: [firstCredential], page: WaasPage(cursor: "next")),
+        for: WaasAPI.ListAccess.urlPath
+    )
+    try fixture.transport.enqueue(
+        WaasListAccessResponse(credentials: [secondCredential]),
+        for: WaasAPI.ListAccess.urlPath
+    )
+    let combined = try await fixture.client.listAccess(pageSize: 25)
     let listAccessRequests = try fixture.transport.decodedRequests(
         ListAccessRequest.self,
         for: WaasAPI.ListAccess.urlPath
@@ -2050,7 +2085,8 @@ private func waitForSessionExpiredEvent(
     #expect(pages[1].page?.cursor == nil)
     #expect(manualPage.grants.map(\.credential.credentialId) == ["credential-3"])
     #expect(manualPage.page?.cursor == "after-manual")
-    #expect(listAccessRequests.count == 3)
+    #expect(combined.map(\.credential.credentialId) == ["credential-1", "credential-2"])
+    #expect(listAccessRequests.count == 5)
     #expect(listAccessRequests[0].walletId == "wallet-main")
     #expect(listAccessRequests[0].page?.limit == 1)
     #expect(listAccessRequests[0].page?.cursor == nil)
@@ -2060,58 +2096,15 @@ private func waitForSessionExpiredEvent(
     #expect(listAccessRequests[2].walletId == "wallet-main")
     #expect(listAccessRequests[2].page?.limit == 2)
     #expect(listAccessRequests[2].page?.cursor == "manual")
-}
-
-@Test func TestWalletListAccessReturnsCombinedCredentialPages() async throws {
-    let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-
-    try fixture.transport.enqueue(
-        WaasListAccessResponse(
-            credentials: [
-                WaasCredentialInfo(
-                    credentialId: "credential-1",
-                    type: .direct,
-                    expiresAt: "2026-01-01T00:00:00Z",
-                    isCaller: true
-                )
-            ],
-            page: WaasPage(cursor: "next")
-        ),
-        for: WaasAPI.ListAccess.urlPath
-    )
-    try fixture.transport.enqueue(
-        WaasListAccessResponse(
-            credentials: [
-                WaasCredentialInfo(
-                    credentialId: "credential-2",
-                    type: .direct,
-                    expiresAt: "2026-01-02T00:00:00Z",
-                    isCaller: false
-                )
-            ]
-        ),
-        for: WaasAPI.ListAccess.urlPath
-    )
-
-    let credentials = try await fixture.client.listAccess(pageSize: 25)
-    let listAccessRequests = try fixture.transport.decodedRequests(
-        ListAccessRequest.self,
-        for: WaasAPI.ListAccess.urlPath
-    )
-
-    #expect(credentials.map(\.credential.credentialId) == ["credential-1", "credential-2"])
-    #expect(listAccessRequests.count == 2)
-    #expect(listAccessRequests[0].page?.limit == 25)
-    #expect(listAccessRequests[0].page?.cursor == nil)
-    #expect(listAccessRequests[1].page?.limit == 25)
-    #expect(listAccessRequests[1].page?.cursor == "next")
+    #expect(listAccessRequests[3].page?.limit == 25)
+    #expect(listAccessRequests[3].page?.cursor == nil)
+    #expect(listAccessRequests[4].page?.limit == 25)
+    #expect(listAccessRequests[4].page?.cursor == "next")
 }
 
 @Test func TestWalletOwnerSmartSessionFlowUsesPublicAndSignedWaasMethods() async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0x1111111111111111111111111111111111111111"
+    fixture.client.activeWallet = activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main")
     let transfer = WaasGenerated.Grant(
         kind: .nativeTransfer,
         nativeTransfer: WaasGenerated.NativeTransferGrant(
@@ -2195,8 +2188,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletSolanaOperationsUseSolanaRequestShapes() async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "solana-wallet"
-    fixture.client.walletAddress = "3gFktQX6vki5M2DzN8Y1ESPUJ4fJ8o6hVQWf8vYvPypD"
+    fixture.client.activeWallet = activeTestWallet("3gFktQX6vki5M2DzN8Y1ESPUJ4fJ8o6hVQWf8vYvPypD", id: "solana-wallet")
     try fixture.transport.enqueue(
         WaasGenerated.SignMessageResponse(signature: "solana-signature"),
         for: WaasAPI.SignMessage.urlPath
@@ -2222,7 +2214,7 @@ private func waitForSessionExpiredEvent(
 
     let signature = try await fixture.client.signSolanaMessage(message: "hello")
     let valid = try await fixture.client.isValidSolanaMessageSignature(
-        walletAddress: fixture.client.walletAddress!,
+        walletAddress: fixture.client.activeWallet!.address,
         message: "hello",
         signature: signature
     )
@@ -2260,8 +2252,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletSolanaFirstAvailableUsesIndexerBalances() async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "solana-wallet"
-    fixture.client.walletAddress = "4Nd1mYQbqjVU2aR7cJNPyqW9XjHnBYvWQd7ZxYxvT6uP"
+    fixture.client.activeWallet = activeTestWallet("4Nd1mYQbqjVU2aR7cJNPyqW9XjHnBYvWQd7ZxYxvT6uP", id: "solana-wallet")
     let usdcMint = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
     try fixture.indexerBackend.setSolanaBalancesResponse(
         """
@@ -2357,8 +2348,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletSendTransactionDefaultSelectsFirstFeeOptionIdentifierWithoutBalanceLookup() async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0xwallet"
+    fixture.client.activeWallet = activeTestWallet("0xwallet", id: "wallet-main")
 
     try fixture.transport.enqueue(
         PrepareResponse(
@@ -2380,7 +2370,7 @@ private func waitForSessionExpiredEvent(
     )
 
     let txResult = try await fixture.client.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         to: "0xabc",
         value: "0"
     )
@@ -2404,8 +2394,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletGetTransactionStatusKeepsCancellationError() async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0x1111111111111111111111111111111111111111"
+    fixture.client.activeWallet = activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main")
     fixture.transport.enqueueCancellation(for: WaasAPI.TransactionStatusMethod.urlPath)
 
     do {
@@ -2419,8 +2408,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletSendTransactionFirstAvailableSelectsFirstFundedFeeOption() async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0xwallet"
+    fixture.client.activeWallet = activeTestWallet("0xwallet", id: "wallet-main")
     fixture.indexerBackend.setNativeBalance(
         NativeTokenBalance(
             accountAddress: "0xwallet",
@@ -2466,7 +2454,7 @@ private func waitForSessionExpiredEvent(
     )
 
     let txResult = try await fixture.client.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         to: "0xabc",
         value: "0",
         selectFeeOption: .firstAvailable
@@ -2485,8 +2473,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletSendTransactionFirstAvailableRequiresFundedFeeOption() async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0xwallet"
+    fixture.client.activeWallet = activeTestWallet("0xwallet", id: "wallet-main")
     fixture.indexerBackend.setNativeBalance(
         NativeTokenBalance(
             accountAddress: "0xwallet",
@@ -2525,7 +2512,7 @@ private func waitForSessionExpiredEvent(
 
     do {
         _ = try await fixture.client.sendTransaction(
-            network: .polygonAmoy,
+            network: .amoy,
             to: "0xabc",
             value: "0",
             selectFeeOption: .firstAvailable
@@ -2542,54 +2529,39 @@ private func waitForSessionExpiredEvent(
     #expect(Bool(false), "Expected TransactionError.noFeeOptionSelected")
 }
 
-@Test func TestFeeOptionSelectorFirstAvailableRejectsMalformedAvailableRaw() async throws {
-    let feeOption = testFeeOptions()[0]
-
-    let selection = try await FeeOptionSelector.firstAvailable([
-        FeeOptionWithBalance(
-            feeOption: feeOption,
-            availableRaw: "not-a-number"
-        )
-    ])
-
-    #expect(selection == nil)
-}
-
-@Test func TestFeeOptionSelectorFirstAvailableRejectsMalformedFeeValue() async throws {
+@Test(arguments: [
+    // (fee value override, availableRaw, selected)
+    (nil as String?, "not-a-number", false),
+    ("not-a-number", "100000", false),
+    (nil, "000100", true),
+])
+func TestFeeOptionSelectorFirstAvailableParsesUnsignedDecimals(
+    feeValue: String?,
+    availableRaw: String,
+    selected: Bool
+) async throws {
     let baseFeeOption = testFeeOptions()[0]
-    let malformedFeeOption = FeeOption(
-        token: baseFeeOption.token,
-        value: "not-a-number",
-        displayValue: "invalid"
-    )
-
-    let selection = try await FeeOptionSelector.firstAvailable([
-        FeeOptionWithBalance(
-            feeOption: malformedFeeOption,
-            availableRaw: "100000"
-        )
-    ])
-
-    #expect(selection == nil)
-}
-
-@Test func TestFeeOptionSelectorFirstAvailableAcceptsValidUnsignedDecimals() async throws {
-    let feeOption = testFeeOptions()[0]
+    let feeOption = feeValue.map {
+        FeeOption(token: baseFeeOption.token, value: $0, displayValue: "invalid")
+    } ?? baseFeeOption
 
     let selection = try await FeeOptionSelector.firstAvailable([
         FeeOptionWithBalance(
             feeOption: feeOption,
-            availableRaw: "000100"
+            availableRaw: availableRaw
         )
     ])
 
-    #expect(selection?.token == FeeOptionWithBalance(feeOption: feeOption).selection.token)
+    if selected {
+        #expect(selection?.token == FeeOptionWithBalance(feeOption: feeOption).selection.token)
+    } else {
+        #expect(selection == nil)
+    }
 }
 
 @Test func TestWalletSendTransactionCustomSelectorReceivesFeeOptionBalances() async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0xwallet"
+    fixture.client.activeWallet = activeTestWallet("0xwallet", id: "wallet-main")
     fixture.indexerBackend.setNativeBalance(
         NativeTokenBalance(
             accountAddress: "0xwallet",
@@ -2635,7 +2607,7 @@ private func waitForSessionExpiredEvent(
     )
 
     let txResult = try await fixture.client.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         request: SendTransactionRequest(to: "0xabc", value: "0", mode: .native),
         selectFeeOption: .custom { feeOptions in
             #expect(feeOptions.count == 2)
@@ -2672,8 +2644,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletSendTransactionUnsponsoredCustomSelectorRequiresSelection() async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0xwallet"
+    fixture.client.activeWallet = activeTestWallet("0xwallet", id: "wallet-main")
 
     try fixture.transport.enqueue(
         PrepareResponse(
@@ -2688,7 +2659,7 @@ private func waitForSessionExpiredEvent(
 
     do {
         _ = try await fixture.client.sendTransaction(
-            network: .polygonAmoy,
+            network: .amoy,
             request: SendTransactionRequest(to: "0xabc", value: "0"),
             selectFeeOption: .custom { _ in nil }
         )
@@ -2706,8 +2677,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletSendTransactionSponsoredInvokesCustomFeeSelectorWithEmptyOptions() async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0xwallet"
+    fixture.client.activeWallet = activeTestWallet("0xwallet", id: "wallet-main")
 
     try fixture.transport.enqueue(
         PrepareResponse(
@@ -2728,11 +2698,12 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.TransactionStatusMethod.urlPath
     )
 
+    let receivedOptionCounts = LockedBox<[Int]>([])
     let txResult = try await fixture.client.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         request: SendTransactionRequest(to: "0xabc", value: "0"),
         selectFeeOption: .custom { feeOptions in
-            #expect(feeOptions.isEmpty)
+            receivedOptionCounts.withValue { $0.append(feeOptions.count) }
             return nil
         }
     )
@@ -2741,6 +2712,7 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.Execute.urlPath
     )
 
+    #expect(receivedOptionCounts.withValue { $0 } == [0])
     #expect(txResult.txnId == "txn-1")
     #expect(txResult.status == .executed)
     #expect(txResult.txnHash == nil)
@@ -2751,8 +2723,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletSendTransactionSponsoredContinuesWithFirstAvailable() async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0xwallet"
+    fixture.client.activeWallet = activeTestWallet("0xwallet", id: "wallet-main")
 
     try fixture.transport.enqueue(
         PrepareResponse(
@@ -2770,7 +2741,7 @@ private func waitForSessionExpiredEvent(
     )
 
     let result = try await fixture.client.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         request: SendTransactionRequest(to: "0xabc", value: "0"),
         selectFeeOption: .firstAvailable,
         waitForStatus: false
@@ -2782,8 +2753,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletSendTransactionSponsoredDoesNotExecuteWhenAcknowledgementThrows() async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0xwallet"
+    fixture.client.activeWallet = activeTestWallet("0xwallet", id: "wallet-main")
 
     try fixture.transport.enqueue(
         PrepareResponse(
@@ -2798,7 +2768,7 @@ private func waitForSessionExpiredEvent(
 
     do {
         _ = try await fixture.client.sendTransaction(
-            network: .polygonAmoy,
+            network: .amoy,
             request: SendTransactionRequest(to: "0xabc", value: "0"),
             selectFeeOption: .custom { feeOptions in
                 #expect(feeOptions.isEmpty)
@@ -2815,8 +2785,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletCallContractReturnsSendTransactionResponse() async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0xwallet"
+    fixture.client.activeWallet = activeTestWallet("0xwallet", id: "wallet-main")
 
     try fixture.transport.enqueue(
         PrepareResponse(
@@ -2838,9 +2807,9 @@ private func waitForSessionExpiredEvent(
     )
 
     let txResult = try await fixture.client.callContract(
-        network: .polygonAmoy,
-        contract: "0xcontract",
-        method: "mint(address)",
+        network: .amoy,
+        contractAddress: "0xcontract",
+        method: "mint",
         args: [AbiArg(type: "address", value: .string("0xrecipient"))],
         mode: .native
     )
@@ -2862,10 +2831,10 @@ private func waitForSessionExpiredEvent(
     #expect(executeRequest.feeOption?.token == "POL")
 }
 
-@Test func TestWalletSendTransactionCanSkipStatusPolling() async throws {
+@Test(arguments: [false, true])
+func TestWalletSendTransactionCanSkipStatusPolling(viaCallContract: Bool) async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0xwallet"
+    fixture.client.activeWallet = activeTestWallet("0xwallet", id: "wallet-main")
 
     try fixture.transport.enqueue(
         PrepareResponse(
@@ -2875,18 +2844,28 @@ private func waitForSessionExpiredEvent(
             sponsored: true,
             expiresAt: "2026-04-27T00:00:00Z"
         ),
-        for: WaasAPI.PrepareEthereumTransaction.urlPath
+        for: viaCallContract
+            ? WaasAPI.PrepareEthereumContractCall.urlPath
+            : WaasAPI.PrepareEthereumTransaction.urlPath
     )
     try fixture.transport.enqueue(
         ExecuteResponse(status: .pending),
         for: WaasAPI.Execute.urlPath
     )
 
-    let txResult = try await fixture.client.sendTransaction(
-        network: .polygonAmoy,
-        request: SendTransactionRequest(to: "0xabc", value: "0"),
-        waitForStatus: false
-    )
+    let txResult = viaCallContract
+        ? try await fixture.client.callContract(
+            network: .amoy,
+            contractAddress: "0xcontract",
+            method: "mint",
+            args: [AbiArg(type: "address", value: .string("0xrecipient"))],
+            waitForStatus: false
+        )
+        : try await fixture.client.sendTransaction(
+            network: .amoy,
+            request: SendTransactionRequest(to: "0xabc", value: "0"),
+            waitForStatus: false
+        )
 
     #expect(txResult.txnId == "txn-no-poll-1")
     #expect(txResult.status == .pending)
@@ -2895,45 +2874,16 @@ private func waitForSessionExpiredEvent(
     #expect(fixture.transport.requestCount(for: WaasAPI.TransactionStatusMethod.urlPath) == 0)
 }
 
-@Test func TestWalletCallContractCanSkipStatusPolling() async throws {
+@Test(arguments: [
+    WaasGenerated.TransactionStatus.pending,
+    .quoted,
+    .unknown("future-status"),
+])
+func TestWalletSendTransactionMarksTimedOutWhenPollingDeadlineExpires(
+    status: WaasGenerated.TransactionStatus
+) async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0xwallet"
-
-    try fixture.transport.enqueue(
-        PrepareResponse(
-            txnId: "txn-contract-no-poll-1",
-            status: .quoted,
-            feeOptions: [],
-            sponsored: true,
-            expiresAt: "2026-04-27T00:00:00Z"
-        ),
-        for: WaasAPI.PrepareEthereumContractCall.urlPath
-    )
-    try fixture.transport.enqueue(
-        ExecuteResponse(status: .pending),
-        for: WaasAPI.Execute.urlPath
-    )
-
-    let txResult = try await fixture.client.callContract(
-        network: .polygonAmoy,
-        contract: "0xcontract",
-        method: "mint(address)",
-        args: [AbiArg(type: "address", value: .string("0xrecipient"))],
-        waitForStatus: false
-    )
-
-    #expect(txResult.txnId == "txn-contract-no-poll-1")
-    #expect(txResult.status == .pending)
-    #expect(txResult.txnHash == nil)
-    #expect(txResult.statusResolution == .notRequested)
-    #expect(fixture.transport.requestCount(for: WaasAPI.TransactionStatusMethod.urlPath) == 0)
-}
-
-@Test func TestWalletSendTransactionMarksTimedOutWhenPollingDeadlineExpires() async throws {
-    let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0xwallet"
+    fixture.client.activeWallet = activeTestWallet("0xwallet", id: "wallet-main")
 
     try fixture.transport.enqueue(
         PrepareResponse(
@@ -2950,12 +2900,12 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.Execute.urlPath
     )
     try fixture.transport.enqueue(
-        WaasTransactionStatusResponse(status: .pending),
+        WaasTransactionStatusResponse(status: status),
         for: WaasAPI.TransactionStatusMethod.urlPath
     )
 
     let txResult = try await fixture.client.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         request: SendTransactionRequest(to: "0xabc", value: "0"),
         statusPolling: TransactionStatusPollingOptions(
             timeoutMs: 0
@@ -2963,48 +2913,10 @@ private func waitForSessionExpiredEvent(
     )
 
     #expect(txResult.txnId == "txn-pending-1")
-    #expect(txResult.status == .pending)
+    #expect(txResult.status == status.sdkValue)
     #expect(txResult.txnHash == nil)
     #expect(txResult.statusResolution == .timedOut)
     #expect(fixture.transport.requestCount(for: WaasAPI.TransactionStatusMethod.urlPath) == 1)
-}
-
-@Test func TestWalletSendTransactionReturnsTimedOutNonterminalStatuses() async throws {
-    let statuses: [WaasGenerated.TransactionStatus] = [.quoted, .unknown("future-status")]
-
-    for (index, status) in statuses.enumerated() {
-        let fixture = makeMockWalletClient()
-        fixture.client.walletId = "wallet-main"
-        fixture.client.walletAddress = "0xwallet"
-        try fixture.transport.enqueue(
-            PrepareResponse(
-                txnId: "txn-timeout-\(index)",
-                status: .quoted,
-                feeOptions: [],
-                sponsored: true,
-                expiresAt: "2026-04-27T00:00:00Z"
-            ),
-            for: WaasAPI.PrepareEthereumTransaction.urlPath
-        )
-        try fixture.transport.enqueue(
-            ExecuteResponse(status: .pending),
-            for: WaasAPI.Execute.urlPath
-        )
-        try fixture.transport.enqueue(
-            WaasTransactionStatusResponse(status: status),
-            for: WaasAPI.TransactionStatusMethod.urlPath
-        )
-
-        let result = try await fixture.client.sendTransaction(
-            network: .polygonAmoy,
-            request: SendTransactionRequest(to: "0xabc", value: "0"),
-            statusPolling: TransactionStatusPollingOptions(timeoutMs: 0)
-        )
-
-        #expect(result.txnId == "txn-timeout-\(index)")
-        #expect(result.status == status.sdkValue)
-        #expect(result.statusResolution == .timedOut)
-    }
 }
 
 @Test func TestWalletSendTransactionRejectsInvalidPollingOptionsBeforeExecute() async throws {
@@ -3016,8 +2928,7 @@ private func waitForSessionExpiredEvent(
 
     for (index, options) in invalidOptions.enumerated() {
         let fixture = makeMockWalletClient()
-        fixture.client.walletId = "wallet-main"
-        fixture.client.walletAddress = "0xwallet"
+        fixture.client.activeWallet = activeTestWallet("0xwallet", id: "wallet-main")
         try fixture.transport.enqueue(
             PrepareResponse(
                 txnId: "txn-invalid-polling-\(index)",
@@ -3031,7 +2942,7 @@ private func waitForSessionExpiredEvent(
 
         do {
             _ = try await fixture.client.sendTransaction(
-                network: .polygonAmoy,
+                network: .amoy,
                 request: SendTransactionRequest(to: "0xabc", value: "0"),
                 statusPolling: options
             )
@@ -3047,8 +2958,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletSendTransactionReturnsWhenPollingFindsHashBeforeExecuted() async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0xwallet"
+    fixture.client.activeWallet = activeTestWallet("0xwallet", id: "wallet-main")
 
     try fixture.transport.enqueue(
         PrepareResponse(
@@ -3070,7 +2980,7 @@ private func waitForSessionExpiredEvent(
     )
 
     let txResult = try await fixture.client.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         request: SendTransactionRequest(to: "0xabc", value: "0")
     )
 
@@ -3083,8 +2993,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletSendTransactionReturnsFailedStatusAsTerminal() async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0xwallet"
+    fixture.client.activeWallet = activeTestWallet("0xwallet", id: "wallet-main")
 
     try fixture.transport.enqueue(
         PrepareResponse(
@@ -3106,7 +3015,7 @@ private func waitForSessionExpiredEvent(
     )
 
     let txResult = try await fixture.client.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         request: SendTransactionRequest(to: "0xabc", value: "0")
     )
 
@@ -3119,8 +3028,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletSendTransactionExecutedFastPathAcceptsStatusHash() async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0xwallet"
+    fixture.client.activeWallet = activeTestWallet("0xwallet", id: "wallet-main")
 
     try fixture.transport.enqueue(
         PrepareResponse(
@@ -3142,7 +3050,7 @@ private func waitForSessionExpiredEvent(
     )
 
     let txResult = try await fixture.client.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         request: SendTransactionRequest(to: "0xabc", value: "0")
     )
 
@@ -3155,8 +3063,7 @@ private func waitForSessionExpiredEvent(
 
 @Test func TestWalletSendTransactionUnsponsoredWithoutFeeOptionsThrows() async throws {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0xwallet"
+    fixture.client.activeWallet = activeTestWallet("0xwallet", id: "wallet-main")
 
     try fixture.transport.enqueue(
         PrepareResponse(
@@ -3171,7 +3078,7 @@ private func waitForSessionExpiredEvent(
 
     do {
         _ = try await fixture.client.sendTransaction(
-            network: .polygonAmoy,
+            network: .amoy,
             request: SendTransactionRequest(to: "0xabc", value: "0")
         )
         #expect(Bool(false), "Expected no fee options error")
@@ -3215,9 +3122,7 @@ private func isTransactionError(_ error: (any Error)?, _ expected: TransactionEr
 
     switch (transactionError, expected) {
     case (.noFeeOptionsAvailable, .noFeeOptionsAvailable),
-         (.noFeeOptionSelected, .noFeeOptionSelected),
-         (.missingTransactionHash, .missingTransactionHash),
-         (.pollingTimedOut, .pollingTimedOut):
+         (.noFeeOptionSelected, .noFeeOptionSelected):
         return true
     case (.transactionFailed(let actual), .transactionFailed(let expected)):
         return actual == expected
@@ -3246,11 +3151,68 @@ struct MockWalletClientFixture {
     }
 }
 
+/// The default wallet and indexer endpoints used by `makeMockWalletClient`.
+let testEnvironment = OMSWalletEnvironment(
+    walletApiUrl: "https://wallet.example.test",
+    indexerGatewayUrl: "https://indexer.example.test/v1/IndexerGateway/"
+)
+
+/// Seeds an active wallet session directly, without going through an auth flow.
+func activateTestSession(
+    _ fixture: MockWalletClientFixture,
+    wallet: Wallet,
+    expiresAt: String = "2099-01-01T00:00:00Z"
+) {
+    fixture.client.activeWallet = wallet
+    fixture.client.sessionExpiresAt = expiresAt
+    fixture.client.sessionAuth = .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
+}
+
+final class LockedBox<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Value
+
+    init(_ value: Value) {
+        self.value = value
+    }
+
+    func withValue<T>(_ body: (inout Value) -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body(&value)
+    }
+}
+
+/// Reads a URL-loading request body, which `URLSession` may deliver as a stream.
+func requestBodyData(_ request: URLRequest) -> Data? {
+    if let body = request.httpBody {
+        return body
+    }
+
+    guard let stream = request.httpBodyStream else {
+        return nil
+    }
+
+    stream.open()
+    defer { stream.close() }
+
+    var data = Data()
+    var buffer = [UInt8](repeating: 0, count: 1024)
+
+    while true {
+        let count = stream.read(&buffer, maxLength: buffer.count)
+        if count > 0 {
+            data.append(buffer, count: count)
+        } else {
+            break
+        }
+    }
+
+    return data
+}
+
 func makeMockWalletClient(
-    environment: OMSWalletEnvironment = OMSWalletEnvironment(
-        walletApiUrl: "https://wallet.example.test",
-        indexerGatewayUrl: "https://indexer.example.test/v1/IndexerGateway/"
-    ),
+    environment: OMSWalletEnvironment = testEnvironment,
     projectId: String = "proj_\(UUID().uuidString)",
     keychain: InMemoryKeychain = InMemoryKeychain(),
     signer: MockCredentialSigner = MockCredentialSigner(),
@@ -3346,6 +3308,8 @@ func testWallet(
         networkFamily = .evm
     case .solana:
         networkFamily = .solana
+    case .tron:
+        networkFamily = .tron
     case .unknown(let value):
         networkFamily = .unknown(value)
     }
@@ -3355,6 +3319,21 @@ func testWallet(
         networkFamily: networkFamily,
         keyOrigin: .enclave,
         address: address
+    )
+}
+
+/// An SDK `Wallet` for seeding `WalletClient.activeWallet` directly. The type defaults to Ethereum
+/// for `0x` addresses and Solana otherwise.
+func activeTestWallet(
+    _ address: String,
+    id: String = "test-wallet",
+    type: WalletType? = nil
+) -> Wallet {
+    Wallet(
+        id: id,
+        type: type ?? (address.hasPrefix("0x") ? .ethereum : .solana),
+        address: address,
+        keyOrigin: .enclave
     )
 }
 
@@ -3433,6 +3412,8 @@ final class MockIndexerBackend: @unchecked Sendable {
     private var balanceRequests: [RecordedBalanceRequest] = []
     private var solanaBalancesResponse = Data(#"{"balances":[],"errors":[]}"#.utf8)
     private var solanaBalanceRequests: [RecordedBalanceRequest] = []
+    private var tronBalancesResponse = Data(#"{"balances":[],"errors":[]}"#.utf8)
+    private var tronBalanceRequestBodies: [Data] = []
 
     var nativeBalanceRequestCount: Int {
         withLock { balanceRequests.count }
@@ -3454,6 +3435,14 @@ final class MockIndexerBackend: @unchecked Sendable {
         withLock { solanaBalanceRequests.flatMap(\.contractAddresses) }
     }
 
+    var tronBalanceRequestPayloads: [NSDictionary] {
+        withLock {
+            tronBalanceRequestBodies.compactMap {
+                try? JSONSerialization.jsonObject(with: $0) as? NSDictionary
+            }
+        }
+    }
+
     func makeClient(
         publishableKey: String,
         environment: OMSWalletEnvironment
@@ -3469,7 +3458,8 @@ final class MockIndexerBackend: @unchecked Sendable {
         let indexerEnvironment = OMSWalletEnvironment(
             walletApiUrl: environment.walletApiUrl,
             indexerGatewayUrl: "https://\(host)/v1/IndexerGateway/",
-            solanaIndexerGatewayUrl: "https://\(host)/v1/SolanaIndexerGateway/"
+            solanaIndexerGatewayUrl: "https://\(host)/v1/SolanaIndexerGateway/",
+            tronIndexerGatewayUrl: "https://\(host)/v1/TronIndexerGateway/"
         )
 
         return IndexerClient(
@@ -3499,13 +3489,25 @@ final class MockIndexerBackend: @unchecked Sendable {
         }
     }
 
+    func setTronBalancesResponse(_ body: String) throws {
+        let data = Data(body.utf8)
+        _ = try JSONSerialization.jsonObject(with: data)
+        withLock {
+            tronBalancesResponse = data
+        }
+    }
+
     func responseBody(for request: URLRequest) -> Data {
         withLock {
+            if request.url?.path.contains("/TronIndexerGateway/") == true {
+                tronBalanceRequestBodies.append(requestBodyData(request) ?? Data())
+                return tronBalancesResponse
+            }
             if request.url?.path.contains("/SolanaIndexerGateway/") == true {
-                solanaBalanceRequests.append(decodeBalanceRequest(Self.bodyData(for: request)))
+                solanaBalanceRequests.append(decodeBalanceRequest(requestBodyData(request)))
                 return solanaBalancesResponse
             }
-            let requestBody = Self.bodyData(for: request)
+            let requestBody = requestBodyData(request)
             let request = decodeBalanceRequest(requestBody)
             balanceRequests.append(request)
             let tokenBalances = request.contractAddresses.flatMap { contractAddress in
@@ -3515,7 +3517,7 @@ final class MockIndexerBackend: @unchecked Sendable {
             let fallbackChainId = request.chainIds.first
                 ?? nativeBalance?.chainId
                 ?? tokenBalances.first?.chainId
-                ?? Int64(Network.polygonAmoy.id)
+                ?? Int64(Network.amoy.id)
             let response = GatewayBalancesResponse(
                 page: TokenBalancesPage(page: 0, pageSize: 40, more: false),
                 nativeBalances: nativeBalance.map {
@@ -3527,24 +3529,6 @@ final class MockIndexerBackend: @unchecked Sendable {
             )
             return (try? JSONEncoder().encode(response)) ?? Data(#"{"nativeBalances":[],"balances":[]}"#.utf8)
         }
-    }
-
-    private static func bodyData(for request: URLRequest) -> Data? {
-        if let body = request.httpBody {
-            return body
-        }
-        guard let stream = request.httpBodyStream else { return nil }
-        stream.open()
-        defer { stream.close() }
-        var data = Data()
-        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 1_024)
-        defer { buffer.deallocate() }
-        while stream.hasBytesAvailable {
-            let count = stream.read(buffer, maxLength: 1_024)
-            guard count > 0 else { break }
-            data.append(buffer, count: count)
-        }
-        return data
     }
 
     private func withLock<T>(_ body: () -> T) -> T {
@@ -3615,32 +3599,6 @@ final class MockIndexerURLProtocol: URLProtocol, @unchecked Sendable {
         return backendsByHost[host]
     }
 
-    private static func bodyData(for request: URLRequest) -> Data? {
-        if let body = request.httpBody {
-            return body
-        }
-
-        guard let stream = request.httpBodyStream else {
-            return nil
-        }
-
-        stream.open()
-        defer { stream.close() }
-
-        var data = Data()
-        var buffer = [UInt8](repeating: 0, count: 1024)
-
-        while true {
-            let count = stream.read(&buffer, maxLength: buffer.count)
-            if count > 0 {
-                data.append(buffer, count: count)
-            } else {
-                break
-            }
-        }
-
-        return data
-    }
 }
 
 private func uriOriginAndPath(_ url: String) -> String {
@@ -3916,6 +3874,22 @@ final class MockWaasTransport: WebRPCTransport, @unchecked Sendable {
             throw MockError.missingRecordedRequest(path, index)
         }
         return try WebRPCJSON.makeDecoder().decode(T.self, from: requests[index].body)
+    }
+
+    /// The raw JSON object of a recorded request body, for asserting exact wire shapes.
+    func requestObject(for path: String, at index: Int = 0) throws -> NSDictionary {
+        let requests = recordedRequests(for: path)
+        guard requests.indices.contains(index),
+              let object = try JSONSerialization.jsonObject(with: requests[index].body) as? NSDictionary else {
+            throw MockError.missingRecordedRequest(path, index)
+        }
+        return object
+    }
+
+    var totalRequestCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedRequests.count
     }
 
     func decodedRequests<T: Decodable>(

@@ -42,7 +42,18 @@ elif ! diff -u "$public_api_baseline" "$public_api_actual"; then
     exit 1
 fi
 
-forbidden_symbol_pattern='WaasGenerated|OMSWalletWaas|WebRPC[A-Za-z0-9_]*|Waas(API|PublicAPI|Client|PublicClient)|SigningAlgorithm|IdentityType|(^|[^A-Za-z0-9_])AuthMode([^A-Za-z0-9_]|$)|StartEmailAuthRequest|CompleteEmailAuthRequest|FederateAccountRequest|ListWalletsRequest|CreateWalletRequest|SignMessageRequest|SignTypedDataRequest|ExecuteRequest|PrepareTransactionRequest|PrepareCallContractRequest|GetIdTokenRequest|RevokeAccessRequest|ListAccessRequest|IntentRegistrationRequest|GetTransactionStatusRequest'
+# Request types are read from the generated client so the list tracks WaaS regenerations.
+generated_request_types="$(
+    grep -oE '(struct|enum) [A-Za-z0-9_]+Request([^A-Za-z0-9_]|$)' Sources/OMSWallet/Generated/waas.gen.swift \
+        | awk '{ sub(/[^A-Za-z0-9_]$/, "", $2); print $2 }' \
+        | LC_ALL=C sort -u \
+        | paste -sd '|' -
+)"
+if [[ -z "$generated_request_types" ]]; then
+    echo "No generated WaaS request types were found in waas.gen.swift." >&2
+    exit 1
+fi
+forbidden_symbol_pattern="WaasGenerated|WebRPC[A-Za-z0-9_]*|Waas(API|PublicAPI|Client|PublicClient)|SigningAlgorithm|IdentityType|(^|[^A-Za-z0-9_])AuthMode([^A-Za-z0-9_]|\$)|${generated_request_types}"
 matches="$(grep -Eoh "$forbidden_symbol_pattern" "$symbol_graph" | sort -u || true)"
 if [[ -n "$matches" ]]; then
     echo "Generated WaaS symbols leaked into the public OMSWallet symbol graph:" >&2
@@ -124,13 +135,11 @@ if [[ "$negative_status" -eq 0 ]]; then
     exit 1
 fi
 
-for expected in "WaasGenerated"; do
-    if [[ "$negative_output" != *"cannot find '$expected' in scope"* ]]; then
-        echo "External generated-symbol check failed for an unexpected reason." >&2
-        echo "$negative_output" >&2
-        exit 1
-    fi
-done
+if [[ "$negative_output" != *"cannot find 'WaasGenerated' in scope"* ]]; then
+    echo "External generated-symbol check failed for an unexpected reason." >&2
+    echo "$negative_output" >&2
+    exit 1
+fi
 
 expect_external_build_failure() {
     local label="$1"

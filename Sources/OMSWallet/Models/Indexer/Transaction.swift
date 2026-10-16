@@ -47,7 +47,6 @@ public struct TransactionTransfer: Codable, Sendable {
         case from
         case to
         case tokenIds
-        case tokenIDs
         case amounts
         case logIndex
         case amountsUSD
@@ -64,7 +63,6 @@ public struct TransactionTransfer: Codable, Sendable {
         self.from = try container.decode(String.self, forKey: .from)
         self.to = try container.decode(String.self, forKey: .to)
         self.tokenIds = try container.decodeIfPresent([String].self, forKey: .tokenIds)
-            ?? container.decodeIfPresent([String].self, forKey: .tokenIDs)
         self.amounts = try container.decode([String].self, forKey: .amounts)
         self.logIndex = try container.decode(Int.self, forKey: .logIndex)
         self.amountsUSD = try container.decodeIfPresent([String].self, forKey: .amountsUSD)
@@ -80,7 +78,7 @@ public struct TransactionTransfer: Codable, Sendable {
         try container.encode(contractType, forKey: .contractType)
         try container.encode(from, forKey: .from)
         try container.encode(to, forKey: .to)
-        try container.encodeIfPresent(tokenIds, forKey: .tokenIDs)
+        try container.encodeIfPresent(tokenIds, forKey: .tokenIds)
         try container.encode(amounts, forKey: .amounts)
         try container.encode(logIndex, forKey: .logIndex)
         try container.encodeIfPresent(amountsUSD, forKey: .amountsUSD)
@@ -122,7 +120,6 @@ public struct Transaction: Codable, Sendable {
         case blockNumber
         case blockHash
         case chainId
-        case metaTxnId
         case metaTxnID
         case transfers
         case timestamp
@@ -134,8 +131,7 @@ public struct Transaction: Codable, Sendable {
         self.blockNumber = try container.decode(Int64.self, forKey: .blockNumber)
         self.blockHash = try container.decode(String.self, forKey: .blockHash)
         self.chainId = try container.decode(Int64.self, forKey: .chainId)
-        self.metaTxnId = try container.decodeIfPresent(String.self, forKey: .metaTxnId)
-            ?? container.decodeIfPresent(String.self, forKey: .metaTxnID)
+        self.metaTxnId = try container.decodeIfPresent(String.self, forKey: .metaTxnID)
         self.transfers = try container.decode([TransactionTransfer].self, forKey: .transfers)
         self.timestamp = try container.decode(String.self, forKey: .timestamp)
     }

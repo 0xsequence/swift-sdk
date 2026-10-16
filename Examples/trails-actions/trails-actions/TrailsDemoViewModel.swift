@@ -13,21 +13,35 @@ private final class TrailsOMSStorage: @unchecked Sendable {
     }
 }
 
+struct TrailsWalletSession: Sendable {
+    let activeWallet: Wallet?
+    let session: OMSWalletSession?
+
+    static let signedOut = TrailsWalletSession(activeWallet: nil, session: nil)
+
+    var auth: OMSWalletSessionAuth? {
+        session?.auth
+    }
+}
+
 actor TrailsOMSWallet {
     private let storage: TrailsOMSStorage
     private var tail: Task<Void, Never>?
 
-    nonisolated let initialSession: OMSWalletSessionState
+    nonisolated let initialSession: TrailsWalletSession
 
     init(publishableKey: String) {
         let storage = TrailsOMSStorage(publishableKey: publishableKey)
         self.storage = storage
-        self.initialSession = storage.omsWallet.wallet.session
+        self.initialSession = TrailsWalletSession(
+            activeWallet: storage.omsWallet.wallet.activeWallet,
+            session: storage.omsWallet.wallet.session
+        )
     }
 
-    func session() async -> OMSWalletSessionState {
+    func session() async -> TrailsWalletSession {
         await perform { client in
-            client.wallet.session
+            TrailsWalletSession(activeWallet: client.wallet.activeWallet, session: client.wallet.session)
         }
     }
 
@@ -122,7 +136,7 @@ actor TrailsOMSWallet {
     fileprivate func selectWallet(
         _ pendingSelection: PendingWalletSelection,
         walletId: String
-    ) async throws -> WalletSelectionResult {
+    ) async throws -> WalletActivationResult {
         try await performThrowing { _ in
             try await pendingSelection.selectWallet(walletId: walletId)
         }
@@ -131,7 +145,7 @@ actor TrailsOMSWallet {
     fileprivate func createAndSelectWallet(
         _ pendingSelection: PendingWalletSelection,
         reference: String?
-    ) async throws -> WalletSelectionResult {
+    ) async throws -> WalletActivationResult {
         try await performThrowing { _ in
             try await pendingSelection.createAndSelectWallet(reference: reference)
         }
@@ -139,9 +153,8 @@ actor TrailsOMSWallet {
 
     private func wrap(_ result: CompleteAuthResult) -> TrailsCompleteAuthResult {
         switch result {
-        case .walletSelected(let walletAddress, let wallet, let wallets, let credential):
+        case .walletSelected(let wallet, let wallets, let credential):
             return .walletSelected(
-                walletAddress: walletAddress,
                 wallet: wallet,
                 wallets: wallets,
                 credential: credential
@@ -197,7 +210,6 @@ actor TrailsOMSWallet {
 
 enum TrailsCompleteAuthResult: Sendable {
     case walletSelected(
-        walletAddress: String,
         wallet: Wallet,
         wallets: [Wallet],
         credential: WalletCredential
@@ -227,18 +239,18 @@ final class TrailsPendingWalletSelection: @unchecked Sendable {
         self.client = client
     }
 
-    func selectWallet(walletId: String) async throws -> WalletSelectionResult {
+    func selectWallet(walletId: String) async throws -> WalletActivationResult {
         try await client.selectWallet(pendingSelection, walletId: walletId)
     }
 
-    func createAndSelectWallet(reference: String? = nil) async throws -> WalletSelectionResult {
+    func createAndSelectWallet(reference: String? = nil) async throws -> WalletActivationResult {
         try await client.createAndSelectWallet(pendingSelection, reference: reference)
     }
 }
 
 @MainActor
 final class TrailsDemoViewModel: ObservableObject {
-    @Published var session = OMSWalletSessionState(walletAddress: nil)
+    @Published var session = TrailsWalletSession.signedOut
     @Published var authStep: AuthStep = .email
     @Published var email = ""
     @Published var code = ""
@@ -302,8 +314,12 @@ final class TrailsDemoViewModel: ObservableObject {
         }
     }
 
+    // Trails actions are EVM-only, so only an active Ethereum wallet counts as signed in.
     var walletAddress: String? {
-        session.walletAddress
+        guard let activeWallet = session.activeWallet, activeWallet.type == .ethereum else {
+            return nil
+        }
+        return activeWallet.address
     }
 
     var isSignedIn: Bool {
@@ -869,14 +885,14 @@ final class TrailsDemoViewModel: ObservableObject {
         }
     }
 
-    private func handleWalletActivation(_ result: WalletSelectionResult, status: String) async {
+    private func handleWalletActivation(_ result: WalletActivationResult, status: String) async {
         pendingWalletSelection = nil
         authStatus = status
         redirectStatus = ""
         await refreshSession()
-        appendLog("Wallet ready: \(result.walletAddress)")
-        await refreshBalances(walletAddress: result.walletAddress)
-        await refreshEarnPositions(walletAddress: result.walletAddress)
+        appendLog("Wallet ready: \(result.wallet.address)")
+        await refreshBalances(walletAddress: result.wallet.address)
+        await refreshEarnPositions(walletAddress: result.wallet.address)
     }
 
     @discardableResult

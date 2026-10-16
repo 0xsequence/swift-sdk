@@ -14,13 +14,16 @@
     "label": "Authentication and sessions",
     "symbols": [
       {
-        "path": "WalletClient.walletAddress"
-      },
-      {
-        "path": "WalletClient.walletId"
+        "path": "WalletClient.activeWallet"
       },
       {
         "path": "WalletClient.session"
+      },
+      {
+        "path": "WalletClient.defaultSessionLifetimeSeconds"
+      },
+      {
+        "path": "WalletClient.maxSessionLifetimeSeconds"
       },
       {
         "path": "WalletClient.addSessionExpiredObserver(_:)"
@@ -35,10 +38,10 @@
         "path": "WalletClient.signInWithOidcIdToken(idToken:issuer:audience:walletType:walletSelection:sessionLifetimeSeconds:provider:providerLabel:)"
       },
       {
-        "path": "WalletClient.startOIDCRedirectAuth(provider:walletType:loginHint:authorizeParams:walletSelection:sessionLifetimeSeconds:)"
+        "path": "WalletClient.startOIDCRedirectAuth(provider:walletType:walletSelection:sessionLifetimeSeconds:loginHint:authorizeParams:)"
       },
       {
-        "path": "WalletClient.startOIDCRedirectAuth(provider:omsRelayReturnURI:walletType:loginHint:walletSelection:sessionLifetimeSeconds:)"
+        "path": "WalletClient.startOIDCRedirectAuth(provider:omsRelayReturnURI:walletType:walletSelection:sessionLifetimeSeconds:loginHint:)"
       },
       {
         "path": "WalletClient.handleOIDCRedirectCallback(_:walletSelection:sessionLifetimeSeconds:)"
@@ -101,7 +104,7 @@
         "path": "PendingWalletSelection"
       },
       {
-        "path": "WalletSelectionResult"
+        "path": "WalletActivationResult"
       },
       {
         "path": "Wallet"
@@ -173,7 +176,7 @@
         "path": "OIDCRedirectAuthResult"
       },
       {
-        "path": "OMSWalletSessionState"
+        "path": "OMSWalletSession"
       },
       {
         "path": "OMSWalletSessionAuth"
@@ -211,6 +214,12 @@
         "path": "WalletClient.signTypedData(network:typedData:)"
       },
       {
+        "path": "WalletClient.signTronMessage(message:)"
+      },
+      {
+        "path": "WalletClient.signTronTypedData(typedData:)"
+      },
+      {
         "path": "WalletClient.isValidMessageSignature(network:walletAddress:message:signature:)"
       },
       {
@@ -218,6 +227,12 @@
       },
       {
         "path": "WalletClient.isValidTypedDataSignature(network:walletAddress:typedData:signature:)"
+      },
+      {
+        "path": "WalletClient.isValidTronMessageSignature(walletAddress:message:signature:)"
+      },
+      {
+        "path": "WalletClient.isValidTronTypedDataSignature(walletAddress:typedData:signature:)"
       },
       {
         "path": "WalletClient.sendTransaction(network:to:value:selectFeeOption:mode:waitForStatus:statusPolling:)"
@@ -229,7 +244,13 @@
         "path": "WalletClient.sendSolanaTransfer(network:asset:to:amount:selectFeeOption:mode:waitForStatus:statusPolling:)"
       },
       {
-        "path": "WalletClient.callContract(network:contract:method:args:selectFeeOption:mode:waitForStatus:statusPolling:)"
+        "path": "WalletClient.sendTronTransaction(network:to:value:data:selectFeeOption:waitForStatus:statusPolling:)"
+      },
+      {
+        "path": "WalletClient.callContract(network:contractAddress:method:args:selectFeeOption:mode:waitForStatus:statusPolling:)"
+      },
+      {
+        "path": "WalletClient.callTronContract(network:contractAddress:method:args:selectFeeOption:waitForStatus:statusPolling:)"
       },
       {
         "path": "WalletClient.getTransactionStatus(txnId:)"
@@ -318,6 +339,33 @@
         "path": "SolanaTokenProgram"
       },
       {
+        "path": "IndexerClient.getTronBalances(_:)"
+      },
+      {
+        "path": "GetTronBalancesParams"
+      },
+      {
+        "path": "TronBalancesResult"
+      },
+      {
+        "path": "TronBalance"
+      },
+      {
+        "path": "TronNativeBalance"
+      },
+      {
+        "path": "TronFungibleTokenBalance"
+      },
+      {
+        "path": "TronNetworkError"
+      },
+      {
+        "path": "TronVerificationStatus"
+      },
+      {
+        "path": "TronTokenStandard"
+      },
+      {
         "path": "GetBalancesParams"
       },
       {
@@ -390,6 +438,12 @@
       },
       {
         "path": "SolanaNetworks"
+      },
+      {
+        "path": "TronNetwork"
+      },
+      {
+        "path": "TronNetworks"
       },
       {
         "path": "JSONValue"
