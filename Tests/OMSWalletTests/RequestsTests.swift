@@ -26,10 +26,16 @@ import Testing
 }
 
 @Test func TestOidcIdTokenPayloadHelpersMatchParityVector() throws {
-    let idToken = try fakeOidcIdToken(exp: 1_910_000_100)
+    // Literal vector: header {"alg":"none","typ":"JWT"}, payload {"aud":"demo-web-client-id",
+    // "email":"user@example.com","exp":1910000100,"iss":"https://accounts.google.com",
+    // "sub":"google-sub-123"}. The handle is base64url(SHA-256(token)), computed outside the SDK.
+    let idToken = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0"
+        + ".eyJhdWQiOiJkZW1vLXdlYi1jbGllbnQtaWQiLCJlbWFpbCI6InVzZXJAZXhhbXBsZS5jb20iLCJleHAiOjE5MTAw"
+        + "MDAxMDAsImlzcyI6Imh0dHBzOi8vYWNjb3VudHMuZ29vZ2xlLmNvbSIsInN1YiI6Imdvb2dsZS1zdWItMTIzIn0"
+        + ".test-signature"
 
     #expect(try OidcIdToken.expiresAtEpochSeconds(idToken) == 1_910_000_100)
-    #expect(OidcIdToken.handleHash(idToken) == expectedOidcHandleHash(idToken))
+    #expect(OidcIdToken.handleHash(idToken) == "eFZOodqrVYyRrQXoMyRVFyFSAj4PsRNgR8ktA8AaeUI")
 }
 
 @Test func TestOidcIdTokenRequiresExpirationClaim() throws {
