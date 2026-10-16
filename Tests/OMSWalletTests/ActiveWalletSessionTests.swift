@@ -184,6 +184,53 @@ func TestDiscardsStoredSessionsWithInvalidWallets(walletJSON: String) throws {
     #expect(!fixture.signer.hasStoredCredential)
 }
 
+/// Returns a fixed response, running `beforeResponse` while the request is in flight.
+private final class InterleavingTransport: WebRPCTransport, @unchecked Sendable {
+    let response: Data
+    let beforeResponse: () async throws -> Void
+
+    init(response: Data, beforeResponse: @escaping () async throws -> Void) {
+        self.response = response
+        self.beforeResponse = beforeResponse
+    }
+
+    func post(baseURL: String, path: String, body: Data, headers: [String: String]) async throws -> WebRPCHTTPResponse {
+        try await beforeResponse()
+        return WebRPCHTTPResponse(statusCode: 200, body: response)
+    }
+}
+
+@Test func TestStaleInvalidAuthResponseKeepsNewerSession() async throws {
+    let fixture = makeMockWalletClient()
+    let newerWallet = testWallet(id: "newer-wallet", address: "0x1111111111111111111111111111111111111111")
+    try fixture.transport.enqueue(
+        CommitVerifierResponse(verifier: "newer-verifier", challenge: "newer-challenge"),
+        for: WaasAPI.CommitVerifier.urlPath
+    )
+    try fixture.transport.enqueue(completeAuthResponse(wallets: [newerWallet]), for: WaasAPI.CompleteAuth.urlPath)
+    try fixture.transport.enqueue(UseWalletResponse(wallet: newerWallet), for: WaasAPI.UseWallet.urlPath)
+    let staleResponse = completeAuthResponse(
+        wallets: [],
+        credential: WaasCredentialInfo(credentialId: "0xstale", type: .direct, expiresAt: "soon", isCaller: true)
+    )
+    // While the first completion is in flight, a second sign-in starts and completes.
+    fixture.client.signedClient = WaasClient(
+        baseURL: fixture.environment.walletApiUrl,
+        transport: InterleavingTransport(response: try WebRPCJSON.makeEncoder().encode(staleResponse)) {
+            try await fixture.client.startEmailAuth(email: "newer@example.com")
+            _ = try await fixture.client.completeEmailAuth(code: "654321")
+        }
+    )
+
+    do {
+        _ = try await fixture.client.completeEmailAuth(code: "123456")
+        Issue.record("Expected the stale auth response to fail")
+    } catch {}
+    #expect(fixture.client.activeWallet?.id == "newer-wallet")
+    #expect(fixture.signer.hasStoredCredential)
+    #expect(try fixture.storedCredentials()?.wallet.id == "newer-wallet")
+}
+
 @Test(arguments: [
     WaasWallet(
         id: "wallet-1",

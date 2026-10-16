@@ -567,7 +567,7 @@ extension WalletClient {
         guard OMSWalletSession.parseDate(response.credential.expiresAt) != nil else {
             // The redirect callback's caller clears its own session on failure.
             if oidcRedirectAuthOwnership == nil {
-                try? signOut()
+                clearSessionIfStillCurrent(requiredSessionRevision)
             }
             throw OMSWalletError(code: .invalidResponse, message: "Auth response has an invalid credential expiresAt")
         }
@@ -585,7 +585,10 @@ extension WalletClient {
             }
         }
 
-        let wallets = try await signOutOnFailure(unlessOwnedBy: oidcRedirectAuthOwnership) {
+        let wallets = try await signOutOnFailure(
+            unlessOwnedBy: oidcRedirectAuthOwnership,
+            requiredSessionRevision: requiredSessionRevision
+        ) {
             try await walletsFromAuthResponse(response)
         }
         try withOptionalOIDCRedirectAuthOwnership(oidcRedirectAuthOwnership) {
@@ -609,7 +612,10 @@ extension WalletClient {
             )
         }
 
-        let activated = try await signOutOnFailure(unlessOwnedBy: oidcRedirectAuthOwnership) {
+        let activated = try await signOutOnFailure(
+            unlessOwnedBy: oidcRedirectAuthOwnership,
+            requiredSessionRevision: requiredSessionRevision
+        ) {
             if let selectedWallet = candidateWallets.first {
                 return try await useWallet(
                     walletId: selectedWallet.id,
@@ -722,6 +728,7 @@ extension WalletClient {
     /// non-`nil`), whose caller clears the session itself.
     private func signOutOnFailure<T>(
         unlessOwnedBy ownership: PendingOIDCRedirectAuth?,
+        requiredSessionRevision: UInt64,
         _ operation: () async throws -> T
     ) async throws -> T {
         guard ownership == nil else {
@@ -732,9 +739,15 @@ extension WalletClient {
         } catch let error as CancellationError {
             throw error
         } catch {
-            try? signOut()
+            clearSessionIfStillCurrent(requiredSessionRevision)
             throw error
         }
+    }
+
+    /// Clears the session after a failed auth attempt, unless a newer sign-in or sign-out has
+    /// already replaced the session this attempt started from.
+    private func clearSessionIfStillCurrent(_ requiredSessionRevision: UInt64) {
+        _ = try? clearSession(clearOidcRedirectAuth: true, requiredSessionRevision: requiredSessionRevision)
     }
 
     /// Activates an existing wallet by its WaaS wallet ID and persists the wallet and
