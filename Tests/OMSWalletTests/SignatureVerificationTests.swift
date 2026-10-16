@@ -122,9 +122,7 @@ enum SignatureVerificationMethod: CaseIterable, CustomTestStringConvertible {
 }
 
 private func activate(_ fixture: MockWalletClientFixture, type: WalletType, address: String) {
-    fixture.client.activeWallet = Wallet(id: "wallet-active", type: type, address: address, keyOrigin: .enclave)
-    fixture.client.sessionExpiresAt = "2099-01-01T00:00:00Z"
-    fixture.client.sessionAuth = .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
+    activateTestSession(fixture, wallet: Wallet(id: "wallet-active", type: type, address: address, keyOrigin: .enclave))
 }
 
 @Test(arguments: SignatureVerificationMethod.allCases, [true, false])

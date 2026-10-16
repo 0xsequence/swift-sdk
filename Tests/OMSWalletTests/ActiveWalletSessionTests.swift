@@ -2,11 +2,6 @@ import Foundation
 import Testing
 @testable import OMSWallet
 
-private let testEnvironment = OMSWalletEnvironment(
-    walletApiUrl: "https://wallet.example.test",
-    indexerGatewayUrl: "https://indexer.example.test/v1/IndexerGateway/"
-)
-
 private func makeFixture(
     storedRecordJSON: String,
     projectId: String = "proj_\(UUID().uuidString)",

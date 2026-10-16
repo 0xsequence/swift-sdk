@@ -451,10 +451,7 @@ func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut
 }
 
 @Test func TestWalletCredentialSessionPurgesInvalidStoredAuthMetadata() throws {
-    let environment = OMSWalletEnvironment(
-        walletApiUrl: "https://wallet.example.test",
-        indexerGatewayUrl: "https://indexer.example.test/v1/IndexerGateway/"
-    )
+    let environment = testEnvironment
     let projectId = "project-invalid-session"
     let keychain = InMemoryKeychain()
     let signer = MockCredentialSigner()
@@ -3154,11 +3151,68 @@ struct MockWalletClientFixture {
     }
 }
 
+/// The default wallet and indexer endpoints used by `makeMockWalletClient`.
+let testEnvironment = OMSWalletEnvironment(
+    walletApiUrl: "https://wallet.example.test",
+    indexerGatewayUrl: "https://indexer.example.test/v1/IndexerGateway/"
+)
+
+/// Seeds an active wallet session directly, without going through an auth flow.
+func activateTestSession(
+    _ fixture: MockWalletClientFixture,
+    wallet: Wallet,
+    expiresAt: String = "2099-01-01T00:00:00Z"
+) {
+    fixture.client.activeWallet = wallet
+    fixture.client.sessionExpiresAt = expiresAt
+    fixture.client.sessionAuth = .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
+}
+
+final class LockedBox<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Value
+
+    init(_ value: Value) {
+        self.value = value
+    }
+
+    func withValue<T>(_ body: (inout Value) -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body(&value)
+    }
+}
+
+/// Reads a URL-loading request body, which `URLSession` may deliver as a stream.
+func requestBodyData(_ request: URLRequest) -> Data? {
+    if let body = request.httpBody {
+        return body
+    }
+
+    guard let stream = request.httpBodyStream else {
+        return nil
+    }
+
+    stream.open()
+    defer { stream.close() }
+
+    var data = Data()
+    var buffer = [UInt8](repeating: 0, count: 1024)
+
+    while true {
+        let count = stream.read(&buffer, maxLength: buffer.count)
+        if count > 0 {
+            data.append(buffer, count: count)
+        } else {
+            break
+        }
+    }
+
+    return data
+}
+
 func makeMockWalletClient(
-    environment: OMSWalletEnvironment = OMSWalletEnvironment(
-        walletApiUrl: "https://wallet.example.test",
-        indexerGatewayUrl: "https://indexer.example.test/v1/IndexerGateway/"
-    ),
+    environment: OMSWalletEnvironment = testEnvironment,
     projectId: String = "proj_\(UUID().uuidString)",
     keychain: InMemoryKeychain = InMemoryKeychain(),
     signer: MockCredentialSigner = MockCredentialSigner(),
@@ -3446,14 +3500,14 @@ final class MockIndexerBackend: @unchecked Sendable {
     func responseBody(for request: URLRequest) -> Data {
         withLock {
             if request.url?.path.contains("/TronIndexerGateway/") == true {
-                tronBalanceRequestBodies.append(Self.bodyData(for: request) ?? Data())
+                tronBalanceRequestBodies.append(requestBodyData(request) ?? Data())
                 return tronBalancesResponse
             }
             if request.url?.path.contains("/SolanaIndexerGateway/") == true {
-                solanaBalanceRequests.append(decodeBalanceRequest(Self.bodyData(for: request)))
+                solanaBalanceRequests.append(decodeBalanceRequest(requestBodyData(request)))
                 return solanaBalancesResponse
             }
-            let requestBody = Self.bodyData(for: request)
+            let requestBody = requestBodyData(request)
             let request = decodeBalanceRequest(requestBody)
             balanceRequests.append(request)
             let tokenBalances = request.contractAddresses.flatMap { contractAddress in
@@ -3475,24 +3529,6 @@ final class MockIndexerBackend: @unchecked Sendable {
             )
             return (try? JSONEncoder().encode(response)) ?? Data(#"{"nativeBalances":[],"balances":[]}"#.utf8)
         }
-    }
-
-    private static func bodyData(for request: URLRequest) -> Data? {
-        if let body = request.httpBody {
-            return body
-        }
-        guard let stream = request.httpBodyStream else { return nil }
-        stream.open()
-        defer { stream.close() }
-        var data = Data()
-        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 1_024)
-        defer { buffer.deallocate() }
-        while stream.hasBytesAvailable {
-            let count = stream.read(buffer, maxLength: 1_024)
-            guard count > 0 else { break }
-            data.append(buffer, count: count)
-        }
-        return data
     }
 
     private func withLock<T>(_ body: () -> T) -> T {
@@ -3563,32 +3599,6 @@ final class MockIndexerURLProtocol: URLProtocol, @unchecked Sendable {
         return backendsByHost[host]
     }
 
-    private static func bodyData(for request: URLRequest) -> Data? {
-        if let body = request.httpBody {
-            return body
-        }
-
-        guard let stream = request.httpBodyStream else {
-            return nil
-        }
-
-        stream.open()
-        defer { stream.close() }
-
-        var data = Data()
-        var buffer = [UInt8](repeating: 0, count: 1024)
-
-        while true {
-            let count = stream.read(&buffer, maxLength: buffer.count)
-            if count > 0 {
-                data.append(buffer, count: count)
-            } else {
-                break
-            }
-        }
-
-        return data
-    }
 }
 
 private func uriOriginAndPath(_ url: String) -> String {

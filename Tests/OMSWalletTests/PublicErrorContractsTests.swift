@@ -954,9 +954,7 @@ private final class MissingAttestationURLProtocol: URLProtocol, @unchecked Senda
 
 private func makeRestoredWalletClient() -> MockWalletClientFixture {
     let fixture = makeMockWalletClient()
-    fixture.client.activeWallet = activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main")
-    fixture.client.sessionExpiresAt = "2099-01-01T00:00:00Z"
-    fixture.client.sessionAuth = .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
+    activateTestSession(fixture, wallet: activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main"))
     return fixture
 }
 

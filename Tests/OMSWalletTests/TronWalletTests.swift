@@ -8,29 +8,12 @@ private let tronWalletHex = "0x8840e6c55b9ada326d211d818c34a994aeced808"
 private let tronRecipient = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
 private let tronUsdt = "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
 
-final class LockedBox<Value>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value: Value
-
-    init(_ value: Value) {
-        self.value = value
-    }
-
-    func withValue<T>(_ body: (inout Value) -> T) -> T {
-        lock.lock()
-        defer { lock.unlock() }
-        return body(&value)
-    }
-}
-
 private func makeActiveWalletFixture(
     type: WalletType = .tron,
     address: String = tronWalletAddress
 ) -> MockWalletClientFixture {
     let fixture = makeMockWalletClient()
-    fixture.client.activeWallet = Wallet(id: "wallet-id", type: type, address: address, keyOrigin: .enclave)
-    fixture.client.sessionExpiresAt = "2099-01-01T00:00:00Z"
-    fixture.client.sessionAuth = .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
+    activateTestSession(fixture, wallet: Wallet(id: "wallet-id", type: type, address: address, keyOrigin: .enclave))
     return fixture
 }
 

@@ -756,7 +756,7 @@ final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         let recorder = Self.recorder(for: request)
-        recorder?.record(request: request, body: Self.bodyData(for: request))
+        recorder?.record(request: request, body: requestBodyData(request))
 
         if let error = recorder?.transportError {
             client?.urlProtocol(self, didFailWithError: error)
@@ -790,30 +790,4 @@ final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
         return recordersByHost.first { host.hasSuffix("-\($0.key)") }?.value
     }
 
-    private static func bodyData(for request: URLRequest) -> Data? {
-        if let body = request.httpBody {
-            return body
-        }
-
-        guard let stream = request.httpBodyStream else {
-            return nil
-        }
-
-        stream.open()
-        defer { stream.close() }
-
-        var data = Data()
-        var buffer = [UInt8](repeating: 0, count: 1024)
-
-        while true {
-            let count = stream.read(&buffer, maxLength: buffer.count)
-            if count > 0 {
-                data.append(buffer, count: count)
-            } else {
-                break
-            }
-        }
-
-        return data
-    }
 }
