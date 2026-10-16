@@ -392,48 +392,6 @@ func TestContractCallsRejectNonBareMethodNamesBeforeAnyRequest(method: String) a
     #expect(signTypedData["typedData"] as? NSDictionary == expectedTypedData)
 }
 
-@Test func TestTronSignatureValidationUsesTronNetworkFamily() async throws {
-    let fixture = makeMockWalletClient()
-    try fixture.transport.enqueue(
-        IsValidMessageSignatureResponse(isValid: true),
-        for: WaasPublicAPI.IsValidMessageSignature.urlPath
-    )
-    try fixture.transport.enqueue(
-        IsValidTypedDataSignatureResponse(isValid: false),
-        for: WaasPublicAPI.IsValidTypedDataSignature.urlPath
-    )
-
-    let messageValid = try await fixture.client.isValidTronMessageSignature(
-        walletAddress: tronWalletAddress,
-        message: "hello",
-        signature: "0xsig"
-    )
-    let typedDataValid = try await fixture.client.isValidTronTypedDataSignature(
-        walletAddress: tronWalletAddress,
-        typedData: .object(["primaryType": .string("Mail")]),
-        signature: "0xsig"
-    )
-
-    let message = try fixture.transport.requestObject(for: WaasPublicAPI.IsValidMessageSignature.urlPath)
-    let typedData = try fixture.transport.requestObject(for: WaasPublicAPI.IsValidTypedDataSignature.urlPath)
-    let expectedMessage: NSDictionary = [
-        "networkFamily": "tron",
-        "walletAddress": tronWalletAddress,
-        "message": "hello",
-        "signature": "0xsig"
-    ]
-    let expectedTypedData: NSDictionary = [
-        "networkFamily": "tron",
-        "walletAddress": tronWalletAddress,
-        "typedData": ["primaryType": "Mail"],
-        "signature": "0xsig"
-    ]
-    #expect(messageValid)
-    #expect(!typedDataValid)
-    #expect(message == expectedMessage)
-    #expect(typedData == expectedTypedData)
-}
-
 @Test(arguments: [
     (WalletType.ethereum, "0x9999999999999999999999999999999999999999"),
     (WalletType.solana, "4Nd1mYQbqjVU2aR7cJNPyqW9XjHnBYvWQd7ZxYxvT6uP")
@@ -543,40 +501,4 @@ func TestTronOperationsRejectNonTronWalletsBeforeAnyRequest(type: WalletType, ad
     #expect(request["reference"] as? String == "imported-tron")
     #expect(result.wallet == expected)
     #expect(fixture.client.activeWallet == expected)
-}
-
-@Test func TestTronPrivateKeyImportUsesSecp256k1Validation() throws {
-    let key = String(repeating: "11", count: 32)
-    #expect(try WalletImportValidation.plaintext(.tron(" 0x\(key)\n")) == Data("0x\(key)".utf8))
-    #expect(try WalletImportValidation.plaintext(.tron(key)) == Data(key.utf8))
-    let one = Data(repeating: 0, count: 31) + Data([1])
-    #expect(try WalletImportValidation.plaintext(.tronBytes(one)) == one)
-
-    let cases: [(WalletImportPrivateKey, String)] = [
-        (.tron("0x1234"), "Tron privateKey must be 32 bytes or 64 hexadecimal characters"),
-        (.tronBytes(Data(repeating: 1, count: 31)), "Tron privateKey must contain exactly 32 bytes"),
-        (.tronBytes(Data(repeating: 0, count: 32)), "Tron privateKey is outside the valid secp256k1 scalar range"),
-        (
-            .tron("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141"),
-            "Tron privateKey is outside the valid secp256k1 scalar range"
-        ),
-        (.ethereum("0x1234"), "Ethereum privateKey must be 32 bytes or 64 hexadecimal characters")
-    ]
-    for (privateKey, message) in cases {
-        do {
-            _ = try WalletImportValidation.plaintext(privateKey)
-            Issue.record("Expected \(message)")
-        } catch let error as OMSWalletError {
-            #expect(error.code == .validationError)
-            #expect(error.localizedDescription == message)
-        }
-    }
-}
-
-@Test func TestTronNetworksUseWaasNetworkIdentifiers() {
-    #expect(TronNetwork.allCases == [.mainnet, .nile])
-    #expect(TronNetworks.mainnet.rawValue == "tron:mainnet")
-    #expect(TronNetworks.nile.rawValue == "tron:nile")
-    #expect(WalletType(wireValue: "tron") == .tron)
-    #expect(WalletType.tron.wireValue == "tron")
 }

@@ -53,10 +53,14 @@ enum SignatureVerificationMethod: CaseIterable, CustomTestStringConvertible {
     }
 
     func enqueueValidResponse(_ transport: MockWaasTransport) throws {
+        try enqueueResponse(transport, isValid: true)
+    }
+
+    func enqueueResponse(_ transport: MockWaasTransport, isValid: Bool) throws {
         if isTypedData {
-            try transport.enqueue(IsValidTypedDataSignatureResponse(isValid: true), for: path)
+            try transport.enqueue(IsValidTypedDataSignatureResponse(isValid: isValid), for: path)
         } else {
-            try transport.enqueue(IsValidMessageSignatureResponse(isValid: true), for: path)
+            try transport.enqueue(IsValidMessageSignatureResponse(isValid: isValid), for: path)
         }
     }
 
@@ -123,15 +127,18 @@ private func activate(_ fixture: MockWalletClientFixture, type: WalletType, addr
     fixture.client.sessionAuth = .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
 }
 
-@Test(arguments: SignatureVerificationMethod.allCases)
-func TestSignatureVerificationWithAddressWorksWhileSignedOut(_ method: SignatureVerificationMethod) async throws {
+@Test(arguments: SignatureVerificationMethod.allCases, [true, false])
+func TestSignatureVerificationWithAddressWorksWhileSignedOut(
+    _ method: SignatureVerificationMethod,
+    expectedIsValid: Bool
+) async throws {
     let fixture = makeMockWalletClient()
-    try method.enqueueValidResponse(fixture.transport)
+    try method.enqueueResponse(fixture.transport, isValid: expectedIsValid)
 
     let isValid = try await method.call(fixture.client, walletAddress: method.address)
 
     let body = try fixture.transport.requestObject(for: method.path)
-    #expect(isValid)
+    #expect(isValid == expectedIsValid)
     #expect(body == method.expectedBody(walletAddress: method.address))
     #expect(body["walletId"] == nil)
 }

@@ -33,18 +33,13 @@ private func storedRecordJSON(version: Int = 2, walletJSON: String) -> String {
     """
 }
 
-@Test func TestActiveWalletAndSessionAreNilWhenSignedOut() throws {
-    let fixture = makeMockWalletClient()
-
-    #expect(fixture.client.activeWallet == nil)
-    #expect(fixture.client.session == nil)
-}
-
 @Test func TestCompletedAuthDefinesActiveWalletAndSessionTogether() async throws {
     let fixture = makeMockWalletClient()
     let wallet = testWallet(id: "wallet-1", address: "0x1111111111111111111111111111111111111111")
     try fixture.transport.enqueue(completeAuthResponse(wallets: [wallet]), for: WaasAPI.CompleteAuth.urlPath)
     try fixture.transport.enqueue(UseWalletResponse(wallet: wallet), for: WaasAPI.UseWallet.urlPath)
+    #expect(fixture.client.activeWallet == nil)
+    #expect(fixture.client.session == nil)
 
     let result = try await fixture.client.completeEmailAuth(code: "123456")
 
@@ -111,7 +106,12 @@ private func storedRecordJSON(version: Int = 2, walletJSON: String) -> String {
 @Test(arguments: [
     #"{"id":"wallet-1","type":"ethereum","address":"0xdef","keyOrigin":"enclave"}"#,
     #"{"id":"wallet-1","type":"bitcoin","address":"bc1q","keyOrigin":"enclave"}"#,
-    #"{"id":"wallet-1","type":"tron","address":"TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL","keyOrigin":"derived"}"#
+    #"{"id":"wallet-1","type":"tron","address":"TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL","keyOrigin":"derived"}"#,
+    #"{"id":"wallet-1","type":"ethereum","address":"0x1111111111111111111111111111111111111111","keyOrigin":"derived"}"#,
+    #"{"id":"wallet-1","type":"ethereum","address":"TW39NT9SCCv7aomYYXgh4wcUWag4XtVe2H","keyOrigin":"enclave"}"#,
+    #"{"id":"","type":"tron","address":"TW39NT9SCCv7aomYYXgh4wcUWag4XtVe2H","keyOrigin":"enclave"}"#,
+    #"{"id":"wallet-1","type":"tron","address":"","keyOrigin":"enclave"}"#,
+    #"{"id":"wallet-1","address":"TW39NT9SCCv7aomYYXgh4wcUWag4XtVe2H","keyOrigin":"enclave"}"#
 ])
 func TestDiscardsStoredSessionsWithInvalidWallets(walletJSON: String) throws {
     let fixture = try makeFixture(storedRecordJSON: storedRecordJSON(walletJSON: walletJSON))

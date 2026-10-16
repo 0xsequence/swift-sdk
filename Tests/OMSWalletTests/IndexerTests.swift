@@ -623,29 +623,14 @@ func TestGetTronBalancesRejectsInvalidResponses(responseBody: String) async thro
     }
 }
 
-@Test func TestGetBalancesRejectsMissingRequiredContractBalanceFields() async throws {
-    let recorder = IndexerRequestRecorder(
-        responseBody: Data(
-            #"{"page":{"page":0,"pageSize":40,"more":false},"nativeBalances":[],"balances":[{"chainId":137,"results":[{"contractType":"ERC20","contractAddress":"0xtoken","accountAddress":"0xwallet","tokenID":"0","balance":"1","blockNumber":1,"chainId":137}]}]}"#.utf8
-        )
-    )
-    let client = makeRecordingIndexerClient(recorder: recorder)
-
-    do {
-        _ = try await client.getBalances(GetBalancesParams(walletAddress: "0xwallet"))
-        #expect(Bool(false), "Expected an invalid response error")
-    } catch let error as OMSWalletError {
-        #expect(error.code == .invalidResponse)
-        #expect(error.operation == .indexerGetBalances)
-    }
-}
-
 @Test func TestGetBalancesRejectsMissingOrNullRequiredResultContainers() async throws {
     let responseBodies = [
         #"{"balances":[]}"#,
         #"{"nativeBalances":null,"balances":[]}"#,
         #"{"nativeBalances":[{"chainId":137}],"balances":[]}"#,
-        #"{"nativeBalances":[{"chainId":137,"results":null}],"balances":[]}"#
+        #"{"nativeBalances":[{"chainId":137,"results":null}],"balances":[]}"#,
+        // A contract balance missing its required contractInfo fields.
+        #"{"page":{"page":0,"pageSize":40,"more":false},"nativeBalances":[],"balances":[{"chainId":137,"results":[{"contractType":"ERC20","contractAddress":"0xtoken","accountAddress":"0xwallet","tokenID":"0","balance":"1","blockNumber":1,"chainId":137}]}]}"#
     ]
 
     for responseBody in responseBodies {
@@ -662,29 +647,14 @@ func TestGetTronBalancesRejectsInvalidResponses(responseBody: String) async thro
     }
 }
 
-@Test func TestGetTransactionHistoryRejectsMissingTransfers() async throws {
-    let recorder = IndexerRequestRecorder(
-        responseBody: Data(
-            #"{"transactions":[{"chainId":137,"results":[{"txnHash":"0xtxn","blockNumber":1,"blockHash":"0xblock","chainId":137,"timestamp":"2026-01-01T00:00:00Z"}]}]}"#.utf8
-        )
-    )
-    let client = makeRecordingIndexerClient(recorder: recorder)
-
-    do {
-        _ = try await client.getTransactionHistory(GetTransactionHistoryParams(walletAddress: "0xwallet"))
-        #expect(Bool(false), "Expected an invalid response error")
-    } catch let error as OMSWalletError {
-        #expect(error.code == .invalidResponse)
-        #expect(error.operation == .indexerGetTransactionHistory)
-    }
-}
-
 @Test func TestGetTransactionHistoryRejectsMissingOrNullRequiredResultContainers() async throws {
     let responseBodies = [
         #"{}"#,
         #"{"transactions":null}"#,
         #"{"transactions":[{"chainId":137}]}"#,
-        #"{"transactions":[{"chainId":137,"results":null}]}"#
+        #"{"transactions":[{"chainId":137,"results":null}]}"#,
+        // A transaction missing its required transfers.
+        #"{"transactions":[{"chainId":137,"results":[{"txnHash":"0xtxn","blockNumber":1,"blockHash":"0xblock","chainId":137,"timestamp":"2026-01-01T00:00:00Z"}]}]}"#
     ]
 
     for responseBody in responseBodies {
@@ -698,57 +668,6 @@ func TestGetTronBalancesRejectsInvalidResponses(responseBody: String) async thro
             #expect(error.code == .invalidResponse)
             #expect(error.operation == .indexerGetTransactionHistory)
         }
-    }
-}
-
-@Test func TestIndexerNonSuccessResponsesThrowOmsHttpError() async throws {
-    let tokenBalancesRecorder = IndexerRequestRecorder(
-        statusCode: 500,
-        responseBody: Data(#"{"msg":"gateway unavailable"}"#.utf8)
-    )
-    let tokenBalancesClient = makeRecordingIndexerClient(recorder: tokenBalancesRecorder)
-
-    do {
-        _ = try await tokenBalancesClient.getBalances(
-            GetBalancesParams(
-                walletAddress: "0xwallet",
-                networks: [.polygon],
-                includeMetadata: true
-            )
-        )
-        #expect(Bool(false), "Expected indexer HTTP error")
-    } catch let error as OMSWalletError {
-        #expect(error.code == .httpError)
-        #expect(error.operation == .indexerGetBalances)
-        #expect(error.status == 500)
-        #expect(error.retryable == true)
-        #expect(error.localizedDescription == "gateway unavailable")
-    } catch {
-        #expect(Bool(false), "Expected OMSWalletError")
-    }
-
-    let historyRecorder = IndexerRequestRecorder(
-        statusCode: 404,
-        responseBody: Data(#"{"cause":"not found"}"#.utf8)
-    )
-    let historyClient = makeRecordingIndexerClient(recorder: historyRecorder)
-
-    do {
-        _ = try await historyClient.getTransactionHistory(
-            GetTransactionHistoryParams(
-                walletAddress: "0xwallet",
-                networks: [.polygon]
-            )
-        )
-        #expect(Bool(false), "Expected indexer HTTP error")
-    } catch let error as OMSWalletError {
-        #expect(error.code == .httpError)
-        #expect(error.operation == .indexerGetTransactionHistory)
-        #expect(error.status == 404)
-        #expect(error.retryable == false)
-        #expect(error.localizedDescription == "indexer.getTransactionHistory failed with HTTP 404")
-    } catch {
-        #expect(Bool(false), "Expected OMSWalletError")
     }
 }
 

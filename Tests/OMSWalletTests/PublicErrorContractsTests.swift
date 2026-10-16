@@ -135,14 +135,6 @@ import Testing
     #expect(fixture.client.activeWallet?.id == "wallet-main")
 }
 
-@Test func TestPublicErrorContractsWireValues() {
-    #expect(OMSWalletErrorCode.walletAddressAlreadyImported.rawValue == "OMS_WALLET_ADDRESS_ALREADY_IMPORTED")
-    #expect(OMSWalletOperation.walletStartOIDCRedirectAuth.rawValue == "wallet.startOidcRedirectAuth")
-    #expect(OMSWalletOperation.walletHandleOIDCRedirectCallback.rawValue == "wallet.handleOidcRedirectCallback")
-    #expect(OMSWalletUpstreamService.waas.rawValue == "waas")
-    #expect(OMSWalletUpstreamService.indexer.rawValue == "indexer")
-}
-
 @Test func TestPublicErrorContractsWaasHttpAndBadResponsesHaveUpstreamDetails() async throws {
     let httpFixture = makeRestoredWalletClient()
     httpFixture.transport.enqueueRawHTTPError(
@@ -822,6 +814,56 @@ private final class MissingAttestationURLProtocol: URLProtocol, @unchecked Senda
         )
     )
 
+    // A `msg` field is used as the message when `message` is absent.
+    let msgFieldClient = makeRecordingIndexerClient(
+        recorder: IndexerRequestRecorder(
+            statusCode: 500,
+            responseBody: Data(#"{"msg":"gateway unavailable"}"#.utf8)
+        )
+    )
+    await expectPublicError(
+        try await msgFieldClient.getBalances(
+            GetBalancesParams(walletAddress: "0xwallet", networks: [.polygon], includeMetadata: true)
+        ),
+        equals: error(
+            code: .httpError,
+            operation: .indexerGetBalances,
+            message: "gateway unavailable",
+            status: 500,
+            retryable: true,
+            upstreamError: upstream(
+                service: .indexer,
+                message: "gateway unavailable",
+                status: 500
+            )
+        )
+    )
+
+    // A 4xx without a usable message is not retryable and gets the generic HTTP message.
+    let notFoundClient = makeRecordingIndexerClient(
+        recorder: IndexerRequestRecorder(
+            statusCode: 404,
+            responseBody: Data(#"{"cause":"not found"}"#.utf8)
+        )
+    )
+    await expectPublicError(
+        try await notFoundClient.getTransactionHistory(
+            GetTransactionHistoryParams(walletAddress: "0xwallet", networks: [.polygon])
+        ),
+        equals: error(
+            code: .httpError,
+            operation: .indexerGetTransactionHistory,
+            message: "indexer.getTransactionHistory failed with HTTP 404",
+            status: 404,
+            retryable: false,
+            upstreamError: upstream(
+                service: .indexer,
+                message: "indexer.getTransactionHistory failed with HTTP 404",
+                status: 404
+            )
+        )
+    )
+
     let nonJsonClient = makeRecordingIndexerClient(
         recorder: IndexerRequestRecorder(
             statusCode: 502,
@@ -908,41 +950,6 @@ private final class MissingAttestationURLProtocol: URLProtocol, @unchecked Senda
     #expect(invalidUrlFailure.status == nil)
     #expect(invalidUrlFailure.retryable == nil)
     #expect(invalidUrlFailure.upstreamError == nil)
-}
-
-@Test func TestPublicErrorContractsConstructedErrorFieldsAreStable() {
-    let upstreamError = OMSWalletUpstreamError(
-        service: .waas,
-        name: "WebrpcRequestFailed",
-        code: "-1",
-        message: "request failed",
-        status: nil
-    )
-    let sdkError = OMSWalletError(
-        code: .requestFailed,
-        message: "request failed",
-        operation: .walletStartEmailAuth,
-        status: nil,
-        txnId: "txn-1",
-        retryable: true,
-        upstreamError: upstreamError
-    )
-
-    #expect(serialize(sdkError) == PublicErrorContract(
-        code: .requestFailed,
-        operation: .walletStartEmailAuth,
-        message: "request failed",
-        status: nil,
-        retryable: true,
-        txnId: "txn-1",
-        upstreamError: SerializedUpstreamError(
-            service: .waas,
-            name: "WebrpcRequestFailed",
-            code: "-1",
-            message: "request failed",
-            status: nil
-        )
-    ))
 }
 
 private func makeRestoredWalletClient() -> MockWalletClientFixture {

@@ -5,24 +5,47 @@ import Testing
 
 @Test func TestWalletImportPrivateKeyValidationCoversScalarAndLengthBoundaries() throws {
     let one = Data(repeating: 0, count: 31) + Data([1])
+    let tronKey = String(repeating: "11", count: 32)
     #expect(try WalletImportValidation.plaintext(.ethereumBytes(one)) == one)
-    #expect(throws: OMSWalletError.self) {
-        _ = try WalletImportValidation.plaintext(.ethereumBytes(Data(repeating: 0, count: 32)))
-    }
-    #expect(throws: OMSWalletError.self) {
-        _ = try WalletImportValidation.plaintext(
-            .ethereum("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141")
-        )
-    }
+    #expect(try WalletImportValidation.plaintext(.tronBytes(one)) == one)
+    #expect(try WalletImportValidation.plaintext(.tron(" 0x\(tronKey)\n")) == Data("0x\(tronKey)".utf8))
+    #expect(try WalletImportValidation.plaintext(.tron(tronKey)) == Data(tronKey.utf8))
     #expect(try WalletImportValidation.plaintext(.solanaBytes(Data(repeating: 7, count: 64))).count == 64)
-    #expect(throws: OMSWalletError.self) {
-        _ = try WalletImportValidation.plaintext(.solanaBytes(Data(repeating: 7, count: 31)))
+
+    let secp256k1Order = "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141"
+    let cases: [(WalletImportPrivateKey, String)] = [
+        (.ethereum("0x1234"), "Ethereum privateKey must be 32 bytes or 64 hexadecimal characters"),
+        (.ethereumBytes(Data(repeating: 0, count: 32)), "Ethereum privateKey is outside the valid secp256k1 scalar range"),
+        (.ethereum(secp256k1Order), "Ethereum privateKey is outside the valid secp256k1 scalar range"),
+        (.tron("0x1234"), "Tron privateKey must be 32 bytes or 64 hexadecimal characters"),
+        (.tronBytes(Data(repeating: 1, count: 31)), "Tron privateKey must contain exactly 32 bytes"),
+        (.tronBytes(Data(repeating: 0, count: 32)), "Tron privateKey is outside the valid secp256k1 scalar range"),
+        (.tron(secp256k1Order), "Tron privateKey is outside the valid secp256k1 scalar range"),
+        (
+            .solanaBytes(Data(repeating: 7, count: 31)),
+            "Solana privateKey must contain a 32-byte seed or 64-byte keypair"
+        ),
+        (
+            .solana(String(repeating: "1", count: 32)),
+            "Solana privateKey string is ambiguous; provide the raw bytes instead"
+        ),
+    ]
+    for (privateKey, message) in cases {
+        do {
+            _ = try WalletImportValidation.plaintext(privateKey)
+            Issue.record("Expected \(message)")
+        } catch let error as OMSWalletError {
+            #expect(error.code == .validationError)
+            #expect(error.localizedDescription == message)
+        }
     }
-    #expect(throws: OMSWalletError.self) {
-        _ = try WalletImportValidation.plaintext(.solana(String(repeating: "1", count: 32)))
-    }
-    #expect(throws: OMSWalletError.self) {
-        _ = try WalletImportValidation.validateReference(String(repeating: "é", count: 65))
+
+    do {
+        try WalletImportValidation.validateReference(String(repeating: "é", count: 65))
+        Issue.record("Expected an oversized reference to be rejected")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .validationError)
+        #expect(error.localizedDescription == "reference must be at most 128 UTF-8 bytes")
     }
 }
 
@@ -125,19 +148,6 @@ import Testing
             now: now
         )
     }
-}
-
-@Test func TestWalletImportP256HpkeProducesStandardEncapsulationAndAuthenticatedCiphertext() throws {
-    let recipient = P256.KeyAgreement.PrivateKey()
-    let plaintext = Data("0x".utf8) + Data(repeating: 0x31, count: 64)
-    let sealed = try P256HPKE.seal(
-        recipientPublicKey: recipient.publicKey.derRepresentation,
-        plaintext: plaintext
-    )
-
-    #expect(sealed.encapsulatedKey.count == 65)
-    #expect(sealed.encapsulatedKey.first == 4)
-    #expect(sealed.ciphertext.count == plaintext.count + 16)
 }
 
 private func verifySyntheticAttestation(

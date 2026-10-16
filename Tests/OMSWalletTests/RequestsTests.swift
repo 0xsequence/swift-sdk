@@ -38,27 +38,24 @@ import Testing
     #expect(OidcIdToken.handleHash(idToken) == "eFZOodqrVYyRrQXoMyRVFyFSAj4PsRNgR8ktA8AaeUI")
 }
 
-@Test func TestOidcIdTokenRequiresExpirationClaim() throws {
-    let idToken = try fakeOidcIdToken(payload: ["sub": "oidc-sub-123"])
+@Test(arguments: [
+    (#"{"sub":"oidc-sub-123"}"#, OidcIdTokenError.missingExpiration),
+    (#"{"exp":1e100}"#, .invalidExpiration),
+])
+func TestOidcIdTokenRequiresValidExpirationClaim(
+    payloadJSON: String,
+    expectedError: OidcIdTokenError
+) throws {
+    let payload = try #require(
+        try JSONSerialization.jsonObject(with: Data(payloadJSON.utf8)) as? [String: Any]
+    )
+    let idToken = try fakeOidcIdToken(payload: payload)
 
     do {
         _ = try OidcIdToken.expiresAtEpochSeconds(idToken)
         #expect(Bool(false))
     } catch let error as OidcIdTokenError {
-        #expect(error == .missingExpiration)
-    } catch {
-        #expect(Bool(false))
-    }
-}
-
-@Test func TestOidcIdTokenRejectsOutOfRangeNumericExpirationClaim() throws {
-    let idToken = try fakeOidcIdToken(payload: ["exp": 1e100])
-
-    do {
-        _ = try OidcIdToken.expiresAtEpochSeconds(idToken)
-        #expect(Bool(false))
-    } catch let error as OidcIdTokenError {
-        #expect(error == .invalidExpiration)
+        #expect(error == expectedError)
     } catch {
         #expect(Bool(false))
     }
@@ -147,37 +144,6 @@ import Testing
     #expect(restored.auth == .email(OMSWalletEmailSessionAuth(email: "user@example.com")))
 }
 
-@Test func TestStorableCredentialsRejectsVersionOneRecords() {
-    let versionOne = """
-    {"walletId":"wallet-1","walletAddress":"0x1111111111111111111111111111111111111111",\
-    "signerCredentialId":"0xsigner","alg":"ecdsa-p256-sha256","expiresAt":"2099-01-01T00:00:00Z",\
-    "auth":{"type":"email","email":"user@example.com"}}
-    """
-
-    #expect(throws: DecodingError.self) {
-        try StorableCredentials.from(jsonString: versionOne)
-    }
-}
-
-@Test(arguments: [
-    #"{"id":"wallet-1","type":"bitcoin","address":"bc1q","keyOrigin":"enclave"}"#,
-    #"{"id":"wallet-1","type":"ethereum","address":"0x1111111111111111111111111111111111111111","keyOrigin":"derived"}"#,
-    #"{"id":"wallet-1","type":"ethereum","address":"TW39NT9SCCv7aomYYXgh4wcUWag4XtVe2H","keyOrigin":"enclave"}"#,
-    #"{"id":"","type":"tron","address":"TW39NT9SCCv7aomYYXgh4wcUWag4XtVe2H","keyOrigin":"enclave"}"#,
-    #"{"id":"wallet-1","type":"tron","address":"","keyOrigin":"enclave"}"#,
-    #"{"id":"wallet-1","address":"TW39NT9SCCv7aomYYXgh4wcUWag4XtVe2H","keyOrigin":"enclave"}"#
-])
-func TestStorableCredentialsRejectsInvalidStoredWallets(walletJSON: String) {
-    let record = """
-    {"version":2,"wallet":\(walletJSON),"signerCredentialId":"0xsigner","alg":"ecdsa-p256-sha256",\
-    "expiresAt":"2099-01-01T00:00:00Z","auth":{"type":"email","email":"user@example.com"}}
-    """
-
-    #expect(throws: (any Error).self) {
-        try StorableCredentials.from(jsonString: record)
-    }
-}
-
 @Test func TestOidcRedirectAuthMatchesCustomSchemesWithoutAuthority() throws {
     #expect(
         OIDCRedirectAuth.matchesRedirectURI(
@@ -187,7 +153,7 @@ func TestStorableCredentialsRejectsInvalidStoredWallets(walletJSON: String) {
     )
 }
 
-@Test func TestOidcRedirectAuthRejectsInvalidStateWithoutClearingPendingAuth() throws {
+@Test func TestOidcRedirectAuthValidateStateRejectsNonBase64State() throws {
     let pending = PendingOIDCRedirectAuth(
         verifier: "verifier",
         challenge: "challenge",
