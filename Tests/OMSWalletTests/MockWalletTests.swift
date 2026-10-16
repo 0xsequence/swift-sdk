@@ -506,9 +506,12 @@ private func waitForSessionExpiredEvent(
     return event()
 }
 
-@Test @MainActor func TestWalletSessionExpiryTimerReplaysObserver() async throws {
+@Test @MainActor func TestWalletSessionExpiryTimerFiresAfterDelayAndNotifiesObserver() async throws {
+    // The credential expires at 1_767_225_600. Start shortly before it so the client schedules the
+    // delayed expiry task instead of taking the already-expired branch.
+    let now = LockedBox(Date(timeIntervalSince1970: 1_767_225_599.8))
     let fixture = makeMockWalletClient(
-        currentDate: { Date(timeIntervalSince1970: 1_767_225_601) }
+        currentDate: { now.withValue { $0 } }
     )
     let wallet = testWallet(id: "wallet-expired-timer", address: "0x2222222222222222222222222222222222222222")
     let credential = WaasCredentialInfo(
@@ -526,19 +529,26 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.UseWallet.urlPath
     )
 
-    _ = try await fixture.client.completeEmailAuth(code: "123456")
-    await Task.yield()
-    await Task.yield()
-    var expiredEvent: OMSWalletSessionExpiredEvent?
+    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
     let observation = fixture.client.addSessionExpiredObserver { event in
-        expiredEvent = event
+        expiredEvents.append(event)
     }
     defer { observation.cancel() }
-    let replayedEvent = try await waitForSessionExpiredEvent { expiredEvent }
 
-    #expect(replayedEvent?.wallet?.address == wallet.address)
-    #expect(isEmailAuth(replayedEvent?.session.auth))
+    _ = try await fixture.client.completeEmailAuth(code: "123456")
+    await Task.yield()
+    #expect(fixture.client.session?.expiresAt == "2026-01-01T00:00:00Z")
+    #expect(fixture.client.activeWallet?.address == wallet.address)
+    #expect(expiredEvents.isEmpty)
+
+    now.withValue { $0 = Date(timeIntervalSince1970: 1_767_225_601) }
+    let expiredEvent = try await waitForSessionExpiredEvent { expiredEvents.first }
+
+    #expect(expiredEvents.count == 1)
+    #expect(expiredEvent?.wallet?.address == wallet.address)
+    #expect(isEmailAuth(expiredEvent?.session.auth))
     #expect(fixture.client.session == nil)
+    #expect(fixture.client.activeWallet == nil)
     #expect(try fixture.storedCredentials()?.wallet.id == wallet.id)
 }
 
@@ -1738,6 +1748,39 @@ private func waitForSessionExpiredEvent(
     #expect(fixture.transport.requestCount(for: WaasAPI.CompleteAuth.urlPath) == 0)
 }
 
+/// Follows an ignored callback with the real one and checks it still completes sign-in, which
+/// fails if the ignored callback consumed or cleared the pending redirect.
+private func expectRealOidcCallbackStillCompletes(
+    fixture: MockWalletClientFixture,
+    started: StartOIDCRedirectAuthResult
+) async throws {
+    let selectedWallet = testWallet(id: "wallet-oidc", address: "0x0dc0000000000000000000000000000000000000")
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            identity: Identity(type: .oidc, iss: "https://issuer.example", sub: "oidc-sub-123"),
+            wallets: [selectedWallet]
+        ),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(
+        UseWalletResponse(wallet: selectedWallet),
+        for: WaasAPI.UseWallet.urlPath
+    )
+
+    let result = try await fixture.client.handleOIDCRedirectCallback(
+        "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))"
+    )
+
+    guard case .completed(.walletSelected(let wallet, _, _)) = result else {
+        Issue.record("Expected the real OIDC callback to complete, got \(result)")
+        return
+    }
+    #expect(wallet.id == selectedWallet.id)
+    #expect(fixture.client.activeWallet?.id == selectedWallet.id)
+    #expect(fixture.transport.requestCount(for: WaasAPI.CompleteAuth.urlPath) == 1)
+    #expect(fixture.oidcRedirectAuthStore.pending == nil)
+}
+
 @Test func TestWalletHandleOidcRedirectCallbackIgnoresUnrelatedCallbackWithoutClearingPendingAuth() async throws {
     let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
     try fixture.transport.enqueue(
@@ -1766,7 +1809,10 @@ private func waitForSessionExpiredEvent(
         return
     }
     #expect(fixture.oidcRedirectAuthStore.pending?.verifier == "oidc-verifier-123")
+    #expect(fixture.oidcRedirectAuthStore.pending?.isConsumed == false)
     #expect(fixture.transport.requestCount(for: WaasAPI.CompleteAuth.urlPath) == 0)
+
+    try await expectRealOidcCallbackStillCompletes(fixture: fixture, started: started)
 }
 
 @Test func TestWalletHandleOidcRedirectCallbackIgnoresInvalidStateWithoutClearingPendingAuth() async throws {
@@ -1779,7 +1825,7 @@ private func waitForSessionExpiredEvent(
         ),
         for: WaasAPI.CommitVerifier.urlPath
     )
-    _ = try await fixture.client.startOIDCRedirectAuth(
+    let started = try await fixture.client.startOIDCRedirectAuth(
         provider: CustomOIDCProviderConfiguration(
             issuer: "https://issuer.example",
             clientID: "client-123",
@@ -1797,7 +1843,10 @@ private func waitForSessionExpiredEvent(
         return
     }
     #expect(fixture.oidcRedirectAuthStore.pending?.verifier == "oidc-verifier-123")
+    #expect(fixture.oidcRedirectAuthStore.pending?.isConsumed == false)
     #expect(fixture.transport.requestCount(for: WaasAPI.CompleteAuth.urlPath) == 0)
+
+    try await expectRealOidcCallbackStillCompletes(fixture: fixture, started: started)
 }
 
 @Test func TestWalletHandleOIDCRedirectCallbackReturnsNoPendingAuth() async throws {
@@ -2749,11 +2798,12 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.TransactionStatusMethod.urlPath
     )
 
+    let receivedOptionCounts = LockedBox<[Int]>([])
     let txResult = try await fixture.client.sendTransaction(
         network: .amoy,
         request: SendTransactionRequest(to: "0xabc", value: "0"),
         selectFeeOption: .custom { feeOptions in
-            #expect(feeOptions.isEmpty)
+            receivedOptionCounts.withValue { $0.append(feeOptions.count) }
             return nil
         }
     )
@@ -2762,6 +2812,7 @@ private func waitForSessionExpiredEvent(
         for: WaasAPI.Execute.urlPath
     )
 
+    #expect(receivedOptionCounts.withValue { $0 } == [0])
     #expect(txResult.txnId == "txn-1")
     #expect(txResult.status == .executed)
     #expect(txResult.txnHash == nil)

@@ -8,7 +8,7 @@ private let tronWalletHex = "0x8840e6c55b9ada326d211d818c34a994aeced808"
 private let tronRecipient = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
 private let tronUsdt = "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
 
-private final class LockedBox<Value>: @unchecked Sendable {
+final class LockedBox<Value>: @unchecked Sendable {
     private let lock = NSLock()
     private var value: Value
 
