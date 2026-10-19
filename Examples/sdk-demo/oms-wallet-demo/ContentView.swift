@@ -249,7 +249,10 @@ final class AppViewModel: ObservableObject {
     @Published var sessionExpiredPrompt: SessionExpiredPrompt?
     @Published fileprivate var feeOptionSelectionRequest: FeeOptionSelectionRequest?
     @Published var useManualWalletSelection: Bool = false
+    /// Type of the active wallet, shown by the wallet screen's type switcher.
     @Published var selectedWalletType: DemoWalletType = .ethereum
+    /// Type the wallet screen is switching to while `switchWalletType` runs.
+    @Published var switchingWalletType: DemoWalletType?
     @Published var loginEmail: String = ""
     @Published var sessionLifetimeText: String = "604800"
     @Published var omsWallet: OMSWallet = try! OMSWallet(
@@ -267,8 +270,12 @@ final class AppViewModel: ObservableObject {
         useManualWalletSelection ? .manual : .automatic
     }
 
+    /// Wallet family to sign in with. Fresh sign-ins use the SDK default (Ethereum) and switch
+    /// type on the wallet screen; reauthenticating an expired session keeps its wallet family.
+    private var reauthWalletType: WalletType?
+
     private var walletType: WalletType {
-        selectedWalletType.walletType
+        reauthWalletType ?? .ethereum
     }
 
     var sessionLifetimeSeconds: UInt32? {
@@ -282,11 +289,46 @@ final class AppViewModel: ObservableObject {
     }
 
     func checkSession() async {
-        let activeWallet = omsWallet.wallet.activeWallet
-        if let walletType = DemoWalletType(activeWallet?.type) {
+        if omsWallet.wallet.activeWallet != nil {
+            showWallet()
+        } else {
+            screen = .introduction
+        }
+    }
+
+    /// Shows the wallet screen for the active wallet; the restored or newly signed-in wallet
+    /// keeps its own type.
+    private func showWallet() {
+        reauthWalletType = nil
+        if let walletType = DemoWalletType(omsWallet.wallet.activeWallet?.type) {
             selectedWalletType = walletType
         }
-        screen = activeWallet != nil ? .wallet : .introduction
+        screen = .wallet
+    }
+
+    /// Activates the account's first wallet of `type`, creating one when none exists.
+    func switchWalletType(to type: DemoWalletType) async {
+        guard switchingWalletType == nil,
+              omsWallet.wallet.activeWallet?.type != type.walletType else {
+            return
+        }
+
+        switchingWalletType = type
+        defer { switchingWalletType = nil }
+
+        do {
+            let existing = try await omsWallet.wallet.listWallets().first { $0.type == type.walletType }
+            if let existing {
+                try await omsWallet.wallet.useWallet(walletId: existing.id)
+            } else {
+                try await omsWallet.wallet.createWallet(walletType: type.walletType)
+            }
+            if let walletType = DemoWalletType(omsWallet.wallet.activeWallet?.type) {
+                selectedWalletType = walletType
+            }
+        } catch {
+            present(error)
+        }
     }
 
     func signOut() {
@@ -297,6 +339,7 @@ final class AppViewModel: ObservableObject {
             try omsWallet.wallet.signOut()
             safariAuthSession = nil
             sessionExpiredPrompt = nil
+            reauthWalletType = nil
             screen = .introduction
         } catch {
             present(error)
@@ -354,7 +397,7 @@ final class AppViewModel: ObservableObject {
 
             switch result {
             case .walletSelected:
-                screen = .wallet
+                showWallet()
             case .walletSelection(let pendingSelection):
                 screen = .walletSelection(pendingSelection)
             }
@@ -462,7 +505,7 @@ final class AppViewModel: ObservableObject {
             switch result {
             case .completed(.walletSelected):
                 safariAuthSession = nil
-                screen = .wallet
+                showWallet()
             case .completed(.walletSelection(let pendingSelection)):
                 safariAuthSession = nil
                 screen = .walletSelection(pendingSelection)
@@ -489,7 +532,7 @@ final class AppViewModel: ObservableObject {
             )
             switch result {
             case .walletSelected:
-                screen = .wallet
+                showWallet()
             case .walletSelection(let pendingSelection):
                 screen = .walletSelection(pendingSelection)
             }
@@ -518,6 +561,7 @@ final class AppViewModel: ObservableObject {
         } catch {
             present(error)
         }
+        reauthWalletType = nil
         screen = .login
     }
 
@@ -529,7 +573,7 @@ final class AppViewModel: ObservableObject {
 
         do {
             _ = try await operation()
-            screen = .wallet
+            showWallet()
         } catch {
             present(error)
         }
@@ -576,9 +620,7 @@ final class AppViewModel: ObservableObject {
             loginEmail = email
         }
         // Sign the user back in to the same wallet family.
-        if let walletType = DemoWalletType(event.wallet?.type) {
-            selectedWalletType = walletType
-        }
+        reauthWalletType = DemoWalletType(event.wallet?.type)?.walletType
         screen = .login
         sessionExpiredPrompt = SessionExpiredPrompt(event: event)
     }
@@ -777,9 +819,6 @@ struct LoginWindow: View {
                     }
                 }
                 .padding(.top, 16)
-
-                WalletTypePicker()
-                    .padding(.top, 16)
 
                 ManualWalletSelectionToggle()
                     .padding(.top, 16)
@@ -1026,18 +1065,39 @@ enum DemoWalletType: String, CaseIterable, Identifiable {
     }
 }
 
-private struct WalletTypePicker: View {
+/// Switches the signed-in account between its Ethereum, Solana, and Tron wallets.
+private struct WalletTypeSwitcher: View {
     @EnvironmentObject private var vm: AppViewModel
+    var isDisabled: Bool = false
+
+    private var selection: Binding<DemoWalletType> {
+        Binding(
+            get: { vm.switchingWalletType ?? vm.selectedWalletType },
+            set: { type in
+                Task { await vm.switchWalletType(to: type) }
+            }
+        )
+    }
 
     var body: some View {
-        FieldGroup(title: "Wallet type", titleStyle: .secondary) {
-            Picker("Wallet type", selection: $vm.selectedWalletType) {
+        FieldGroup(title: "Wallet type") {
+            Picker("Wallet type", selection: selection) {
                 ForEach(DemoWalletType.allCases) { type in
                     Text(type.rawValue).tag(type)
                 }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .disabled(isDisabled || vm.switchingWalletType != nil || vm.feeOptionSelectionRequest != nil)
+
+            if let switching = vm.switchingWalletType {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(DesignTokens.Color.info)
+                    DesignText("Switching to a \(switching.rawValue) wallet...", variant: .caption)
+                }
+            }
         }
     }
 }
@@ -1214,6 +1274,7 @@ struct WalletWindow: View {
             ScrollView {
                 VStack(spacing: 24) {
                     walletHeader
+                    WalletTypeSwitcher(isDisabled: isFetchingBalance)
                     walletAddressBar
                     assetSection
                 }
@@ -1580,10 +1641,12 @@ private struct TronBalancesWindow: View {
             subtitle: "Tron wallets use native mode only. Transactions are often sponsored by each account's daily free bandwidth; once it is spent, the network fee is paid in TRX.",
             showsCloseButton: false
         ) {
+            WalletTypeSwitcher(isDisabled: isBusy || isFetchingBalance)
+
             DemoNetworkPicker(
                 selection: $network,
                 isMainnet: network == .mainnet,
-                isDisabled: isBusy || vm.feeOptionSelectionRequest != nil
+                isDisabled: isBusy || vm.feeOptionSelectionRequest != nil || vm.switchingWalletType != nil
             )
 
             if let address = vm.omsWallet.wallet.activeWallet?.address {
@@ -2104,10 +2167,12 @@ private struct SolanaBalancesWindow: View {
             subtitle: "Transfers are relayed, so the network fee is sponsored. Sending an SPL token to a wallet without a token account asks you to choose how to pay its rent.",
             showsCloseButton: false
         ) {
+            WalletTypeSwitcher(isDisabled: isBusy || isFetchingBalance)
+
             DemoNetworkPicker(
                 selection: $network,
                 isMainnet: network == .mainnet,
-                isDisabled: isBusy || vm.feeOptionSelectionRequest != nil
+                isDisabled: isBusy || vm.feeOptionSelectionRequest != nil || vm.switchingWalletType != nil
             )
 
             if let address = vm.omsWallet.wallet.activeWallet?.address {
