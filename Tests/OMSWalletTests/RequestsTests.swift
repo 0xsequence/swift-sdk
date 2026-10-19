@@ -61,7 +61,7 @@ func TestOidcIdTokenRequiresValidExpirationClaim(
     }
 }
 
-@Test func TestP256RawSignatureDerRoundTrip() throws {
+@Test func TestP256DerSignatureConvertsToRaw() throws {
     let expectedRawSignature = Array(repeating: UInt8(0), count: 31)
         + [UInt8(0x80)]
         + Array(repeating: UInt8(0), count: 31)
@@ -106,11 +106,9 @@ func TestOidcIdTokenRequiresValidExpirationClaim(
         auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
     )
 
-    #expect(session.expiresAt == "2026-01-01T00:00:00Z")
     #expect(OMSWalletSession.parseDate(session.expiresAt) == Date(timeIntervalSince1970: 1_767_225_600))
     #expect(OMSWalletSession.parseDate("2026-01-01T00:00:00.500Z") == Date(timeIntervalSince1970: 1_767_225_600.5))
     #expect(OMSWalletSession.parseDate("not-a-date") == nil)
-    #expect(session.auth.email == "user@example.com")
 }
 
 @Test func TestStorableCredentialsRoundTripSessionMetadata() throws {

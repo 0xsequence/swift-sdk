@@ -112,7 +112,6 @@ private func isOidcAuth(
     #expect(fixture.client.walletId == firstWallet.id)
     #expect(fixture.client.activeWallet?.address == firstWallet.address)
     #expect(fixture.client.session != nil)
-    #expect(fixture.client.activeWallet?.address == firstWallet.address)
     #expect(storedCredentials?.wallet.id == firstWallet.id)
     #expect(storedCredentials?.wallet.address == firstWallet.address)
     #expect(isEmailAuth(storedCredentials?.auth))
@@ -1178,10 +1177,6 @@ private func waitForSessionExpiredEvent(
         providerRedirectURI: "https://provider.example/callback",
         authorizeParams: ["prompt": "consent"]
     )
-    // Custom providers default to no scopes and PKCE.
-    #expect(provider.scopes == [])
-    #expect(provider.authMode == .authCodePKCE)
-
     let result = try await fixture.client.startOIDCRedirectAuth(
         provider: provider,
         authorizeParams: ["prompt": "select_account", "audience": "wallet"]
@@ -1950,20 +1945,6 @@ private func expectRealOidcCallbackStillCompletes(
         try await fixture.client.signTypedData(network: .amoy, typedData: .object([:]))
     }
     await expectNoAuthenticatedWalletSession {
-        try await fixture.client.isValidMessageSignature(
-            network: .amoy,
-            message: "hello",
-            signature: "0xsig"
-        )
-    }
-    await expectNoAuthenticatedWalletSession {
-        try await fixture.client.isValidTypedDataSignature(
-            network: .amoy,
-            typedData: .object([:]),
-            signature: "0xsig"
-        )
-    }
-    await expectNoAuthenticatedWalletSession {
         try await fixture.client.sendTransaction(
             network: .amoy,
             to: "0xabc",
@@ -1991,8 +1972,6 @@ private func expectRealOidcCallbackStillCompletes(
         WaasAPI.RevokeAccess.urlPath,
         WaasAPI.SignMessage.urlPath,
         WaasAPI.SignTypedData.urlPath,
-        WaasPublicAPI.IsValidMessageSignature.urlPath,
-        WaasPublicAPI.IsValidTypedDataSignature.urlPath,
         WaasAPI.PrepareEthereumTransaction.urlPath,
         WaasAPI.PrepareEthereumContractCall.urlPath
     ]

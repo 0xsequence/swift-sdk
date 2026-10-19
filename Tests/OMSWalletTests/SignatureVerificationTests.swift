@@ -138,7 +138,6 @@ func TestSignatureVerificationWithAddressWorksWhileSignedOut(
     let body = try fixture.transport.requestObject(for: method.path)
     #expect(isValid == expectedIsValid)
     #expect(body == method.expectedBody(walletAddress: method.address))
-    #expect(body["walletId"] == nil)
 }
 
 @Test(arguments: SignatureVerificationMethod.allCases)
@@ -165,7 +164,6 @@ func TestSignatureVerificationWithoutAddressUsesActiveWalletAddress(_ method: Si
     let body = try fixture.transport.requestObject(for: method.path)
     #expect(isValid)
     #expect(body == method.expectedBody(walletAddress: method.address))
-    #expect(body["walletId"] == nil)
 }
 
 @Test(arguments: SignatureVerificationMethod.allCases)

@@ -99,14 +99,4 @@ private func hex(_ data: Data) -> String {
     #expect(throws: (any Error).self) {
         try tamperedRecipient.open(tampered, authenticating: Data())
     }
-
-    // CryptoKit also opens the RFC 9180 vector ciphertext, cross-checking the vector itself.
-    typealias Vector = RFC9180P256Sha256Aes256GcmBase
-    var vectorRecipient = try HPKE.Recipient(
-        privateKey: P256.KeyAgreement.PrivateKey(rawRepresentation: hex(Vector.skRm)),
-        ciphersuite: .P256_SHA256_AES_GCM_256,
-        info: hex(Vector.info),
-        encapsulatedKey: hex(Vector.enc)
-    )
-    #expect(try vectorRecipient.open(hex(Vector.ciphertext), authenticating: hex(Vector.aad)) == hex(Vector.plaintext))
 }

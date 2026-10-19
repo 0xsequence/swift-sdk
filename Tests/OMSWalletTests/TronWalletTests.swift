@@ -67,7 +67,6 @@ private func expectValidationError<T>(
         "mode": "native"
     ]
     #expect(prepare == expectedPrepare)
-    #expect(prepare["data"] == nil)
     #expect(execute == (["txnId": "txn-trx"] as NSDictionary))
     #expect(result.txnId == "txn-trx")
     #expect(result.status == .executed)
