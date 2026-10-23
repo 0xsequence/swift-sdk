@@ -26,39 +26,42 @@ import Testing
 }
 
 @Test func TestOidcIdTokenPayloadHelpersMatchParityVector() throws {
-    let idToken = try fakeOidcIdToken(exp: 1_910_000_100)
+    // Literal vector: header {"alg":"none","typ":"JWT"}, payload {"aud":"demo-web-client-id",
+    // "email":"user@example.com","exp":1910000100,"iss":"https://accounts.google.com",
+    // "sub":"google-sub-123"}. The handle is base64url(SHA-256(token)), computed outside the SDK.
+    let idToken = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0"
+        + ".eyJhdWQiOiJkZW1vLXdlYi1jbGllbnQtaWQiLCJlbWFpbCI6InVzZXJAZXhhbXBsZS5jb20iLCJleHAiOjE5MTAw"
+        + "MDAxMDAsImlzcyI6Imh0dHBzOi8vYWNjb3VudHMuZ29vZ2xlLmNvbSIsInN1YiI6Imdvb2dsZS1zdWItMTIzIn0"
+        + ".test-signature"
 
     #expect(try OidcIdToken.expiresAtEpochSeconds(idToken) == 1_910_000_100)
-    #expect(OidcIdToken.handleHash(idToken) == expectedOidcHandleHash(idToken))
+    #expect(OidcIdToken.handleHash(idToken) == "eFZOodqrVYyRrQXoMyRVFyFSAj4PsRNgR8ktA8AaeUI")
 }
 
-@Test func TestOidcIdTokenRequiresExpirationClaim() throws {
-    let idToken = try fakeOidcIdToken(payload: ["sub": "oidc-sub-123"])
+@Test(arguments: [
+    (#"{"sub":"oidc-sub-123"}"#, OidcIdTokenError.missingExpiration),
+    (#"{"exp":1e100}"#, .invalidExpiration),
+])
+func TestOidcIdTokenRequiresValidExpirationClaim(
+    payloadJSON: String,
+    expectedError: OidcIdTokenError
+) throws {
+    let payload = try #require(
+        try JSONSerialization.jsonObject(with: Data(payloadJSON.utf8)) as? [String: Any]
+    )
+    let idToken = try fakeOidcIdToken(payload: payload)
 
     do {
         _ = try OidcIdToken.expiresAtEpochSeconds(idToken)
         #expect(Bool(false))
     } catch let error as OidcIdTokenError {
-        #expect(error == .missingExpiration)
+        #expect(error == expectedError)
     } catch {
         #expect(Bool(false))
     }
 }
 
-@Test func TestOidcIdTokenRejectsOutOfRangeNumericExpirationClaim() throws {
-    let idToken = try fakeOidcIdToken(payload: ["exp": 1e100])
-
-    do {
-        _ = try OidcIdToken.expiresAtEpochSeconds(idToken)
-        #expect(Bool(false))
-    } catch let error as OidcIdTokenError {
-        #expect(error == .invalidExpiration)
-    } catch {
-        #expect(Bool(false))
-    }
-}
-
-@Test func TestP256RawSignatureDerRoundTrip() throws {
+@Test func TestP256DerSignatureConvertsToRaw() throws {
     let expectedRawSignature = Array(repeating: UInt8(0), count: 31)
         + [UInt8(0x80)]
         + Array(repeating: UInt8(0), count: 31)
@@ -97,33 +100,42 @@ import Testing
     #expect(try parseUnits(value: "0.0000000000000000005", decimals: 18) == "1")
 }
 
-@Test func TestOMSWalletSessionStateParsesExpiresAt() throws {
-    let state = OMSWalletSessionState(
-        walletAddress: "0xabc",
-        expiresAtString: "2026-01-01T00:00:00Z",
+@Test func TestOMSWalletSessionParsesExpiresAt() throws {
+    let session = OMSWalletSession(
+        expiresAt: "2026-01-01T00:00:00Z",
         auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
     )
 
-    #expect(state.walletAddress == "0xabc")
-    #expect(state.expiresAt == Date(timeIntervalSince1970: 1_767_225_600))
-    #expect(state.auth == .email(OMSWalletEmailSessionAuth(email: "user@example.com")))
-    #expect(state.auth?.email == "user@example.com")
+    #expect(OMSWalletSession.parseDate(session.expiresAt) == Date(timeIntervalSince1970: 1_767_225_600))
+    #expect(OMSWalletSession.parseDate("2026-01-01T00:00:00.500Z") == Date(timeIntervalSince1970: 1_767_225_600.5))
+    #expect(OMSWalletSession.parseDate("not-a-date") == nil)
 }
 
 @Test func TestStorableCredentialsRoundTripSessionMetadata() throws {
+    let wallet = Wallet(
+        id: "wallet-1",
+        type: .tron,
+        address: "TW39NT9SCCv7aomYYXgh4wcUWag4XtVe2H",
+        reference: "main",
+        keyOrigin: .imported
+    )
     let credentials = StorableCredentials(
-        walletId: "wallet-1",
-        walletAddress: "0xabc",
+        wallet: wallet,
         signerCredentialId: "0xsigner",
         alg: .ecdsaP256Sha256,
         expiresAt: "2026-01-01T00:00:00Z",
         auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
     )
 
-    let restored = try StorableCredentials.from(jsonString: credentials.jsonString())
+    let json = try credentials.jsonString()
+    let object = try #require(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+    let restored = try StorableCredentials.from(jsonString: json)
 
-    #expect(restored.walletId == "wallet-1")
-    #expect(restored.walletAddress == "0xabc")
+    #expect(object["version"] as? Int == 2)
+    #expect(object["walletId"] == nil)
+    #expect(object["walletAddress"] == nil)
+    #expect(restored.version == 2)
+    #expect(restored.wallet == wallet)
     #expect(restored.signerCredentialId == "0xsigner")
     #expect(restored.alg == .ecdsaP256Sha256)
     #expect(restored.expiresAt == "2026-01-01T00:00:00Z")
@@ -139,7 +151,7 @@ import Testing
     )
 }
 
-@Test func TestOidcRedirectAuthRejectsInvalidStateWithoutClearingPendingAuth() throws {
+@Test func TestOidcRedirectAuthValidateStateRejectsNonBase64State() throws {
     let pending = PendingOIDCRedirectAuth(
         verifier: "verifier",
         challenge: "challenge",

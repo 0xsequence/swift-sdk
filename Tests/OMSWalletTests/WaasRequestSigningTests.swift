@@ -241,7 +241,7 @@ private final class WaasRecordingURLProtocol: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         let recorder = Self.recorder(for: request)
-        recorder?.record(request: request, body: Self.bodyData(for: request))
+        recorder?.record(request: request, body: requestBodyData(request))
 
         let response = HTTPURLResponse(
             url: request.url!,
@@ -266,32 +266,6 @@ private final class WaasRecordingURLProtocol: URLProtocol, @unchecked Sendable {
         return recordersByHost[host]
     }
 
-    private static func bodyData(for request: URLRequest) -> Data? {
-        if let body = request.httpBody {
-            return body
-        }
-
-        guard let stream = request.httpBodyStream else {
-            return nil
-        }
-
-        stream.open()
-        defer { stream.close() }
-
-        var data = Data()
-        var buffer = [UInt8](repeating: 0, count: 1024)
-
-        while true {
-            let count = stream.read(&buffer, maxLength: buffer.count)
-            if count > 0 {
-                data.append(buffer, count: count)
-            } else {
-                break
-            }
-        }
-
-        return data
-    }
 }
 
 @available(macOS 12.0, iOS 15.0, *)

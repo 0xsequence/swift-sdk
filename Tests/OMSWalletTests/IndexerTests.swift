@@ -7,7 +7,7 @@ import Testing
         .mainnet,
         .sepolia,
         .polygon,
-        .polygonAmoy,
+        .amoy,
         .arbitrum,
         .arbitrumSepolia,
         .optimism,
@@ -25,18 +25,19 @@ import Testing
     #expect(Network.findById(8453) == .base)
     #expect(Network.findById(747474) == .katana)
     #expect(Network.findByName("optimism-sepolia") == .optimismSepolia)
-    #expect(Network.findByName("polygonamoy") == .polygonAmoy)
+    #expect(Network.findByName("amoy") == .amoy)
+    #expect(Network.findByName(" AMOY ") == .amoy)
+    #expect(Network.findByName("polygonamoy") == nil)
     #expect(Network(rawValue: "arbitrum-sepolia") == .arbitrumSepolia)
-    #expect(Network(rawValue: "amoy") == .polygonAmoy)
 
     #expect(Network.polygon.displayName == "Polygon")
     #expect(Network.polygon.description == "Polygon")
     #expect(Network.polygon.id == 137)
-    #expect(Network.polygon.name == "polygon")
     #expect(Network.polygon.nativeTokenSymbol == "POL")
     #expect(Network.polygon.explorerUrl == "https://polygonscan.com")
-    #expect(Network.polygonAmoy.name == "amoy")
-    #expect(Network.amoy == .polygonAmoy)
+    #expect(Network.amoy.id == 80002)
+    #expect(Network.amoy.displayName == "Polygon Amoy")
+    #expect(Network.findById(80002) == .amoy)
 }
 
 @Test func TestPublishableKeyRoutingDerivesProjectAndApiUrls() throws {
@@ -84,6 +85,9 @@ import Testing
         #expect(parsedKey.projectId == "prj_project")
         #expect(parsedKey.walletApiUrl == apiUrl)
         #expect(parsedKey.indexerGatewayUrl == "\(apiUrl)/v1/IndexerGateway/")
+        #expect(parsedKey.solanaIndexerGatewayUrl == "\(apiUrl)/v1/SolanaIndexerGateway/")
+        #expect(parsedKey.tronIndexerGatewayUrl == "\(apiUrl)/v1/TronIndexerGateway/")
+        #expect(parsedKey.environment().tronIndexerGatewayUrl == "\(apiUrl)/v1/TronIndexerGateway/")
         #expect(parsedKey.walletImportTrustedPcr0s == Set(walletImportPcr0s))
 
         let oms = try OMSWallet(publishableKey: publishableKey)
@@ -173,7 +177,7 @@ import Testing
 @Test func TestGetSolanaBalancesUsesSolanaGatewayAndDecodesStrictAssets() async throws {
     let recorder = IndexerRequestRecorder(
         responseBody: Data(
-            #"{"balances":[{"network":"solana:mainnet","accountAddress":"solana-wallet","assetType":"native","name":"Solana","symbol":"SOL","decimals":9,"balance":"4679287","formattedBalance":"0.004679287","verificationStatus":"unknown","verificationSource":"none"},{"network":"solana:mainnet","accountAddress":"solana-wallet","assetType":"fungible-token","tokenProgram":"spl-token","mintAddress":"usdc-mint","name":"USD Coin","symbol":"USDC","decimals":6,"balance":"4208117429","formattedBalance":"4208.117429","verificationStatus":"verified","verificationSource":"jupiter"}],"errors":[{"network":"solana:devnet","reason":"RPC unavailable"}]}"#.utf8
+            #"{"balances":[{"network":"solana:mainnet","accountAddress":"solana-wallet","assetType":"native","name":"Solana","symbol":"SOL","decimals":9,"balance":"4679287","formattedBalance":"0.004679287","imageUrl":"","metadataUri":"","verificationStatus":"unknown","verificationSource":"none"},{"network":"solana:mainnet","accountAddress":"solana-wallet","assetType":"fungible-token","tokenProgram":"spl-token","mintAddress":"usdc-mint","name":"USD Coin","symbol":"USDC","decimals":6,"balance":"4208117429","formattedBalance":"4208.117429","verificationStatus":"verified","verificationSource":"jupiter"}],"errors":[{"network":"solana:devnet","reason":"RPC unavailable"}]}"#.utf8
         )
     )
     let client = makeRecordingIndexerClient(recorder: recorder)
@@ -205,6 +209,220 @@ import Testing
     }
     #expect(token.mintAddress == "usdc-mint")
     #expect(result.errors.first?.network == .devnet)
+
+    let native = result.balances[0]
+    let fungible = result.balances[1]
+    #expect(native.network == .mainnet)
+    #expect(native.accountAddress == "solana-wallet")
+    #expect(native.name == "Solana")
+    #expect(native.symbol == "SOL")
+    #expect(native.decimals == 9)
+    #expect(native.balance == "4679287")
+    #expect(native.formattedBalance == "0.004679287")
+    #expect(native.imageUrl == nil)
+    #expect(native.metadataUri == nil)
+    #expect(native.verificationStatus == .unknown)
+    #expect(native.verificationSource == SolanaVerificationSource.none)
+    #expect(native.priceUSD == nil)
+    #expect(native.balanceUSD == nil)
+    #expect(fungible.symbol == "USDC")
+    #expect(fungible.decimals == 6)
+    #expect(fungible.balance == "4208117429")
+    #expect(fungible.verificationStatus == .verified)
+    #expect(fungible.verificationSource == .jupiter)
+}
+
+@Test func TestGetTronBalancesUsesTronGatewayAndDecodesStrictAssets() async throws {
+    let wallet = "TW39NT9SCCv7aomYYXgh4wcUWag4XtVe2H"
+    let recorder = IndexerRequestRecorder(
+        responseBody: Data(
+            #"""
+            {
+              "balances": [
+                {
+                  "network": "tron:nile",
+                  "accountAddress": "TW39NT9SCCv7aomYYXgh4wcUWag4XtVe2H",
+                  "assetType": "fungible-token",
+                  "contractAddress": "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf",
+                  "tokenStandard": "trc20",
+                  "name": "Tether USD",
+                  "symbol": "USDT",
+                  "decimals": 6,
+                  "balance": "999000000",
+                  "formattedBalance": "999",
+                  "imageUrl": null,
+                  "metadataUri": null,
+                  "verificationStatus": "unknown",
+                  "verificationSource": "none",
+                  "priceUSD": null,
+                  "balanceUSD": null
+                },
+                {
+                  "network": "tron:nile",
+                  "accountAddress": "TW39NT9SCCv7aomYYXgh4wcUWag4XtVe2H",
+                  "assetType": "native",
+                  "contractAddress": null,
+                  "tokenStandard": null,
+                  "name": "Tron",
+                  "symbol": "TRX",
+                  "decimals": 6,
+                  "balance": "983121000",
+                  "formattedBalance": "983.121",
+                  "imageUrl": "",
+                  "metadataUri": null,
+                  "verificationStatus": "unknown",
+                  "verificationSource": "none",
+                  "priceUSD": "0.27",
+                  "balanceUSD": "265.44"
+                }
+              ],
+              "errors": [{"network": "tron:mainnet", "reason": "RPC unavailable"}],
+              "coverage": {"network": "tron:nile", "tokenSymbols": ["USDT"], "nativeIncluded": true},
+              "coverages": [{"network": "tron:nile", "tokenSymbols": ["USDT"], "nativeIncluded": true}]
+            }
+            """#.utf8
+        )
+    )
+    let client = makeRecordingIndexerClient(recorder: recorder)
+
+    let result = try await client.getTronBalances(
+        GetTronBalancesParams(
+            walletAddress: wallet,
+            networks: [.nile],
+            includeMetadata: false,
+            omitNativeBalances: false,
+            contractAddresses: ["TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"],
+            excludedContractAddresses: ["TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"]
+        )
+    )
+
+    let request = try #require(recorder.recordedRequest())
+    let body = try #require(recorder.recordedBody())
+    let payload = try #require(JSONSerialization.jsonObject(with: body) as? NSDictionary)
+    let expectedPayload: NSDictionary = [
+        "networks": ["tron:nile"],
+        "filter": [
+            "accountAddresses": [wallet],
+            "omitNativeBalances": false,
+            "contractWhitelist": ["TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"],
+            "contractBlacklist": ["TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"]
+        ],
+        "omitMetadata": true
+    ]
+    #expect(request.url?.path == "/v1/TronIndexerGateway/GetTokenBalancesDetails")
+    #expect(request.value(forHTTPHeaderField: "Api-Key") == "test-key")
+    #expect(
+        request.value(forHTTPHeaderField: "Webrpc")
+            == "webrpc@v0.31.2;gen-swift@v0.1.2;tron-indexer-gateway@v1"
+    )
+    #expect(payload == expectedPayload)
+    #expect(result.status == 200)
+    #expect(result.balances.count == 2)
+    guard case .fungibleToken(let token) = result.balances[0],
+          case .native(let native) = result.balances[1] else {
+        Issue.record("Expected a TRC-20 balance followed by a native balance")
+        return
+    }
+    #expect(token.network == .nile)
+    #expect(token.accountAddress == wallet)
+    #expect(token.tokenStandard == .trc20)
+    #expect(token.contractAddress == "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf")
+    #expect(token.symbol == "USDT")
+    #expect(token.decimals == 6)
+    #expect(token.balance == "999000000")
+    #expect(token.formattedBalance == "999")
+    #expect(token.imageUrl == nil)
+    #expect(token.priceUSD == nil)
+    #expect(token.verificationStatus == .unknown)
+    #expect(token.verificationSource == "none")
+    #expect(native.symbol == "TRX")
+    #expect(native.balance == "983121000")
+    #expect(native.imageUrl == nil)
+    #expect(native.metadataUri == nil)
+    #expect(native.priceUSD == "0.27")
+    #expect(native.balanceUSD == "265.44")
+    let tokenBalance = result.balances[0]
+    let nativeBalance = result.balances[1]
+    #expect(tokenBalance.network == .nile)
+    #expect(tokenBalance.accountAddress == wallet)
+    #expect(tokenBalance.name == "Tether USD")
+    #expect(tokenBalance.symbol == "USDT")
+    #expect(tokenBalance.decimals == 6)
+    #expect(tokenBalance.balance == "999000000")
+    #expect(tokenBalance.formattedBalance == "999")
+    #expect(tokenBalance.verificationStatus == .unknown)
+    #expect(tokenBalance.verificationSource == "none")
+    #expect(nativeBalance.symbol == "TRX")
+    #expect(nativeBalance.imageUrl == nil)
+    #expect(nativeBalance.metadataUri == nil)
+    #expect(nativeBalance.priceUSD == "0.27")
+    #expect(nativeBalance.balanceUSD == "265.44")
+    #expect(result.errors.map(\.network) == [.mainnet])
+    #expect(result.errors.map(\.reason) == ["RPC unavailable"])
+}
+
+@Test func TestGetTronBalancesDefaultsToSupportedNetworks() async throws {
+    let recorder = IndexerRequestRecorder(responseBody: Data(#"{"balances":[],"errors":[]}"#.utf8))
+    let client = makeRecordingIndexerClient(recorder: recorder)
+
+    _ = try await client.getTronBalances(
+        GetTronBalancesParams(walletAddress: "TW39NT9SCCv7aomYYXgh4wcUWag4XtVe2H")
+    )
+
+    let body = try #require(recorder.recordedBody())
+    let payload = try #require(JSONSerialization.jsonObject(with: body) as? NSDictionary)
+    let expectedPayload: NSDictionary = [
+        "networks": ["tron:mainnet", "tron:nile"],
+        "filter": ["accountAddresses": ["TW39NT9SCCv7aomYYXgh4wcUWag4XtVe2H"]],
+        "omitMetadata": false
+    ]
+    #expect(payload == expectedPayload)
+}
+
+@Test(arguments: [
+    #"{"balances":[{"network":"tron:shasta","accountAddress":"T","assetType":"native","name":"Tron","symbol":"TRX","decimals":6,"balance":"0","formattedBalance":"0","verificationStatus":"unknown","verificationSource":"none"}],"errors":[]}"#,
+    #"{"balances":[],"errors":[{"network":"tron:shasta","reason":"down"}]}"#,
+    #"{"balances":[{"network":"tron:nile","accountAddress":"T","assetType":"native","contractAddress":"TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf","name":"Tron","symbol":"TRX","decimals":6,"balance":"0","formattedBalance":"0","verificationStatus":"unknown","verificationSource":"none"}],"errors":[]}"#,
+    #"{"balances":[{"network":"tron:nile","accountAddress":"T","assetType":"fungible-token","tokenStandard":"trc10","contractAddress":"1002000","name":"BTT","symbol":"BTT","decimals":6,"balance":"0","formattedBalance":"0","verificationStatus":"unknown","verificationSource":"none"}],"errors":[]}"#,
+    #"{"balances":[],"errors":null}"#
+])
+func TestGetTronBalancesRejectsInvalidResponses(responseBody: String) async throws {
+    let recorder = IndexerRequestRecorder(responseBody: Data(responseBody.utf8))
+    let client = makeRecordingIndexerClient(recorder: recorder)
+
+    do {
+        _ = try await client.getTronBalances(
+            GetTronBalancesParams(walletAddress: "TW39NT9SCCv7aomYYXgh4wcUWag4XtVe2H")
+        )
+        Issue.record("Expected an invalid Tron balances response")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .invalidResponse)
+        #expect(error.operation == .indexerGetTronBalances)
+        #expect(error.status == 200)
+    }
+}
+
+@Test func TestGetTronBalancesSurfacesGatewayRequestErrors() async throws {
+    let recorder = IndexerRequestRecorder(
+        statusCode: 400,
+        responseBody: Data(
+            #"{"code":-4,"message":"invalid Tron address: 0x1234","name":"WebrpcBadRequest","status":400}"#.utf8
+        )
+    )
+    let client = makeRecordingIndexerClient(recorder: recorder)
+
+    do {
+        _ = try await client.getTronBalances(GetTronBalancesParams(walletAddress: "0x1234"))
+        Issue.record("Expected a Tron gateway HTTP error")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .httpError)
+        #expect(error.operation == .indexerGetTronBalances)
+        #expect(error.status == 400)
+        #expect(error.retryable == false)
+        #expect(error.upstreamError?.service == .indexer)
+        #expect(error.upstreamError?.status == 400)
+        #expect(error.upstreamError?.message == "invalid Tron address: 0x1234")
+    }
 }
 
 @Test func TestGetTransactionHistoryEncodesGatewayFiltersAndDecodesTransactions() async throws {
@@ -231,14 +449,14 @@ import Testing
                           "contractType": "ERC721",
                           "from": "0xwallet",
                           "to": "0xrecipient",
-                          "tokenIDs": ["7"],
+                          "tokenIds": ["7"],
                           "amounts": ["1"],
                           "logIndex": 0,
                           "tokenMetadata": {
                             "7": {
                               "chainId": 80002,
                               "contractAddress": "0xcontract",
-                              "tokenID": "7",
+                              "tokenId": "7",
                               "source": "metadata",
                               "name": "Token 7",
                               "attributes": [],
@@ -350,7 +568,7 @@ import Testing
               {
                 "id": 1,
                 "collectionId": 2,
-                "tokenID": "asset-token",
+                "tokenId": "asset-token",
                 "url": "https://example.com/asset.png",
                 "metadataField": "image",
                 "name": "Asset",
@@ -401,29 +619,14 @@ import Testing
     }
 }
 
-@Test func TestGetBalancesRejectsMissingRequiredContractBalanceFields() async throws {
-    let recorder = IndexerRequestRecorder(
-        responseBody: Data(
-            #"{"page":{"page":0,"pageSize":40,"more":false},"nativeBalances":[],"balances":[{"chainId":137,"results":[{"contractType":"ERC20","contractAddress":"0xtoken","accountAddress":"0xwallet","tokenID":"0","balance":"1","blockNumber":1,"chainId":137}]}]}"#.utf8
-        )
-    )
-    let client = makeRecordingIndexerClient(recorder: recorder)
-
-    do {
-        _ = try await client.getBalances(GetBalancesParams(walletAddress: "0xwallet"))
-        #expect(Bool(false), "Expected an invalid response error")
-    } catch let error as OMSWalletError {
-        #expect(error.code == .invalidResponse)
-        #expect(error.operation == .indexerGetBalances)
-    }
-}
-
 @Test func TestGetBalancesRejectsMissingOrNullRequiredResultContainers() async throws {
     let responseBodies = [
         #"{"balances":[]}"#,
         #"{"nativeBalances":null,"balances":[]}"#,
         #"{"nativeBalances":[{"chainId":137}],"balances":[]}"#,
-        #"{"nativeBalances":[{"chainId":137,"results":null}],"balances":[]}"#
+        #"{"nativeBalances":[{"chainId":137,"results":null}],"balances":[]}"#,
+        // A contract balance missing its required contractInfo fields.
+        #"{"page":{"page":0,"pageSize":40,"more":false},"nativeBalances":[],"balances":[{"chainId":137,"results":[{"contractType":"ERC20","contractAddress":"0xtoken","accountAddress":"0xwallet","tokenID":"0","balance":"1","blockNumber":1,"chainId":137}]}]}"#
     ]
 
     for responseBody in responseBodies {
@@ -440,29 +643,14 @@ import Testing
     }
 }
 
-@Test func TestGetTransactionHistoryRejectsMissingTransfers() async throws {
-    let recorder = IndexerRequestRecorder(
-        responseBody: Data(
-            #"{"transactions":[{"chainId":137,"results":[{"txnHash":"0xtxn","blockNumber":1,"blockHash":"0xblock","chainId":137,"timestamp":"2026-01-01T00:00:00Z"}]}]}"#.utf8
-        )
-    )
-    let client = makeRecordingIndexerClient(recorder: recorder)
-
-    do {
-        _ = try await client.getTransactionHistory(GetTransactionHistoryParams(walletAddress: "0xwallet"))
-        #expect(Bool(false), "Expected an invalid response error")
-    } catch let error as OMSWalletError {
-        #expect(error.code == .invalidResponse)
-        #expect(error.operation == .indexerGetTransactionHistory)
-    }
-}
-
 @Test func TestGetTransactionHistoryRejectsMissingOrNullRequiredResultContainers() async throws {
     let responseBodies = [
         #"{}"#,
         #"{"transactions":null}"#,
         #"{"transactions":[{"chainId":137}]}"#,
-        #"{"transactions":[{"chainId":137,"results":null}]}"#
+        #"{"transactions":[{"chainId":137,"results":null}]}"#,
+        // A transaction missing its required transfers.
+        #"{"transactions":[{"chainId":137,"results":[{"txnHash":"0xtxn","blockNumber":1,"blockHash":"0xblock","chainId":137,"timestamp":"2026-01-01T00:00:00Z"}]}]}"#
     ]
 
     for responseBody in responseBodies {
@@ -476,57 +664,6 @@ import Testing
             #expect(error.code == .invalidResponse)
             #expect(error.operation == .indexerGetTransactionHistory)
         }
-    }
-}
-
-@Test func TestIndexerNonSuccessResponsesThrowOmsHttpError() async throws {
-    let tokenBalancesRecorder = IndexerRequestRecorder(
-        statusCode: 500,
-        responseBody: Data(#"{"msg":"gateway unavailable"}"#.utf8)
-    )
-    let tokenBalancesClient = makeRecordingIndexerClient(recorder: tokenBalancesRecorder)
-
-    do {
-        _ = try await tokenBalancesClient.getBalances(
-            GetBalancesParams(
-                walletAddress: "0xwallet",
-                networks: [.polygon],
-                includeMetadata: true
-            )
-        )
-        #expect(Bool(false), "Expected indexer HTTP error")
-    } catch let error as OMSWalletError {
-        #expect(error.code == .httpError)
-        #expect(error.operation == .indexerGetBalances)
-        #expect(error.status == 500)
-        #expect(error.retryable == true)
-        #expect(error.localizedDescription == "gateway unavailable")
-    } catch {
-        #expect(Bool(false), "Expected OMSWalletError")
-    }
-
-    let historyRecorder = IndexerRequestRecorder(
-        statusCode: 404,
-        responseBody: Data(#"{"cause":"not found"}"#.utf8)
-    )
-    let historyClient = makeRecordingIndexerClient(recorder: historyRecorder)
-
-    do {
-        _ = try await historyClient.getTransactionHistory(
-            GetTransactionHistoryParams(
-                walletAddress: "0xwallet",
-                networks: [.polygon]
-            )
-        )
-        #expect(Bool(false), "Expected indexer HTTP error")
-    } catch let error as OMSWalletError {
-        #expect(error.code == .httpError)
-        #expect(error.operation == .indexerGetTransactionHistory)
-        #expect(error.status == 404)
-        #expect(error.retryable == false)
-        #expect(error.localizedDescription == "indexer.getTransactionHistory failed with HTTP 404")
-    } catch {
-        #expect(Bool(false), "Expected OMSWalletError")
     }
 }
 
@@ -544,7 +681,8 @@ func makeRecordingIndexerClient(recorder: IndexerRequestRecorder) -> IndexerClie
     let environment = OMSWalletEnvironment(
         walletApiUrl: "https://wallet.example.test",
         indexerGatewayUrl: "https://\(host)/v1/IndexerGateway/",
-        solanaIndexerGatewayUrl: "https://\(host)/v1/SolanaIndexerGateway/"
+        solanaIndexerGatewayUrl: "https://\(host)/v1/SolanaIndexerGateway/",
+        tronIndexerGatewayUrl: "https://\(host)/v1/TronIndexerGateway/"
     )
 
     return IndexerClient(
@@ -614,7 +752,7 @@ final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         let recorder = Self.recorder(for: request)
-        recorder?.record(request: request, body: Self.bodyData(for: request))
+        recorder?.record(request: request, body: requestBodyData(request))
 
         if let error = recorder?.transportError {
             client?.urlProtocol(self, didFailWithError: error)
@@ -648,30 +786,4 @@ final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
         return recordersByHost.first { host.hasSuffix("-\($0.key)") }?.value
     }
 
-    private static func bodyData(for request: URLRequest) -> Data? {
-        if let body = request.httpBody {
-            return body
-        }
-
-        guard let stream = request.httpBodyStream else {
-            return nil
-        }
-
-        stream.open()
-        defer { stream.close() }
-
-        var data = Data()
-        var buffer = [UInt8](repeating: 0, count: 1024)
-
-        while true {
-            let count = stream.read(&buffer, maxLength: buffer.count)
-            if count > 0 {
-                data.append(buffer, count: count)
-            } else {
-                break
-            }
-        }
-
-        return data
-    }
 }

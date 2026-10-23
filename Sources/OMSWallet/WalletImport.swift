@@ -13,11 +13,17 @@ public enum WalletImportPrivateKey: Sendable {
     case ethereumBytes(Data)
     case solana(String)
     case solanaBytes(Data)
+    /// A secp256k1 private key as 64 hexadecimal characters, optionally `0x`-prefixed. Tron uses
+    /// the same private key format as Ethereum.
+    case tron(String)
+    /// A 32-byte secp256k1 private key.
+    case tronBytes(Data)
 
-    var walletType: WalletType {
+    public var walletType: WalletType {
         switch self {
         case .ethereum, .ethereumBytes: .ethereum
         case .solana, .solanaBytes: .solana
+        case .tron, .tronBytes: .tron
         }
     }
 }
@@ -58,6 +64,7 @@ extension WalletType {
         switch self {
         case .ethereum: .evm
         case .solana: .solana
+        case .tron: .tron
         case .unknown(let value): .unknown(value)
         }
     }
@@ -75,19 +82,13 @@ enum WalletImportValidation {
     static func plaintext(_ privateKey: WalletImportPrivateKey) throws -> Data {
         switch privateKey {
         case .ethereum(let value):
-            let trimmed = trimAsciiWhitespace(value)
-            let hex = trimmed.hasPrefix("0x") ? String(trimmed.dropFirst(2)) : trimmed
-            guard hex.count == 64, hex.allSatisfy(\.isHexDigit), let bytes = Data(hexString: hex) else {
-                throw validation("Ethereum privateKey must be 32 bytes or 64 hexadecimal characters")
-            }
-            try requireValidEthereumScalar(bytes)
-            return Data(trimmed.utf8)
+            return try secp256k1PrivateKeyPlaintext(value, label: "Ethereum")
         case .ethereumBytes(let bytes):
-            guard bytes.count == 32 else {
-                throw validation("Ethereum privateKey must contain exactly 32 bytes")
-            }
-            try requireValidEthereumScalar(bytes)
-            return bytes
+            return try secp256k1PrivateKeyPlaintext(bytes, label: "Ethereum")
+        case .tron(let value):
+            return try secp256k1PrivateKeyPlaintext(value, label: "Tron")
+        case .tronBytes(let bytes):
+            return try secp256k1PrivateKeyPlaintext(bytes, label: "Tron")
         case .solana(let value):
             let trimmed = trimAsciiWhitespace(value)
             guard let decoded = decodeBase58(trimmed), decoded.count == 32 || decoded.count == 64 else {
@@ -119,10 +120,28 @@ enum WalletImportValidation {
         return value
     }
 
-    private static func requireValidEthereumScalar(_ value: Data) throws {
+    private static func secp256k1PrivateKeyPlaintext(_ value: String, label: String) throws -> Data {
+        let trimmed = trimAsciiWhitespace(value)
+        let hex = trimmed.hasPrefix("0x") ? String(trimmed.dropFirst(2)) : trimmed
+        guard hex.count == 64, hex.allSatisfy(\.isHexDigit), let bytes = Data(hexString: hex) else {
+            throw validation("\(label) privateKey must be 32 bytes or 64 hexadecimal characters")
+        }
+        try requireValidSecp256k1Scalar(bytes, label: label)
+        return Data(trimmed.utf8)
+    }
+
+    private static func secp256k1PrivateKeyPlaintext(_ bytes: Data, label: String) throws -> Data {
+        guard bytes.count == 32 else {
+            throw validation("\(label) privateKey must contain exactly 32 bytes")
+        }
+        try requireValidSecp256k1Scalar(bytes, label: label)
+        return bytes
+    }
+
+    private static func requireValidSecp256k1Scalar(_ value: Data, label: String) throws {
         let bytes = [UInt8](value)
         guard bytes.contains(where: { $0 != 0 }), bytes.lexicographicallyPrecedes(secp256k1Order) else {
-            throw validation("Ethereum privateKey is outside the valid secp256k1 scalar range")
+            throw validation("\(label) privateKey is outside the valid secp256k1 scalar range")
         }
     }
 
@@ -157,11 +176,54 @@ enum WalletImportValidation {
 }
 
 enum P256HPKE {
+    /// RFC 9180 base-mode sender context for DHKEM(P-256, HKDF-SHA256), HKDF-SHA256, AES-256-GCM.
+    struct SenderContext {
+        let encapsulatedKey: Data
+        let sharedSecret: Data
+        let keyScheduleContext: Data
+        let secret: Data
+        let key: Data
+        let baseNonce: Data
+    }
+
     static func seal(recipientPublicKey: Data, plaintext: Data) throws -> (encapsulatedKey: Data, ciphertext: Data) {
+        try seal(
+            recipientPublicKey: recipientPublicKey,
+            plaintext: plaintext,
+            ephemeralPrivateKey: P256.KeyAgreement.PrivateKey()
+        )
+    }
+
+    // Internal so tests can supply the ephemeral key, info, and aad from RFC 9180 test vectors.
+    static func seal(
+        recipientPublicKey: Data,
+        plaintext: Data,
+        ephemeralPrivateKey: P256.KeyAgreement.PrivateKey,
+        info: Data = Data(),
+        aad: Data = Data()
+    ) throws -> (encapsulatedKey: Data, ciphertext: Data) {
+        let context = try setupBaseSender(
+            recipientPublicKey: recipientPublicKey,
+            ephemeralPrivateKey: ephemeralPrivateKey,
+            info: info
+        )
+        let sealed = try AES.GCM.seal(
+            plaintext,
+            using: SymmetricKey(data: context.key),
+            nonce: AES.GCM.Nonce(data: context.baseNonce),
+            authenticating: aad
+        )
+        return (context.encapsulatedKey, sealed.ciphertext + sealed.tag)
+    }
+
+    static func setupBaseSender(
+        recipientPublicKey: Data,
+        ephemeralPrivateKey: P256.KeyAgreement.PrivateKey,
+        info: Data
+    ) throws -> SenderContext {
         let recipient = try P256.KeyAgreement.PublicKey(derRepresentation: recipientPublicKey)
-        let ephemeral = P256.KeyAgreement.PrivateKey()
-        let encapsulatedKey = ephemeral.publicKey.x963Representation
-        let sharedSecret = try ephemeral.sharedSecretFromKeyAgreement(with: recipient)
+        let encapsulatedKey = ephemeralPrivateKey.publicKey.x963Representation
+        let sharedSecret = try ephemeralPrivateKey.sharedSecretFromKeyAgreement(with: recipient)
         let dh = sharedSecret.withUnsafeBytes { Data($0) }
 
         let kemSuiteId = Data("KEM".utf8) + uint16(0x0010)
@@ -171,19 +233,20 @@ enum P256HPKE {
 
         let suiteId = Data("HPKE".utf8) + uint16(0x0010) + uint16(0x0001) + uint16(0x0002)
         let pskIdHash = labeledExtract(salt: Data(), suiteId: suiteId, label: "psk_id_hash", ikm: Data())
-        let infoHash = labeledExtract(salt: Data(), suiteId: suiteId, label: "info_hash", ikm: Data())
+        let infoHash = labeledExtract(salt: Data(), suiteId: suiteId, label: "info_hash", ikm: info)
         let context = Data([0]) + pskIdHash + infoHash
         let secret = labeledExtract(salt: shared, suiteId: suiteId, label: "secret", ikm: Data())
         let key = try labeledExpand(prk: secret, suiteId: suiteId, label: "key", info: context, length: 32)
         let nonce = try labeledExpand(prk: secret, suiteId: suiteId, label: "base_nonce", info: context, length: 12)
 
-        let sealed = try AES.GCM.seal(
-            plaintext,
-            using: SymmetricKey(data: key),
-            nonce: AES.GCM.Nonce(data: nonce),
-            authenticating: Data()
+        return SenderContext(
+            encapsulatedKey: encapsulatedKey,
+            sharedSecret: shared,
+            keyScheduleContext: context,
+            secret: secret,
+            key: key,
+            baseNonce: nonce
         )
-        return (encapsulatedKey, sealed.ciphertext + sealed.tag)
     }
 
     private static func labeledExtract(salt: Data, suiteId: Data, label: String, ikm: Data) -> Data {
@@ -196,24 +259,13 @@ enum P256HPKE {
     }
 
     private static func hkdfExtract(salt: Data, ikm: Data) -> Data {
-        let key = SymmetricKey(data: salt.isEmpty ? Data(repeating: 0, count: 32) : salt)
-        return Data(HMAC<SHA256>.authenticationCode(for: ikm, using: key))
+        Data(HKDF<SHA256>.extract(inputKeyMaterial: SymmetricKey(data: ikm), salt: salt))
     }
 
     private static func hkdfExpand(prk: Data, info: Data, length: Int) throws -> Data {
         guard length <= 255 * 32 else { throw OMSWalletError(code: .validationError, message: "HPKE output is too long") }
-        var output = Data()
-        var previous = Data()
-        var counter: UInt8 = 1
-        while output.count < length {
-            previous = Data(HMAC<SHA256>.authenticationCode(
-                for: previous + info + Data([counter]),
-                using: SymmetricKey(data: prk)
-            ))
-            output += previous
-            counter &+= 1
-        }
-        return output.prefix(length)
+        return HKDF<SHA256>.expand(pseudoRandomKey: prk, info: info, outputByteCount: length)
+            .withUnsafeBytes { Data($0) }
     }
 
     private static func uint16(_ value: UInt16) -> Data {

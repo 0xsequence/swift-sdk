@@ -12,11 +12,23 @@ public enum SolanaNetworks {
     public static let mainnet: SolanaNetwork = .mainnet
 }
 
+public enum TronNetwork: String, CaseIterable, Codable, Sendable, CustomStringConvertible {
+    case mainnet = "tron:mainnet"
+    case nile = "tron:nile"
+
+    public var description: String { rawValue }
+}
+
+public enum TronNetworks {
+    public static let mainnet: TronNetwork = .mainnet
+    public static let nile: TronNetwork = .nile
+}
+
 public enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
     case mainnet
     case sepolia
     case polygon
-    case polygonAmoy = "amoy"
+    case amoy
     case arbitrum
     case arbitrumSepolia = "arbitrum-sepolia"
     case optimism
@@ -30,8 +42,6 @@ public enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
     case avalancheTestnet = "avalanche-testnet"
     case katana
 
-    public static let amoy: Network = .polygonAmoy
-
     public var id: Int {
         switch self {
         case .mainnet:
@@ -40,7 +50,7 @@ public enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
             return 11155111
         case .polygon:
             return 137
-        case .polygonAmoy:
+        case .amoy:
             return 80002
         case .arbitrum:
             return 42161
@@ -69,7 +79,7 @@ public enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
         }
     }
 
-    public var chainId: String {
+    var waasChainId: String {
         String(id)
     }
 
@@ -82,7 +92,7 @@ public enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
         case .mainnet, .sepolia, .arbitrum, .arbitrumSepolia, .optimism, .optimismSepolia,
              .base, .baseSepolia, .arbitrumNova, .katana:
             return "ETH"
-        case .polygon, .polygonAmoy:
+        case .polygon, .amoy:
             return "POL"
         case .bsc, .bscTestnet:
             return "BNB"
@@ -99,7 +109,7 @@ public enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
             return "https://sepolia.etherscan.io"
         case .polygon:
             return "https://polygonscan.com"
-        case .polygonAmoy:
+        case .amoy:
             return "https://amoy.polygonscan.com"
         case .arbitrum:
             return "https://arbiscan.io"
@@ -140,7 +150,7 @@ public enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
             return "Sepolia"
         case .polygon:
             return "Polygon"
-        case .polygonAmoy:
+        case .amoy:
             return "Polygon Amoy"
         case .arbitrum:
             return "Arbitrum"
@@ -184,6 +194,5 @@ public enum Network: String, CaseIterable, Sendable, CustomStringConvertible {
     public static func findByName(_ name: String) -> Network? {
         let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return supportedNetworks.first { $0.name.lowercased() == normalized }
-            ?? (normalized == "polygonamoy" ? .polygonAmoy : nil)
     }
 }

@@ -3,6 +3,7 @@ import Foundation
 public enum WalletType: Codable, Equatable, Hashable, Sendable {
     case ethereum
     case solana
+    case tron
     case unknown(String)
 
     public var wireValue: String {
@@ -11,6 +12,8 @@ public enum WalletType: Codable, Equatable, Hashable, Sendable {
             return "ethereum"
         case .solana:
             return "solana"
+        case .tron:
+            return "tron"
         case .unknown(let value):
             return value
         }
@@ -22,6 +25,8 @@ public enum WalletType: Codable, Equatable, Hashable, Sendable {
             self = .ethereum
         case "solana":
             self = .solana
+        case "tron":
+            self = .tron
         default:
             self = .unknown(wireValue)
         }
@@ -270,6 +275,9 @@ public struct AbiArg: Codable, Equatable, Sendable {
 
 public struct WalletCredential: Codable, Equatable, Sendable {
     public let credentialId: String
+    /// The credential's current expiry when it was returned, as an ISO-8601 timestamp. The server
+    /// extends it with use up to the requested session lifetime, and the SDK refreshes the active
+    /// session's copy in `OMSWalletSession.expiresAt`.
     public let expiresAt: String
     public let isCaller: Bool
 
