@@ -9,9 +9,9 @@ extension WalletClient {
     ///   - message: The plaintext message to sign.
     /// - Returns: A hex-encoded signature string.
     public func signMessage(network: Network, message: String) async throws -> String {
-        try await runOMSWalletOperation(.walletSignMessage) {
-            try requireActiveEthereumWallet()
-            let walletId = try requireActiveWalletId()
+        try await runSessionOperation(.walletSignMessage) {
+            try await requireActiveEthereumWallet()
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             let params = SignMessageRequest(
                 network: network.waasChainId,
@@ -25,9 +25,9 @@ extension WalletClient {
     }
 
     public func signSolanaMessage(message: String) async throws -> String {
-        try await runOMSWalletOperation(.walletSignSolanaMessage) {
-            try requireActiveSolanaWallet()
-            let walletId = try requireActiveWalletId()
+        try await runSessionOperation(.walletSignSolanaMessage) {
+            try await requireActiveSolanaWallet()
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             return try await signedClient.signMessage(
                 SignMessageRequest(network: "", walletId: walletId, message: message)
@@ -36,9 +36,9 @@ extension WalletClient {
     }
 
     public func signTypedData(network: Network, typedData: JSONValue) async throws -> String {
-        try await runOMSWalletOperation(.walletSignTypedData) {
-            try requireActiveEthereumWallet()
-            let walletId = try requireActiveWalletId()
+        try await runSessionOperation(.walletSignTypedData) {
+            try await requireActiveEthereumWallet()
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             let params = SignTypedDataRequest(
                 network: network.waasChainId,
@@ -58,7 +58,7 @@ extension WalletClient {
         signature: String
     ) async throws -> Bool {
         try await runOMSWalletOperation(.walletIsValidMessageSignature) {
-            let walletAddress = try verificationWalletAddress(walletAddress, walletType: .ethereum)
+            let walletAddress = try await verificationWalletAddress(walletAddress, walletType: .ethereum)
             let response = try await publicClient.isValidMessageSignature(
                 IsValidMessageSignatureRequest(
                     network: network.waasChainId,
@@ -79,7 +79,7 @@ extension WalletClient {
         signature: String
     ) async throws -> Bool {
         try await runOMSWalletOperation(.walletIsValidSolanaMessageSignature) {
-            let walletAddress = try verificationWalletAddress(walletAddress, walletType: .solana)
+            let walletAddress = try await verificationWalletAddress(walletAddress, walletType: .solana)
             let response = try await publicClient.isValidMessageSignature(
                 IsValidMessageSignatureRequest(
                     networkFamily: .solana,
@@ -99,7 +99,7 @@ extension WalletClient {
         signature: String
     ) async throws -> Bool {
         try await runOMSWalletOperation(.walletIsValidTypedDataSignature) {
-            let walletAddress = try verificationWalletAddress(walletAddress, walletType: .ethereum)
+            let walletAddress = try await verificationWalletAddress(walletAddress, walletType: .ethereum)
             let response = try await publicClient.isValidTypedDataSignature(
                 IsValidTypedDataSignatureRequest(
                     network: network.waasChainId,
@@ -115,9 +115,9 @@ extension WalletClient {
     }
 
     public func signTronMessage(message: String) async throws -> String {
-        try await runOMSWalletOperation(.walletSignTronMessage) {
-            try requireActiveTronWallet()
-            let walletId = try requireActiveWalletId()
+        try await runSessionOperation(.walletSignTronMessage) {
+            try await requireActiveTronWallet()
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             return try await signedClient.signMessage(
                 SignMessageRequest(network: "", walletId: walletId, message: message)
@@ -126,9 +126,9 @@ extension WalletClient {
     }
 
     public func signTronTypedData(typedData: JSONValue) async throws -> String {
-        try await runOMSWalletOperation(.walletSignTronTypedData) {
-            try requireActiveTronWallet()
-            let walletId = try requireActiveWalletId()
+        try await runSessionOperation(.walletSignTronTypedData) {
+            try await requireActiveTronWallet()
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             return try await signedClient.signTypedData(
                 SignTypedDataRequest(network: "", walletId: walletId, typedData: typedData.waasValue)
@@ -142,7 +142,7 @@ extension WalletClient {
         signature: String
     ) async throws -> Bool {
         try await runOMSWalletOperation(.walletIsValidTronMessageSignature) {
-            let walletAddress = try verificationWalletAddress(walletAddress, walletType: .tron)
+            let walletAddress = try await verificationWalletAddress(walletAddress, walletType: .tron)
             return try await publicClient.isValidMessageSignature(
                 IsValidMessageSignatureRequest(
                     networkFamily: .tron,
@@ -160,7 +160,7 @@ extension WalletClient {
         signature: String
     ) async throws -> Bool {
         try await runOMSWalletOperation(.walletIsValidTronTypedDataSignature) {
-            let walletAddress = try verificationWalletAddress(walletAddress, walletType: .tron)
+            let walletAddress = try await verificationWalletAddress(walletAddress, walletType: .tron)
             return try await publicClient.isValidTypedDataSignature(
                 IsValidTypedDataSignatureRequest(
                     networkFamily: .tron,
@@ -181,9 +181,9 @@ extension WalletClient {
         waitForStatus: Bool = true,
         statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()
     ) async throws -> SendTransactionResponse {
-        try await runOMSWalletOperation(.walletSendTransaction) {
-            try requireActiveEthereumWallet()
-            let walletId = try requireActiveWalletId()
+        try await runSessionOperation(.walletSendTransaction) {
+            try await requireActiveEthereumWallet()
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             let walletAddress = try walletAddressIfNeeded(for: selectFeeOption)
             return try await sendTransaction(
@@ -210,9 +210,9 @@ extension WalletClient {
         waitForStatus: Bool = true,
         statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()
     ) async throws -> SendTransactionResponse {
-        try await runOMSWalletOperation(.walletSendTransaction) {
-            try requireActiveEthereumWallet()
-            let walletId = try requireActiveWalletId()
+        try await runSessionOperation(.walletSendTransaction) {
+            try await requireActiveEthereumWallet()
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             let walletAddress = try walletAddressIfNeeded(for: selectFeeOption)
             return try await sendTransaction(
@@ -237,9 +237,9 @@ extension WalletClient {
         waitForStatus: Bool = true,
         statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()
     ) async throws -> SendTransactionResponse {
-        try await runOMSWalletOperation(.walletSendSolanaTransfer) {
-            try requireActiveSolanaWallet()
-            let walletId = try requireActiveWalletId()
+        try await runSessionOperation(.walletSendSolanaTransfer) {
+            try await requireActiveSolanaWallet()
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             let walletAddress = try walletAddressIfNeeded(for: selectFeeOption)
             let prepared = try await signedClient.prepareSolanaTransfer(
@@ -272,9 +272,9 @@ extension WalletClient {
         waitForStatus: Bool = true,
         statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()
     ) async throws -> SendTransactionResponse {
-        try await runOMSWalletOperation(.walletSendTronTransaction) {
-            try requireActiveTronWallet()
-            let walletId = try requireActiveWalletId()
+        try await runSessionOperation(.walletSendTronTransaction) {
+            try await requireActiveTronWallet()
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             let walletAddress = try walletAddressIfNeeded(for: selectFeeOption)
             // `data` is forwarded as given: nil omits the field (a TRX transfer), while any value,
@@ -309,9 +309,9 @@ extension WalletClient {
         waitForStatus: Bool = true,
         statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()
     ) async throws -> SendTransactionResponse {
-        try await runOMSWalletOperation(.walletCallTronContract) {
-            try requireActiveTronWallet()
-            let walletId = try requireActiveWalletId()
+        try await runSessionOperation(.walletCallTronContract) {
+            try await requireActiveTronWallet()
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             try requireContractMethodName(method)
             let walletAddress = try walletAddressIfNeeded(for: selectFeeOption)
@@ -376,9 +376,9 @@ extension WalletClient {
         waitForStatus: Bool = true,
         statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()
     ) async throws -> SendTransactionResponse {
-        try await runOMSWalletOperation(.walletCallContract) {
-            try requireActiveEthereumWallet()
-            let walletId = try requireActiveWalletId()
+        try await runSessionOperation(.walletCallContract) {
+            try await requireActiveEthereumWallet()
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             try requireContractMethodName(method)
             let walletAddress = try walletAddressIfNeeded(for: selectFeeOption)
@@ -409,8 +409,8 @@ extension WalletClient {
     /// - Parameter txnId: The transaction ID returned by the wallet API prepare/execute flow.
     /// - Returns: The current transaction status and transaction hash when available.
     public func getTransactionStatus(txnId: String) async throws -> TransactionStatusResponse {
-        try await runOMSWalletOperation(.walletGetTransactionStatus) {
-            _ = try requireActiveWalletId()
+        try await runSessionOperation(.walletGetTransactionStatus) {
+            _ = try await requireActiveWalletId()
             try requireActiveCredential()
             return try await signedClient.transactionStatus(
                 TransactionStatusRequest(txnId: txnId)
@@ -781,35 +781,35 @@ extension WalletClient {
         return !txnHash.isEmpty
     }
 
-    private func requireActiveEthereumWallet() throws {
-        try requireActiveWalletType(.ethereum)
+    private func requireActiveEthereumWallet() async throws {
+        try await requireActiveWalletType(.ethereum)
     }
 
-    private func requireActiveSolanaWallet() throws {
-        try requireActiveWalletType(.solana)
+    private func requireActiveSolanaWallet() async throws {
+        try await requireActiveWalletType(.solana)
     }
 
-    private func requireActiveTronWallet() throws {
-        try requireActiveWalletType(.tron)
+    private func requireActiveTronWallet() async throws {
+        try await requireActiveWalletType(.tron)
     }
 
     /// Returns `walletAddress` when given (it must not be blank); otherwise the active wallet's address, which must be of
     /// `walletType`. Verification never sends a wallet ID.
-    private func verificationWalletAddress(_ walletAddress: String?, walletType: WalletType) throws -> String {
+    private func verificationWalletAddress(_ walletAddress: String?, walletType: WalletType) async throws -> String {
         if let walletAddress {
             guard !walletAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw OMSWalletError(code: .validationError, message: "walletAddress must not be empty")
             }
             return walletAddress
         }
-        return try requireActiveWalletType(walletType).address
+        return try await requireActiveWalletType(walletType).address
     }
 
     /// Checks the session (expiring it if due) before the stored wallet type; the address shape is
     /// not checked.
     @discardableResult
-    func requireActiveWalletType(_ type: WalletType) throws -> Wallet {
-        _ = try requireActiveWalletId()
+    func requireActiveWalletType(_ type: WalletType) async throws -> Wallet {
+        _ = try await requireActiveWalletId()
         guard let activeWallet else {
             throw OMSWalletError.sessionMissing()
         }

@@ -40,7 +40,9 @@ typed-data signing, signature verification, token balances, and unit formatting.
 - `Package.swift` defines the Swift package, the `"OMSWallet"` library target, and
   the `"OMSWalletTests"` test target.
 - `Sources/OMSWallet/` contains the SDK implementation.
-- `Sources/OMSWallet/Clients/` contains `WalletClient` and `IndexerClient`.
+- `Sources/OMSWallet/Clients/` contains `WalletClient` and `IndexerClient`, plus
+  `SessionCredentialTransport`, which wraps the session-signed WaaS clients to order their
+  requests around the SDK's expiry refresh and end the session when WaaS rejects its credential.
 - `Sources/OMSWallet/Signer/` contains Keychain/P-256 signing and credential
   session code.
 - `Sources/OMSWallet/Models/` contains public model types and auth/session

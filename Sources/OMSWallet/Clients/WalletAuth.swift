@@ -11,7 +11,7 @@ extension WalletClient {
     /// - Parameters:
     ///   - email: The email address to send the one-time passcode to.
     ///   - sessionLifetimeSeconds: The requested credential lifetime. Must be from 1 through
-    ///     2,592,000 seconds (30 days).
+    ///     15,552,000 seconds (180 days).
     public func startEmailAuth(
         email: String,
         sessionLifetimeSeconds: UInt32 = WalletClient.defaultSessionLifetimeSeconds
@@ -754,8 +754,8 @@ extension WalletClient {
     /// signer metadata to the keychain.
     @discardableResult
     public func useWallet(walletId: String) async throws -> WalletActivationResult {
-        try await runOMSWalletOperation(.walletUseWallet) {
-            try requireWalletSelectionOrActiveSession()
+        try await runSessionOperation(.walletUseWallet) {
+            try await requireWalletSelectionOrActiveSession()
             try requireActiveCredential()
             let activationRevision = sessionRevisionSnapshot()
             return try await useWallet(
@@ -778,8 +778,8 @@ extension WalletClient {
         walletType: WalletType = WalletType.ethereum,
         reference: String? = nil
     ) async throws -> WalletActivationResult {
-        try await runOMSWalletOperation(.walletCreateWallet) {
-            try requireWalletSelectionOrActiveSession()
+        try await runSessionOperation(.walletCreateWallet) {
+            try await requireWalletSelectionOrActiveSession()
             try requireActiveCredential()
             let activationRevision = sessionRevisionSnapshot()
             return try await createWallet(
@@ -793,8 +793,8 @@ extension WalletClient {
 
     /// Lists all wallets available to the authenticated credential.
     public func listWallets() async throws -> [Wallet] {
-        try await runOMSWalletOperation(.walletListWallets) {
-            try requireWalletSelectionOrActiveSession()
+        try await runSessionOperation(.walletListWallets) {
+            try await requireWalletSelectionOrActiveSession()
             try requireActiveCredential()
             return try await listWallets(startingAt: nil)
         }

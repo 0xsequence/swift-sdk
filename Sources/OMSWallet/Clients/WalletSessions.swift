@@ -1,5 +1,20 @@
 import Foundation
 
+/// The result of asking WaaS for the active credential's current (sliding) expiry.
+enum CredentialRefreshOutcome: @unchecked Sendable {
+    /// The session expiry now matches the server's and lies in the future.
+    case refreshed
+    /// The server reported the credential gone or expired, or its expiry has already passed; the
+    /// session has been ended.
+    case ended
+    /// The server has no `GetCredential` method, so the local expiry stays authoritative.
+    case unsupported
+    /// The refresh failed for another reason (for example a network error); the session is kept.
+    case unavailable(any Error)
+    /// There was no session, or the session changed while the refresh was in flight.
+    case superseded
+}
+
 @available(macOS 12.0, iOS 15.0, *)
 extension WalletClient {
     /// Expiry and auth metadata for the active wallet session. Non-`nil` exactly when
@@ -37,6 +52,10 @@ extension WalletClient {
         sessionAuth = restoredWallet.auth
         if let snapshot = currentSessionSnapshot() {
             scheduleSessionExpiry(snapshot)
+            // The stored expiry may be stale: the server slides it forward with use.
+            Task { [weak self] in
+                _ = await self?.refreshCredentialExpiry()
+            }
         }
     }
 
@@ -94,6 +113,7 @@ extension WalletClient {
 
     private func clearActiveSessionForExpiryLocked() {
         _sessionRevision += 1
+        _lastCredentialRefreshAt = nil
         sessionExpiryTask?.cancel()
         sessionExpiryTask = nil
         activePendingWalletSelection = nil
@@ -132,23 +152,25 @@ extension WalletClient {
         }
     }
 
-    func scheduleSessionExpiry(_ session: WalletSessionSnapshot) {
-        let delay = max(0, session.expiryDate.timeIntervalSince(currentDate()))
-        guard delay > 0 else {
-            expireSessionFromTimer(session)
-            return
-        }
+    /// Schedules the expiry timer for `session`: at its expiry, or, for `retryAttempt` > 0, after
+    /// a backed-off delay to recheck a session whose expiry could not be refreshed.
+    func scheduleSessionExpiry(_ session: WalletSessionSnapshot, retryAttempt: Int = 0) {
+        let delay = retryAttempt > 0
+            ? Self.sessionExpiryRetryDelay(attempt: retryAttempt)
+            : max(0, session.expiryDate.timeIntervalSince(currentDate()))
         let delayNanoseconds = delay * 1_000_000_000
         let cappedNanoseconds = delayNanoseconds.isFinite
             ? min(delayNanoseconds, Double(UInt64.max - 1))
             : Double(UInt64.max - 1)
         let nanoseconds = UInt64(cappedNanoseconds)
         let task = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: nanoseconds)
+            if nanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: nanoseconds)
+            }
             guard !Task.isCancelled else {
                 return
             }
-            self?.expireSessionFromTimer(session)
+            await self?.handleSessionExpiryTimer(session, retryAttempt: retryAttempt)
         }
         let shouldCancelTask = withSessionLock { () -> Bool in
             guard isCurrentSessionSnapshotLocked(session) else {
@@ -163,24 +185,273 @@ extension WalletClient {
         }
     }
 
-    private func expireSessionFromTimer(_ session: WalletSessionSnapshot) {
-        let transition = withSessionLock { () -> (
-            notification: SessionExpiredNotification?,
-            reschedule: WalletSessionSnapshot?
-        ) in
+    static func sessionExpiryRetryDelay(attempt: Int) -> TimeInterval {
+        let exponent = Double(min(max(attempt - 1, 0), 16))
+        return min(sessionExpiryRetryBaseSeconds * pow(2, exponent), sessionExpiryRetryMaxSeconds)
+    }
+
+    /// At local expiry, asks the server for the current expiry first: a session the server has
+    /// extended is rescheduled, and one it cannot vouch for because it is offline is rechecked
+    /// later instead of being ended.
+    private func handleSessionExpiryTimer(_ session: WalletSessionSnapshot, retryAttempt: Int) async {
+        let isDue = withSessionLock { () -> Bool? in
             guard isCurrentSessionSnapshotLocked(session) else {
-                return (nil, nil)
+                return nil
             }
-            guard isSessionExpired(session) else {
-                return (nil, session)
+            return isSessionExpired(session)
+        }
+        guard let isDue else {
+            return
+        }
+        guard isDue else {
+            scheduleSessionExpiry(session)
+            return
+        }
+        switch await refreshCredentialExpiry() {
+        case .refreshed, .ended, .superseded:
+            return
+        case .unsupported:
+            expireSessionFromTimer(session)
+        case .unavailable:
+            scheduleSessionExpiry(session, retryAttempt: retryAttempt + 1)
+        }
+    }
+
+    private func expireSessionFromTimer(_ session: WalletSessionSnapshot) {
+        deliverSessionExpiredNotification(
+            withSessionLock { () -> SessionExpiredNotification? in
+                guard isCurrentSessionSnapshotLocked(session), isSessionExpired(session) else {
+                    return nil
+                }
+                clearActiveSessionForExpiryLocked()
+                return makeSessionExpiredNotificationLocked(session)
+            }
+        )
+    }
+
+    /// Before an operation uses a locally expired session, asks the server whether it extended
+    /// the expiry. An extended session continues; an ended session throws `sessionExpired`; an
+    /// unreachable server throws its error and keeps the session. Without server support the
+    /// caller's local expiry check applies as before.
+    func refreshLocallyExpiredSession() async throws {
+        guard let session = currentSessionSnapshot(), isSessionExpired(session) else {
+            return
+        }
+        switch await refreshCredentialExpiry() {
+        case .refreshed, .unsupported, .superseded:
+            return
+        case .ended:
+            throw OMSWalletError.sessionExpired()
+        case .unavailable(let error):
+            throw error
+        }
+    }
+
+    /// Fetches the active credential's current expiry with `getCredential` and applies it to the
+    /// session. Concurrent callers for the same session share one request, and a result is
+    /// applied only while the session it was requested for is still current.
+    func refreshCredentialExpiry() async -> CredentialRefreshOutcome {
+        enum Start {
+            case task(Task<CredentialRefreshOutcome, Never>)
+            case outcome(CredentialRefreshOutcome)
+        }
+        let start = withSessionLock { () -> Start in
+            if let inFlight = _credentialRefresh, inFlight.revision == _sessionRevision {
+                return .task(inFlight.task)
+            }
+            guard !_isCredentialRefreshUnsupported else {
+                return .outcome(.unsupported)
+            }
+            guard currentSessionLocked() != nil else {
+                return .outcome(.superseded)
+            }
+            let id = UUID()
+            let revision = _sessionRevision
+            let client = signedClient
+            let task = Task { [weak self] () -> CredentialRefreshOutcome in
+                let outcome: CredentialRefreshOutcome
+                do {
+                    let response = try await client.getCredential()
+                    outcome = self?.applyRefreshedCredentialExpiry(
+                        response.credential.expiresAt,
+                        revision: revision
+                    ) ?? .superseded
+                } catch {
+                    outcome = self?.handleCredentialRefreshFailure(error, revision: revision) ?? .superseded
+                }
+                self?.finishCredentialRefresh(id)
+                return outcome
+            }
+            _credentialRefresh = (id, revision, task)
+            return .task(task)
+        }
+        switch start {
+        case .task(let task):
+            return await task.value
+        case .outcome(let outcome):
+            return outcome
+        }
+    }
+
+    private func finishCredentialRefresh(_ id: UUID) {
+        withSessionLock {
+            if _credentialRefresh?.id == id {
+                _credentialRefresh = nil
+            }
+        }
+    }
+
+    private func applyRefreshedCredentialExpiry(
+        _ expiresAt: String,
+        revision: UInt64
+    ) -> CredentialRefreshOutcome {
+        guard OMSWalletSession.parseDate(expiresAt) != nil else {
+            return .unavailable(
+                OMSWalletError(code: .invalidResponse, message: "Credential response has an invalid expiresAt")
+            )
+        }
+        enum Applied {
+            case superseded
+            case extended(WalletSessionSnapshot)
+            case expired(SessionExpiredNotification)
+        }
+        let applied = withSessionLock { () -> Applied in
+            guard _sessionRevision == revision,
+                  let wallet = activeWallet,
+                  let auth = sessionAuth,
+                  let session = WalletSessionSnapshot(wallet: wallet, expiresAt: expiresAt, auth: auth) else {
+                return .superseded
+            }
+            // The in-memory session follows the server even if the keychain write fails; a stale
+            // stored expiry only means the next launch refreshes again.
+            try? credentialSession.persist(wallet: wallet, expiresAt: expiresAt, auth: auth)
+            sessionExpiresAt = expiresAt
+            _lastCredentialRefreshAt = currentDate()
+            guard !isSessionExpired(session) else {
+                // The server's expiry has already passed by the local clock; end it as local
+                // expiry does rather than refreshing again.
+                clearActiveSessionForExpiryLocked()
+                return .expired(makeSessionExpiredNotificationLocked(session))
+            }
+            return .extended(session)
+        }
+        switch applied {
+        case .superseded:
+            return .superseded
+        case .extended(let session):
+            scheduleSessionExpiry(session)
+            return .refreshed
+        case .expired(let notification):
+            deliverSessionExpiredNotification(notification)
+            return .ended
+        }
+    }
+
+    private func handleCredentialRefreshFailure(
+        _ error: any Error,
+        revision: UInt64
+    ) -> CredentialRefreshOutcome {
+        if isCredentialRejectedByServer(error) {
+            // `SessionCredentialTransport` has normally ended the session already.
+            endSessionRejectedByServer(revision: revision)
+            return wasSessionRejectedByServer(revision) ? .ended : .superseded
+        }
+        if let webRPCError = error as? WebRPCError,
+           webRPCError.kind == .webrpcBadRoute || webRPCError.error == "WebrpcBadRoute" {
+            withSessionLock { _isCredentialRefreshUnsupported = true }
+            return .unsupported
+        }
+        return .unavailable(error)
+    }
+
+    /// Starts a background expiry refresh when the last one (or sign-in) is at least
+    /// `credentialRefreshIntervalSeconds` old.
+    func refreshCredentialExpiryInBackgroundIfStale() {
+        let isStale = withSessionLock { () -> Bool in
+            guard !_isCredentialRefreshUnsupported, currentSessionLocked() != nil else {
+                return false
+            }
+            guard let lastRefresh = _lastCredentialRefreshAt else {
+                return true
+            }
+            return currentDate().timeIntervalSince(lastRefresh) >= Self.credentialRefreshIntervalSeconds
+        }
+        guard isStale else {
+            return
+        }
+        Task { [weak self] in
+            _ = await self?.refreshCredentialExpiry()
+        }
+    }
+
+    /// The session revision while a wallet session is active, or `nil` (for example during
+    /// sign-in, before a wallet is activated).
+    func activeWalletSessionRevision() -> UInt64? {
+        withSessionLock { currentSessionLocked() == nil ? nil : _sessionRevision }
+    }
+
+    /// Called by `SessionCredentialTransport` for every response to a request signed with the
+    /// session credential while `revision` was active.
+    func handleSessionCredentialResponse(_ response: WebRPCHTTPResponse, path: String, revision: UInt64) {
+        guard (200...299).contains(response.statusCode) else {
+            let error = WaasGenerated.decodeWebRPCError(statusCode: response.statusCode, data: response.body)
+            if isCredentialRejectedByServer(error) {
+                endSessionRejectedByServer(revision: revision)
+            }
+            return
+        }
+        if path != WaasAPI.GetCredential.urlPath {
+            refreshCredentialExpiryInBackgroundIfStale()
+        }
+    }
+
+    /// Ends the session as local expiry does when the server reported its credential gone or
+    /// expired, unless a newer sign-in or sign-out already replaced it.
+    func endSessionRejectedByServer(revision: UInt64) {
+        let notification = withSessionLock { () -> SessionExpiredNotification? in
+            guard _sessionRevision == revision, let session = currentSessionLocked() else {
+                return nil
             }
             clearActiveSessionForExpiryLocked()
-            return (makeSessionExpiredNotificationLocked(session), nil)
+            _serverRejectedSessionRevision = revision
+            return makeSessionExpiredNotificationLocked(session)
         }
-        if let reschedule = transition.reschedule {
-            scheduleSessionExpiry(reschedule)
+        deliverSessionExpiredNotification(notification)
+    }
+
+    func wasSessionRejectedByServer(_ revision: UInt64) -> Bool {
+        withSessionLock { _serverRejectedSessionRevision == revision }
+    }
+
+    /// Runs an operation that uses the active wallet session's credential. When WaaS rejected that
+    /// credential as gone (7202) or expired (7203), `SessionCredentialTransport` has ended the
+    /// session, and the operation throws `sessionExpired`.
+    func runSessionOperation<T>(
+        _ operation: OMSWalletOperation,
+        _ body: () async throws -> T
+    ) async throws -> T {
+        let sessionRevision = activeWalletSessionRevision()
+        do {
+            return try await runOMSWalletOperation(operation, body)
+        } catch let error as OMSWalletError {
+            guard let sessionRevision,
+                  isCredentialRejectedByServer(error),
+                  wasSessionRejectedByServer(sessionRevision) else {
+                throw error
+            }
+            // WaaS rejects the credential before Execute runs, so a rejected Execute sent nothing
+            // and is reported as session expired. Status polling after a submitted transaction
+            // keeps its txnId; observers still learn that the session ended.
+            if error.code == .transactionStatusLookupFailed {
+                throw error
+            }
+            throw OMSWalletError(
+                code: .sessionExpired,
+                message: OMSWalletError.sessionExpired().localizedDescription,
+                operation: operation,
+                underlyingError: error
+            )
         }
-        deliverSessionExpiredNotification(transition.notification)
     }
 
     private func isCurrentSessionSnapshotLocked(_ session: WalletSessionSnapshot) -> Bool {
@@ -232,6 +503,7 @@ extension WalletClient {
                         return false
                     }
                     self._sessionRevision += 1
+                    self._lastCredentialRefreshAt = nil
                     self.latestSessionExpiredEvent = nil
                     self.sessionExpiryTask?.cancel()
                     self.sessionExpiryTask = nil
@@ -295,10 +567,10 @@ extension WalletClient {
         expiresAt: String,
         sessionId: String? = nil
     ) async throws -> AuthorizedRemoteAccess {
-        try await runOMSWalletOperation(.walletAuthorizeRemoteAccess) {
-            let walletId = try requireActiveWalletId()
+        try await runSessionOperation(.walletAuthorizeRemoteAccess) {
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
-            try requireActiveWalletType(.ethereum)
+            try await requireActiveWalletType(.ethereum)
             try validateSmartSessionGrants(grants)
             let response = try await signedClient.authorizeRemoteAccess(
                 AuthorizeRemoteAccessRequest(
@@ -310,7 +582,7 @@ extension WalletClient {
                     sessionId: sessionId
                 )
             )
-            try requireSameActiveWalletSession(walletId)
+            try await requireSameActiveWalletSession(walletId)
             return AuthorizedRemoteAccess(
                 walletId: walletId,
                 sessionId: response.sessionId,
@@ -344,8 +616,8 @@ extension WalletClient {
         cursor: String? = nil,
         type: AccessGrantType? = nil
     ) async throws -> AccessGrantPage {
-        try await runOMSWalletOperation(.walletListAccessPage) {
-            let walletId = try requireActiveWalletId()
+        try await runSessionOperation(.walletListAccessPage) {
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             let response = try await signedClient.listAccess(
                 ListAccessRequest(
@@ -366,14 +638,14 @@ extension WalletClient {
 
     /// Returns one owner-visible remote session and verifies that it belongs to the selected wallet.
     public func getRemoteAccessSession(sessionId: String) async throws -> RemoteAccessSession {
-        try await runOMSWalletOperation(.walletGetRemoteAccessSession) {
+        try await runSessionOperation(.walletGetRemoteAccessSession) {
             guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw OMSWalletError(code: .validationError, message: "sessionId is required")
             }
-            let walletId = try requireActiveWalletId()
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             let response = try await signedClient.getSession(GetSessionRequest(sessionId: sessionId))
-            try requireSameActiveWalletSession(walletId)
+            try await requireSameActiveWalletSession(walletId)
             guard let session = response.session.sdkValue, session.walletId == walletId else {
                 throw DecodingError.dataCorrupted(
                     DecodingError.Context(codingPath: [], debugDescription: "Session does not belong to the active wallet")
@@ -388,16 +660,16 @@ extension WalletClient {
         sessionId: String,
         network: Network
     ) async throws -> [SmartSessionGrantUsage] {
-        try await runOMSWalletOperation(.walletGetRemoteAccessSessionUsage) {
+        try await runSessionOperation(.walletGetRemoteAccessSessionUsage) {
             guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw OMSWalletError(code: .validationError, message: "sessionId is required")
             }
-            let walletId = try requireActiveWalletId()
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             let response = try await signedClient.getSessionUsage(
                 GetSessionUsageRequest(sessionId: sessionId, network: network.waasChainId)
             )
-            try requireSameActiveWalletSession(walletId)
+            try await requireSameActiveWalletSession(walletId)
             return try response.entries.map { entry in
                 guard let grant = entry.grant.sdkValue,
                       entry.used.map(isCanonicalUnsignedDecimal) ?? true else {
@@ -411,8 +683,8 @@ extension WalletClient {
     }
 
     public func getIdToken(ttlSeconds: UInt32? = nil, customClaims: [String: JSONValue]? = nil) async throws -> String {
-        try await runOMSWalletOperation(.walletGetIdToken) {
-            let walletId = try requireActiveWalletId()
+        try await runSessionOperation(.walletGetIdToken) {
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             let params = GetIDTokenRequest(
                 walletId: walletId,
@@ -434,8 +706,8 @@ extension WalletClient {
     /// - Parameter sessionId: The required session identifier for a remote grant, or `nil` for a
     ///   direct grant.
     public func revokeAccess(credentialId: String, sessionId: String? = nil) async throws {
-        try await runOMSWalletOperation(.walletRevokeAccess) {
-            let walletId = try requireActiveWalletId()
+        try await runSessionOperation(.walletRevokeAccess) {
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             let params = RevokeAccessRequest(
                 targetCredentialId: credentialId,
@@ -455,8 +727,8 @@ extension WalletClient {
         return Page(limit: pageSize, cursor: cursor)
     }
 
-    private func requireSameActiveWalletSession(_ expectedWalletId: String) throws {
-        guard try requireActiveWalletId() == expectedWalletId else {
+    private func requireSameActiveWalletSession(_ expectedWalletId: String) async throws {
+        guard try await requireActiveWalletId() == expectedWalletId else {
             throw OMSWalletError(code: .sessionMissing, message: "Active wallet session changed")
         }
         try requireActiveCredential()
@@ -552,4 +824,19 @@ public struct ListAccessPages: AsyncSequence {
             return cursor
         }
     }
+}
+
+/// Whether WaaS rejected the request's credential as not found (7202) or expired (7203).
+/// `Unauthorized` (7207) is deliberately excluded: it is not specific to the credential.
+func isCredentialRejectedByServer(_ error: any Error) -> Bool {
+    let rejectedCodes = [WebRPCErrorKind.keyNotFound.code, WebRPCErrorKind.keyExpired.code]
+    if let webRPCError = error as? WebRPCError {
+        return rejectedCodes.contains(webRPCError.code)
+    }
+    guard let upstreamError = (error as? OMSWalletError)?.upstreamError,
+          upstreamError.service == .waas,
+          let code = upstreamError.code.flatMap(Int.init) else {
+        return false
+    }
+    return rejectedCodes.contains(code)
 }

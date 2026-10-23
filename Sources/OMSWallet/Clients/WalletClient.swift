@@ -20,8 +20,15 @@ public final class WalletClient: @unchecked Sendable {
     /// The session lifetime used when a sign-in call does not pass `sessionLifetimeSeconds`
     /// (7 days).
     public static let defaultSessionLifetimeSeconds: UInt32 = 604_800
-    /// The longest session lifetime the wallet API accepts (30 days).
-    public static let maxSessionLifetimeSeconds: UInt32 = 2_592_000
+    /// The longest session lifetime the wallet API accepts (180 days).
+    public static let maxSessionLifetimeSeconds: UInt32 = 15_552_000
+
+    /// How long after sign-in or the last credential refresh a successful wallet call triggers a
+    /// background refresh of the sliding session expiry.
+    static let credentialRefreshIntervalSeconds: TimeInterval = 6 * 60 * 60
+    /// The first and longest delay before the expiry timer rechecks a session it could not refresh.
+    static let sessionExpiryRetryBaseSeconds: TimeInterval = 60
+    static let sessionExpiryRetryMaxSeconds: TimeInterval = 15 * 60
 
     static let defaultTransactionStatusPollTimeoutMs: UInt64 = 60_000
     static let defaultFastTransactionStatusPollIntervalMs: UInt64 = 400
@@ -35,11 +42,13 @@ public final class WalletClient: @unchecked Sendable {
             withSessionLock { _signedClient }
         }
         set {
-            withSessionLock { _signedClient = newValue }
+            withSessionLock { _signedClient = observingSessionCredential(newValue) }
         }
     }
     var publicClient: WaasPublicClient
-    let walletImportClient: WaasClient?
+    private(set) var walletImportClient: WaasClient?
+    /// Shared by every client that signs with the session credential, so their nonces stay ordered.
+    let signedRequestGate = SignedRequestGate()
     let indexerClient: IndexerClient
     
     let projectId: String
@@ -97,6 +106,14 @@ public final class WalletClient: @unchecked Sendable {
     }
     private var _activeWallet: Wallet?
     var _sessionRevision: UInt64 = 0
+    /// The in-flight `getCredential` refresh, shared by concurrent callers of the same session.
+    var _credentialRefresh: (id: UUID, revision: UInt64, task: Task<CredentialRefreshOutcome, Never>)?
+    /// Set once the server reports it has no `GetCredential` method; never retried afterwards.
+    var _isCredentialRefreshUnsupported = false
+    /// When the active session's expiry was last taken from the server (sign-in or refresh).
+    var _lastCredentialRefreshAt: Date?
+    /// The last session revision ended because WaaS rejected its credential.
+    var _serverRejectedSessionRevision: UInt64?
     private var _sessionExpiredObservers: [UUID: SessionExpiredObserver] = [:]
     private var _verifier = ""
     private var _challenge = ""
@@ -250,6 +267,7 @@ public final class WalletClient: @unchecked Sendable {
             publishableKey: publishableKey,
             environment: environment
         )
+        observeSessionCredentialClients()
         restoreStoredWalletSession(storedWallet)
     }
 
@@ -290,7 +308,32 @@ public final class WalletClient: @unchecked Sendable {
             publishableKey: publishableKey,
             environment: environment
         )
+        observeSessionCredentialClients()
         restoreStoredWalletSession(storedWallet)
+    }
+
+    /// Routes the clients that sign with the session credential through
+    /// `SessionCredentialTransport`. The public client is never wrapped: its errors (for example
+    /// `inspectRemoteCredential`'s 7202 for an unknown remote credential) say nothing about the
+    /// session.
+    private func observeSessionCredentialClients() {
+        _signedClient = observingSessionCredential(_signedClient)
+        walletImportClient = walletImportClient.map(observingSessionCredential)
+    }
+
+    func observingSessionCredential(_ client: WaasClient) -> WaasClient {
+        WaasClient(
+            baseURL: client.baseURL,
+            transport: SessionCredentialTransport(
+                base: client.transport,
+                gate: signedRequestGate,
+                activeSessionRevision: { [weak self] in self?.activeWalletSessionRevision() },
+                onResponse: { [weak self] response, path, revision in
+                    self?.handleSessionCredentialResponse(response, path: path, revision: revision)
+                }
+            ),
+            headers: client.headers
+        )
     }
 
     @discardableResult
@@ -368,7 +411,8 @@ public final class WalletClient: @unchecked Sendable {
         }
     }
 
-    func requireWalletSelectionOrActiveSession() throws {
+    func requireWalletSelectionOrActiveSession() async throws {
+        try await refreshLocallyExpiredSession()
         if let notification = expireCurrentSessionIfNeeded() {
             deliverSessionExpiredNotification(notification)
             throw OMSWalletError.sessionExpired()
@@ -383,7 +427,8 @@ public final class WalletClient: @unchecked Sendable {
         }
     }
 
-    func requireActiveWalletId() throws -> String {
+    func requireActiveWalletId() async throws -> String {
+        try await refreshLocallyExpiredSession()
         if let notification = expireCurrentSessionIfNeeded() {
             deliverSessionExpiredNotification(notification)
             throw OMSWalletError.sessionExpired()
@@ -443,6 +488,10 @@ public final class WalletClient: @unchecked Sendable {
                 self._activeWallet = wallet
                 self._sessionExpiresAt = sessionMetadata.expiresAt
                 self._sessionAuth = sessionMetadata.auth
+                // Sign-in counts as a refresh; a wallet switch keeps the existing refresh time.
+                if self._lastCredentialRefreshAt == nil {
+                    self._lastCredentialRefreshAt = self.currentDate()
+                }
             }
             if let snapshot = self.currentSessionSnapshot() {
                 self.scheduleSessionExpiry(snapshot)

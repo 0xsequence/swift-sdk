@@ -200,6 +200,26 @@ let expiry = formatter.date(from: session.expiresAt)
     ?? ISO8601DateFormatter().date(from: session.expiresAt)
 ```
 
+### Sliding session expiry
+
+The wallet API now extends a session's expiry while it is used, up to the requested
+`sessionLifetimeSeconds`, and ends idle sessions sooner. `OMSWalletSession.expiresAt` is the current
+expiry, not a fixed value from sign-in: the SDK refreshes it after restoring a session, while the
+session is in use, and before treating a locally expired session as ended. Read
+`omsWallet.wallet.session?.expiresAt` again instead of caching the sign-in
+`WalletCredential.expiresAt`.
+
+When the wallet API reports the session's credential expired or gone (WaaS `KeyExpired` 7203 or
+`KeyNotFound` 7202), the SDK ends the session as on local expiry, notifies session-expired observers
+once, and throws `.sessionExpired` instead of `.requestFailed`. That includes a rejected
+transaction `Execute`, which WaaS refuses before running it: it throws `.sessionExpired` instead of
+`.transactionExecutionUnconfirmed`. Status polling after a submitted transaction keeps
+`.transactionStatusLookupFailed` and its `txnId`. If the wallet API is unreachable when a session reaches its local expiry, operations throw
+the network error (`.requestFailed`) and keep the session instead of throwing `.sessionExpired`.
+
+`WalletClient.maxSessionLifetimeSeconds` rose from 2,592,000 (30 days) to 15,552,000 (180 days). The
+default lifetime is unchanged.
+
 ### Networks
 
 `Network.polygonAmoy` was renamed to `Network.amoy` (raw value `"amoy"`, chain ID `80002`), and the

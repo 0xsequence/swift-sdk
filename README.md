@@ -99,7 +99,7 @@ Pass your OMS publishable key when creating the client. The SDK derives the wall
 
 Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `ecdsa-p256-sha256` signing algorithm. The credential remains Keychain-managed and is not serialized into SDK session storage.
 
-Only completed wallet session metadata is restored automatically, including the active wallet (ID, type, address, reference, and key origin), expiry, and auth metadata such as email or OIDC issuer/provider details when available. The SDK checks the cached session expiry before restoring a session. Expired sessions are not activated, and invalid session metadata is cleared; expired session metadata remains in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it.
+Only completed wallet session metadata is restored automatically, including the active wallet (ID, type, address, reference, and key origin), expiry, and auth metadata such as email or OIDC issuer/provider details when available. The SDK checks the cached session expiry before restoring a session, then asks the wallet API for the current expiry in the background. Expired sessions are not activated, and invalid session metadata is cleared; expired session metadata remains in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it.
 
 ## Authentication Flow
 
@@ -129,15 +129,26 @@ if let activeWallet = omsWallet.wallet.activeWallet,
 
 `activeWallet` is a `Wallet`, the same type `listWallets()` returns, or `nil` when signed out.
 `session` holds the expiry and auth metadata and is non-`nil` exactly when `activeWallet` is. Its
-`expiresAt` is the ISO-8601 timestamp returned by the wallet API, the same value as
-`WalletCredential.expiresAt`.
+`expiresAt` is the current expiry as an ISO-8601 timestamp from the wallet API: the server extends
+it with use up to the requested session lifetime, and the SDK refreshes it.
 
 Pass `sessionLifetimeSeconds` to `startEmailAuth` when you need a shorter or
 longer email session. The default is `WalletClient.defaultSessionLifetimeSeconds` (one week), and
-custom values must be from 1 through `WalletClient.maxSessionLifetimeSeconds` (2,592,000 seconds,
-30 days). The SDK validates the value before sending
-the one-time code. Use `addSessionExpiredObserver` when your app needs to react
-to session expiry:
+custom values must be from 1 through `WalletClient.maxSessionLifetimeSeconds` (15,552,000 seconds,
+180 days). The SDK validates the value before sending
+the one-time code. The lifetime is a ceiling: the wallet API ends an idle session sooner and extends
+the expiry while the session is used.
+
+The SDK refreshes `session.expiresAt` from the wallet API after restoring a session, at least every
+six hours while the session is in use, and before it treats a locally expired session as ended. A
+session the server has extended continues. When the wallet API rejects a request signed with the
+session's credential because that credential expired or is gone (WaaS `KeyExpired` 7203 or
+`KeyNotFound` 7202), the SDK ends the session exactly as on local expiry: it notifies
+session-expired observers once and throws `.sessionExpired`. If the device is offline when the
+expiry passes, the session is kept and rechecked later; operations meanwhile throw the network
+error. Wallet API versions without expiry refresh keep the local expiry. Refresh requests never
+overlap your own wallet calls, so request nonces stay in order. Use
+`addSessionExpiredObserver` when your app needs to react to session expiry:
 
 ```swift
 let sessionExpiredObservation = omsWallet.wallet.addSessionExpiredObserver { event in
@@ -266,7 +277,7 @@ Pass `walletSelection` or `sessionLifetimeSeconds` to `startOIDCRedirectAuth`
 to store completion preferences with the pending redirect state. Values passed
 to `handleOIDCRedirectCallback` override pending values; otherwise the SDK uses
 automatic wallet selection and a one-week session lifetime. Custom session
-lifetime values must be from 1 through 2,592,000 seconds (30 days). Provider
+lifetime values must be from 1 through 15,552,000 seconds (180 days). Provider
 configs can use `.authCode` to omit PKCE parameters or `.authCodePKCE` for PKCE.
 Providers with omitted or empty `scopes` omit the OAuth `scope` authorization
 parameter.

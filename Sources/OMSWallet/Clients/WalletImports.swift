@@ -32,8 +32,8 @@ extension WalletClient {
         privateKey: WalletImportPrivateKey,
         reference: String? = nil
     ) async throws -> WalletActivationResult {
-        try await runOMSWalletOperation(.walletImportWallet) {
-            let context = try walletImportActivationContext(for: privateKey.walletType)
+        try await runSessionOperation(.walletImportWallet) {
+            let context = try await walletImportActivationContext(for: privateKey.walletType)
             try WalletImportValidation.validateReference(reference)
             var plaintext = try WalletImportValidation.plaintext(privateKey)
             defer { plaintext.resetBytes(in: plaintext.indices) }
@@ -58,7 +58,7 @@ extension WalletClient {
                 ),
                 reference: reference
             )
-            try requireWalletImportActivationContextStillActive(context)
+            try await requireWalletImportActivationContextStillActive(context)
             return try activateImportedWallet(wallet, context: context)
         }
     }
@@ -67,11 +67,11 @@ extension WalletClient {
     public func getWalletImportRecipientKey(
         cipherSuite: WalletImportCipherSuite
     ) async throws -> WalletImportRecipientKey {
-        try await runOMSWalletOperation(.walletGetImportRecipientKey) {
-            try requireWalletSelectionOrActiveSession()
+        try await runSessionOperation(.walletGetImportRecipientKey) {
+            try await requireWalletSelectionOrActiveSession()
             try requireActiveCredential()
             let recipient = try await getWalletImportRecipientKeyUnchecked(cipherSuite: cipherSuite)
-            try requireWalletSelectionOrActiveSession()
+            try await requireWalletSelectionOrActiveSession()
             return recipient
         }
     }
@@ -83,15 +83,15 @@ extension WalletClient {
         keyMaterial: EncryptedWalletImportKeyMaterial,
         reference: String? = nil
     ) async throws -> WalletActivationResult {
-        try await runOMSWalletOperation(.walletImportEncryptedWallet) {
-            let context = try walletImportActivationContext(for: walletType)
+        try await runSessionOperation(.walletImportEncryptedWallet) {
+            let context = try await walletImportActivationContext(for: walletType)
             try WalletImportValidation.validateReference(reference)
             let wallet = try await requestImportWallet(
                 walletType: walletType,
                 keyMaterial: keyMaterial,
                 reference: reference
             )
-            try requireWalletImportActivationContextStillActive(context)
+            try await requireWalletImportActivationContextStillActive(context)
             return try activateImportedWallet(wallet, context: context)
         }
     }
@@ -153,7 +153,7 @@ extension WalletClient {
 
     private func walletImportActivationContext(
         for walletType: WalletType
-    ) throws -> WalletImportActivationContext {
+    ) async throws -> WalletImportActivationContext {
         if let pending = activePendingWalletSelection {
             try requireActivePendingWalletSelection(pending)
             guard pending.walletType == walletType else {
@@ -165,10 +165,10 @@ extension WalletClient {
             return .pending(session: pending, revision: sessionRevisionSnapshot())
         }
 
-        try requireWalletSelectionOrActiveSession()
+        try await requireWalletSelectionOrActiveSession()
         try requireActiveCredential()
         return .active(
-            walletId: try requireActiveWalletId(),
+            walletId: try await requireActiveWalletId(),
             metadata: try currentSessionMetadata(),
             revision: sessionRevisionSnapshot()
         )
@@ -176,11 +176,11 @@ extension WalletClient {
 
     private func requireWalletImportActivationContextStillActive(
         _ context: WalletImportActivationContext
-    ) throws {
+    ) async throws {
         try requireCurrentSessionRevision(context.revision)
         switch context {
         case .active(let walletId, _, _):
-            guard try requireActiveWalletId() == walletId else {
+            guard try await requireActiveWalletId() == walletId else {
                 throw OMSWalletError(code: .sessionMissing, message: "Active wallet session changed")
             }
         case .pending(let session, _):

@@ -55,7 +55,7 @@ The session lifetime used when a sign-in call does not pass `sessionLifetimeSeco
 public static let maxSessionLifetimeSeconds: UInt32
 ```
 
-The longest session lifetime the wallet API accepts (30 days).
+The longest session lifetime the wallet API accepts (180 days).
 
 ### `WalletClient.addSessionExpiredObserver(_:)`
 
@@ -392,6 +392,9 @@ public struct EncryptedWalletImportKeyMaterial: Equatable, Sendable {
 ```swift
 public struct WalletCredential: Codable, Equatable, Sendable {
     public let credentialId: String
+    /// The credential's current expiry when it was returned, as an ISO-8601 timestamp. The server
+    /// extends it with use up to the requested session lifetime, and the SDK refreshes the active
+    /// session's copy in `OMSWalletSession.expiresAt`.
     public let expiresAt: String
     public let isCaller: Bool
     public init(credentialId: String, expiresAt: String, isCaller: Bool)
@@ -572,8 +575,9 @@ Result of handling an incoming OIDC authorization-code redirect callback.
 
 ```swift
 public struct OMSWalletSession: Equatable, Sendable {
-    /// Expiration time for the active wallet session, as the ISO-8601 timestamp returned by the
-    /// wallet API (the same value as `WalletCredential.expiresAt`).
+    /// The current expiry of the active wallet session, as the ISO-8601 timestamp returned by the
+    /// wallet API. The server extends it with use up to the requested session lifetime, and the
+    /// SDK refreshes it, so it can be later than the sign-in `WalletCredential.expiresAt`.
     public let expiresAt: String
     /// Auth metadata for the active wallet session.
     public let auth: OMSWalletSessionAuth

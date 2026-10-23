@@ -183,14 +183,14 @@ private func isOidcAuth(
         for: WaasAPI.UseWallet.urlPath
     )
 
-    try await fixture.client.startEmailAuth(email: "user@example.com", sessionLifetimeSeconds: 30)
+    try await fixture.client.startEmailAuth(email: "user@example.com", sessionLifetimeSeconds: 15_552_000)
     _ = try await fixture.client.completeEmailAuth(code: "123456")
     let completeAuthRequest = try fixture.transport.decodedRequest(
         CompleteAuthRequest.self,
         for: WaasAPI.CompleteAuth.urlPath
     )
 
-    #expect(completeAuthRequest.lifetime == 30)
+    #expect(completeAuthRequest.lifetime == 15_552_000)
     #expect(isEmailAuth(fixture.client.session?.auth))
 }
 
@@ -212,13 +212,13 @@ enum SessionLifetimeEntryPoint: CaseIterable, CustomTestStringConvertible {
     }
 }
 
-@Test(arguments: SessionLifetimeEntryPoint.allCases, [UInt32(0), UInt32(2_592_001)])
+@Test(arguments: SessionLifetimeEntryPoint.allCases, [UInt32(0), UInt32(15_552_001)])
 func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut(
     _ entryPoint: SessionLifetimeEntryPoint,
     sessionLifetimeSeconds: UInt32
 ) async throws {
     #expect(WalletClient.defaultSessionLifetimeSeconds == 604_800)
-    #expect(WalletClient.maxSessionLifetimeSeconds == 2_592_000)
+    #expect(WalletClient.maxSessionLifetimeSeconds == 15_552_000)
 
     let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
     let provider = CustomOIDCProviderConfiguration(
@@ -272,7 +272,7 @@ func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut
     } catch let error as OMSWalletError {
         #expect(error.code == .validationError)
         #expect(error.operation == entryPoint.operation)
-        #expect(error.localizedDescription == "sessionLifetimeSeconds must be an integer between 1 and 2592000")
+        #expect(error.localizedDescription == "sessionLifetimeSeconds must be an integer between 1 and 15552000")
     }
 
     let expectedCommitVerifierCount = entryPoint == .handleOIDCRedirectCallback ? 1 : 0
@@ -393,6 +393,8 @@ func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut
         canceledExpiredEvent = event
     }
     canceledObservation.cancel()
+    // A server without GetCredential keeps local expiry authoritative.
+    fixture.transport.enqueueWebRPCBadRoute(for: WaasAPI.GetCredential.urlPath)
 
     now = Date(timeIntervalSince1970: 1_767_225_601)
     do {
@@ -418,6 +420,7 @@ func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut
     #expect(storedCredentials?.expiresAt == expiresAt)
     #expect(isEmailAuth(storedCredentials?.auth))
     #expect(fixture.signer.clearCallCount == 1)
+    #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 1)
     #expect(fixture.transport.requestCount(for: WaasAPI.SignMessage.urlPath) == 0)
 }
 
@@ -561,6 +564,7 @@ private func waitForSessionExpiredEvent(
         UseWalletResponse(wallet: wallet),
         for: WaasAPI.UseWallet.urlPath
     )
+    fixture.transport.enqueueWebRPCBadRoute(for: WaasAPI.GetCredential.urlPath)
 
     var expiredEvents: [OMSWalletSessionExpiredEvent] = []
     let observation = fixture.client.addSessionExpiredObserver { event in
@@ -3199,9 +3203,12 @@ func makeMockWalletClient(
     oidcNonceGenerator: @escaping () throws -> String = OIDCRedirectAuth.generateNonce,
     currentDate: @escaping () -> Date = Date.init,
     storedCredentials: StorableCredentials? = nil,
-    walletImportClient: WaasClient? = nil
+    walletImportClient: WaasClient? = nil,
+    prepareTransport: (MockWaasTransport) throws -> Void = { _ in }
 ) -> MockWalletClientFixture {
     let transport = MockWaasTransport()
+    // Restoring a stored session starts a credential refresh, so its responses go in first.
+    try? prepareTransport(transport)
     let indexerBackend = MockIndexerBackend()
     let indexerClient = indexerBackend.makeClient(
         publishableKey: "test-publishable-key",
@@ -3745,6 +3752,7 @@ final class MockWaasTransport: WebRPCTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var responses: [String: [MockWaasResponse]] = [:]
     private var recordedRequests: [RecordedWebRPCRequest] = []
+    private var gates: [String: MockResponseGate] = [:]
 
     func enqueue<T: Encodable>(_ response: T, for path: String) throws {
         let body = try WebRPCJSON.makeEncoder().encode(response)
@@ -3779,6 +3787,30 @@ final class MockWaasTransport: WebRPCTransport, @unchecked Sendable {
         responses[path, default: []].append(.httpError(statusCode: statusCode, body: body))
     }
 
+    /// Queues the `WebrpcBadRoute` error a server returns for a method it does not have.
+    func enqueueWebRPCBadRoute(for path: String) {
+        enqueueRawHTTPError(
+            statusCode: 404,
+            body: Data(#"{"error":"WebrpcBadRoute","code":-2,"msg":"bad route","status":404}"#.utf8),
+            for: path
+        )
+    }
+
+    private func gate(for path: String) -> MockResponseGate? {
+        lock.lock()
+        defer { lock.unlock() }
+        return gates[path]
+    }
+
+    /// Holds every response for `path` until the returned gate opens.
+    func holdResponses(for path: String) -> MockResponseGate {
+        let gate = MockResponseGate()
+        lock.lock()
+        defer { lock.unlock() }
+        gates[path] = gate
+        return gate
+    }
+
     func enqueueTransportError(
         _ error: WebRPCTransportError,
         for path: String
@@ -3804,6 +3836,7 @@ final class MockWaasTransport: WebRPCTransport, @unchecked Sendable {
             path: path,
             body: body
         )
+        await gate(for: path)?.wait()
 
         switch response {
         case .success(let body):
@@ -3884,5 +3917,33 @@ final class MockWaasTransport: WebRPCTransport, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return recordedRequests.filter { $0.path == path }
+    }
+}
+
+final class MockResponseGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if isOpen {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                waiters.append(continuation)
+                lock.unlock()
+            }
+        }
+    }
+
+    func open() {
+        lock.lock()
+        isOpen = true
+        let waiters = self.waiters
+        self.waiters = []
+        lock.unlock()
+        waiters.forEach { $0.resume() }
     }
 }

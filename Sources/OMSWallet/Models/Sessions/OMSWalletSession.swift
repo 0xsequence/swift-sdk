@@ -3,8 +3,9 @@ import Foundation
 /// Expiry and auth metadata for the active wallet session. `WalletClient.session` is non-`nil`
 /// exactly when `WalletClient.activeWallet` is.
 public struct OMSWalletSession: Equatable, Sendable {
-    /// Expiration time for the active wallet session, as the ISO-8601 timestamp returned by the
-    /// wallet API (the same value as `WalletCredential.expiresAt`).
+    /// The current expiry of the active wallet session, as the ISO-8601 timestamp returned by the
+    /// wallet API. The server extends it with use up to the requested session lifetime, and the
+    /// SDK refreshes it, so it can be later than the sign-in `WalletCredential.expiresAt`.
     public let expiresAt: String
 
     /// Auth metadata for the active wallet session.
