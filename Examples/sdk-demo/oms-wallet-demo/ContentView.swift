@@ -63,7 +63,7 @@ private enum DemoAuthError: Error, LocalizedError {
         case .invalidAuthorizationURL:
             return "The authorization URL could not be opened."
         case .invalidSessionLifetime:
-            return "Enter a session length from 1 to 2,592,000 seconds."
+            return "Enter a session length from 1 to \(WalletClient.maxSessionLifetimeSeconds.formatted()) seconds."
         #if os(iOS)
         case .googlePresenterUnavailable:
             return "Unable to present Google sign-in."
@@ -623,13 +623,6 @@ final class AppViewModel: ObservableObject {
         reauthWalletType = DemoWalletType(event.wallet?.type)?.walletType
         screen = .login
         sessionExpiredPrompt = SessionExpiredPrompt(event: event)
-    }
-
-    private func validatedSessionLifetimeSeconds() throws -> UInt32 {
-        guard let seconds = sessionLifetimeSeconds else {
-            throw DemoAuthError.invalidSessionLifetime
-        }
-        return seconds
     }
 
     func present(_ error: Error) {

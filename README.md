@@ -132,12 +132,14 @@ if let activeWallet = omsWallet.wallet.activeWallet,
 `expiresAt` is the current expiry as an ISO-8601 timestamp from the wallet API: the server extends
 it with use up to the requested session lifetime, and the SDK refreshes it.
 
-Pass `sessionLifetimeSeconds` to `startEmailAuth` when you need a shorter or
-longer email session. The default is `WalletClient.defaultSessionLifetimeSeconds` (180 days, the maximum), and
+Pass `sessionLifetimeSeconds` to `startEmailAuth` when you need a shorter email
+session (a hard limit). The default is `WalletClient.defaultSessionLifetimeSeconds` (180 days, the maximum), and
 custom values must be from 1 through `WalletClient.maxSessionLifetimeSeconds` (15,552,000 seconds,
 180 days). The SDK validates the value before sending
 the one-time code. The lifetime is a ceiling: the wallet API ends an idle session sooner and extends
-the expiry while the session is used.
+the expiry while the session is used. Wallet API versions without sliding expiry clamp the requested
+lifetime to their 30-day maximum and have no idle timeout, so the 180-day default gives a fixed
+30-day session there.
 
 The SDK refreshes `session.expiresAt` from the wallet API after restoring a session, at least every
 six hours while the session is in use, and before it treats a locally expired session as ended. A
@@ -276,7 +278,8 @@ let started = try await omsWallet.wallet.startOIDCRedirectAuth(provider: acmePro
 Pass `walletSelection` or `sessionLifetimeSeconds` to `startOIDCRedirectAuth`
 to store completion preferences with the pending redirect state. Values passed
 to `handleOIDCRedirectCallback` override pending values; otherwise the SDK uses
-automatic wallet selection and a one-week session lifetime. Custom session
+automatic wallet selection and `WalletClient.defaultSessionLifetimeSeconds`
+(180 days, the maximum). Custom session
 lifetime values must be from 1 through 15,552,000 seconds (180 days). Provider
 configs can use `.authCode` to omit PKCE parameters or `.authCodePKCE` for PKCE.
 Providers with omitted or empty `scopes` omit the OAuth `scope` authorization

@@ -223,7 +223,9 @@ The longest accepted session lifetime rose from 2,592,000 seconds (30 days) to 1
 `WalletClient.maxSessionLifetimeSeconds`. The default rose from 604,800 seconds (7 days) to the same
 maximum, `WalletClient.defaultSessionLifetimeSeconds`: sign-in calls that omit
 `sessionLifetimeSeconds` now request 180 days. A session still ends after 10 days without use; pass a
-shorter `sessionLifetimeSeconds` if you need a hard limit.
+shorter `sessionLifetimeSeconds` if you need a hard limit. Wallet API versions without sliding expiry
+clamp the requested lifetime to their 30-day maximum and have no idle timeout, so the 180-day default
+gives a fixed 30-day session there.
 
 ### Networks
 
@@ -299,8 +301,8 @@ if error.code == .walletAddressAlreadyImported { /* already imported */ }
 `TronBalance` and `SolanaBalance` now expose `network`, `accountAddress`, `name`, `symbol`,
 `decimals`, `balance`, `formattedBalance`, `imageUrl`, `metadataUri`, `verificationStatus`,
 `verificationSource`, `priceUSD`, and `balanceUSD` directly. `WalletImportPrivateKey.walletType`,
-`WalletClient.defaultSessionLifetimeSeconds` (15,552,000), and
-`WalletClient.maxSessionLifetimeSeconds` (15,552,000) are now public. Remove app extensions that
+`WalletClient.defaultSessionLifetimeSeconds`, and
+`WalletClient.maxSessionLifetimeSeconds` are now public. Remove app extensions that
 declare members with these names on those types.
 
 ### Empty Solana balance metadata
