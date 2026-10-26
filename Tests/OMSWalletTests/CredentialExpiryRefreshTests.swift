@@ -224,3 +224,92 @@ private func waitUntil(attempts: Int = 40, _ condition: () -> Bool) async throws
     #expect(fixture.transport.requestCount(for: WaasAPI.SignMessage.urlPath) == 1)
     #expect(fixture.client.session?.expiresAt == "2030-01-01T00:00:00Z")
 }
+
+@Test @MainActor func TestCredentialRefreshWaitsForInFlightSignedRequests() async throws {
+    // The other direction of the nonce ordering: a refresh must not be signed while an app request
+    // is in flight, and app requests that start while the refresh waits queue behind it.
+    let fixture = makeMockWalletClient()
+    activateTestSession(
+        fixture,
+        wallet: activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main")
+    )
+    let client = fixture.client
+    // A first refresh stamps the refresh time, so the app calls below start no background refresh.
+    try fixture.transport.enqueue(
+        credentialResponse(expiresAt: "2030-01-01T00:00:00Z"),
+        for: WaasAPI.GetCredential.urlPath
+    )
+    _ = await client.refreshCredentialExpiry()
+
+    let gate = fixture.transport.holdResponses(for: WaasAPI.SignMessage.urlPath)
+    try fixture.transport.enqueue(SignMessageResponse(signature: "0xfirst"), for: WaasAPI.SignMessage.urlPath)
+    try fixture.transport.enqueue(SignMessageResponse(signature: "0xsecond"), for: WaasAPI.SignMessage.urlPath)
+    try fixture.transport.enqueue(
+        credentialResponse(expiresAt: "2031-01-01T00:00:00Z"),
+        for: WaasAPI.GetCredential.urlPath
+    )
+
+    let first = Task { try await client.signMessage(network: .polygon, message: "first") }
+    try await waitUntil { fixture.transport.requestCount(for: WaasAPI.SignMessage.urlPath) == 1 }
+    let refresh = Task { await client.refreshCredentialExpiry() }
+    try await Task.sleep(nanoseconds: 50_000_000)
+    let second = Task { try await client.signMessage(network: .polygon, message: "second") }
+    try await Task.sleep(nanoseconds: 150_000_000)
+    #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 1)
+    #expect(fixture.transport.requestCount(for: WaasAPI.SignMessage.urlPath) == 1)
+
+    gate.open()
+    #expect(try await first.value == "0xfirst")
+    _ = await refresh.value
+    #expect(try await second.value == "0xsecond")
+
+    #expect(fixture.transport.requestPaths == [
+        WaasAPI.GetCredential.urlPath,
+        WaasAPI.SignMessage.urlPath,
+        WaasAPI.GetCredential.urlPath,
+        WaasAPI.SignMessage.urlPath,
+    ])
+    #expect(fixture.client.session?.expiresAt == "2031-01-01T00:00:00Z")
+}
+
+@Test @MainActor func TestSuccessfulSignedCallRefreshesExpiryInBackgroundEverySixHours() async throws {
+    let base = Date(timeIntervalSince1970: 1_767_225_600)
+    let now = LockedBox(base)
+    let fixture = makeMockWalletClient(currentDate: { now.withValue { $0 } })
+    let wallet = testWallet(id: "wallet-main", address: "0x2222222222222222222222222222222222222222")
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            wallets: [wallet],
+            credential: WaasCredentialInfo(
+                credentialId: "0xcredential",
+                type: .direct,
+                expiresAt: "2026-01-11T00:00:00Z",
+                isCaller: true
+            )
+        ),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(UseWalletResponse(wallet: wallet), for: WaasAPI.UseWallet.urlPath)
+    for signature in ["0xone", "0xtwo", "0xthree"] {
+        try fixture.transport.enqueue(SignMessageResponse(signature: signature), for: WaasAPI.SignMessage.urlPath)
+    }
+    try fixture.transport.enqueue(
+        credentialResponse(expiresAt: "2026-01-11T06:00:00Z"),
+        for: WaasAPI.GetCredential.urlPath
+    )
+
+    // Sign-in counts as a refresh, so a call right after it starts none.
+    _ = try await fixture.client.completeEmailAuth(code: "123456")
+    _ = try await fixture.client.signMessage(network: .polygon, message: "one")
+    now.withValue { $0 = base.addingTimeInterval(6 * 60 * 60 - 1) }
+    _ = try await fixture.client.signMessage(network: .polygon, message: "two")
+    try await Task.sleep(nanoseconds: 150_000_000)
+    #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 0)
+
+    // Six hours after sign-in, a successful call refreshes the expiry in the background.
+    now.withValue { $0 = base.addingTimeInterval(6 * 60 * 60) }
+    _ = try await fixture.client.signMessage(network: .polygon, message: "three")
+    try await waitUntil { fixture.client.session?.expiresAt == "2026-01-11T06:00:00Z" }
+    #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 1)
+    #expect(fixture.client.session?.expiresAt == "2026-01-11T06:00:00Z")
+}

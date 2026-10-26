@@ -3904,6 +3904,13 @@ final class MockWaasTransport: WebRPCTransport, @unchecked Sendable {
         return recordedRequests.count
     }
 
+    /// The paths of all recorded requests, in the order they were sent.
+    var requestPaths: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedRequests.map(\.path)
+    }
+
     func decodedRequests<T: Decodable>(
         _ type: T.Type,
         for path: String
