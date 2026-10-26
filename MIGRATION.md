@@ -214,7 +214,9 @@ When the wallet API reports the session's credential expired or gone (WaaS `KeyE
 once, and throws `.sessionExpired` instead of `.requestFailed`. That includes a rejected
 transaction `Execute`, which WaaS refuses before running it: it throws `.sessionExpired` instead of
 `.transactionExecutionUnconfirmed`. Status polling after a submitted transaction keeps
-`.transactionStatusLookupFailed` and its `txnId`. If the wallet API is unreachable when a session reaches its local expiry, operations throw
+`.transactionStatusLookupFailed` and its `txnId`. An `Execute` that WaaS answers with
+`TransactionSimulationFailed` (7314, the transaction would revert and was never sent) now throws
+`.requestFailed` with that upstream error instead of `.transactionExecutionUnconfirmed`. If the wallet API is unreachable when a session reaches its local expiry, operations throw
 the network error (`.requestFailed`) and keep the session instead of throwing `.sessionExpired`.
 
 The longest accepted session lifetime rose from 2,592,000 seconds (30 days) to 15,552,000 (180 days),

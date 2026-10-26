@@ -776,6 +776,9 @@ values, branch application logic on `code`.
 For transaction writes, `.transactionExecutionUnconfirmed` means the SDK has a
 `txnId` from preparation, but execute failed before the SDK could confirm
 whether the transaction was submitted; do not blindly resend the same write.
+An execute that the wallet API rejects because the transaction would revert
+(`upstreamError.code == "7314"`, `TransactionSimulationFailed`) was never sent and
+throws `.requestFailed` instead.
 `.transactionStatusLookupFailed` means the transaction was submitted, but status
 polling failed, so retry status lookup with the returned `txnId`.
 `.walletSelectionInFlight` means another action on the same `PendingWalletSelection`

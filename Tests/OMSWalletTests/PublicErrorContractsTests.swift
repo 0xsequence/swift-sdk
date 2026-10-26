@@ -799,6 +799,50 @@ private final class MissingAttestationURLProtocol: URLProtocol, @unchecked Senda
     )
 }
 
+@Test func TestPublicErrorContractsSimulationRevertedExecuteIsRequestFailure() async throws {
+    // WaaS answers Execute with 7314 when the relayer refuses to dispatch a reverting transaction:
+    // it closes the transaction as failed and never sends it, so the write is not unconfirmed.
+    let fixture = makeRestoredWalletClient()
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-reverted",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: true,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+    fixture.transport.enqueueRawHTTPError(
+        statusCode: 400,
+        body: Data(
+            #"{"error":"TransactionSimulationFailed","code":7314,"msg":"Transaction simulation failed","status":400}"#.utf8
+        ),
+        for: WaasAPI.Execute.urlPath
+    )
+
+    await expectPublicError(
+        try await fixture.client.sendTransaction(
+            network: .polygon,
+            request: SendTransactionRequest(to: "0x1111111111111111111111111111111111111111", value: "0")
+        ),
+        equals: error(
+            code: .requestFailed,
+            operation: .walletSendTransaction,
+            message: "Transaction simulation failed",
+            status: 400,
+            retryable: false,
+            upstreamError: upstream(
+                service: .waas,
+                name: "TransactionSimulationFailed",
+                code: "7314",
+                message: "Transaction simulation failed",
+                status: 400
+            )
+        )
+    )
+}
+
 @Test func TestPublicErrorContractsServerRejectedCredentialDuringTransactionFlow() async throws {
     let keyExpired = Data(#"{"error":"KeyExpired","code":7203,"msg":"key expired","status":400}"#.utf8)
     let request = SendTransactionRequest(to: "0x1111111111111111111111111111111111111111", value: "0")

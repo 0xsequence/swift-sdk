@@ -446,6 +446,10 @@ extension WalletClient {
             executeResponse = try await signedClient.execute(executeRequest)
         } catch let error as CancellationError {
             throw error
+        } catch let error as WebRPCError where error.kind == .transactionSimulationFailed {
+            // The relayer refused to dispatch a reverting transaction (7314): WaaS closed it as
+            // failed and never sent it, so this is a request failure, not an unconfirmed write.
+            throw error
         } catch {
             let sdkError = toOMSWalletError(error, operation: .walletExecute)
             throw OMSWalletError(
