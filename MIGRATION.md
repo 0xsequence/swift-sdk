@@ -217,8 +217,11 @@ transaction `Execute`, which WaaS refuses before running it: it throws `.session
 `.transactionStatusLookupFailed` and its `txnId`. If the wallet API is unreachable when a session reaches its local expiry, operations throw
 the network error (`.requestFailed`) and keep the session instead of throwing `.sessionExpired`.
 
-`WalletClient.maxSessionLifetimeSeconds` rose from 2,592,000 (30 days) to 15,552,000 (180 days). The
-default lifetime is unchanged.
+The longest accepted session lifetime rose from 2,592,000 seconds (30 days) to 15,552,000 (180 days),
+`WalletClient.maxSessionLifetimeSeconds`. The default rose from 604,800 seconds (7 days) to the same
+maximum, `WalletClient.defaultSessionLifetimeSeconds`: sign-in calls that omit
+`sessionLifetimeSeconds` now request 180 days. A session still ends after 10 days without use; pass a
+shorter `sessionLifetimeSeconds` if you need a hard limit.
 
 ### Networks
 
@@ -294,8 +297,8 @@ if error.code == .walletAddressAlreadyImported { /* already imported */ }
 `TronBalance` and `SolanaBalance` now expose `network`, `accountAddress`, `name`, `symbol`,
 `decimals`, `balance`, `formattedBalance`, `imageUrl`, `metadataUri`, `verificationStatus`,
 `verificationSource`, `priceUSD`, and `balanceUSD` directly. `WalletImportPrivateKey.walletType`,
-`WalletClient.defaultSessionLifetimeSeconds` (604,800), and
-`WalletClient.maxSessionLifetimeSeconds` (2,592,000) are now public. Remove app extensions that
+`WalletClient.defaultSessionLifetimeSeconds` (15,552,000), and
+`WalletClient.maxSessionLifetimeSeconds` (15,552,000) are now public. Remove app extensions that
 declare members with these names on those types.
 
 ### Empty Solana balance metadata

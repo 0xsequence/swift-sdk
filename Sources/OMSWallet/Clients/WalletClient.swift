@@ -18,8 +18,8 @@ public final class WalletClient: @unchecked Sendable {
     )
 
     /// The session lifetime used when a sign-in call does not pass `sessionLifetimeSeconds`
-    /// (7 days).
-    public static let defaultSessionLifetimeSeconds: UInt32 = 604_800
+    /// (180 days, the maximum).
+    public static let defaultSessionLifetimeSeconds: UInt32 = 15_552_000
     /// The longest session lifetime the wallet API accepts (180 days).
     public static let maxSessionLifetimeSeconds: UInt32 = 15_552_000
 

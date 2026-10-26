@@ -68,7 +68,7 @@ private func isOidcAuth(
         for: WaasAPI.CompleteAuth.urlPath
     )
     #expect(request.verifier == "default-lifetime-verifier")
-    #expect(request.lifetime == 604_800)
+    #expect(request.lifetime == 15_552_000)
     #expect(fixture.client.walletId == "")
     #expect(fixture.client.activeWallet?.address == nil)
     #expect(fixture.client.session == nil)
@@ -217,7 +217,7 @@ func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut
     _ entryPoint: SessionLifetimeEntryPoint,
     sessionLifetimeSeconds: UInt32
 ) async throws {
-    #expect(WalletClient.defaultSessionLifetimeSeconds == 604_800)
+    #expect(WalletClient.defaultSessionLifetimeSeconds == 15_552_000)
     #expect(WalletClient.maxSessionLifetimeSeconds == 15_552_000)
 
     let fixture = makeMockWalletClient(oidcNonceGenerator: { "nonce-123" })
@@ -936,7 +936,7 @@ private func waitForSessionExpiredEvent(
     #expect(completeAuthRequest.authMode == .idToken)
     #expect(completeAuthRequest.verifier == "oidc-verifier-123")
     #expect(completeAuthRequest.answer == idToken)
-    #expect(completeAuthRequest.lifetime == 604_800)
+    #expect(completeAuthRequest.lifetime == 15_552_000)
     #expect(useWalletRequest.walletId == selectedWallet.id)
     #expect(wallet.id == selectedWallet.id)
     #expect(fixture.client.walletId == selectedWallet.id)
@@ -1402,7 +1402,7 @@ private func waitForSessionExpiredEvent(
     )
 
     #expect(completeAuthRequest.authMode == .authCode)
-    #expect(completeAuthRequest.lifetime == 604_800)
+    #expect(completeAuthRequest.lifetime == 15_552_000)
     #expect(wallet.id == selectedWallet.id)
 }
 
@@ -1459,7 +1459,7 @@ private func waitForSessionExpiredEvent(
     #expect(completeAuthRequest.authMode == .authCodePkce)
     #expect(completeAuthRequest.verifier == "oidc-verifier-123")
     #expect(completeAuthRequest.answer == "auth-code")
-    #expect(completeAuthRequest.lifetime == 604_800)
+    #expect(completeAuthRequest.lifetime == 15_552_000)
     #expect(useWalletRequest.walletId == selectedWallet.id)
     #expect(wallet.address == "0xdef0000000000000000000000000000000000000")
     #expect(wallets.map(\.id) == [selectedWallet.id, secondWallet.id])

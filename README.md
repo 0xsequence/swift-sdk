@@ -133,7 +133,7 @@ if let activeWallet = omsWallet.wallet.activeWallet,
 it with use up to the requested session lifetime, and the SDK refreshes it.
 
 Pass `sessionLifetimeSeconds` to `startEmailAuth` when you need a shorter or
-longer email session. The default is `WalletClient.defaultSessionLifetimeSeconds` (one week), and
+longer email session. The default is `WalletClient.defaultSessionLifetimeSeconds` (180 days, the maximum), and
 custom values must be from 1 through `WalletClient.maxSessionLifetimeSeconds` (15,552,000 seconds,
 180 days). The SDK validates the value before sending
 the one-time code. The lifetime is a ceiling: the wallet API ends an idle session sooner and extends

@@ -47,7 +47,7 @@ public static let defaultSessionLifetimeSeconds: UInt32
 ```
 
 The session lifetime used when a sign-in call does not pass `sessionLifetimeSeconds`
-(7 days).
+(180 days, the maximum).
 
 ### `WalletClient.maxSessionLifetimeSeconds`
 
