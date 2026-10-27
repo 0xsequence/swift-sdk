@@ -699,6 +699,17 @@ extension WalletClient {
                 )
                 self.activePendingWalletSelection = nil
                 return result
+            },
+            claimAndSelectWalletAction: { walletId in
+                try self.requireActivePendingWalletSelection(selectionSession)
+                let selectionRevision = self.sessionRevisionSnapshot()
+                let result = try await self.claimWallet(
+                    walletId: walletId,
+                    sessionMetadata: selectionSession.metadata,
+                    requiredSessionRevision: selectionRevision
+                )
+                self.activePendingWalletSelection = nil
+                return result
             }
         )
     }

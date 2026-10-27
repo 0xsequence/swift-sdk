@@ -412,6 +412,7 @@ symbol	swift.enum.case	OMSWalletOperation.indexerGetSolanaBalances	case indexerG
 symbol	swift.enum.case	OMSWalletOperation.indexerGetTransactionHistory	case indexerGetTransactionHistory
 symbol	swift.enum.case	OMSWalletOperation.indexerGetTronBalances	case indexerGetTronBalances
 symbol	swift.enum.case	OMSWalletOperation.pendingWalletSelection	case pendingWalletSelection
+symbol	swift.enum.case	OMSWalletOperation.pendingWalletSelectionClaimAndSelectWallet	case pendingWalletSelectionClaimAndSelectWallet
 symbol	swift.enum.case	OMSWalletOperation.pendingWalletSelectionCreateAndSelectWallet	case pendingWalletSelectionCreateAndSelectWallet
 symbol	swift.enum.case	OMSWalletOperation.pendingWalletSelectionSelectWallet	case pendingWalletSelectionSelectWallet
 symbol	swift.enum.case	OMSWalletOperation.walletAuthorizeRemoteAccess	case walletAuthorizeRemoteAccess
@@ -639,6 +640,7 @@ symbol	swift.method	OMSWalletEmailSessionAuth.encode(to:)	func encode(to encoder
 symbol	swift.method	OMSWalletOidcSessionAuth.encode(to:)	func encode(to encoder: Encoder) throws
 symbol	swift.method	OMSWalletSessionAuth.encode(to:)	func encode(to encoder: Encoder) throws
 symbol	swift.method	OMSWalletSessionExpiredObservation.cancel()	func cancel()
+symbol	swift.method	PendingWalletSelection.claimAndSelectWallet(walletId:)	@discardableResult func claimAndSelectWallet(walletId: String) async throws -> WalletActivationResult
 symbol	swift.method	PendingWalletSelection.createAndSelectWallet(reference:)	@discardableResult func createAndSelectWallet(reference: String? = nil) async throws -> WalletActivationResult
 symbol	swift.method	PendingWalletSelection.selectWallet(walletId:)	@discardableResult func selectWallet(walletId: String) async throws -> WalletActivationResult
 symbol	swift.method	TokenMetadata.encode(to:)	func encode(to encoder: Encoder) throws

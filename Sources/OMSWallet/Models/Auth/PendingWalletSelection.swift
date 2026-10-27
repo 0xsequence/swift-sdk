@@ -11,6 +11,7 @@ public final class PendingWalletSelection: @unchecked Sendable {
 
     private let selectWalletAction: (String) async throws -> WalletActivationResult
     private let createAndSelectWalletAction: (String?) async throws -> WalletActivationResult
+    private let claimAndSelectWalletAction: (String) async throws -> WalletActivationResult
     private let actionLock = NSLock()
     private var actionInFlight = false
 
@@ -20,7 +21,8 @@ public final class PendingWalletSelection: @unchecked Sendable {
         claimableWallets: [Wallet],
         credential: WalletCredential,
         selectWalletAction: @escaping (String) async throws -> WalletActivationResult,
-        createAndSelectWalletAction: @escaping (String?) async throws -> WalletActivationResult
+        createAndSelectWalletAction: @escaping (String?) async throws -> WalletActivationResult,
+        claimAndSelectWalletAction: @escaping (String) async throws -> WalletActivationResult
     ) {
         self.walletType = walletType
         self.wallets = wallets
@@ -28,6 +30,7 @@ public final class PendingWalletSelection: @unchecked Sendable {
         self.credential = credential
         self.selectWalletAction = selectWalletAction
         self.createAndSelectWalletAction = createAndSelectWalletAction
+        self.claimAndSelectWalletAction = claimAndSelectWalletAction
     }
 
     @discardableResult
@@ -47,6 +50,21 @@ public final class PendingWalletSelection: @unchecked Sendable {
         try await runOMSWalletOperation(.pendingWalletSelectionCreateAndSelectWallet) {
             try await runSelectionAction {
                 try await createAndSelectWalletAction(reference)
+            }
+        }
+    }
+
+    /// Claims one of `claimableWallets` and selects it, completing this selection.
+    ///
+    /// An ID that is not in `claimableWallets` throws `.walletSelectionUnavailable` without a request.
+    @discardableResult
+    public func claimAndSelectWallet(walletId: String) async throws -> WalletActivationResult {
+        try await runOMSWalletOperation(.pendingWalletSelectionClaimAndSelectWallet) {
+            guard claimableWallets.contains(where: { $0.id == walletId }) else {
+                throw OMSWalletError.walletSelectionUnavailable()
+            }
+            return try await runSelectionAction {
+                try await claimAndSelectWalletAction(walletId)
             }
         }
     }

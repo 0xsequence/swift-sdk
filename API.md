@@ -299,6 +299,8 @@ public final class PendingWalletSelection: @unchecked Sendable {
     public let credential: WalletCredential
     @discardableResult public func selectWallet(walletId: String) async throws -> WalletActivationResult
     @discardableResult public func createAndSelectWallet(reference: String? = nil) async throws -> WalletActivationResult
+    /// Claims one of `claimableWallets` and selects it, completing this selection.
+    @discardableResult public func claimAndSelectWallet(walletId: String) async throws -> WalletActivationResult
 }
 ```
 
@@ -1733,6 +1735,7 @@ public enum OMSWalletOperation: String, Sendable {
     case pendingWalletSelection = "wallet.pendingWalletSelection"
     case pendingWalletSelectionSelectWallet = "wallet.pendingWalletSelection.selectWallet"
     case pendingWalletSelectionCreateAndSelectWallet = "wallet.pendingWalletSelection.createAndSelectWallet"
+    case pendingWalletSelectionClaimAndSelectWallet = "wallet.pendingWalletSelection.claimAndSelectWallet"
     case walletStartEmailAuth = "wallet.startEmailAuth"
     case walletCompleteEmailAuth = "wallet.completeEmailAuth"
     case walletSignInWithOidcIdToken = "wallet.signInWithOidcIdToken"

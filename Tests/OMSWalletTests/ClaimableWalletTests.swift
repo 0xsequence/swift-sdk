@@ -303,3 +303,103 @@ private func expectAccountNotFound(_ error: Error, operation: OMSWalletOperation
     }
     #expect(fixture.transport.requestCount(for: WaasAPI.ClaimWallet.urlPath) == 0)
 }
+
+private func pendingSelection(
+    _ fixture: MockWalletClientFixture,
+    wallets: [WaasWallet] = [ownedEthereumWallet],
+    claimable: [WaasWallet] = [claimableEthereumWallet]
+) async throws -> PendingWalletSelection? {
+    try fixture.transport.enqueue(
+        completeAuthResponse(wallets: wallets, claimable: claimable),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    let result = try await fixture.client.completeEmailAuth(code: "123456", walletSelection: .manual)
+    guard case .walletSelection(let pendingSelection) = result else {
+        Issue.record("Expected a pending wallet selection")
+        return nil
+    }
+    return pendingSelection
+}
+
+@Test func TestPendingSelectionClaimAndSelectWalletCompletesSelection() async throws {
+    let fixture = makeMockWalletClient()
+    guard let selection = try await pendingSelection(fixture) else { return }
+    try fixture.transport.enqueue(
+        ClaimWalletResponse(wallet: claimableEthereumWallet),
+        for: WaasAPI.ClaimWallet.urlPath
+    )
+
+    let claimed = try await selection.claimAndSelectWallet(walletId: claimableEthereumWallet.id)
+
+    #expect(try fixture.transport.requestObject(for: WaasAPI.ClaimWallet.urlPath) == [
+        "walletId": claimableEthereumWallet.id
+    ])
+    #expect(fixture.transport.requestCount(for: WaasAPI.UseWallet.urlPath) == 0)
+    #expect(claimed.wallet.id == claimableEthereumWallet.id)
+    #expect(fixture.client.activeWallet?.id == claimableEthereumWallet.id)
+    let storedCredentials = try fixture.storedCredentials()
+    #expect(storedCredentials?.wallet.id == claimableEthereumWallet.id)
+    #expect(storedCredentials?.auth.email == "user@example.com")
+    #expect(fixture.client.activePendingWalletSelection == nil)
+
+    do {
+        _ = try await selection.selectWallet(walletId: ownedEthereumWallet.id)
+        Issue.record("Expected the completed selection to be stale")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .walletSelectionStale)
+    }
+}
+
+@Test func TestPendingSelectionClaimAndSelectWalletRejectsUnlistedIdsWithoutRequest() async throws {
+    let fixture = makeMockWalletClient()
+    guard let selection = try await pendingSelection(fixture) else { return }
+
+    // An owned wallet ID and an unknown ID are both outside `claimableWallets`.
+    for walletId in [ownedEthereumWallet.id, "wallet-unknown"] {
+        do {
+            _ = try await selection.claimAndSelectWallet(walletId: walletId)
+            Issue.record("Expected \(walletId) to be unavailable")
+        } catch let error as OMSWalletError {
+            #expect(error.code == .walletSelectionUnavailable)
+            #expect(error.operation == .pendingWalletSelectionClaimAndSelectWallet)
+        }
+    }
+    #expect(fixture.transport.requestCount(for: WaasAPI.ClaimWallet.urlPath) == 0)
+    #expect(fixture.client.activeWallet == nil)
+    #expect(fixture.client.activePendingWalletSelection != nil)
+}
+
+@Test func TestPendingSelectionClaimAndSelectWalletRejectsStaleSelection() async throws {
+    let fixture = makeMockWalletClient()
+    guard let selection = try await pendingSelection(fixture) else { return }
+    try fixture.client.signOut()
+
+    do {
+        _ = try await selection.claimAndSelectWallet(walletId: claimableEthereumWallet.id)
+        Issue.record("Expected a stale selection")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .walletSelectionStale)
+        #expect(error.operation == .pendingWalletSelectionClaimAndSelectWallet)
+    }
+    #expect(fixture.transport.requestCount(for: WaasAPI.ClaimWallet.urlPath) == 0)
+}
+
+@Test func TestPendingSelectionClaimAndSelectWalletFailureKeepsSelection() async throws {
+    let fixture = makeMockWalletClient()
+    guard let selection = try await pendingSelection(fixture) else { return }
+    fixture.transport.enqueueRawHTTPError(
+        statusCode: 404,
+        body: accountNotFoundBody,
+        for: WaasAPI.ClaimWallet.urlPath
+    )
+
+    do {
+        _ = try await selection.claimAndSelectWallet(walletId: claimableEthereumWallet.id)
+        Issue.record("Expected the claim to fail")
+    } catch {
+        expectAccountNotFound(error, operation: .pendingWalletSelectionClaimAndSelectWallet)
+    }
+    #expect(fixture.client.activeWallet == nil)
+    #expect(fixture.client.activePendingWalletSelection != nil)
+    #expect(try fixture.storedCredentials() == nil)
+}

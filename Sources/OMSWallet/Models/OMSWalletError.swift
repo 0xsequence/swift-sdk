@@ -22,6 +22,7 @@ public enum OMSWalletOperation: String, Sendable {
     case pendingWalletSelection = "wallet.pendingWalletSelection"
     case pendingWalletSelectionSelectWallet = "wallet.pendingWalletSelection.selectWallet"
     case pendingWalletSelectionCreateAndSelectWallet = "wallet.pendingWalletSelection.createAndSelectWallet"
+    case pendingWalletSelectionClaimAndSelectWallet = "wallet.pendingWalletSelection.claimAndSelectWallet"
     case walletStartEmailAuth = "wallet.startEmailAuth"
     case walletCompleteEmailAuth = "wallet.completeEmailAuth"
     case walletSignInWithOidcIdToken = "wallet.signInWithOidcIdToken"

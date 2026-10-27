@@ -177,6 +177,8 @@ if case .walletSelection(let pendingSelection) = result {
     try await pendingSelection.selectWallet(walletId: "wallet-id")
     // or:
     // try await pendingSelection.createAndSelectWallet()
+    // or claim a preallocated wallet (see Claimable Wallets below):
+    // try await pendingSelection.claimAndSelectWallet(walletId: "claimable-wallet-id")
 }
 ```
 
@@ -203,9 +205,12 @@ requested `walletType` in this order:
 If the claim fails, sign-in fails; the SDK does not create a wallet instead. After automatic
 selection, `claimableWallets` lists only the wallets it did not claim.
 
-To claim a wallet yourself, call `claimWallet(walletId:)` while a manual selection is pending, or
-with an active session to switch to the claimed wallet. Claiming grants the current credential
-access to the wallet and saves it as the active wallet, like `useWallet(walletId:)`:
+To claim a wallet yourself during a manual selection, call
+`pendingSelection.claimAndSelectWallet(walletId:)`. Like `selectWallet(walletId:)`, it completes
+the selection, and it accepts only IDs in that selection's `claimableWallets`; any other ID throws
+`.walletSelectionUnavailable` without a request. With an active session, call
+`omsWallet.wallet.claimWallet(walletId:)` to switch to the claimed wallet. Claiming grants the
+current credential access to the wallet and saves it as the active wallet:
 
 ```swift
 let result = try await omsWallet.wallet.completeEmailAuth(
@@ -215,7 +220,7 @@ let result = try await omsWallet.wallet.completeEmailAuth(
 
 if case .walletSelection(let pendingSelection) = result,
    let claimable = pendingSelection.claimableWallets.first {
-    try await omsWallet.wallet.claimWallet(walletId: claimable.id)
+    try await pendingSelection.claimAndSelectWallet(walletId: claimable.id)
 }
 ```
 

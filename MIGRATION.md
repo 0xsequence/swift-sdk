@@ -108,8 +108,8 @@ leaves the user signed out. Previously the session was activated without an expi
 `WalletType` gained `.tron`, and `WalletImportPrivateKey` gained `.tron(_:)` and `.tronBytes(_:)`.
 `OMSWalletOperation` gained `.walletSignTronMessage`, `.walletSignTronTypedData`,
 `.walletIsValidTronMessageSignature`, `.walletIsValidTronTypedDataSignature`,
-`.walletSendTronTransaction`, `.walletCallTronContract`, `.indexerGetTronBalances`, and
-`.walletClaimWallet`. Update
+`.walletSendTronTransaction`, `.walletCallTronContract`, `.indexerGetTronBalances`,
+`.walletClaimWallet`, and `.pendingWalletSelectionClaimAndSelectWallet`. Update
 exhaustive switches over these enums.
 
 ### Signature verification
@@ -190,7 +190,9 @@ Sign-in now reports wallets a project preallocated for the user's email:
 - `CompleteAuthResult.walletSelected` gained a `claimableWallets: [Wallet]` value after
   `wallets`, so patterns that bind its values need a fourth binding (or `_`). The computed
   `CompleteAuthResult.claimableWallets` property reads it without a pattern.
-- `PendingWalletSelection.claimableWallets` lists the claimable wallets of the pending wallet type.
+- `PendingWalletSelection.claimableWallets` lists the claimable wallets of the pending wallet type,
+  and `PendingWalletSelection.claimAndSelectWallet(walletId:)` claims one of them and completes the
+  selection (operation `.pendingWalletSelectionClaimAndSelectWallet`).
 - `WalletClient.claimWallet(walletId:)` claims one and activates it, like `useWallet(walletId:)`.
   Its errors use the new operation `.walletClaimWallet` (`"wallet.claimWallet"`).
 
