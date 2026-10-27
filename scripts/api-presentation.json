@@ -56,6 +56,9 @@
         "path": "WalletClient.createWallet(walletType:reference:)"
       },
       {
+        "path": "WalletClient.claimWallet(walletId:)"
+      },
+      {
         "path": "WalletClient.importWallet(privateKey:reference:)"
       },
       {

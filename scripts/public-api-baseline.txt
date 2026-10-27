@@ -353,7 +353,7 @@ symbol	swift.enum.case	AccessGrant.direct(_:)	case direct(WalletCredential)
 symbol	swift.enum.case	AccessGrant.remote(_:)	case remote(RemoteAccessGrant)
 symbol	swift.enum.case	AccessGrantType.direct	case direct
 symbol	swift.enum.case	AccessGrantType.remote	case remote
-symbol	swift.enum.case	CompleteAuthResult.walletSelected(wallet:wallets:credential:)	case walletSelected(wallet: Wallet, wallets: [Wallet], credential: WalletCredential)
+symbol	swift.enum.case	CompleteAuthResult.walletSelected(wallet:wallets:claimableWallets:credential:)	case walletSelected(wallet: Wallet, wallets: [Wallet], claimableWallets: [Wallet], credential: WalletCredential)
 symbol	swift.enum.case	CompleteAuthResult.walletSelection(_:)	case walletSelection(PendingWalletSelection)
 symbol	swift.enum.case	ContractVerificationStatus.all	case all
 symbol	swift.enum.case	ContractVerificationStatus.unverified	case unverified
@@ -417,6 +417,7 @@ symbol	swift.enum.case	OMSWalletOperation.pendingWalletSelectionSelectWallet	cas
 symbol	swift.enum.case	OMSWalletOperation.walletAuthorizeRemoteAccess	case walletAuthorizeRemoteAccess
 symbol	swift.enum.case	OMSWalletOperation.walletCallContract	case walletCallContract
 symbol	swift.enum.case	OMSWalletOperation.walletCallTronContract	case walletCallTronContract
+symbol	swift.enum.case	OMSWalletOperation.walletClaimWallet	case walletClaimWallet
 symbol	swift.enum.case	OMSWalletOperation.walletCompleteEmailAuth	case walletCompleteEmailAuth
 symbol	swift.enum.case	OMSWalletOperation.walletCreateWallet	case walletCreateWallet
 symbol	swift.enum.case	OMSWalletOperation.walletExecute	case walletExecute
@@ -650,6 +651,7 @@ symbol	swift.method	WalletClient.addSessionExpiredObserver(_:)	@discardableResul
 symbol	swift.method	WalletClient.authorizeRemoteAccess(credentialId:network:grants:expiresAt:sessionId:)	func authorizeRemoteAccess(credentialId: String, network: Network, grants: [SmartSessionGrant], expiresAt: String, sessionId: String? = nil) async throws -> AuthorizedRemoteAccess
 symbol	swift.method	WalletClient.callContract(network:contractAddress:method:args:selectFeeOption:mode:waitForStatus:statusPolling:)	func callContract(network: Network, contractAddress: String, method: String, args: [AbiArg]? = nil, selectFeeOption: FeeOptionSelector? = nil, mode: TransactionMode = .relayer, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
 symbol	swift.method	WalletClient.callTronContract(network:contractAddress:method:args:selectFeeOption:waitForStatus:statusPolling:)	func callTronContract(network: TronNetwork, contractAddress: String, method: String, args: [AbiArg]? = nil, selectFeeOption: FeeOptionSelector? = nil, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
+symbol	swift.method	WalletClient.claimWallet(walletId:)	@discardableResult func claimWallet(walletId: String) async throws -> WalletActivationResult
 symbol	swift.method	WalletClient.completeEmailAuth(code:walletSelection:walletType:)	@discardableResult func completeEmailAuth(code: String, walletSelection: WalletSelectionBehavior = .automatic, walletType: WalletType = WalletType.ethereum) async throws -> CompleteAuthResult
 symbol	swift.method	WalletClient.createWallet(walletType:reference:)	@discardableResult func createWallet(walletType: WalletType = WalletType.ethereum, reference: String? = nil) async throws -> WalletActivationResult
 symbol	swift.method	WalletClient.getIdToken(ttlSeconds:customClaims:)	func getIdToken(ttlSeconds: UInt32? = nil, customClaims: [String : JSONValue]? = nil) async throws -> String
@@ -700,6 +702,7 @@ symbol	swift.property	BalancesResult.balances	let balances: [ContractTokenBalanc
 symbol	swift.property	BalancesResult.nativeBalances	let nativeBalances: [NativeTokenBalance]
 symbol	swift.property	BalancesResult.page	let page: TokenBalancesPage?
 symbol	swift.property	BalancesResult.status	let status: Int
+symbol	swift.property	CompleteAuthResult.claimableWallets	var claimableWallets: [Wallet] { get }
 symbol	swift.property	CompleteAuthResult.credential	var credential: WalletCredential { get }
 symbol	swift.property	CompleteAuthResult.wallet	var wallet: Wallet? { get }
 symbol	swift.property	ContractTokenBalance.accountAddress	let accountAddress: String
@@ -831,6 +834,7 @@ symbol	swift.property	OMSWalletUpstreamError.service	let service: OMSWalletUpstr
 symbol	swift.property	OMSWalletUpstreamError.status	let status: Int?
 symbol	swift.property	Page.cursor	let cursor: String?
 symbol	swift.property	Page.limit	let limit: UInt32?
+symbol	swift.property	PendingWalletSelection.claimableWallets	let claimableWallets: [Wallet]
 symbol	swift.property	PendingWalletSelection.credential	let credential: WalletCredential
 symbol	swift.property	PendingWalletSelection.walletType	let walletType: WalletType
 symbol	swift.property	PendingWalletSelection.wallets	let wallets: [Wallet]

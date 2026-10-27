@@ -15,6 +15,8 @@ internal typealias Identity = WaasGenerated.Identity
 internal typealias IdentityType = WaasGenerated.IdentityType
 internal typealias SigningAlgorithm = WaasGenerated.SigningAlgorithm
 
+internal typealias ClaimWalletRequest = WaasGenerated.ClaimWalletRequest
+internal typealias ClaimWalletResponse = WaasGenerated.ClaimWalletResponse
 internal typealias CommitVerifierRequest = WaasGenerated.CommitVerifierRequest
 internal typealias CommitVerifierResponse = WaasGenerated.CommitVerifierResponse
 internal typealias CompleteAuthRequest = WaasGenerated.CompleteAuthRequest

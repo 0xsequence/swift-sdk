@@ -95,7 +95,7 @@ private func isOidcAuth(
     )
 
     let result = try await fixture.client.completeEmailAuth(code: "123456")
-    guard case .walletSelected(let wallet, let wallets, _) = result else {
+    guard case .walletSelected(let wallet, let wallets, _, _) = result else {
         #expect(Bool(false))
         return
     }
@@ -905,7 +905,7 @@ private func waitForSessionExpiredEvent(
         issuer: "https://accounts.google.com",
         audience: "demo-web-client-id"
     )
-    guard case .walletSelected(let wallet, _, _) = result else {
+    guard case .walletSelected(let wallet, _, _, _) = result else {
         #expect(Bool(false))
         return
     }
@@ -1392,7 +1392,7 @@ private func waitForSessionExpiredEvent(
     let result = try await fixture.client.handleOIDCRedirectCallback(
         "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))"
     )
-    guard case .completed(.walletSelected(let wallet, _, _)) = result else {
+    guard case .completed(.walletSelected(let wallet, _, _, _)) = result else {
         #expect(Bool(false))
         return
     }
@@ -1441,7 +1441,7 @@ private func waitForSessionExpiredEvent(
     let result = try await fixture.client.handleOIDCRedirectCallback(
         "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))&scope=openid"
     )
-    guard case .completed(.walletSelected(let wallet, let wallets, let credential)) = result else {
+    guard case .completed(.walletSelected(let wallet, let wallets, _, let credential)) = result else {
         #expect(Bool(false))
         return
     }
@@ -1516,7 +1516,7 @@ private func waitForSessionExpiredEvent(
     let result = try await fixture.client.handleOIDCRedirectCallback(
         "omsclientswiftdemo://auth/callback#code=fragment-code&state=\(try oidcState(started))&scope=openid"
     )
-    guard case .completed(.walletSelected(let wallet, _, _)) = result else {
+    guard case .completed(.walletSelected(let wallet, _, _, _)) = result else {
         #expect(Bool(false))
         return
     }
@@ -1676,7 +1676,7 @@ private func waitForSessionExpiredEvent(
         walletSelection: .automatic,
         sessionLifetimeSeconds: 300
     )
-    guard case .completed(.walletSelected(let wallet, _, _)) = result else {
+    guard case .completed(.walletSelected(let wallet, _, _, _)) = result else {
         #expect(Bool(false))
         return
     }
@@ -1714,7 +1714,7 @@ private func expectRealOidcCallbackStillCompletes(
         "omsclientswiftdemo://auth/callback?code=auth-code&state=\(try oidcState(started))"
     )
 
-    guard case .completed(.walletSelected(let wallet, _, _)) = result else {
+    guard case .completed(.walletSelected(let wallet, _, _, _)) = result else {
         Issue.record("Expected the real OIDC callback to complete, got \(result)")
         return
     }
@@ -3272,6 +3272,7 @@ func completeAuthResponse(
     wallets: [WaasWallet],
     page: WaasPage? = nil,
     email: String? = "user@example.com",
+    claimable: [WaasWallet]? = nil,
     credential: WaasCredentialInfo = testCredential
 ) -> CompleteAuthResponse {
     CompleteAuthResponse(
@@ -3279,6 +3280,7 @@ func completeAuthResponse(
         wallets: wallets,
         page: page,
         email: email,
+        claimable: claimable,
         credential: credential
     )
 }

@@ -23,15 +23,16 @@ if let activeWallet = omsWallet.wallet.activeWallet, activeWallet.type == .ether
 
 `walletAddress` was also removed from `WalletSelectionResult` (now `WalletActivationResult`, see
 below) and from
-`CompleteAuthResult.walletSelected`, which is now `.walletSelected(wallet:wallets:credential:)`.
-Use `result.wallet.address`:
+`CompleteAuthResult.walletSelected`, which is now
+`.walletSelected(wallet:wallets:claimableWallets:credential:)` (see
+[Claimable wallets](#claimable-wallets)). Use `result.wallet.address`:
 
 ```swift
 // 0.3.x
 case .walletSelected(let walletAddress, let wallet, let wallets, let credential):
 
 // 0.4.0
-case .walletSelected(let wallet, let wallets, let credential):
+case .walletSelected(let wallet, let wallets, let claimableWallets, let credential):
     let walletAddress = wallet.address
 ```
 
@@ -107,7 +108,8 @@ leaves the user signed out. Previously the session was activated without an expi
 `WalletType` gained `.tron`, and `WalletImportPrivateKey` gained `.tron(_:)` and `.tronBytes(_:)`.
 `OMSWalletOperation` gained `.walletSignTronMessage`, `.walletSignTronTypedData`,
 `.walletIsValidTronMessageSignature`, `.walletIsValidTronTypedDataSignature`,
-`.walletSendTronTransaction`, `.walletCallTronContract`, and `.indexerGetTronBalances`. Update
+`.walletSendTronTransaction`, `.walletCallTronContract`, `.indexerGetTronBalances`, and
+`.walletClaimWallet`. Update
 exhaustive switches over these enums.
 
 ### Signature verification
@@ -179,6 +181,28 @@ let walletId = omsWallet.wallet.walletId
 
 // 0.4.0
 let walletId = omsWallet.wallet.activeWallet?.id
+```
+
+### Claimable wallets
+
+Sign-in now reports wallets a project preallocated for the user's email:
+
+- `CompleteAuthResult.walletSelected` gained a `claimableWallets: [Wallet]` value after
+  `wallets`, so patterns that bind its values need a fourth binding (or `_`). The computed
+  `CompleteAuthResult.claimableWallets` property reads it without a pattern.
+- `PendingWalletSelection.claimableWallets` lists the claimable wallets of the pending wallet type.
+- `WalletClient.claimWallet(walletId:)` claims one and activates it, like `useWallet(walletId:)`.
+  Its errors use the new operation `.walletClaimWallet` (`"wallet.claimWallet"`).
+
+Automatic wallet selection now claims a claimable wallet of the requested type when the user owns
+none, instead of creating a new wallet. If the claim fails, sign-in fails.
+
+```swift
+// 0.4.0
+let result = try await omsWallet.wallet.completeEmailAuth(code: "123456")
+for wallet in result.claimableWallets {
+    print("Claimable:", wallet.type, wallet.address)
+}
 ```
 
 ### Session expiry timestamps

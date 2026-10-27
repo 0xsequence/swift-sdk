@@ -585,17 +585,21 @@ extension WalletClient {
             }
         }
 
-        let wallets = try await signOutOnFailure(
+        let (wallets, claimableWallets) = try await signOutOnFailure(
             unlessOwnedBy: oidcRedirectAuthOwnership,
             requiredSessionRevision: requiredSessionRevision
         ) {
-            try await walletsFromAuthResponse(response)
+            (
+                try await walletsFromAuthResponse(response),
+                try claimableWalletsFromAuthResponse(response)
+            )
         }
         try withOptionalOIDCRedirectAuthOwnership(oidcRedirectAuthOwnership) {
             try requireCurrentSessionRevision(requiredSessionRevision)
         }
 
         let candidateWallets = wallets.filter { $0.type == walletType }
+        let candidateClaimableWallets = claimableWallets.filter { $0.type == walletType }
         guard walletSelection == .automatic else {
             let pendingSelectionSession = try withOptionalOIDCRedirectAuthOwnership(
                 oidcRedirectAuthOwnership
@@ -606,12 +610,15 @@ extension WalletClient {
                 pendingWalletSelection(
                     walletType: walletType,
                     wallets: candidateWallets,
+                    claimableWallets: candidateClaimableWallets,
                     credential: response.credential.walletCredential,
                     selectionSession: pendingSelectionSession
                 )
             )
         }
 
+        // Owned wallets win; otherwise claim a wallet preallocated for this user, else create one.
+        let claimedWalletId = candidateWallets.isEmpty ? candidateClaimableWallets.first?.id : nil
         let activated = try await signOutOnFailure(
             unlessOwnedBy: oidcRedirectAuthOwnership,
             requiredSessionRevision: requiredSessionRevision
@@ -619,6 +626,14 @@ extension WalletClient {
             if let selectedWallet = candidateWallets.first {
                 return try await useWallet(
                     walletId: selectedWallet.id,
+                    sessionMetadata: sessionMetadata,
+                    requiredSessionRevision: requiredSessionRevision,
+                    oidcRedirectAuthOwnership: oidcRedirectAuthOwnership
+                )
+            }
+            if let claimedWalletId {
+                return try await claimWallet(
+                    walletId: claimedWalletId,
                     sessionMetadata: sessionMetadata,
                     requiredSessionRevision: requiredSessionRevision,
                     oidcRedirectAuthOwnership: oidcRedirectAuthOwnership
@@ -635,6 +650,7 @@ extension WalletClient {
         return .walletSelected(
             wallet: activated.wallet,
             wallets: candidateWallets.isEmpty ? wallets + [activated.wallet] : wallets,
+            claimableWallets: claimableWallets.filter { $0.id != claimedWalletId },
             credential: response.credential.walletCredential
         )
     }
@@ -652,12 +668,14 @@ extension WalletClient {
     private func pendingWalletSelection(
         walletType: WalletType,
         wallets: [Wallet],
+        claimableWallets: [Wallet],
         credential: WalletCredential,
         selectionSession: PendingWalletSelectionSession
     ) -> PendingWalletSelection {
         PendingWalletSelection(
             walletType: walletType,
             wallets: wallets,
+            claimableWallets: claimableWallets,
             credential: credential,
             selectWalletAction: { walletId in
                 try self.requireActivePendingWalletSelection(selectionSession)
@@ -766,6 +784,32 @@ extension WalletClient {
         }
     }
 
+    /// Claims a wallet preallocated for the signed-in user and activates it, persisting the wallet
+    /// and signer metadata to the keychain.
+    ///
+    /// Claimable wallets are listed in `CompleteAuthResult.claimableWallets` and
+    /// `PendingWalletSelection.claimableWallets`. Call this after sign-in returns
+    /// `.walletSelection` to complete the selection with a claimed wallet, or with an active
+    /// session to switch to the claimed wallet. Automatic wallet selection already claims a
+    /// wallet of the requested type when the user owns none. WaaS answers a wallet that is not
+    /// claimable by the caller (not allocated to their verified email, or already claimed) with
+    /// `AccountNotFound`, surfaced as `.requestFailed` with the upstream WaaS error.
+    ///
+    /// - Parameter walletId: The ID of a claimable wallet.
+    @discardableResult
+    public func claimWallet(walletId: String) async throws -> WalletActivationResult {
+        try await runSessionOperation(.walletClaimWallet) {
+            try await requireWalletSelectionOrActiveSession()
+            try requireActiveCredential()
+            let activationRevision = sessionRevisionSnapshot()
+            return try await claimWallet(
+                walletId: walletId,
+                sessionMetadata: try currentSessionMetadata(),
+                requiredSessionRevision: activationRevision
+            )
+        }
+    }
+
     /// Creates a new wallet of the specified type for the authenticated user and persists
     /// the wallet and signer metadata to the keychain.
     ///
@@ -851,6 +895,30 @@ extension WalletClient {
         )
 
         return WalletActivationResult(wallet: wallet)
+    }
+
+    /// Claims a preallocated wallet and activates it the same way `createWallet` activates a
+    /// created wallet. WaaS grants the caller's credential access to the claimed wallet.
+    private func claimWallet(
+        walletId: String,
+        sessionMetadata: SessionMetadata,
+        requiredSessionRevision: UInt64,
+        oidcRedirectAuthOwnership: PendingOIDCRedirectAuth? = nil
+    ) async throws -> WalletActivationResult {
+        let response = try await signedClient.claimWallet(ClaimWalletRequest(walletId: walletId))
+        let wallet = try response.wallet.sdkValue
+        try createSequenceWallet(
+            wallet: wallet,
+            sessionMetadata: sessionMetadata,
+            requiredSessionRevision: requiredSessionRevision,
+            oidcRedirectAuthOwnership: oidcRedirectAuthOwnership
+        )
+
+        return WalletActivationResult(wallet: wallet)
+    }
+
+    private func claimableWalletsFromAuthResponse(_ response: CompleteAuthResponse) throws -> [Wallet] {
+        try (response.claimable ?? []).map { try $0.sdkValue }
     }
 
     private func walletsFromAuthResponse(_ response: CompleteAuthResponse) async throws -> [Wallet] {

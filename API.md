@@ -138,6 +138,15 @@ signer metadata to the keychain.
 Creates a new wallet of the specified type for the authenticated user and persists
 the wallet and signer metadata to the keychain.
 
+### `WalletClient.claimWallet(walletId:)`
+
+```swift
+@discardableResult public func claimWallet(walletId: String) async throws -> WalletActivationResult
+```
+
+Claims a wallet preallocated for the signed-in user and activates it, persisting the wallet
+and signer metadata to the keychain.
+
 ### `WalletClient.importWallet(privateKey:reference:)`
 
 ```swift
@@ -260,14 +269,21 @@ public enum WalletSelectionBehavior: String, Codable, Equatable, Sendable {
 
 ```swift
 public enum CompleteAuthResult: Sendable {
+    /// A wallet was activated. `wallets` lists the user's wallets, and `claimableWallets` lists
+    /// the wallets preallocated for the user that this sign-in did not claim.
     case walletSelected(
         wallet: Wallet,
         wallets: [Wallet],
+        claimableWallets: [Wallet],
         credential: WalletCredential
     )
     case walletSelection(PendingWalletSelection)
     public var credential: WalletCredential { get }
     public var wallet: Wallet? { get }
+    /// Wallets preallocated for the user that they can claim with
+    /// `WalletClient.claimWallet(walletId:)`: the unclaimed ones after `.walletSelected`, or
+    /// `PendingWalletSelection.claimableWallets` for `.walletSelection`.
+    public var claimableWallets: [Wallet] { get }
 }
 ```
 
@@ -277,6 +293,9 @@ public enum CompleteAuthResult: Sendable {
 public final class PendingWalletSelection: @unchecked Sendable {
     public let walletType: WalletType
     public let wallets: [Wallet]
+    /// Wallets of `walletType` preallocated for the signed-in user that they can claim with
+    /// `WalletClient.claimWallet(walletId:)`.
+    public let claimableWallets: [Wallet]
     public let credential: WalletCredential
     @discardableResult public func selectWallet(walletId: String) async throws -> WalletActivationResult
     @discardableResult public func createAndSelectWallet(reference: String? = nil) async throws -> WalletActivationResult
@@ -1721,6 +1740,7 @@ public enum OMSWalletOperation: String, Sendable {
     case walletHandleOIDCRedirectCallback = "wallet.handleOidcRedirectCallback"
     case walletUseWallet = "wallet.useWallet"
     case walletCreateWallet = "wallet.createWallet"
+    case walletClaimWallet = "wallet.claimWallet"
     case walletImportWallet = "wallet.importWallet"
     case walletGetImportRecipientKey = "wallet.getWalletImportRecipientKey"
     case walletImportEncryptedWallet = "wallet.importEncryptedWallet"

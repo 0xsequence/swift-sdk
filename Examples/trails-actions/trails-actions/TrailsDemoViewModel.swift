@@ -153,7 +153,7 @@ actor TrailsOMSWallet {
 
     private func wrap(_ result: CompleteAuthResult) -> TrailsCompleteAuthResult {
         switch result {
-        case .walletSelected(let wallet, let wallets, let credential):
+        case .walletSelected(let wallet, let wallets, _, let credential):
             return .walletSelected(
                 wallet: wallet,
                 wallets: wallets,

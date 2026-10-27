@@ -4,6 +4,9 @@ import Foundation
 public final class PendingWalletSelection: @unchecked Sendable {
     public let walletType: WalletType
     public let wallets: [Wallet]
+    /// Wallets of `walletType` preallocated for the signed-in user that they can claim with
+    /// `WalletClient.claimWallet(walletId:)`.
+    public let claimableWallets: [Wallet]
     public let credential: WalletCredential
 
     private let selectWalletAction: (String) async throws -> WalletActivationResult
@@ -14,12 +17,14 @@ public final class PendingWalletSelection: @unchecked Sendable {
     init(
         walletType: WalletType,
         wallets: [Wallet],
+        claimableWallets: [Wallet],
         credential: WalletCredential,
         selectWalletAction: @escaping (String) async throws -> WalletActivationResult,
         createAndSelectWalletAction: @escaping (String?) async throws -> WalletActivationResult
     ) {
         self.walletType = walletType
         self.wallets = wallets
+        self.claimableWallets = claimableWallets
         self.credential = credential
         self.selectWalletAction = selectWalletAction
         self.createAndSelectWalletAction = createAndSelectWalletAction

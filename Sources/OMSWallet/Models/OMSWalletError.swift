@@ -29,6 +29,7 @@ public enum OMSWalletOperation: String, Sendable {
     case walletHandleOIDCRedirectCallback = "wallet.handleOidcRedirectCallback"
     case walletUseWallet = "wallet.useWallet"
     case walletCreateWallet = "wallet.createWallet"
+    case walletClaimWallet = "wallet.claimWallet"
     case walletImportWallet = "wallet.importWallet"
     case walletGetImportRecipientKey = "wallet.getWalletImportRecipientKey"
     case walletImportEncryptedWallet = "wallet.importEncryptedWallet"

@@ -106,7 +106,7 @@ Only completed wallet session metadata is restored automatically, including the 
 OMS supports email-based OTP, OIDC ID-token auth, and OIDC redirect auth. The email two-step flow is:
 
 1. **`startEmailAuth(email:sessionLifetimeSeconds:)`** validates the requested session lifetime and sends a one-time code to the user's inbox.
-2. **`completeEmailAuth(code:walletSelection:walletType:)`** verifies the code using the session lifetime chosen when the flow started. In the default `.automatic` mode it selects the first matching wallet or creates one. The active wallet and signer metadata are saved to the device keychain.
+2. **`completeEmailAuth(code:walletSelection:walletType:)`** verifies the code using the session lifetime chosen when the flow started. In the default `.automatic` mode it selects the first matching wallet, claims a [claimable wallet](#claimable-wallets) of the requested type, or creates one. The active wallet and signer metadata are saved to the device keychain.
 
 ```swift
 try await omsWallet.wallet.startEmailAuth(email: "user@example.com")
@@ -185,6 +185,43 @@ wallet is selected or created, after sign-out, or after another auth completion.
 Using an invalidated pending selection throws `OMSWalletError` with
 `code == .walletSelectionStale`.
 
+#### Claimable Wallets
+
+A project can preallocate a receive-only wallet for a user's email address before the user signs
+in. Sign-in lists the wallets still waiting to be claimed separately from the user's own wallets:
+`CompleteAuthResult.claimableWallets` (also the `claimableWallets` value of `.walletSelected`)
+and `PendingWalletSelection.claimableWallets`, which lists the claimable wallets of the pending
+`walletType`. Only sign-in reports claimable wallets; `listWallets()` never includes them.
+
+Automatic wallet selection (email OTP, OIDC ID token, and OIDC redirect) picks a wallet of the
+requested `walletType` in this order:
+
+1. the first wallet the user owns,
+2. otherwise a claimable wallet, which the SDK claims and activates,
+3. otherwise a new wallet.
+
+If the claim fails, sign-in fails; the SDK does not create a wallet instead. After automatic
+selection, `claimableWallets` lists only the wallets it did not claim.
+
+To claim a wallet yourself, call `claimWallet(walletId:)` while a manual selection is pending, or
+with an active session to switch to the claimed wallet. Claiming grants the current credential
+access to the wallet and saves it as the active wallet, like `useWallet(walletId:)`:
+
+```swift
+let result = try await omsWallet.wallet.completeEmailAuth(
+    code: "123456",
+    walletSelection: .manual
+)
+
+if case .walletSelection(let pendingSelection) = result,
+   let claimable = pendingSelection.claimableWallets.first {
+    try await omsWallet.wallet.claimWallet(walletId: claimable.id)
+}
+```
+
+A wallet that was not preallocated for the user's verified email, or was already claimed, fails
+with `.requestFailed`; `upstreamError?.name` is `"AccountNotFound"`.
+
 For native iOS sign-in, prefer an OIDC ID-token flow when the provider SDK can
 supply a token. For example, pass a Google Sign-In ID token to OMS with the
 issuer and audience used to mint it:
@@ -223,8 +260,8 @@ do {
         callbackURLString
     )
     switch result {
-    case .completed(.walletSelected(let wallet, let wallets, let credential)):
-        print(wallet.address, wallets.count, credential.credentialId)
+    case .completed(.walletSelected(let wallet, let wallets, let claimableWallets, let credential)):
+        print(wallet.address, wallets.count, claimableWallets.count, credential.credentialId)
     case .completed(.walletSelection(let pendingSelection)):
         // Show pendingSelection.wallets in your app UI.
         try await pendingSelection.selectWallet(walletId: "wallet-id")
