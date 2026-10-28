@@ -53,7 +53,9 @@ struct AttestedSignedWaasTransport: WebRPCTransport, ReportsSendStart {
             let nonce = try randomNonce()
             let authHeader: String
             do {
-                authHeader = try buildAuthHeader(endpoint: endpoint, payload: payload)
+                authHeader = try await SignerWork.run { [self] in
+                    try buildAuthHeader(endpoint: endpoint, payload: payload)
+                }
             } catch {
                 throw RequestNotSentError(underlying: error)
             }

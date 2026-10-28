@@ -40,13 +40,12 @@ struct SignedWaasTransport: WebRPCTransport, ReportsSendStart {
         let publishableKey = self.publishableKey.current
 
         let authHeader: String
+        let scope = self.scope
+        let signer = self.signer
         do {
-            authHeader = try buildAuthHeader(
-                endpoint: endpoint,
-                scope: self.scope,
-                signer: signer,
-                payload: payload
-            )
+            authHeader = try await SignerWork.run {
+                try Self.buildAuthHeader(endpoint: endpoint, scope: scope, signer: signer, payload: payload)
+            }
         } catch {
             throw RequestNotSentError(underlying: error)
         }
@@ -77,7 +76,7 @@ struct SignedWaasTransport: WebRPCTransport, ReportsSendStart {
         )
     }
 
-    private func buildAuthHeader(endpoint: String, scope: String, signer: any CredentialSigner, payload: String) throws -> String {
+    private static func buildAuthHeader(endpoint: String, scope: String, signer: any CredentialSigner, payload: String) throws -> String {
         let nonce = try signer.nextNonce()
         let preimage = RequestUtils.buildWalletRequestPreimage(endpoint: endpoint, nonce: nonce, scope: scope, payload: payload)
         let signature = try signer.sign(preimage: preimage)
@@ -99,5 +98,24 @@ struct SignedWaasTransport: WebRPCTransport, ReportsSendStart {
             return path
         }
         return "/\(path)"
+    }
+}
+
+/// Runs synchronous signer work (keychain reads, nonce updates, signing) on a dedicated queue. A
+/// signer can block its thread, and on the cooperative pool that could hold up the task that
+/// enforces the request's deadline (a single cooperative thread on a small machine).
+enum SignerWork {
+    private static let queue = DispatchQueue(
+        label: "technology.polygon.omswallet.signer",
+        qos: .userInitiated,
+        attributes: .concurrent
+    )
+
+    static func run<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                continuation.resume(with: Result { try body() })
+            }
+        }
     }
 }

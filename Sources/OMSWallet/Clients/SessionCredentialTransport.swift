@@ -161,19 +161,39 @@ final class SignedRequestAttempt: @unchecked Sendable {
     }
 }
 
-/// Resumes the caller once, with whichever of its request and the request's deadline settles first.
+/// Resumes the caller once, with whichever settles first: its request, the request's deadline, or
+/// the caller's cancellation. A result that arrives before the continuation is installed is kept
+/// and delivered when it is.
 private final class SignedRequestRace: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<WebRPCHTTPResponse, any Error>?
+    private var result: Result<WebRPCHTTPResponse, any Error>?
+    private var isResumed = false
 
-    init(_ continuation: CheckedContinuation<WebRPCHTTPResponse, any Error>) {
-        self.continuation = continuation
+    func install(_ continuation: CheckedContinuation<WebRPCHTTPResponse, any Error>) {
+        lock.lock()
+        guard let result else {
+            self.continuation = continuation
+            lock.unlock()
+            return
+        }
+        isResumed = true
+        lock.unlock()
+        continuation.resume(with: result)
     }
 
     func settle(_ result: Result<WebRPCHTTPResponse, any Error>) {
         lock.lock()
+        guard self.result == nil, !isResumed else {
+            lock.unlock()
+            return
+        }
+        self.result = result
         let continuation = self.continuation
         self.continuation = nil
+        if continuation != nil {
+            isResumed = true
+        }
         lock.unlock()
         continuation?.resume(with: result)
     }
@@ -219,42 +239,48 @@ struct SessionCredentialTransport: WebRPCTransport {
     ) async throws -> WebRPCHTTPResponse {
         let attempt = SignedRequestAttempt(reportsSendStart: base is ReportsSendStart)
         let sendRecord = RequestSendRecord.current
-        // An unstructured task, so the caller gets its result at the deadline even while a
-        // synchronous signer is still running; that task then ends on its own, holding its turn in
-        // the gate until it does, and sends nothing (`markSending()` and the cancellation check).
+        // An unstructured task, so the caller gets its result at the deadline, or at once when it is
+        // cancelled, even while a signer is still running; that task then ends on its own, holding
+        // its turn in the gate until it does, and sends nothing (`markSending()` and the
+        // cancellation check).
         let send = Task {
             try await SignedRequestAttempt.$current.withValue(attempt) {
                 try await self.send(baseURL: baseURL, path: path, body: body, headers: headers, attempt: attempt)
             }
         }
         let deadlineSeconds = self.deadlineSeconds
+        let race = SignedRequestRace()
+        let deadline = Task {
+            try? await Task.sleep(nanoseconds: UInt64(deadlineSeconds * 1_000_000_000))
+            guard !Task.isCancelled else {
+                return
+            }
+            // Settled before the send is cancelled, so the caller gets the timeout and not the
+            // cancellation it causes. An expired attempt is never sent: its transport's
+            // `markSending()` refuses.
+            if attempt.expire() {
+                sendRecord?.recordFailedBeforeSending()
+                race.settle(.failure(RequestNotSentError(underlying: URLError(.timedOut))))
+            } else {
+                // It may have reached WaaS; the caller cannot assume it did not.
+                race.settle(.failure(URLError(.timedOut)))
+            }
+            send.cancel()
+        }
+        Task {
+            let result = await send.result
+            deadline.cancel()
+            race.settle(result)
+        }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                let race = SignedRequestRace(continuation)
-                let deadline = Task {
-                    try? await Task.sleep(nanoseconds: UInt64(deadlineSeconds * 1_000_000_000))
-                    guard !Task.isCancelled else {
-                        return
-                    }
-                    // Settled before the send is cancelled, so the caller gets the timeout and not
-                    // the cancellation it causes. An expired attempt is never sent: its transport's
-                    // `markSending()` refuses.
-                    if attempt.expire() {
-                        sendRecord?.recordFailedBeforeSending()
-                        race.settle(.failure(RequestNotSentError(underlying: URLError(.timedOut))))
-                    } else {
-                        // It may have reached WaaS; the caller cannot assume it did not.
-                        race.settle(.failure(URLError(.timedOut)))
-                    }
-                    send.cancel()
-                }
-                Task {
-                    let result = await send.result
-                    deadline.cancel()
-                    race.settle(result)
-                }
+                race.install(continuation)
             }
         } onCancel: {
+            // The caller gave up: it is answered now, and a signer still running never sends.
+            _ = attempt.expire()
+            race.settle(.failure(CancellationError()))
+            deadline.cancel()
             send.cancel()
         }
     }
@@ -268,7 +294,8 @@ struct SessionCredentialTransport: WebRPCTransport {
     ) async throws -> WebRPCHTTPResponse {
         // Read before queueing; a request signed with a key that replaced it meanwhile is ordered
         // with the old credential's, which WaaS no longer accepts anyway.
-        let credentialId = signingCredentialId()
+        let signingCredentialId = self.signingCredentialId
+        let credentialId = try await SignerWork.run { signingCredentialId() }
         try await gate.acquire(credentialId: credentialId)
         guard attempt.begin() else {
             gate.release(credentialId: credentialId)

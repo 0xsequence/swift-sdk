@@ -147,6 +147,10 @@ private func sessionTransport(
 
     #expect(!record.failedBeforeSending)
     #expect(base.callCount == 1)
+    // The caller is answered before the request is cancelled; wait for the cancellation to land.
+    for _ in 0..<100 where base.cancellationCount == 0 {
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
     #expect(base.cancellationCount == 1)
     // The request released the gate when it was cancelled.
     try await gate.acquire()
@@ -359,4 +363,34 @@ private final class BlockingSigner: CredentialSigner, @unchecked Sendable {
     try await Task.sleep(nanoseconds: 1_200_000_000)
     #expect(CountingURLProtocol.count(host: host, pathSuffix: "/PrepareEthereumTransaction") == 1)
     #expect(CountingURLProtocol.count(host: host, pathSuffix: "/Execute") == 0)
+}
+
+@Test func TestCancelledCallerIsAnsweredAtOnceWhileItsSignerRuns() async throws {
+    let host = CountingURLProtocol.register()
+    let signer = BlockingSigner(blockOn: "SignMessage", blockSeconds: 2)
+    let gate = SignedRequestGate()
+    let transport = sessionTransport(
+        base: SignedWaasTransport(publishableKey: "pk", scope: "prj_project", signer: signer, session: CountingURLProtocol.session()),
+        gate: gate,
+        deadlineSeconds: 5
+    )
+    let caller = Task {
+        try await transport.post(baseURL: "https://\(host)", path: WaasAPI.SignMessage.urlPath, body: Data("{}".utf8), headers: [:])
+    }
+    for _ in 0..<100 where !signer.isSigning {
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+
+    let cancelledAt = Date()
+    caller.cancel()
+    await #expect(throws: CancellationError.self) { try await caller.value }
+
+    #expect(Date().timeIntervalSince(cancelledAt) < 1)
+    #expect(signer.isSigning)
+    // The request keeps its turn until its signer stops, and then sends nothing.
+    try await gate.acquire()
+    #expect(!signer.isSigning)
+    gate.release()
+    try await Task.sleep(nanoseconds: 100_000_000)
+    #expect(CountingURLProtocol.count(host: host, pathSuffix: "/SignMessage") == 0)
 }

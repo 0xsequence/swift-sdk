@@ -1303,10 +1303,11 @@ private func makeRestoredFixture(
 
 // MARK: - Timer scheduling, activation metadata, and 7207 reads
 
-@Test func TestZeroDelayExpiryTimerKeepsTheTimerItReschedules() throws {
+@Test func TestZeroDelayExpiryTimerKeepsTheTimerItReschedules() async throws {
     // A zero-delay timer can run before its scheduling returns. Each fire here defers to L + grace;
     // the deferral's timer must survive, with its fire date, whatever the interleaving. The race is
-    // narrow, so the test repeats it.
+    // narrow, so the test repeats it. It waits with `Task.sleep`, not by blocking its thread, so the
+    // timer task can run even on a single cooperative thread.
     let expiry = Date(timeIntervalSince1970: 1_767_225_600).addingTimeInterval(10 * day)
     let now = LockedBox(expiry.addingTimeInterval(1))
     let fixture = makeMockWalletClient(currentDate: { now.withValue { $0 } })
@@ -1321,16 +1322,20 @@ private func makeRestoredFixture(
     var lostTimers = 0
     for _ in 0..<6_000 {
         try fireExpiryTimer(client)
+        // A rescheduled timer shows up within microseconds; one not there after 100 ms is lost.
+        let giveUpAt = Date().addingTimeInterval(0.1)
         var isRescheduled = false
-        for _ in 0..<1_000 where !isRescheduled {
+        while !isRescheduled, Date() < giveUpAt {
             isRescheduled = isSameInstant(sessionExpiryTimerFireDate(client), checkDate)
                 && client.withSessionLock { client.sessionExpiryTask?.isCancelled == false }
             if !isRescheduled {
-                usleep(100)
+                try await Task.sleep(nanoseconds: 100_000)
             }
         }
         if !isRescheduled {
             lostTimers += 1
+            // One lost timer fails the test; stop instead of waiting out the remaining iterations.
+            break
         }
     }
 
