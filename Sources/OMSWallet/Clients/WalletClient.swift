@@ -389,14 +389,15 @@ public final class WalletClient: @unchecked Sendable {
                 base: client.transport,
                 gate: signedRequestGate,
                 activeSessionRevision: { [weak self] in self?.activeWalletSessionRevision() },
-                onRequestCompleted: { [weak self] path in
-                    self?.recordSessionCredentialRequestCompleted(path: path)
+                onRequestCompleted: { [weak self] path, revision in
+                    self?.recordSessionCredentialRequestCompleted(path: path, revision: revision)
                 },
                 onResponse: { [weak self] response, path, revision in
                     self?.handleSessionCredentialResponse(response, path: path, revision: revision)
                 },
                 deadlineSeconds: signedRequestDeadlineSeconds,
-                signingCredentialId: { [weak self] in self?.signerCredentialIdIfPresent() }
+                signingCredentialId: { [weak self] in self?.signerCredentialIdIfPresent() },
+                sessionRevision: { [weak self] in self?.sessionRevisionSnapshot() }
             ),
             headers: client.headers
         )

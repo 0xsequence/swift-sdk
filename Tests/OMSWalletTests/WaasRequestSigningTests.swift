@@ -332,7 +332,7 @@ private let staleNonceBody = Data(
             ),
             gate: SignedRequestGate(),
             activeSessionRevision: { nil },
-            onRequestCompleted: { _ in },
+            onRequestCompleted: { _, _ in },
             onResponse: { _, _, _ in }
         )
     )

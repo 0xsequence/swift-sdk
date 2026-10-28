@@ -66,7 +66,7 @@ private func sessionTransport(
         base: base,
         gate: gate,
         activeSessionRevision: { nil },
-        onRequestCompleted: { _ in },
+        onRequestCompleted: { _, _ in },
         onResponse: { _, _, _ in },
         deadlineSeconds: deadlineSeconds
     )
@@ -393,4 +393,70 @@ private final class BlockingSigner: CredentialSigner, @unchecked Sendable {
     gate.release()
     try await Task.sleep(nanoseconds: 100_000_000)
     #expect(CountingURLProtocol.count(host: host, pathSuffix: "/SignMessage") == 0)
+}
+
+// MARK: - Session activity
+
+/// Records each request completion the transport reports.
+private final class CompletionRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var paths: [String] = []
+
+    var completions: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return paths
+    }
+
+    func record(_ path: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        paths.append(path)
+    }
+}
+
+private func recordingTransport(
+    base: any WebRPCTransport,
+    recorder: CompletionRecorder,
+    deadlineSeconds: TimeInterval = SessionCredentialTransport.requestDeadlineSeconds
+) -> SessionCredentialTransport {
+    SessionCredentialTransport(
+        base: base,
+        gate: SignedRequestGate(),
+        activeSessionRevision: { 1 },
+        onRequestCompleted: { path, _ in recorder.record(path) },
+        onResponse: { _, _, _ in },
+        deadlineSeconds: deadlineSeconds,
+        sessionRevision: { 1 }
+    )
+}
+
+@Test func TestRequestThatWasNeverSentIsNotSessionActivity() async throws {
+    // Only a request that may have reached WaaS can have extended the session.
+    let host = CountingURLProtocol.register()
+    let failedSigning = CompletionRecorder()
+    _ = try? await recordingTransport(
+        base: SignedWaasTransport(publishableKey: "pk", scope: "prj_project", signer: FailingCredentialSigner()),
+        recorder: failedSigning
+    ).post(baseURL: "https://\(host)", path: WaasAPI.SignMessage.urlPath, body: Data("{}".utf8), headers: [:])
+
+    let signer = BlockingSigner(blockOn: "SignMessage", blockSeconds: 0.5)
+    let expiredWhileSigning = CompletionRecorder()
+    _ = try? await recordingTransport(
+        base: SignedWaasTransport(publishableKey: "pk", scope: "prj_project", signer: signer, session: CountingURLProtocol.session()),
+        recorder: expiredWhileSigning,
+        deadlineSeconds: 0.1
+    ).post(baseURL: "https://\(host)", path: WaasAPI.SignMessage.urlPath, body: Data("{}".utf8), headers: [:])
+    // Let the signer finish; its request then ends without being sent.
+    try await Task.sleep(nanoseconds: 700_000_000)
+
+    let sent = CompletionRecorder()
+    _ = try await recordingTransport(
+        base: SignedWaasTransport(publishableKey: "pk", scope: "prj_project", signer: BlockingSigner(blockOn: "-", blockSeconds: 0), session: CountingURLProtocol.session()),
+        recorder: sent
+    ).post(baseURL: "https://\(host)", path: WaasAPI.SignMessage.urlPath, body: Data("{}".utf8), headers: [:])
+
+    #expect(failedSigning.completions.isEmpty)
+    #expect(expiredWhileSigning.completions.isEmpty)
+    #expect(sent.completions == [WaasAPI.SignMessage.urlPath])
 }

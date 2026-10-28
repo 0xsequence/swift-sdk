@@ -604,9 +604,13 @@ extension WalletClient {
     /// completes, whatever its outcome. A `GetCredential` counts too, since one whose response is
     /// lost may still have moved the server's expiry, except the expiry timer's check (see
     /// `handleSessionExpiryTimer`). No other request overlaps a `GetCredential`, so the in-flight
-    /// refresh is the one completing.
-    func recordSessionCredentialRequestCompleted(path: String) {
+    /// refresh is the one completing. A request that got its turn under an earlier session (before a
+    /// sign-out or new sign-in) is not this session's activity and is ignored.
+    func recordSessionCredentialRequestCompleted(path: String, revision: UInt64?) {
         withSessionLock {
+            guard let revision, revision == _sessionRevision else {
+                return
+            }
             let completedAt = currentDate()
             guard path == WaasAPI.GetCredential.urlPath else {
                 _lastSessionRequestCompletedAt = completedAt

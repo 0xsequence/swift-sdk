@@ -333,7 +333,7 @@ private final class ConditionalWriteWaas: WebRPCTransport, @unchecked Sendable {
         base: waas,
         gate: SignedRequestGate(),
         activeSessionRevision: { nil },
-        onRequestCompleted: { _ in },
+        onRequestCompleted: { _, _ in },
         onResponse: { _, _, _ in }
     )
 
@@ -403,7 +403,7 @@ private final class HoldingTransport: WebRPCTransport, @unchecked Sendable {
         base: waas,
         gate: SignedRequestGate(),
         activeSessionRevision: { nil },
-        onRequestCompleted: { _ in },
+        onRequestCompleted: { _, _ in },
         onResponse: { _, _, _ in },
         deadlineSeconds: 2,
         signingCredentialId: { signingCredential.withValue { $0 } }
@@ -429,4 +429,37 @@ private final class HoldingTransport: WebRPCTransport, @unchecked Sendable {
     #expect(Date().timeIntervalSince(started) < 1)
     waas.releaseHeldRequest()
     _ = try await held.value
+}
+
+@Test func TestRequestOfAnEndedSessionIsNotTheNextSessionsActivity() async throws {
+    let now = LockedBox(Date(timeIntervalSince1970: 1_800_000_000))
+    let fixture = try signedInFixture(currentDate: { now.withValue { $0 } })
+    let waas = HoldingTransport(held: WaasAPI.SignMessage.urlPath)
+    fixture.client.signedClient = WaasClient(baseURL: fixture.environment.walletApiUrl, transport: waas)
+    let client = fixture.client
+    let request = Task {
+        try await client.signMessage(network: .polygon, message: "hello")
+    }
+    for _ in 0..<100 where !waas.hasHeldRequest {
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    #expect(waas.hasHeldRequest)
+
+    // The session ends and another starts while the first one's request is still in flight.
+    try fixture.client.clearSession(clearOidcRedirectAuth: false)
+    try fixture.client.createSequenceWallet(
+        wallet: activeTestWallet("0x2222222222222222222222222222222222222222", id: "wallet-next"),
+        sessionMetadata: SessionMetadata(
+            expiresAt: "2099-01-01T00:00:00Z",
+            auth: .email(OMSWalletEmailSessionAuth(email: "next@example.com")),
+            expiryBounds: testExpiryBounds
+        ),
+        requiredSessionRevision: fixture.client.sessionRevisionSnapshot()
+    )
+    let activityBefore = fixture.client.withSessionLock { fixture.client._lastSessionRequestCompletedAt }
+    now.withValue { $0 = $0.addingTimeInterval(60) }
+    waas.releaseHeldRequest()
+    _ = try? await request.value
+
+    #expect(fixture.client.withSessionLock { fixture.client._lastSessionRequestCompletedAt } == activityBefore)
 }
