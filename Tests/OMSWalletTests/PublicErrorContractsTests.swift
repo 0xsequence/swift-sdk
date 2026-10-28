@@ -601,6 +601,7 @@ func TestPublicErrorContractsServerRejectedCredentialEndsSessionOnce(
                 name: "SessionCapExceeded",
                 code: "7208",
                 message: message,
+                cause: "limit is 100 active sessions per wallet",
                 status: 409
             )
         )
@@ -1289,6 +1290,7 @@ func TestPublicErrorContractsExecuteRefusedBeforeSubmissionIsRequestFailure(
             upstreamError: upstream(
                 service: .indexer,
                 message: "indexer.getTransactionHistory failed with HTTP 404",
+                cause: "not found",
                 status: 404
             )
         )
@@ -1448,6 +1450,7 @@ private func serialize(_ error: OMSWalletError) -> PublicErrorContract {
                 name: $0.name,
                 code: $0.code,
                 message: $0.message,
+                cause: $0.cause,
                 status: $0.status
             )
         }
@@ -1479,6 +1482,7 @@ private func upstream(
     name: String? = nil,
     code: String? = nil,
     message: String? = nil,
+    cause: String? = nil,
     status: Int? = nil
 ) -> SerializedUpstreamError {
     SerializedUpstreamError(
@@ -1486,6 +1490,7 @@ private func upstream(
         name: name,
         code: code,
         message: message,
+        cause: cause,
         status: status
     )
 }
@@ -1505,6 +1510,7 @@ private struct SerializedUpstreamError: Equatable {
     let name: String?
     let code: String?
     let message: String?
+    let cause: String?
     let status: Int?
 }
 

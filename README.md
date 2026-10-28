@@ -854,6 +854,9 @@ describes the failed SDK operation, not the whole user intent.
 
 `upstreamError.service` is `.waas` or `.indexer` (raw values `"waas"` and `"indexer"`), and
 `upstreamError.code` is a string; numeric WebRPC codes are stringified (for example `"7313"`).
+When the service explains the error, `upstreamError.cause` holds its reason, for example
+`"wallet is not activated on chain: it must receive TRX or a token before it can send"` behind the
+generic message `"The request was invalid"`.
 Wallet import reports an address that is already managed as `.walletAddressAlreadyImported`
 (status `409`, `retryable == false`); select the existing wallet or use a different key.
 

@@ -79,6 +79,8 @@ public struct OMSWalletUpstreamError: Equatable, Sendable {
     public let name: String?
     public let code: String?
     public let message: String?
+    /// The service's reason for this error, when it gives one, for example why a request was invalid.
+    public let cause: String?
     public let status: Int?
 
     init(
@@ -86,12 +88,14 @@ public struct OMSWalletUpstreamError: Equatable, Sendable {
         name: String? = nil,
         code: String? = nil,
         message: String? = nil,
+        cause: String? = nil,
         status: Int? = nil
     ) {
         self.service = service
         self.name = name
         self.code = code
         self.message = message
+        self.cause = cause
         self.status = status
     }
 }
@@ -389,8 +393,15 @@ private extension WebRPCError {
             name: error,
             code: normalizedCode,
             message: normalizedMessage,
+            cause: serviceCause,
             status: status
         )
+    }
+
+    /// Only errors the service sent (code 0 and up) carry its reason in `cause`: the client's own
+    /// transport errors (negative codes) put local details there, such as an unparsable response body.
+    private var serviceCause: String? {
+        code >= 0 && !cause.isEmpty ? cause : nil
     }
 
     private func isHttpWebRPCError(status: Int?) -> Bool {

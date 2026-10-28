@@ -372,6 +372,7 @@ private func indexerResponseUpstreamError(
         name: stringField(payload, "name") ?? stringField(payload, "error"),
         code: stringOrNumberField(payload, "code"),
         message: stringField(payload, "message") ?? stringField(payload, "msg") ?? fallbackMessage,
+        cause: stringField(payload, "cause").flatMap { $0.isEmpty ? nil : $0 },
         status: status
     )
 }

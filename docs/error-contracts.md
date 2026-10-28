@@ -20,7 +20,10 @@ should be present, and which tests own the contract.
   and service-specific troubleshooting, not primary app branching.
   `upstreamError.service` is `.waas` or `.indexer` (raw values `"waas"` and
   `"indexer"`). `upstreamError.code` is a string; numeric WebRPC codes are
-  stringified (e.g. `"7313"`).
+  stringified (e.g. `"7313"`). `upstreamError.cause` is the reason the service
+  gave for the error, when it gave one, such as why a request was invalid. It is
+  set only from the service's response, never from the SDK's own transport
+  failures.
 - `underlyingError` is Swift-local diagnostic context. It is present when the
   SDK wraps a lower-level Swift error such as an internal transaction-flow error, HTTP transport
   failures, `URLError`, generated service-client failures, or a decoding error. For wallet API

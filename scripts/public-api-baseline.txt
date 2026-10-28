@@ -832,6 +832,7 @@ symbol	swift.property	OMSWalletSessionAuth.email	var email: String? { get }
 symbol	swift.property	OMSWalletSessionExpiredEvent.expiredAt	let expiredAt: String
 symbol	swift.property	OMSWalletSessionExpiredEvent.session	let session: OMSWalletSession
 symbol	swift.property	OMSWalletSessionExpiredEvent.wallet	let wallet: Wallet?
+symbol	swift.property	OMSWalletUpstreamError.cause	let cause: String?
 symbol	swift.property	OMSWalletUpstreamError.code	let code: String?
 symbol	swift.property	OMSWalletUpstreamError.message	let message: String?
 symbol	swift.property	OMSWalletUpstreamError.name	let name: String?

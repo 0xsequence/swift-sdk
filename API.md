@@ -1802,6 +1802,8 @@ public struct OMSWalletUpstreamError: Equatable, Sendable {
     public let name: String?
     public let code: String?
     public let message: String?
+    /// The service's reason for this error, when it gives one, for example why a request was invalid.
+    public let cause: String?
     public let status: Int?
 }
 ```
