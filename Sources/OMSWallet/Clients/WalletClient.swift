@@ -72,7 +72,7 @@ public final class WalletClient: @unchecked Sendable {
     let signedClientFactory: (any CredentialSigner) -> WaasClient
     let currentDate: () -> Date
     /// Runs the restore read once the app is in the foreground (`ForegroundActivation`).
-    let runWhenActive: (@escaping @Sendable () -> Void) -> Void
+    let runWhenActive: (@escaping @Sendable () -> Void) -> ForegroundActivation.Cancel
     private var _sessionExpiresAt: String?
     var sessionExpiresAt: String? {
         get {
@@ -109,6 +109,8 @@ public final class WalletClient: @unchecked Sendable {
             withSessionLock { _sessionExpiryTask = newValue }
         }
     }
+    /// Cancels the restore read still waiting for the app to become active.
+    var _cancelRestoreRead: ForegroundActivation.Cancel?
     private var _latestSessionExpiredEvent: OMSWalletSessionExpiredEvent?
     var latestSessionExpiredEvent: OMSWalletSessionExpiredEvent? {
         get {
@@ -252,6 +254,8 @@ public final class WalletClient: @unchecked Sendable {
         withSessionLock {
             sessionExpiryTask?.cancel()
             sessionExpiryTask = nil
+            _cancelRestoreRead?()
+            _cancelRestoreRead = nil
         }
     }
 
@@ -321,7 +325,7 @@ public final class WalletClient: @unchecked Sendable {
         oidcNonceGenerator: @escaping () throws -> String = OIDCRedirectAuth.generateNonce,
         signedClientFactory: ((any CredentialSigner) -> WaasClient)? = nil,
         currentDate: @escaping () -> Date = Date.init,
-        runWhenActive: @escaping (@escaping @Sendable () -> Void) -> Void = ForegroundActivation.runWhenActive,
+        runWhenActive: @escaping (@escaping @Sendable () -> Void) -> ForegroundActivation.Cancel = ForegroundActivation.runWhenActive,
         walletImportClient: WaasClient? = nil
     ) {
         self.projectId = projectId

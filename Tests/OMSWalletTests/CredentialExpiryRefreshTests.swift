@@ -1088,18 +1088,34 @@ enum SignInPath: CaseIterable, Sendable {
 /// Stands in for app activation: holds the work the client asks to run when active.
 private final class ForegroundTrigger: @unchecked Sendable {
     private let lock = NSLock()
-    private var pending: [@Sendable () -> Void] = []
+    private var pending: [UUID: @Sendable () -> Void] = [:]
 
-    func runWhenActive(_ body: @escaping @Sendable () -> Void) {
+    /// Work still waiting, as NotificationCenter would keep its observers registered.
+    var pendingCount: Int {
         lock.lock()
         defer { lock.unlock() }
-        pending.append(body)
+        return pending.count
+    }
+
+    func runWhenActive(_ body: @escaping @Sendable () -> Void) -> ForegroundActivation.Cancel {
+        let id = UUID()
+        lock.lock()
+        defer { lock.unlock() }
+        pending[id] = body
+        return { [weak self] in
+            guard let self else {
+                return
+            }
+            self.lock.lock()
+            defer { self.lock.unlock() }
+            self.pending[id] = nil
+        }
     }
 
     func activate() {
         lock.lock()
-        let bodies = pending
-        pending = []
+        let bodies = Array(pending.values)
+        pending = [:]
         lock.unlock()
         bodies.forEach { $0() }
     }
@@ -1170,7 +1186,11 @@ private func makeRestoredFixture(
     let fixture = try makeRestoredFixture(restoredAt: restoredAt, now: now, trigger: trigger)
     #expect(fixture.client.activeWallet?.id == "wallet-main")
 
+    #expect(trigger.pendingCount == 1)
+
     try fixture.client.signOut()
+    // Ending the session stops the wait, so nothing stays registered for an activation that may never come.
+    #expect(trigger.pendingCount == 0)
     if signsInAgain {
         fixture.client.verifier = "verifier"
         fixture.client.challenge = "challenge"
@@ -1195,6 +1215,32 @@ private func makeRestoredFixture(
     center.post(name: name, object: nil)
 
     #expect(runs.withValue { $0 } == 1)
+}
+
+@Test func TestForegroundActivationCancelStopsObserving() async throws {
+    let center = NotificationCenter()
+    let name = Notification.Name("TestDidBecomeActive")
+    let runs = LockedBox(0)
+    let cancel = ForegroundActivation.runOnce(onNext: name, in: center) { runs.withValue { $0 += 1 } }
+
+    cancel()
+    center.post(name: name, object: nil)
+
+    #expect(runs.withValue { $0 } == 0)
+}
+
+@Test @MainActor func TestReleasedClientStopsWaitingForActivation() throws {
+    let restoredAt = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+    let trigger = ForegroundTrigger()
+    weak var releasedClient: WalletClient?
+    do {
+        let fixture = try makeRestoredFixture(restoredAt: restoredAt, now: LockedBox(restoredAt), trigger: trigger)
+        releasedClient = fixture.client
+        #expect(trigger.pendingCount == 1)
+    }
+
+    #expect(releasedClient == nil)
+    #expect(trigger.pendingCount == 0)
 }
 
 // MARK: - Timer scheduling, activation metadata, and 7207 reads

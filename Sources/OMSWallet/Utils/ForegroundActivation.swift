@@ -6,23 +6,30 @@ import UIKit
 /// Runs work once the app is in the foreground, without `UIApplication.shared`, so the SDK stays
 /// safe to use in app extensions.
 enum ForegroundActivation {
+    /// Cancels work that has not run yet; does nothing once it has run.
+    typealias Cancel = @Sendable () -> Void
+
     /// With UIKit, runs `body` on the next `didBecomeActiveNotification`: a background launch
     /// waits for the user to open the app, and an app extension, which never receives it, never
     /// runs it. Elsewhere it runs `body` now.
-    static func runWhenActive(_ body: @escaping @Sendable () -> Void) {
+    @discardableResult
+    static func runWhenActive(_ body: @escaping @Sendable () -> Void) -> Cancel {
         #if canImport(UIKit) && !os(watchOS)
-        runOnce(onNext: UIApplication.didBecomeActiveNotification, in: .default, body)
+        return runOnce(onNext: UIApplication.didBecomeActiveNotification, in: .default, body)
         #else
         body()
+        return {}
         #endif
     }
 
-    /// Runs `body` once, on the next `name` posted to `center`, then stops observing.
+    /// Runs `body` once, on the next `name` posted to `center`, then stops observing. Cancelling
+    /// stops observing without running it.
+    @discardableResult
     static func runOnce(
         onNext name: Notification.Name,
         in center: NotificationCenter,
         _ body: @escaping @Sendable () -> Void
-    ) {
+    ) -> Cancel {
         let observation = Observation()
         let token = center.addObserver(forName: name, object: nil, queue: nil) { _ in
             guard let token = observation.take() else {
@@ -32,6 +39,11 @@ enum ForegroundActivation {
             body()
         }
         observation.set(token)
+        return {
+            if let token = observation.take() {
+                center.removeObserver(token)
+            }
+        }
     }
 
     /// Holds the observer token until the first notification takes it. A notification that

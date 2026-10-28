@@ -62,13 +62,25 @@ extension WalletClient {
             // extends the session too, so it waits for the app to be in the foreground: a
             // background launch or an app extension is not user activity.
             let revision = sessionRevisionSnapshot()
-            runWhenActive { [weak self] in
+            let cancel = runWhenActive { [weak self] in
                 guard let self, self.activeWalletSessionRevision() == revision else {
                     return
                 }
                 Task { [weak self] in
                     _ = await self?.refreshCredentialExpiry()
                 }
+            }
+            // Ending the session cancels the wait, so an app extension or a launch that never
+            // becomes active does not keep the observer registered.
+            let isCurrent = withSessionLock {
+                guard _sessionRevision == revision else {
+                    return false
+                }
+                _cancelRestoreRead = cancel
+                return true
+            }
+            if !isCurrent {
+                cancel()
             }
         }
     }
@@ -134,6 +146,8 @@ extension WalletClient {
         _sessionExpiryTimerFireDate = nil
         sessionExpiryTask?.cancel()
         sessionExpiryTask = nil
+        _cancelRestoreRead?()
+        _cancelRestoreRead = nil
         activePendingWalletSelection = nil
         try? credentialSession.clearSignerKeepingCredentials()
         activeWallet = nil
@@ -646,6 +660,8 @@ extension WalletClient {
                     self.latestSessionExpiredEvent = nil
                     self.sessionExpiryTask?.cancel()
                     self.sessionExpiryTask = nil
+                    self._cancelRestoreRead?()
+                    self._cancelRestoreRead = nil
                     self.activePendingWalletSelection = nil
                     try self.credentialSession.clear()
                     self.activeWallet = nil

@@ -3217,7 +3217,10 @@ func makeMockWalletClient(
     storedCredentials: StorableCredentials? = nil,
     walletImportClient: WaasClient? = nil,
     // Runs the restore read at once; pass a `ForegroundTrigger` to hold it.
-    runWhenActive: @escaping (@escaping @Sendable () -> Void) -> Void = { $0() },
+    runWhenActive: @escaping (@escaping @Sendable () -> Void) -> ForegroundActivation.Cancel = { body in
+        body()
+        return {}
+    },
     prepareTransport: (MockWaasTransport) throws -> Void = { _ in }
 ) -> MockWalletClientFixture {
     let transport = MockWaasTransport()
