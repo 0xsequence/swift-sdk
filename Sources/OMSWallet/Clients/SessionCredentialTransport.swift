@@ -98,38 +98,84 @@ final class RequestSendRecord: @unchecked Sendable {
     }
 }
 
-/// Settles once whether a signed request began (got its turn, so it may be signed and sent) or
-/// ran out of time first.
-private final class SignedRequestAttempt: @unchecked Sendable {
+/// A transport that tells the request's `SignedRequestAttempt` when it is about to start the HTTP
+/// request, after signing (see `SignedRequestAttempt.markSending()`).
+protocol ReportsSendStart {}
+
+/// Settles once whether a signed request was possibly sent or ran out of time before it could be.
+/// It is possibly sent once its transport is about to start the HTTP request (for a transport that
+/// does not report that, as soon as it gets its turn); a deadline before then means it is never
+/// sent.
+final class SignedRequestAttempt: @unchecked Sendable {
+    /// The attempt of the signed request this task is sending, for its transport.
+    @TaskLocal static var current: SignedRequestAttempt?
+
     private enum State {
         case waiting
+        /// Got its turn and is being signed.
         case begun
+        case sending
         case expired
     }
 
     private let lock = NSLock()
     private var state = State.waiting
+    private let reportsSendStart: Bool
 
-    /// Whether the request may go on; false once its deadline has passed.
+    init(reportsSendStart: Bool) {
+        self.reportsSendStart = reportsSendStart
+    }
+
+    /// Whether the request may go on after getting its turn; false once its deadline has passed.
     func begin() -> Bool {
         lock.lock()
         defer { lock.unlock() }
         guard state == .waiting else {
             return false
         }
-        state = .begun
+        state = reportsSendStart ? .begun : .sending
         return true
     }
 
-    /// Whether the request expired before it began, so it is never sent.
+    /// Whether the HTTP request may start; false once its deadline has passed. A resend after a
+    /// stale nonce is already sending.
+    func markSending() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard state != .expired else {
+            return false
+        }
+        state = .sending
+        return true
+    }
+
+    /// Whether the request expired before it was possibly sent, so it never will be.
     func expire() -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        guard state == .waiting else {
+        guard state != .sending else {
             return false
         }
         state = .expired
         return true
+    }
+}
+
+/// Resumes the caller once, with whichever of its request and the request's deadline settles first.
+private final class SignedRequestRace: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<WebRPCHTTPResponse, any Error>?
+
+    init(_ continuation: CheckedContinuation<WebRPCHTTPResponse, any Error>) {
+        self.continuation = continuation
+    }
+
+    func settle(_ result: Result<WebRPCHTTPResponse, any Error>) {
+        lock.lock()
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(with: result)
     }
 }
 
@@ -171,27 +217,45 @@ struct SessionCredentialTransport: WebRPCTransport {
         body: Data,
         headers: [String: String]
     ) async throws -> WebRPCHTTPResponse {
-        let attempt = SignedRequestAttempt()
-        return try await withThrowingTaskGroup(of: WebRPCHTTPResponse?.self) { group in
-            group.addTask {
-                try await send(baseURL: baseURL, path: path, body: body, headers: headers, attempt: attempt)
+        let attempt = SignedRequestAttempt(reportsSendStart: base is ReportsSendStart)
+        let sendRecord = RequestSendRecord.current
+        // An unstructured task, so the caller gets its result at the deadline even while a
+        // synchronous signer is still running; that task then ends on its own, holding its turn in
+        // the gate until it does, and sends nothing (`markSending()` and the cancellation check).
+        let send = Task {
+            try await SignedRequestAttempt.$current.withValue(attempt) {
+                try await self.send(baseURL: baseURL, path: path, body: body, headers: headers, attempt: attempt)
             }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(deadlineSeconds * 1_000_000_000))
-                return nil
+        }
+        let deadlineSeconds = self.deadlineSeconds
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let race = SignedRequestRace(continuation)
+                let deadline = Task {
+                    try? await Task.sleep(nanoseconds: UInt64(deadlineSeconds * 1_000_000_000))
+                    guard !Task.isCancelled else {
+                        return
+                    }
+                    // Settled before the send is cancelled, so the caller gets the timeout and not
+                    // the cancellation it causes. An expired attempt is never sent: its transport's
+                    // `markSending()` refuses.
+                    if attempt.expire() {
+                        sendRecord?.recordFailedBeforeSending()
+                        race.settle(.failure(RequestNotSentError(underlying: URLError(.timedOut))))
+                    } else {
+                        // It may have reached WaaS; the caller cannot assume it did not.
+                        race.settle(.failure(URLError(.timedOut)))
+                    }
+                    send.cancel()
+                }
+                Task {
+                    let result = await send.result
+                    deadline.cancel()
+                    race.settle(result)
+                }
             }
-            // Cancelling stops the gate wait or the request, and the group waits for both to end,
-            // so no late signer or wait can send anything after this returns.
-            defer { group.cancelAll() }
-            if case .some(.some(let response)) = try await group.next() {
-                return response
-            }
-            if attempt.expire() {
-                RequestSendRecord.current?.recordFailedBeforeSending()
-                throw RequestNotSentError(underlying: URLError(.timedOut))
-            }
-            // It may have reached WaaS; the caller cannot assume it did not.
-            throw URLError(.timedOut)
+        } onCancel: {
+            send.cancel()
         }
     }
 

@@ -65,6 +65,8 @@ public final class WalletClient: @unchecked Sendable {
     private(set) var walletImportClient: WaasClient?
     /// Shared by every client that signs with the session credential, so their nonces stay ordered.
     let signedRequestGate = SignedRequestGate()
+    /// The deadline of each signed request; tests shorten it before installing a signed client.
+    var signedRequestDeadlineSeconds = SessionCredentialTransport.requestDeadlineSeconds
     let indexerClient: IndexerClient
     /// The publishable key every transport of this client sends; see `adoptPublishableKey(_:)`.
     let publishableKeyHolder: PublishableKeyHolder
@@ -393,6 +395,7 @@ public final class WalletClient: @unchecked Sendable {
                 onResponse: { [weak self] response, path, revision in
                     self?.handleSessionCredentialResponse(response, path: path, revision: revision)
                 },
+                deadlineSeconds: signedRequestDeadlineSeconds,
                 signingCredentialId: { [weak self] in self?.signerCredentialIdIfPresent() }
             ),
             headers: client.headers

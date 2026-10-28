@@ -1,7 +1,7 @@
 import Foundation
 
 @available(macOS 12.0, iOS 15.0, *)
-struct SignedWaasTransport: WebRPCTransport {
+struct SignedWaasTransport: WebRPCTransport, ReportsSendStart {
     public let session: URLSession
 
     private let client: HttpClient
@@ -52,6 +52,9 @@ struct SignedWaasTransport: WebRPCTransport {
         }
         // A request whose caller gave up (or whose deadline passed) while it was signed is not sent.
         try Task.checkCancellation()
+        guard SignedRequestAttempt.current?.markSending() ?? true else {
+            throw RequestNotSentError(underlying: CancellationError())
+        }
 
         var requestHeaders = [
             "Api-Key": publishableKey,

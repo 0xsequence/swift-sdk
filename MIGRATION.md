@@ -259,10 +259,12 @@ the wallet API is unreachable when a session reaches its local expiry, operation
 error (`.requestFailed`) and keep the session instead of throwing `.sessionExpired`.
 
 Requests signed with the session credential now fail after 30 seconds in all, including the time
-spent waiting behind the SDK's expiry refresh, with `.requestFailed` (`URLError.timedOut`). Before,
-only `URLSession`'s timeout between received bytes applied, and a request could wait behind a
-stalled refresh without limit. An `Execute` that fails before it is sent (signing failed, or it
-timed out waiting for its turn) now throws `.requestFailed` without a `txnId` instead of
+spent waiting behind other requests of the same credential and signing, with `.requestFailed`
+(`URLError.timedOut`). The call returns at the deadline even while the signer is still running, and
+a request whose signing finishes later is never sent. Before, only `URLSession`'s timeout between
+received bytes applied, and a request could wait behind a stalled refresh without limit. An
+`Execute` that fails before its HTTP request starts (signing failed, or it timed out while waiting
+or being signed) now throws `.requestFailed` without a `txnId` instead of
 `.transactionExecutionUnconfirmed`, since nothing reached the wallet API; one that was sent and
 then failed or timed out is still `.transactionExecutionUnconfirmed`.
 

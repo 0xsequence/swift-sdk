@@ -7,7 +7,7 @@ enum WalletImportAttestationError {
 }
 
 @available(macOS 12.0, iOS 15.0, *)
-struct AttestedSignedWaasTransport: WebRPCTransport {
+struct AttestedSignedWaasTransport: WebRPCTransport, ReportsSendStart {
     let session: URLSession
     private let client: HttpClient
     private let publishableKey: PublishableKeyHolder
@@ -51,7 +51,18 @@ struct AttestedSignedWaasTransport: WebRPCTransport {
             let endpoint = resolveEndpoint(path)
             let payload = String(data: body, encoding: .utf8) ?? ""
             let nonce = try randomNonce()
-            let authHeader = try buildAuthHeader(endpoint: endpoint, payload: payload)
+            let authHeader: String
+            do {
+                authHeader = try buildAuthHeader(endpoint: endpoint, payload: payload)
+            } catch {
+                throw RequestNotSentError(underlying: error)
+            }
+            // As for `SignedWaasTransport`: a request whose deadline passed while it was signed is
+            // not sent.
+            try Task.checkCancellation()
+            guard SignedRequestAttempt.current?.markSending() ?? true else {
+                throw RequestNotSentError(underlying: CancellationError())
+            }
             var requestHeaders = [
                 "Api-Key": publishableKey.current,
                 "OMS-Wallet-Signature": authHeader,
