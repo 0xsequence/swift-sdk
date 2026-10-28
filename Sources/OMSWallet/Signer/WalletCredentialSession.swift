@@ -49,6 +49,14 @@ final class WalletCredentialSession {
         }
     }
 
+    /// Whether the signer holds a key, without restoring or deleting anything. Expiry clears the
+    /// key but keeps the record.
+    func signerHoldsKey() -> Bool {
+        withLock {
+            (try? signerFactory().hasCredential()) ?? false
+        }
+    }
+
     func restore() -> WalletMetadata? {
         withLock {
             restoreLocked()
@@ -60,7 +68,9 @@ final class WalletCredentialSession {
             return nil
         }
 
-        guard !Self.sessionIsExpired(expiresAt: credentials.expiresAt) else {
+        // The caller decided, on its clock, that the session may still be active; an unreadable
+        // expiry is discarded.
+        guard OMSWalletSession.parseDate(credentials.expiresAt) != nil else {
             clearStoredSession()
             return nil
         }
@@ -164,14 +174,6 @@ final class WalletCredentialSession {
             lock.unlock()
         }
         return try body()
-    }
-
-    private static func sessionIsExpired(expiresAt value: String) -> Bool {
-        guard let expiresAt = OMSWalletSession.parseDate(value) else {
-            return true
-        }
-
-        return expiresAt <= Date()
     }
 
     private static func makeDefaultCredentialSigner(

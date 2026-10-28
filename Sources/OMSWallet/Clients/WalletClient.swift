@@ -150,6 +150,10 @@ public final class WalletClient: @unchecked Sendable {
     /// bound on the server's expiry. A restore sets it to the restore time, which is after any
     /// request of the previous process.
     var _lastSessionRequestCompletedAt: Date?
+    /// When the active session was restored from the keychain. While no read has succeeded and no
+    /// request has completed since, the saved expiry bounds the server's
+    /// (`latestServerExpiryOfSavedSession`).
+    var _restoredAt: Date?
     /// When the last `GetCredential` completed; the same timestamp as
     /// `_lastSessionRequestCompletedAt` for that read, so a successful read with no later request
     /// leaves no activity after it.

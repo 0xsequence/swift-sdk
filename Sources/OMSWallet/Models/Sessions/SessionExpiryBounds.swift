@@ -41,3 +41,28 @@ struct SessionExpiryBounds: Equatable, Sendable {
         ceiling.timeIntervalSince1970
     }
 }
+
+/// Whether a saved session whose expiry has passed may still be active on the server, so restoring
+/// it lets its read decide instead of ending it. The saved expiry is the last read's. That read
+/// moved the server expiry unless the move was under the slide dampening, so it trailed the server
+/// by less than that; requests after the read moved the server expiry at most until the next read,
+/// which follows the first successful call once the read is `credentialRefreshIntervalSeconds` old.
+/// The server expiry is therefore before the saved one plus both, and never past the ceiling.
+@available(macOS 12.0, iOS 15.0, *)
+func savedSessionMayBeActiveOnServer(expiresAt: Date, bounds: SessionExpiryBounds?, now: Date) -> Bool {
+    now < latestServerExpiryOfSavedSession(expiresAt: expiresAt, bounds: bounds)
+}
+
+/// The latest the server expiry of a session saved with `expiresAt` can be, plus the expiry check's
+/// grace: see `savedSessionMayBeActiveOnServer`. It holds while every read and its save succeeded;
+/// a missed one can only leave the server expiry later, which ends the session early.
+@available(macOS 12.0, iOS 15.0, *)
+func latestServerExpiryOfSavedSession(expiresAt: Date, bounds: SessionExpiryBounds?) -> Date {
+    var latest = expiresAt.addingTimeInterval(
+        WalletClient.serverExpirySlideDampeningSeconds + WalletClient.credentialRefreshIntervalSeconds
+    )
+    if let bounds {
+        latest = min(latest, bounds.ceiling)
+    }
+    return latest.addingTimeInterval(WalletClient.sessionExpiryCheckGraceSeconds)
+}

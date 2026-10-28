@@ -39,7 +39,15 @@ extension WalletClient {
             _ = credentialSession.restore()
             return
         }
-        guard !isSessionExpired(storedSession) else {
+        // A passed expiry may still be active on the server; the restored session's read decides.
+        // Without its signing key, an earlier launch already ended it (keeping the record as the
+        // sign-in hint), so it is replayed as expired again.
+        guard !isSessionExpired(storedSession)
+            || (savedSessionMayBeActiveOnServer(
+                expiresAt: storedSession.expiryDate,
+                bounds: storedWallet.expiryBounds,
+                now: currentDate()
+            ) && credentialSession.signerHoldsKey()) else {
             expireStoredSession(storedSession)
             return
         }
@@ -57,6 +65,7 @@ extension WalletClient {
             // Any request of the previous process completed before now, and nothing says when its
             // last read was, so the restore counts as activity until a read succeeds.
             _lastSessionRequestCompletedAt = currentDate()
+            _restoredAt = _lastSessionRequestCompletedAt
         }
         if let snapshot = currentSessionSnapshot() {
             scheduleSessionExpiry(snapshot)
@@ -70,6 +79,12 @@ extension WalletClient {
                 }
                 Task { [weak self] in
                     _ = await self?.refreshCredentialExpiry()
+                    // A read that could not settle a session restored past its saved expiry
+                    // (unsupported or unreachable) hands it to the expiry timer, which ends or
+                    // rechecks it.
+                    if let self, let current = self.currentSessionSnapshot(), self.isSessionExpired(current) {
+                        self.scheduleSessionExpiry(current)
+                    }
                 }
             }
             // Ending the session cancels the wait, so an app extension or a launch that never
@@ -144,6 +159,7 @@ extension WalletClient {
         _sessionSignerCredentialId = nil
         _lastCredentialRefreshAt = nil
         _lastSessionRequestCompletedAt = nil
+        _restoredAt = nil
         _lastCredentialReadCompletedAt = nil
         _sessionExpiryBounds = nil
         _sessionExpiryTimerFireDate = nil
@@ -198,6 +214,7 @@ extension WalletClient {
         _sessionSignerCredentialId = nil
         _lastCredentialRefreshAt = nil
         _lastSessionRequestCompletedAt = nil
+        _restoredAt = nil
         _lastCredentialReadCompletedAt = nil
         _sessionExpiryBounds = nil
         _sessionExpiryTimerFireDate = nil
@@ -351,6 +368,21 @@ extension WalletClient {
     /// unknown only if a sign-in returned an expiry not after its send; the timer then asks at
     /// L + max(0, A - C) + slide dampening + grace, taking C = A when C is unset.
     private func sessionExpiryCheckDateLocked(_ session: WalletSessionSnapshot) -> Date {
+        let checkDate = activityExpiryCheckDateLocked(session)
+        // Restored with no read or request since: the saved expiry bounds the server's, which is
+        // tighter than counting the restore as a request when the restore read did not settle it.
+        guard _lastCredentialRefreshAt == nil, let restoredAt = _restoredAt,
+              _lastSessionRequestCompletedAt == restoredAt else {
+            return checkDate
+        }
+        return min(
+            checkDate,
+            latestServerExpiryOfSavedSession(expiresAt: session.expiryDate, bounds: _sessionExpiryBounds)
+        )
+    }
+
+    /// The check date from the reads and requests alone, without the restore bound.
+    private func activityExpiryCheckDateLocked(_ session: WalletSessionSnapshot) -> Date {
         let grace = Self.sessionExpiryCheckGraceSeconds
         let localExpiry = session.expiryDate
         let lastRequest = _lastSessionRequestCompletedAt
@@ -751,6 +783,7 @@ extension WalletClient {
                     self._sessionSignerCredentialId = nil
                     self._lastCredentialRefreshAt = nil
                     self._lastSessionRequestCompletedAt = nil
+                    self._restoredAt = nil
                     self._lastCredentialReadCompletedAt = nil
                     self._sessionExpiryBounds = nil
                     self._sessionExpiryTimerFireDate = nil

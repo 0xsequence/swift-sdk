@@ -867,9 +867,9 @@ func TestStoredSessionWithoutValidExpiryBoundsIsDiscardedOnRestore(_ fields: [St
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 0)
 }
 
-@Test @MainActor func TestExpiryTimerAfterFailedRestoreReadWaitsForBoundFromRestoreTime() async throws {
-    // Nothing is known about the previous process's last read, so the restore counts as activity:
-    // the timer asks at max(L, min(restore + I, N)) + grace.
+@Test @MainActor func TestExpiryTimerAfterFailedRestoreReadWaitsForBoundOfSavedExpiry() async throws {
+    // With no read or request since the restore, the saved expiry bounds the server's: the timer
+    // asks at min(L + 12 hours, N) + grace, not an idle window after the restore.
     let restoredAt = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
     let now = LockedBox(restoredAt)
     let keychain = InMemoryKeychain()
@@ -904,7 +904,7 @@ func TestStoredSessionWithoutValidExpiryBoundsIsDiscardedOnRestore(_ fields: [St
     try await waitForCredentialRefreshToFinish(fixture.client)
     #expect(fixture.client.withSessionLock { fixture.client._lastCredentialRefreshAt } == nil)
 
-    let checkDate = restoredAt.addingTimeInterval(10 * day + grace)
+    let checkDate = expiry.addingTimeInterval(12 * hour + grace)
     now.withValue { $0 = expiry.addingTimeInterval(grace + 1) }
     try await expectTimerDefers(fixture.client, to: checkDate)
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 1)
@@ -1151,7 +1151,7 @@ private func makeRestoredFixture(
     )
 }
 
-@Test @MainActor func TestRestoreReadWaitsForAppActivationAndRestoreStillCountsAsActivity() async throws {
+@Test @MainActor func TestRestoreReadWaitsForAppActivationAndTimerWaitsForBoundOfSavedExpiry() async throws {
     // A background launch must not extend an idle session, so the restore read waits.
     let restoredAt = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
     let expiry = restoredAt.addingTimeInterval(2 * day)
@@ -1165,9 +1165,9 @@ private func makeRestoredFixture(
     try await Task.sleep(nanoseconds: 200_000_000)
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 0)
 
-    // Without the read, the restore still counts as activity at the restore time.
+    // Without the read, the timer waits until the server expiry must have passed.
     now.withValue { $0 = expiry.addingTimeInterval(grace + 1) }
-    try await expectTimerDefers(fixture.client, to: restoredAt.addingTimeInterval(10 * day + grace))
+    try await expectTimerDefers(fixture.client, to: expiry.addingTimeInterval(12 * hour + grace))
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 0)
 
     trigger.activate()
@@ -1439,4 +1439,111 @@ private let walletCallUnauthorizedBody = Data(
     #expect(fixture.client.session?.expiresAt == "2099-06-01T00:00:00Z")
     #expect(fixture.client.activeWallet?.id == "wallet-main")
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 1)
+}
+
+/// Restores a session saved with expiry 2026-01-01T00:00:00Z at 04:00 that day: requests after its
+/// last read may have extended it on the server, so the restored session's read decides.
+@MainActor
+private func restoreFourHoursPastSavedExpiry(
+    keychain: InMemoryKeychain = InMemoryKeychain(),
+    signer: MockCredentialSigner = MockCredentialSigner(),
+    runWhenActive: @escaping (@escaping @Sendable () -> Void) -> ForegroundActivation.Cancel = { body in
+        body()
+        return {}
+    },
+    prepareTransport: (MockWaasTransport) throws -> Void
+) throws -> MockWalletClientFixture {
+    makeMockWalletClient(
+        projectId: "proj_restore_past_expiry",
+        keychain: keychain,
+        signer: signer,
+        currentDate: { Date(timeIntervalSince1970: 1_767_225_600 + 4 * 3_600) },
+        storedCredentials: StorableCredentials(
+            wallet: activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-restored"),
+            signerCredentialId: try signer.credentialId(),
+            alg: signer.alg,
+            expiresAt: "2026-01-01T00:00:00Z",
+            auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com")),
+            expiryBounds: testExpiryBounds
+        ),
+        runWhenActive: runWhenActive,
+        prepareTransport: prepareTransport
+    )
+}
+
+@Test @MainActor func TestRestoredSessionPastSavedExpiryContinuesWhenTheServerExtendedIt() async throws {
+    let fixture = try restoreFourHoursPastSavedExpiry { transport in
+        try transport.enqueue(
+            credentialResponse(expiresAt: "2026-01-11T04:00:00.000Z"),
+            for: WaasAPI.GetCredential.urlPath
+        )
+    }
+    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
+    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    defer { observation.cancel() }
+
+    #expect(fixture.client.session != nil)
+    try await waitUntil { fixture.client.session?.expiresAt == "2026-01-11T04:00:00.000Z" }
+    #expect(fixture.client.session?.expiresAt == "2026-01-11T04:00:00.000Z")
+    #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 1)
+    #expect(expiredEvents.isEmpty)
+}
+
+@Test @MainActor func TestRestoredSessionPastSavedExpiryEndsWhenTheServerEndedIt() async throws {
+    let fixture = try restoreFourHoursPastSavedExpiry { transport in
+        transport.enqueueRawHTTPError(statusCode: 400, body: keyExpiredBody, for: WaasAPI.GetCredential.urlPath)
+    }
+    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
+    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    defer { observation.cancel() }
+
+    try await waitUntil { !expiredEvents.isEmpty }
+    #expect(expiredEvents.count == 1)
+    #expect(fixture.client.session == nil)
+    #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 1)
+}
+
+
+@Test @MainActor func TestRestoredSessionPastSavedExpiryEndsWhenTheServerHasNoGetCredential() async throws {
+    // The read runs after the expiry timer has deferred, as when the app becomes active later.
+    let trigger = ForegroundTrigger()
+    let fixture = try restoreFourHoursPastSavedExpiry(runWhenActive: trigger.runWhenActive) { transport in
+        transport.enqueueWebRPCBadRoute(for: WaasAPI.GetCredential.urlPath)
+    }
+    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
+    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    defer { observation.cancel() }
+    try await Task.sleep(nanoseconds: 100_000_000)
+    #expect(fixture.client.session != nil)
+
+    trigger.activate()
+    try await waitUntil { !expiredEvents.isEmpty }
+    #expect(expiredEvents.count == 1)
+    #expect(fixture.client.session == nil)
+}
+
+@Test @MainActor func TestRestoredSessionPastSavedExpiryReplaysOnTheNextLaunchAfterTheServerEndedIt() async throws {
+    let keychain = InMemoryKeychain()
+    let signer = MockCredentialSigner()
+    let first = try restoreFourHoursPastSavedExpiry(keychain: keychain, signer: signer) { transport in
+        transport.enqueueRawHTTPError(statusCode: 400, body: keyExpiredBody, for: WaasAPI.GetCredential.urlPath)
+    }
+    try await waitUntil { first.client.session == nil }
+    #expect(!signer.hasStoredCredential)
+
+    // The expiry kept the record without its key: the next launch replays it without a read.
+    let next = makeMockWalletClient(
+        projectId: "proj_restore_past_expiry",
+        keychain: keychain,
+        signer: signer,
+        currentDate: { Date(timeIntervalSince1970: 1_767_225_600 + 5 * 3_600) }
+    )
+    var replayed: OMSWalletSessionExpiredEvent?
+    let observation = next.client.addSessionExpiredObserver { replayed = $0 }
+    defer { observation.cancel() }
+    try await waitUntil { replayed != nil }
+    #expect(replayed?.expiredAt == "2026-01-01T00:00:00Z")
+    #expect(next.client.session == nil)
+    #expect(next.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 0)
+    #expect(try next.storedCredentials() != nil)
 }

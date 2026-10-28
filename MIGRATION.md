@@ -234,8 +234,9 @@ The wallet API now extends a session's expiry while it is used, up to the reques
 `sessionLifetimeSeconds`, and ends idle sessions sooner. `OMSWalletSession.expiresAt` is the current
 expiry, not a fixed value from sign-in: the SDK refreshes it after restoring a session and while the
 session is in use. Read `omsWallet.wallet.session?.expiresAt` again instead of caching the sign-in
-`WalletCredential.expiresAt`. Restoring still discards a session whose stored expiry has passed,
-without asking the wallet API. A session active in memory that reaches its local expiry is checked
+`WalletCredential.expiresAt`. Restoring discards a session whose stored expiry passed more than 12
+hours ago, without asking the wallet API; a more recently passed one may still be active there, so it
+is restored and the expiry refresh after the restore decides. A session active in memory that reaches its local expiry is checked
 with the wallet API before it is treated as ended. On iOS the expiry refresh after a restore runs once
 the app is active (right away when it already is), so a background launch or an app extension does
 not extend an idle session.
@@ -247,8 +248,8 @@ capped at the requested lifetime. The wallet API skips extensions shorter than
 6 hours, so while your app makes no wallet calls the SDK can notice the end of an idle session up to
 about 6 hours late (assuming an accurate device clock and an app that keeps running); a session whose lifetime is shorter than the idle window is checked 5 minutes
 after its fixed expiry. After a restore whose expiry refresh has not reached the wallet API (offline,
-or an app extension that never becomes active), the restore counts as the last use, so the end can
-be noticed up to about an idle window late. Until then `activeWallet` and `session` stay set; a wallet call in that
+or an app extension that never becomes active), the end is noticed about 12 hours after the stored
+expiry at the latest. Until then `activeWallet` and `session` stay set; a wallet call in that
 window checks with the wallet API first, as before.
 
 When the wallet API reports the session's credential expired or gone (WaaS `KeyExpired` 7203 or

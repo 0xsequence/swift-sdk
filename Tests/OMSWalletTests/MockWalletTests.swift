@@ -433,8 +433,10 @@ func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut
         auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com")),
         expiryBounds: testExpiryBounds
     )
+    // Past the stored expiry by more than the server can have extended it since the last read:
+    // the 6-hour dampening, 6 hours of requests until the next read, and the 5-minute grace.
     let fixture = makeMockWalletClient(
-        currentDate: { Date(timeIntervalSince1970: 1_767_225_601) },
+        currentDate: { Date(timeIntervalSince1970: 1_767_225_600 + 12 * 3_600 + 5 * 60) },
         storedCredentials: storedCredentials
     )
     var expiredEvent: OMSWalletSessionExpiredEvent?
@@ -451,6 +453,7 @@ func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut
     #expect(replayedEvent?.expiredAt == "2026-01-01T00:00:00Z")
     #expect(try fixture.storedCredentials()?.wallet.id == storedCredentials.wallet.id)
     #expect(fixture.signer.clearCallCount == 1)
+    #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 0)
 }
 
 @Test func TestWalletCredentialSessionPurgesInvalidStoredAuthMetadata() throws {
@@ -501,7 +504,8 @@ func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut
         expiryBounds: testExpiryBounds
     )
     let fixture = makeMockWalletClient(
-        currentDate: { Date(timeIntervalSince1970: 1_767_225_601) },
+        // Past what the server can have extended since the last read.
+        currentDate: { Date(timeIntervalSince1970: 1_767_225_600 + 12 * 3_600 + 5 * 60) },
         storedCredentials: storedCredentials
     )
     var expiredEvent: OMSWalletSessionExpiredEvent?

@@ -103,7 +103,7 @@ Pass your OMS publishable key when creating the client. The SDK derives the wall
 
 Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `ecdsa-p256-sha256` signing algorithm. The credential remains Keychain-managed and is not serialized into SDK session storage.
 
-Only completed wallet session metadata is restored automatically, including the active wallet (ID, type, address, reference, and key origin), expiry, and auth metadata such as email or OIDC issuer/provider details when available. The SDK checks the cached session expiry before restoring a session, then asks the wallet API for the current expiry in the background. Sessions whose cached expiry has passed are not activated (the wallet API is not asked), and invalid session metadata is cleared; expired session metadata remains in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it.
+Only completed wallet session metadata is restored automatically, including the active wallet (ID, type, address, reference, and key origin), expiry, and auth metadata such as email or OIDC issuer/provider details when available. The SDK checks the cached session expiry before restoring a session, then asks the wallet API for the current expiry in the background. A session whose cached expiry passed less than 12 hours ago may still be active on the wallet API (requests after the last expiry read can extend it there), so it is restored and that read decides; sessions whose cached expiry passed longer ago are not activated (the wallet API is not asked), and invalid session metadata is cleared; expired session metadata remains in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it.
 
 ## Authentication Flow
 
@@ -147,8 +147,10 @@ lifetime to their 30-day maximum and have no idle timeout, so the 180-day defaul
 
 The SDK refreshes `session.expiresAt` from the wallet API after restoring a session and, while the
 session is in use, after a successful wallet call when the last refresh is at least six hours old
-(so at most once every six hours). Restoring discards a session whose stored expiry has
-passed without asking the wallet API. A session active in memory that reaches its local expiry is
+(so at most once every six hours). Restoring discards a session whose stored expiry passed more
+than 12 hours ago without asking the wallet API: the server's expiry is normally at most that far past the
+stored one (its 6-hour minimum move plus the 6 hours until the next refresh). A more recently passed
+one is restored, and the refresh after the restore decides whether it continues. A session active in memory that reaches its local expiry is
 checked with the wallet API before it is treated as ended, and a session the server has extended
 continues. On iOS the refresh after a restore runs once the app is active (right away when it already is), so a
 background launch or an app extension does not extend an idle session. An idle session ends about
@@ -158,8 +160,7 @@ of the last signed request plus the idle window, capped at the requested lifetim
 skips extensions shorter than 6 hours, so while your app makes no wallet calls the SDK can notice
 the end of an idle session up to about 6 hours late. After a restore whose expiry refresh has not
 reached the wallet API (for example offline, or in an app extension that never becomes active), the
-SDK counts the restore as the last use, so it can notice the end up to about an idle window
-(10 days) late. These times assume an accurate device clock
+SDK notices the end about 12 hours after the stored expiry at the latest. These times assume an accurate device clock
 and an app that keeps running in the foreground; the timer cannot fire while the app is suspended,
 and a wallet call on a locally expired session always checks with the wallet API first. When the wallet API rejects a request signed
 with the session's credential because that credential expired or is gone (WaaS `KeyExpired` 7203
@@ -362,7 +363,7 @@ On iOS, prefer `signInWithOidcIdToken` over defining a custom Google or Apple
 redirect configuration when the native provider SDK can supply an ID token.
 Use custom redirect auth for caller-owned or browser-only provider flows.
 
-On subsequent launches, an unexpired completed session is restored from secure storage automatically. To end the session:
+On subsequent launches, a completed session that may still be active is restored from secure storage automatically. To end the session:
 
 ```swift
 try omsWallet.wallet.signOut()
