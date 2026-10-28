@@ -59,12 +59,13 @@ extension WalletClient {
                 throw OMSWalletError.sessionMissing()
             }
             let authRevision = sessionRevisionSnapshot()
-            let response = try await confirmEmailSignIn(
+            let (response, expiryBounds) = try await confirmEmailSignIn(
                 code: code,
                 sessionLifetimeSeconds: pendingEmailAuth.sessionLifetimeSeconds
             )
             return try await completeWalletAuth(
                 response,
+                expiryBounds: expiryBounds,
                 walletType: walletType,
                 walletSelection: walletSelection,
                 sessionAuth: .email(OMSWalletEmailSessionAuth(email: response.email ?? pendingEmailAuth.email)),
@@ -112,12 +113,13 @@ extension WalletClient {
                 verifier = response.verifier
                 challenge = response.challenge
 
-                let auth = try await confirmOidcIdTokenSignIn(
+                let (auth, expiryBounds) = try await confirmOidcIdTokenSignIn(
                     idToken: idToken,
                     sessionLifetimeSeconds: validatedSessionLifetimeSeconds
                 )
                 return try await completeWalletAuth(
                     auth,
+                    expiryBounds: expiryBounds,
                     walletType: walletType,
                     walletSelection: walletSelection,
                     sessionAuth: oidcIdTokenSessionAuth(
@@ -378,7 +380,7 @@ extension WalletClient {
                 let resolvedSessionLifetimeSeconds = try requireWaasSessionLifetimeSeconds(
                     sessionLifetimeSeconds ?? pending.sessionLifetimeSeconds ?? WalletClient.defaultSessionLifetimeSeconds
                 )
-                let response = try await signedClient.completeAuth(
+                let (response, expiryBounds) = try await sendCompleteAuth(
                     CompleteAuthRequest(
                         identityType: .oidc,
                         authMode: pending.authMode.waasAuthMode,
@@ -389,6 +391,7 @@ extension WalletClient {
                 )
                 result = try await completeWalletAuth(
                     response,
+                    expiryBounds: expiryBounds,
                     walletType: pending.walletType,
                     walletSelection: resolvedWalletSelection,
                     sessionAuth: oidcRedirectSessionAuth(
@@ -522,7 +525,7 @@ extension WalletClient {
     private func confirmEmailSignIn(
         code: String,
         sessionLifetimeSeconds: UInt32
-    ) async throws -> CompleteAuthResponse {
+    ) async throws -> (CompleteAuthResponse, SessionExpiryBounds?) {
         guard !verifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !challenge.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw OMSWalletError.sessionMissing()
@@ -538,13 +541,13 @@ extension WalletClient {
             lifetime: sessionLifetimeSeconds
         )
 
-        return try await signedClient.completeAuth(params)
+        return try await sendCompleteAuth(params)
     }
 
     private func confirmOidcIdTokenSignIn(
         idToken: String,
         sessionLifetimeSeconds: UInt32
-    ) async throws -> CompleteAuthResponse {
+    ) async throws -> (CompleteAuthResponse, SessionExpiryBounds?) {
         let params = CompleteAuthRequest(
             identityType: IdentityType.oidc,
             authMode: AuthMode.idToken,
@@ -553,11 +556,31 @@ extension WalletClient {
             lifetime: sessionLifetimeSeconds
         )
 
-        return try await signedClient.completeAuth(params)
+        return try await sendCompleteAuth(params)
+    }
+
+    /// Sends `CompleteAuth` and derives the session's expiry bounds from the exchange (`nil` when
+    /// the response's expiry is unreadable or not after the send).
+    private func sendCompleteAuth(
+        _ request: CompleteAuthRequest
+    ) async throws -> (CompleteAuthResponse, SessionExpiryBounds?) {
+        // Taken before the request waits for in-flight signed requests, so it is never later than
+        // the send.
+        let sentAt = currentDate()
+        let response = try await signedClient.completeAuth(request)
+        let expiryBounds = request.lifetime.flatMap {
+            SessionExpiryBounds(
+                signInSentAt: sentAt,
+                expiresAt: response.credential.expiresAt,
+                requestedLifetimeSeconds: $0
+            )
+        }
+        return (response, expiryBounds)
     }
 
     private func completeWalletAuth(
         _ response: CompleteAuthResponse,
+        expiryBounds: SessionExpiryBounds?,
         walletType: WalletType,
         walletSelection: WalletSelectionBehavior,
         sessionAuth: OMSWalletSessionAuth,
@@ -573,7 +596,8 @@ extension WalletClient {
         }
         let sessionMetadata = SessionMetadata(
             expiresAt: response.credential.expiresAt,
-            auth: sessionAuth
+            auth: sessionAuth,
+            expiryBounds: expiryBounds
         )
         try withOptionalOIDCRedirectAuthOwnership(oidcRedirectAuthOwnership) {
             try requireCurrentSessionRevision(requiredSessionRevision)
@@ -582,6 +606,7 @@ extension WalletClient {
                 try requireCurrentSessionRevisionLocked(requiredSessionRevision)
                 self.sessionExpiresAt = sessionMetadata.expiresAt
                 self.sessionAuth = sessionMetadata.auth
+                self._sessionExpiryBounds = sessionMetadata.expiryBounds
                 // Sign-in counts as a credential read. Taking the time here, before any wallet
                 // request below, lets the expiry timer count a later wallet selection as activity.
                 self._lastCredentialRefreshAt = self.currentDate()

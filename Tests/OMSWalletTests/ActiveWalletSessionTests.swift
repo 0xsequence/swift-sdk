@@ -24,7 +24,8 @@ private func storedRecordJSON(version: Int = 2, walletJSON: String) -> String {
     """
     {"version":\(version),"wallet":\(walletJSON),"signerCredentialId":"0xmock-credential",\
     "alg":"ecdsa-p256-sha256","expiresAt":"2099-01-01T00:00:00Z",\
-    "auth":{"type":"email","email":"user@example.com"}}
+    "auth":{"type":"email","email":"user@example.com"},\
+    "idleWindowSeconds":864000,"expiryCeilingEpochSeconds":4102444800}
     """
 }
 

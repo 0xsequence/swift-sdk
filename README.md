@@ -145,13 +145,19 @@ The SDK refreshes `session.expiresAt` from the wallet API after restoring a sess
 every six hours while the session is in use. Restoring discards a session whose stored expiry has
 passed without asking the wallet API. A session active in memory that reaches its local expiry is
 checked with the wallet API before it is treated as ended, and a session the server has extended
-continues. An idle session ends about 10 days after its last use; while your app makes no wallet
-calls, the SDK notices up to 5 minutes later, because the check itself would extend a session the
-server still holds. When the wallet API rejects a request signed with the session's credential
-because that credential expired or is gone (WaaS `KeyExpired` 7203 or `KeyNotFound` 7202), or
-answers the SDK's expiry check with `Unauthorized` (7207, the credential was revoked), the SDK ends
-the session exactly as on local expiry: it notifies session-expired observers once and throws
-`.sessionExpired`. If the device is offline when the expiry passes, the session is kept and
+continues. On iOS the refresh after a restore waits until the app next becomes active, so a
+background launch or an app extension does not extend an idle session. An idle session ends about
+10 days after its last use. The check itself would extend a session the server still holds, so the
+SDK's expiry timer asks only 5 minutes after the latest the server's expiry can be: the completion
+of the last signed request plus the idle window, capped at the requested lifetime. The wallet API
+skips extensions shorter than 6 hours, so while your app makes no wallet calls the SDK can notice
+the end of an idle session up to about 6 hours late. These times assume an accurate device clock
+and an app that keeps running in the foreground; the timer cannot fire while the app is suspended,
+and a wallet call on a locally expired session always checks with the wallet API first. When the wallet API rejects a request signed
+with the session's credential because that credential expired or is gone (WaaS `KeyExpired` 7203
+or `KeyNotFound` 7202), or answers the SDK's expiry check with `Unauthorized` (7207, the credential
+was revoked), the SDK ends the session exactly as on local expiry: it notifies session-expired
+observers once and throws `.sessionExpired`. If the device is offline when the expiry passes, the session is kept and
 rechecked later; operations meanwhile throw the network error. Wallet API versions without expiry
 refresh keep the local expiry. Refresh requests never overlap your own wallet calls, so request
 nonces stay in order; a request the wallet API rejects for a stale nonce (`PreconditionFailed`

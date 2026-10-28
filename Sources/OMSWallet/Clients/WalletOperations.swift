@@ -418,6 +418,10 @@ extension WalletClient {
         }
     }
 
+    private static func isExecuteRefusedBeforeSubmission(_ error: WebRPCError) -> Bool {
+        [.invalidSignature, .usageLimitExceeded, .preconditionFailed, .unauthorized].contains(error.kind)
+    }
+
     private func execute(
         feeBalanceNetwork: FeeBalanceNetwork?,
         prepareResponse: PrepareResponse,
@@ -449,6 +453,13 @@ extension WalletClient {
         } catch let error as WebRPCError where error.kind == .transactionSimulationFailed {
             // The relayer refused to dispatch a reverting transaction (7314): WaaS closed it as
             // failed and never sent it, so this is a request failure, not an unconfirmed write.
+            throw error
+        } catch let error as WebRPCError where Self.isExecuteRefusedBeforeSubmission(error) {
+            // WaaS refused it before submitting anything, so this is a request failure: its
+            // credential middleware rejects a bad signature (7201), an exceeded usage limit (7205)
+            // or a stale nonce (7206, still rejected after the transport's resends) before Execute
+            // runs, and `Unauthorized` (7207) comes from that middleware or from Execute's access
+            // checks, which also run before submission.
             throw error
         } catch {
             let sdkError = toOMSWalletError(error, operation: .walletExecute)

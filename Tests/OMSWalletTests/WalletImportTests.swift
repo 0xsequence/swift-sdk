@@ -233,5 +233,12 @@ private func expectAttestationFailure(
             #expect(!rendered.contains(keyMaterial))
             #expect(!rendered.contains(String(keyMaterial.dropFirst(2))))
         }
+        var dumped = ""
+        dump(privateKey, to: &dumped)
+        #expect(dumped.contains(expected))
+        #expect(!dumped.contains(keyMaterial))
+        #expect(!dumped.contains(String(keyMaterial.dropFirst(2))))
+        #expect(!dumped.contains("32 bytes"))
+        #expect(Mirror(reflecting: privateKey).children.isEmpty)
     }
 }

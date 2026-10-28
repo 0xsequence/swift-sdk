@@ -8,7 +8,7 @@ public enum WalletImportCipherSuite: String, CaseIterable, Sendable {
     case p256Sha256ChaCha20Poly1305 = "p256-sha256-chacha20poly1305"
 }
 
-public enum WalletImportPrivateKey: Sendable, CustomStringConvertible, CustomDebugStringConvertible {
+public enum WalletImportPrivateKey: Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     case ethereum(String)
     case ethereumBytes(Data)
     case solana(String)
@@ -28,8 +28,8 @@ public enum WalletImportPrivateKey: Sendable, CustomStringConvertible, CustomDeb
     }
 }
 
-/// String conversion names the case but never includes the key, so a logged or interpolated
-/// `WalletImportPrivateKey` does not leak it.
+/// String conversion names the case but never includes the key, and reflection (`dump`, `Mirror`)
+/// shows no children, so a logged, interpolated, or dumped `WalletImportPrivateKey` does not leak it.
 extension WalletImportPrivateKey {
     public var description: String {
         let name: String
@@ -46,6 +46,10 @@ extension WalletImportPrivateKey {
 
     public var debugDescription: String {
         description
+    }
+
+    public var customMirror: Mirror {
+        Mirror(self, children: [], displayStyle: .enum)
     }
 }
 

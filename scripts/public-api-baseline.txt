@@ -288,6 +288,7 @@ conformance	WalletImportCipherSuite	Swift.Hashable
 conformance	WalletImportCipherSuite	Swift.RawRepresentable
 conformance	WalletImportCipherSuite	Swift.Sendable
 conformance	WalletImportPrivateKey	Swift.CustomDebugStringConvertible
+conformance	WalletImportPrivateKey	Swift.CustomReflectable
 conformance	WalletImportPrivateKey	Swift.CustomStringConvertible
 conformance	WalletImportPrivateKey	Swift.Sendable
 conformance	WalletImportRecipientKey	Swift.Equatable
@@ -1070,6 +1071,7 @@ symbol	swift.property	WalletClient.session	var session: OMSWalletSession? { get 
 symbol	swift.property	WalletCredential.credentialId	let credentialId: String
 symbol	swift.property	WalletCredential.expiresAt	let expiresAt: String
 symbol	swift.property	WalletCredential.isCaller	let isCaller: Bool
+symbol	swift.property	WalletImportPrivateKey.customMirror	var customMirror: Mirror { get }
 symbol	swift.property	WalletImportPrivateKey.debugDescription	var debugDescription: String { get }
 symbol	swift.property	WalletImportPrivateKey.description	var description: String { get }
 symbol	swift.property	WalletImportPrivateKey.walletType	var walletType: WalletType { get }

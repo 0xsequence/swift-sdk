@@ -6,6 +6,8 @@ final class WalletCredentialSession {
         let wallet: Wallet
         let expiresAt: String
         let auth: OMSWalletSessionAuth
+        /// `nil` when the record has no readable bounds.
+        let expiryBounds: SessionExpiryBounds?
     }
 
     private let keychain: any KeychainManaging
@@ -41,7 +43,8 @@ final class WalletCredentialSession {
             return WalletMetadata(
                 wallet: credentials.wallet,
                 expiresAt: credentials.expiresAt,
-                auth: credentials.auth
+                auth: credentials.auth,
+                expiryBounds: credentials.expiryBounds
             )
         }
     }
@@ -75,7 +78,8 @@ final class WalletCredentialSession {
                 return WalletMetadata(
                     wallet: credentials.wallet,
                     expiresAt: credentials.expiresAt,
-                    auth: credentials.auth
+                    auth: credentials.auth,
+                    expiryBounds: credentials.expiryBounds
                 )
             }
 
@@ -93,7 +97,8 @@ final class WalletCredentialSession {
     func persist(
         wallet: Wallet,
         expiresAt: String,
-        auth: OMSWalletSessionAuth
+        auth: OMSWalletSessionAuth,
+        expiryBounds: SessionExpiryBounds?
     ) throws {
         try withLock {
             let credentials = StorableCredentials(
@@ -101,7 +106,8 @@ final class WalletCredentialSession {
                 signerCredentialId: try currentSigner.credentialId(),
                 alg: currentSigner.alg,
                 expiresAt: expiresAt,
-                auth: auth
+                auth: auth,
+                expiryBounds: expiryBounds
             )
 
             try keychain.set(credentials.jsonString(), forKey: credentialsStorageKey)

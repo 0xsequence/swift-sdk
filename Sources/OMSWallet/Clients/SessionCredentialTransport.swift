@@ -76,8 +76,10 @@ struct SessionCredentialTransport: WebRPCTransport {
     let gate: SignedRequestGate
     /// The session revision when a wallet session is active, or `nil` (for example during sign-in).
     let activeSessionRevision: @Sendable () -> UInt64?
-    /// Called each time a request is about to be sent, including a resend.
-    let onRequestSent: @Sendable (_ path: String) -> Void
+    /// Called once a request completes (its last response received or its error thrown), while the
+    /// gate is still held: no `GetCredential` overlaps another request, so a request processed after
+    /// a read completes after it.
+    let onRequestCompleted: @Sendable (_ path: String) -> Void
     let onResponse: @Sendable (_ response: WebRPCHTTPResponse, _ path: String, _ revision: UInt64) -> Void
 
     func post(
@@ -94,7 +96,6 @@ struct SessionCredentialTransport: WebRPCTransport {
             // The gate stays held across resends, so each fresh nonce is still taken in order.
             var retries = 0
             while true {
-                onRequestSent(path)
                 response = try await base.post(baseURL: baseURL, path: path, body: body, headers: headers)
                 guard retries < Self.maxStaleNonceRetries, Self.isStaleNonceRejection(response) else {
                     break
@@ -102,9 +103,11 @@ struct SessionCredentialTransport: WebRPCTransport {
                 retries += 1
             }
         } catch {
+            onRequestCompleted(path)
             gate.release(isRefresh: isRefresh)
             throw error
         }
+        onRequestCompleted(path)
         gate.release(isRefresh: isRefresh)
         if let revision {
             onResponse(response, path, revision)

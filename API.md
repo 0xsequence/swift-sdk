@@ -372,7 +372,7 @@ public enum WalletImportCipherSuite: String, CaseIterable, Sendable {
 ### `WalletImportPrivateKey`
 
 ```swift
-public enum WalletImportPrivateKey: Sendable, CustomStringConvertible, CustomDebugStringConvertible {
+public enum WalletImportPrivateKey: Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     case ethereum(String)
     case ethereumBytes(Data)
     case solana(String)
@@ -385,6 +385,7 @@ public enum WalletImportPrivateKey: Sendable, CustomStringConvertible, CustomDeb
     public var walletType: WalletType { get }
     public var description: String { get }
     public var debugDescription: String { get }
+    public var customMirror: Mirror { get }
 }
 ```
 

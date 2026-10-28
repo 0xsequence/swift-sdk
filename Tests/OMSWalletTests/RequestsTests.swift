@@ -124,7 +124,8 @@ func TestOidcIdTokenRequiresValidExpirationClaim(
         signerCredentialId: "0xsigner",
         alg: .ecdsaP256Sha256,
         expiresAt: "2026-01-01T00:00:00Z",
-        auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
+        auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com")),
+        expiryBounds: testExpiryBounds
     )
 
     let json = try credentials.jsonString()
@@ -140,6 +141,9 @@ func TestOidcIdTokenRequiresValidExpirationClaim(
     #expect(restored.alg == .ecdsaP256Sha256)
     #expect(restored.expiresAt == "2026-01-01T00:00:00Z")
     #expect(restored.auth == .email(OMSWalletEmailSessionAuth(email: "user@example.com")))
+    #expect(object["idleWindowSeconds"] as? Double == 864_000)
+    #expect(object["expiryCeilingEpochSeconds"] as? Double == 4_102_444_800)
+    #expect(restored.expiryBounds == testExpiryBounds)
 }
 
 @Test func TestOidcRedirectAuthMatchesCustomSchemesWithoutAuthority() throws {

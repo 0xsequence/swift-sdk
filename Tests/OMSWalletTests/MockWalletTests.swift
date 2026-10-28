@@ -430,7 +430,8 @@ func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut
         signerCredentialId: "0xmock-credential",
         alg: .ecdsaP256Sha256,
         expiresAt: "2026-01-01T00:00:00Z",
-        auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
+        auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com")),
+        expiryBounds: testExpiryBounds
     )
     let fixture = makeMockWalletClient(
         currentDate: { Date(timeIntervalSince1970: 1_767_225_601) },
@@ -462,7 +463,8 @@ func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut
         signerCredentialId: "0xmock-credential",
         alg: .ecdsaP256Sha256,
         expiresAt: "2099-01-01T00:00:00Z",
-        auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
+        auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com")),
+        expiryBounds: testExpiryBounds
     )
     var stored = try #require(
         JSONSerialization.jsonObject(with: Data(credentials.jsonString().utf8)) as? [String: Any]
@@ -495,7 +497,8 @@ func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut
         signerCredentialId: "0xmock-credential",
         alg: .ecdsaP256Sha256,
         expiresAt: "2026-01-01T00:00:00Z",
-        auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
+        auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com")),
+        expiryBounds: testExpiryBounds
     )
     let fixture = makeMockWalletClient(
         currentDate: { Date(timeIntervalSince1970: 1_767_225_601) },
@@ -1314,7 +1317,8 @@ private func waitForSessionExpiredEvent(
                 providerLabel: "Google",
                 email: "last@example.com"
             )
-        )
+        ),
+        expiryBounds: testExpiryBounds
     )
     let fixture = makeMockWalletClient(
         oidcNonceGenerator: { "nonce-123" },
@@ -3143,6 +3147,10 @@ let testEnvironment = OMSWalletEnvironment(
     indexerGatewayUrl: "https://indexer.example.test/v1/IndexerGateway/"
 )
 
+/// Expiry bounds for seeded and stored test sessions: a 10-day idle window and a ceiling past every
+/// test expiry. Stored records need valid bounds to restore.
+let testExpiryBounds = SessionExpiryBounds(idleWindowSeconds: 864_000, ceilingEpochSeconds: 4_102_444_800)!
+
 /// Seeds an active wallet session directly, without going through an auth flow.
 func activateTestSession(
     _ fixture: MockWalletClientFixture,
@@ -3152,6 +3160,7 @@ func activateTestSession(
     fixture.client.activeWallet = wallet
     fixture.client.sessionExpiresAt = expiresAt
     fixture.client.sessionAuth = .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
+    fixture.client.withSessionLock { fixture.client._sessionExpiryBounds = testExpiryBounds }
 }
 
 final class LockedBox<Value>: @unchecked Sendable {
@@ -3207,6 +3216,8 @@ func makeMockWalletClient(
     currentDate: @escaping () -> Date = Date.init,
     storedCredentials: StorableCredentials? = nil,
     walletImportClient: WaasClient? = nil,
+    // Runs the restore read at once; pass a `ForegroundTrigger` to hold it.
+    runWhenActive: @escaping (@escaping @Sendable () -> Void) -> Void = { $0() },
     prepareTransport: (MockWaasTransport) throws -> Void = { _ in }
 ) -> MockWalletClientFixture {
     let transport = MockWaasTransport()
@@ -3249,6 +3260,7 @@ func makeMockWalletClient(
         oidcRedirectAuthStore: oidcRedirectAuthStoreOverride ?? oidcRedirectAuthStore,
         oidcNonceGenerator: oidcNonceGenerator,
         currentDate: currentDate,
+        runWhenActive: runWhenActive,
         walletImportClient: walletImportClient
     )
     client.verifier = "verifier"
