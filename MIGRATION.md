@@ -234,9 +234,9 @@ expiry, not a fixed value from sign-in: the SDK refreshes it after restoring a s
 session is in use. Read `omsWallet.wallet.session?.expiresAt` again instead of caching the sign-in
 `WalletCredential.expiresAt`. Restoring still discards a session whose stored expiry has passed,
 without asking the wallet API. A session active in memory that reaches its local expiry is checked
-with the wallet API before it is treated as ended. On iOS the expiry refresh after a restore waits
-until the app next becomes active, so a background launch or an app extension does not extend an
-idle session.
+with the wallet API before it is treated as ended. On iOS the expiry refresh after a restore runs once
+the app is active (right away when it already is), so a background launch or an app extension does
+not extend an idle session.
 
 An idle session ends about 10 days after its last use. The expiry check (`GetCredential`) extends a
 session the server still holds, so the SDK's expiry timer asks only 5 minutes after the latest the

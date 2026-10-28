@@ -145,7 +145,7 @@ The SDK refreshes `session.expiresAt` from the wallet API after restoring a sess
 every six hours while the session is in use. Restoring discards a session whose stored expiry has
 passed without asking the wallet API. A session active in memory that reaches its local expiry is
 checked with the wallet API before it is treated as ended, and a session the server has extended
-continues. On iOS the refresh after a restore waits until the app next becomes active, so a
+continues. On iOS the refresh after a restore runs once the app is active (right away when it already is), so a
 background launch or an app extension does not extend an idle session. An idle session ends about
 10 days after its last use. The check itself would extend a session the server still holds, so the
 SDK's expiry timer asks only 5 minutes after the latest the server's expiry can be: the completion

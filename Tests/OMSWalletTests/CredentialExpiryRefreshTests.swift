@@ -1217,14 +1217,32 @@ private func makeRestoredFixture(
     #expect(runs.withValue { $0 } == 1)
 }
 
+@Test func TestForegroundActivationRunsRightAwayWhenAlreadyActive() async throws {
+    // A client created after launch, while the app is already active, reads without waiting.
+    let center = NotificationCenter()
+    let name = Notification.Name("TestDidBecomeActive")
+    let runs = LockedBox(0)
+    ForegroundActivation.runOnce(onNext: name, in: center, orNowIf: { true }) { runs.withValue { $0 += 1 } }
+
+    try await waitUntil { runs.withValue { $0 } == 1 }
+    #expect(runs.withValue { $0 } == 1)
+
+    // Only once: the activation that follows does not run it again.
+    center.post(name: name, object: nil)
+    #expect(runs.withValue { $0 } == 1)
+}
+
 @Test func TestForegroundActivationCancelStopsObserving() async throws {
     let center = NotificationCenter()
     let name = Notification.Name("TestDidBecomeActive")
     let runs = LockedBox(0)
-    let cancel = ForegroundActivation.runOnce(onNext: name, in: center) { runs.withValue { $0 += 1 } }
+    let cancel = ForegroundActivation.runOnce(onNext: name, in: center, orNowIf: { true }) {
+        runs.withValue { $0 += 1 }
+    }
 
     cancel()
     center.post(name: name, object: nil)
+    try await Task.sleep(nanoseconds: 100_000_000)
 
     #expect(runs.withValue { $0 } == 0)
 }
