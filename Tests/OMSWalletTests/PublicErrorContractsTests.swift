@@ -491,6 +491,111 @@ func TestPublicErrorContractsServerRejectedCredentialEndsSessionOnce(
     #expect(fixture.signer.clearCallCount == 0)
 }
 
+@Test func TestPublicErrorContractsWalletCallUnauthorizedKeepsSession() async throws {
+    // A wallet call's 7207 is not specific to the credential (for example, no access to that
+    // wallet), so only GetCredential's 7207 ends the session.
+    let fixture = makeRestoredWalletClient()
+    fixture.transport.enqueueRawHTTPError(
+        statusCode: 401,
+        body: Data(
+            #"{"error":"Unauthorized","code":7207,"msg":"Unauthorized","status":401}"#.utf8
+        ),
+        for: WaasAPI.SignMessage.urlPath
+    )
+
+    await expectPublicError(
+        try await fixture.client.signMessage(network: .polygon, message: "hello"),
+        equals: error(
+            code: .requestFailed,
+            operation: .walletSignMessage,
+            message: "Unauthorized",
+            status: 401,
+            retryable: false,
+            upstreamError: upstream(
+                service: .waas,
+                name: "Unauthorized",
+                code: "7207",
+                message: "Unauthorized",
+                status: 401
+            )
+        )
+    )
+
+    #expect(fixture.client.session != nil)
+    #expect(fixture.client.activeWallet?.id == "wallet-main")
+    #expect(fixture.signer.clearCallCount == 0)
+}
+
+@Test func TestPublicErrorContractsStaleNonceSurfacesAfterTwoResends() async throws {
+    let fixture = makeRestoredWalletClient()
+    for _ in 0..<3 {
+        fixture.transport.enqueueRawHTTPError(
+            statusCode: 412,
+            body: Data(
+                #"{"error":"PreconditionFailed","code":7206,"msg":"Precondition failed; try again with a higher nonce value","status":412}"#.utf8
+            ),
+            for: WaasAPI.SignMessage.urlPath
+        )
+    }
+
+    await expectPublicError(
+        try await fixture.client.signMessage(network: .polygon, message: "hello"),
+        equals: error(
+            code: .requestFailed,
+            operation: .walletSignMessage,
+            message: "Precondition failed; try again with a higher nonce value",
+            status: 412,
+            retryable: false,
+            upstreamError: upstream(
+                service: .waas,
+                name: "PreconditionFailed",
+                code: "7206",
+                message: "Precondition failed; try again with a higher nonce value",
+                status: 412
+            )
+        )
+    )
+
+    #expect(fixture.transport.requestCount(for: WaasAPI.SignMessage.urlPath) == 3)
+    #expect(fixture.client.session != nil)
+}
+
+@Test func TestPublicErrorContractsAuthorizeRemoteAccessSessionCapExceeded() async throws {
+    let fixture = makeRestoredWalletClient()
+    let message = "Too many active sessions for this wallet; revoke one before authorizing another"
+    fixture.transport.enqueueRawHTTPError(
+        statusCode: 409,
+        body: Data(
+            #"{"error":"SessionCapExceeded","code":7208,"msg":"\#(message)","cause":"limit is 100 active sessions per wallet","status":409}"#.utf8
+        ),
+        for: WaasAPI.AuthorizeRemoteAccess.urlPath
+    )
+
+    await expectPublicError(
+        try await fixture.client.authorizeRemoteAccess(
+            credentialId: "remote-credential",
+            network: .polygon,
+            grants: [.nativeTransfer(to: "0x2222222222222222222222222222222222222222", limit: "100")],
+            expiresAt: "2099-01-01T00:00:00Z"
+        ),
+        equals: error(
+            code: .requestFailed,
+            operation: .walletAuthorizeRemoteAccess,
+            message: message,
+            status: 409,
+            retryable: false,
+            upstreamError: upstream(
+                service: .waas,
+                name: "SessionCapExceeded",
+                code: "7208",
+                message: message,
+                status: 409
+            )
+        )
+    )
+    #expect(fixture.client.session != nil)
+}
+
 private final class MissingAttestationURLProtocol: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool {
         true

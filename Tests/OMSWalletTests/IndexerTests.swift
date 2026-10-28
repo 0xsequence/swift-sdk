@@ -631,7 +631,7 @@ func TestGetTronBalancesRejectsInvalidResponses(responseBody: String) async thro
         #"{"nativeBalances":null,"balances":[]}"#,
         #"{"nativeBalances":[{"chainId":137}],"balances":[]}"#,
         #"{"nativeBalances":[{"chainId":137,"results":null}],"balances":[]}"#,
-        // A contract balance missing its required contractInfo fields.
+        // A contract balance missing its required blockHash.
         #"{"page":{"page":0,"pageSize":40,"more":false},"nativeBalances":[],"balances":[{"chainId":137,"results":[{"contractType":"ERC20","contractAddress":"0xtoken","accountAddress":"0xwallet","tokenID":"0","balance":"1","blockNumber":1,"chainId":137}]}]}"#
     ]
 

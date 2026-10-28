@@ -60,7 +60,7 @@ final class KeychainManager: KeychainManaging {
 
         // Try to update an existing item first.
         let query = baseQuery(forKey: key, service: service)
-        let attributes: [String: Any] = [kSecValueData as String: data]
+        let attributes = Self.updateAttributes(data: data)
 
         let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
 
@@ -70,8 +70,7 @@ final class KeychainManager: KeychainManaging {
 
         case errSecItemNotFound:
             // Item doesn't exist yet — add it.
-            var newItem = query
-            newItem[kSecValueData as String] = data
+            let newItem = Self.addQuery(query, data: data)
             let addStatus = SecItemAdd(newItem as CFDictionary, nil)
             guard addStatus == errSecSuccess else {
                 throw KeychainError.unhandledError(status: addStatus)
@@ -132,6 +131,26 @@ final class KeychainManager: KeychainManaging {
     // MARK: - Helpers
 
     static let bundleID: String = Bundle.main.bundleIdentifier ?? "com.app.keychain"
+
+    /// Items are readable only while the device is unlocked and are never restored to another
+    /// device from a backup. Every write sets it, so an item stored with an older class moves to
+    /// this one on its next update. The macOS file-based keychain, which the SDK uses there,
+    /// accepts the attribute and ignores it.
+    static var accessibility: CFString { kSecAttrAccessibleWhenUnlockedThisDeviceOnly }
+
+    static func updateAttributes(data: Data) -> [String: Any] {
+        [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: accessibility
+        ]
+    }
+
+    static func addQuery(_ query: [String: Any], data: Data) -> [String: Any] {
+        var item = query
+        item[kSecValueData as String] = data
+        item[kSecAttrAccessible as String] = accessibility
+        return item
+    }
 
     private func baseQuery(forKey key: String, service: String) -> [String: Any] {
         [

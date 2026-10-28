@@ -307,3 +307,176 @@ private final class RecordingCredentialSigner: CredentialSigner, @unchecked Send
         return preimages
     }
 }
+
+private let staleNonceBody = Data(
+    #"{"error":"PreconditionFailed","code":7206,"msg":"Precondition failed; try again with a higher nonce value","status":412}"#.utf8
+)
+
+@Test func TestSessionCredentialTransportResignsStaleNonceRejection() async throws {
+    let responses = StaleNonceResponses([
+        (412, staleNonceBody),
+        (200, try WebRPCJSON.makeEncoder().encode(SignMessageResponse(signature: "0xsigned")))
+    ])
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [StaleNonceURLProtocol.self]
+    let host = StaleNonceURLProtocol.register(responses)
+    let signer = IncrementingNonceCredentialSigner()
+    let client = WaasClient(
+        baseURL: "https://\(host)",
+        transport: SessionCredentialTransport(
+            base: SignedWaasTransport(
+                publishableKey: testPublishableKey,
+                scope: "project",
+                signer: signer,
+                session: URLSession(configuration: configuration)
+            ),
+            gate: SignedRequestGate(),
+            activeSessionRevision: { nil },
+            onRequestSent: { _ in },
+            onResponse: { _, _, _ in }
+        )
+    )
+
+    let response = try await client.signMessage(
+        SignMessageRequest(network: "polygon", walletId: "wallet-main", message: "hello")
+    )
+
+    let nonces = responses.recordedSignatureHeaders().map { header in
+        header.components(separatedBy: ", ").first { $0.hasPrefix("nonce=") }.map { String($0.dropFirst(6)) }
+    }
+    #expect(response.signature == "0xsigned")
+    #expect(nonces == ["1", "2"])
+    #expect(signer.recordedPreimages().count == 2)
+}
+
+@Test func TestStaleNonceExecuteIsResentAndCompletes() async throws {
+    // WaaS rejects a stale nonce in its credential middleware, before the Execute handler runs.
+    let fixture = makeMockWalletClient()
+    activateTestSession(fixture, wallet: activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main"))
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-stale-nonce",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: true,
+            expiresAt: "2099-01-01T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+    fixture.transport.enqueueRawHTTPError(statusCode: 412, body: staleNonceBody, for: WaasAPI.Execute.urlPath)
+    try fixture.transport.enqueue(ExecuteResponse(status: .executed), for: WaasAPI.Execute.urlPath)
+
+    let response = try await fixture.client.sendTransaction(
+        network: .polygon,
+        to: "0x2222222222222222222222222222222222222222",
+        value: "0",
+        waitForStatus: false
+    )
+
+    #expect(response.txnId == "txn-stale-nonce")
+    #expect(fixture.transport.requestCount(for: WaasAPI.Execute.urlPath) == 2)
+    #expect(fixture.client.activeWallet?.id == "wallet-main")
+}
+
+private final class StaleNonceResponses: @unchecked Sendable {
+    private let lock = NSLock()
+    private var responses: [(Int, Data)]
+    private var signatureHeaders: [String] = []
+
+    init(_ responses: [(Int, Data)]) {
+        self.responses = responses
+    }
+
+    func next(signatureHeader: String?) -> (Int, Data) {
+        lock.lock()
+        defer { lock.unlock() }
+        signatureHeaders.append(signatureHeader ?? "")
+        return responses.isEmpty ? (500, Data()) : responses.removeFirst()
+    }
+
+    func recordedSignatureHeaders() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return signatureHeaders
+    }
+}
+
+private final class StaleNonceURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var responsesByHost: [String: StaleNonceResponses] = [:]
+
+    static func register(_ responses: StaleNonceResponses) -> String {
+        let host = "waas-stale-nonce-\(UUID().uuidString).test"
+        lock.lock()
+        defer { lock.unlock() }
+        responsesByHost[host] = responses
+        return host
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        Self.lock.lock()
+        let responses = request.url?.host.flatMap { Self.responsesByHost[$0] }
+        Self.lock.unlock()
+        let (statusCode, body) = responses?.next(
+            signatureHeader: request.value(forHTTPHeaderField: "OMS-Wallet-Signature")
+        ) ?? (500, Data())
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: statusCode,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+@available(macOS 12.0, iOS 15.0, *)
+private final class IncrementingNonceCredentialSigner: CredentialSigner, @unchecked Sendable {
+    let alg: SigningAlgorithm = .ecdsaP256Sha256
+
+    private let lock = NSLock()
+    private var nonce = 0
+    private var preimages: [String] = []
+
+    func credentialId() throws -> String {
+        testCredentialId
+    }
+
+    func nextNonce() throws -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        nonce += 1
+        return String(nonce)
+    }
+
+    func sign(preimage: String) throws -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        preimages.append(preimage)
+        return testSignature
+    }
+
+    func hasCredential() throws -> Bool {
+        true
+    }
+
+    func clear() throws {}
+
+    func recordedPreimages() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return preimages
+    }
+}

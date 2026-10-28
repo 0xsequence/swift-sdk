@@ -62,13 +62,22 @@ final class SignedRequestGate: @unchecked Sendable {
 
 /// Wraps the transport of a client that signs with the wallet session's credential (the signed
 /// WaaS client and the wallet-import client, never the public client). It applies the
-/// `SignedRequestGate` and reports each response to the session, which ends itself when WaaS
-/// rejects its credential.
+/// `SignedRequestGate`, resends a request WaaS rejected for a stale nonce, and reports each
+/// response to the session, which ends itself when WaaS rejects its credential.
 struct SessionCredentialTransport: WebRPCTransport {
+    /// How many times a request that WaaS rejected with `PreconditionFailed` (7206, its nonce was
+    /// not above the last one accepted) is signed again with a fresh nonce and resent. WaaS rejects
+    /// it in its credential middleware before any handler runs, so even a rejected `Execute` had
+    /// no effect.
+    static let maxStaleNonceRetries = 2
+
+    /// Signs and sends one request; each call takes a fresh nonce.
     let base: any WebRPCTransport
     let gate: SignedRequestGate
     /// The session revision when a wallet session is active, or `nil` (for example during sign-in).
     let activeSessionRevision: @Sendable () -> UInt64?
+    /// Called each time a request is about to be sent, including a resend.
+    let onRequestSent: @Sendable (_ path: String) -> Void
     let onResponse: @Sendable (_ response: WebRPCHTTPResponse, _ path: String, _ revision: UInt64) -> Void
 
     func post(
@@ -80,9 +89,18 @@ struct SessionCredentialTransport: WebRPCTransport {
         let isRefresh = path == WaasAPI.GetCredential.urlPath
         await gate.acquire(isRefresh: isRefresh)
         let revision = activeSessionRevision()
-        let response: WebRPCHTTPResponse
+        var response: WebRPCHTTPResponse
         do {
-            response = try await base.post(baseURL: baseURL, path: path, body: body, headers: headers)
+            // The gate stays held across resends, so each fresh nonce is still taken in order.
+            var retries = 0
+            while true {
+                onRequestSent(path)
+                response = try await base.post(baseURL: baseURL, path: path, body: body, headers: headers)
+                guard retries < Self.maxStaleNonceRetries, Self.isStaleNonceRejection(response) else {
+                    break
+                }
+                retries += 1
+            }
         } catch {
             gate.release(isRefresh: isRefresh)
             throw error
@@ -92,5 +110,13 @@ struct SessionCredentialTransport: WebRPCTransport {
             onResponse(response, path, revision)
         }
         return response
+    }
+
+    private static func isStaleNonceRejection(_ response: WebRPCHTTPResponse) -> Bool {
+        guard response.statusCode == 412 else {
+            return false
+        }
+        let error = WaasGenerated.decodeWebRPCError(statusCode: response.statusCode, data: response.body)
+        return error.code == WebRPCErrorKind.preconditionFailed.code
     }
 }

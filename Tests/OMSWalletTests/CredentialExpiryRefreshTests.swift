@@ -69,7 +69,7 @@ private func waitUntil(attempts: Int = 40, _ condition: () -> Bool) async throws
     #expect(try fixture.storedCredentials()?.expiresAt == refreshedExpiresAt)
     #expect(expiredEvents.isEmpty)
 
-    now.withValue { $0 = base.addingTimeInterval(1) }
+    now.withValue { $0 = base.addingTimeInterval(1 + WalletClient.sessionExpiryCheckGraceSeconds) }
     try await waitUntil { !expiredEvents.isEmpty }
 
     #expect(expiredEvents.count == 1)
@@ -104,7 +104,9 @@ private func waitUntil(attempts: Int = 40, _ condition: () -> Bool) async throws
     defer { observation.cancel() }
 
     _ = try await fixture.client.completeEmailAuth(code: "123456")
-    now.withValue { $0 = Date(timeIntervalSince1970: 1_767_225_601) }
+    now.withValue {
+        $0 = Date(timeIntervalSince1970: 1_767_225_601 + WalletClient.sessionExpiryCheckGraceSeconds)
+    }
     try await waitUntil { fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 1 }
     try await Task.sleep(nanoseconds: 200_000_000)
 
@@ -312,4 +314,234 @@ private func waitUntil(attempts: Int = 40, _ condition: () -> Bool) async throws
     try await waitUntil { fixture.client.session?.expiresAt == "2026-01-11T06:00:00Z" }
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 1)
     #expect(fixture.client.session?.expiresAt == "2026-01-11T06:00:00Z")
+}
+
+private let unauthorizedBody = Data(
+    #"{"error":"Unauthorized","code":7207,"msg":"Unauthorized","cause":"credential revoked","status":401}"#.utf8
+)
+private let keyExpiredBody = Data(#"{"error":"KeyExpired","code":7203,"msg":"key expired","status":400}"#.utf8)
+
+/// Signs in through `completeEmailAuth` with a credential that expires at `expiresAt`.
+@MainActor
+private func signIn(_ fixture: MockWalletClientFixture, expiresAt: Date) async throws {
+    let wallet = testWallet(id: "wallet-main", address: "0x2222222222222222222222222222222222222222")
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            wallets: [wallet],
+            credential: WaasCredentialInfo(
+                credentialId: "0xcredential",
+                type: .direct,
+                expiresAt: isoTimestamp(expiresAt),
+                isCaller: true
+            )
+        ),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(UseWalletResponse(wallet: wallet), for: WaasAPI.UseWallet.urlPath)
+    _ = try await fixture.client.completeEmailAuth(code: "123456")
+}
+
+private func sessionExpiryTimerFireDate(_ client: WalletClient) -> Date? {
+    client.withSessionLock { client._sessionExpiryTimerFireDate }
+}
+
+private func isSameInstant(_ lhs: Date?, _ rhs: Date) -> Bool {
+    guard let lhs else {
+        return false
+    }
+    return abs(lhs.timeIntervalSince(rhs)) < 0.001
+}
+
+@Test @MainActor func TestExpiryTimerEndsSessionWhenCredentialRefreshIsUnauthorized() async throws {
+    // GetCredential involves no wallet, so its 7207 means the credential was revoked.
+    let base = Date(timeIntervalSince1970: 1_767_225_600)
+    let now = LockedBox(base)
+    let fixture = makeMockWalletClient(currentDate: { now.withValue { $0 } })
+    let expiry = base.addingTimeInterval(0.5)
+    try await signIn(fixture, expiresAt: expiry)
+    fixture.transport.enqueueRawHTTPError(statusCode: 401, body: unauthorizedBody, for: WaasAPI.GetCredential.urlPath)
+    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
+    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    defer { observation.cancel() }
+
+    now.withValue { $0 = expiry.addingTimeInterval(WalletClient.sessionExpiryCheckGraceSeconds + 1) }
+    try await waitUntil { !expiredEvents.isEmpty }
+    try await Task.sleep(nanoseconds: 100_000_000)
+
+    #expect(expiredEvents.count == 1)
+    #expect(expiredEvents.first?.wallet?.id == "wallet-main")
+    #expect(fixture.client.session == nil)
+    #expect(fixture.client.activeWallet == nil)
+    #expect(fixture.signer.clearCallCount == 1)
+    #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 1)
+}
+
+@Test @MainActor func TestLocallyExpiredOperationThrowsSessionExpiredWhenCredentialRefreshIsUnauthorized() async throws {
+    let fixture = makeMockWalletClient(currentDate: { Date(timeIntervalSince1970: 1_767_225_601) })
+    activateTestSession(
+        fixture,
+        wallet: activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main"),
+        expiresAt: "2026-01-01T00:00:00Z"
+    )
+    fixture.transport.enqueueRawHTTPError(statusCode: 401, body: unauthorizedBody, for: WaasAPI.GetCredential.urlPath)
+    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
+    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    defer { observation.cancel() }
+
+    do {
+        _ = try await fixture.client.signMessage(network: .polygon, message: "hello")
+        Issue.record("Expected sessionExpired")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .sessionExpired)
+        #expect(error.operation == .walletSignMessage)
+        #expect(error.upstreamError == nil)
+    }
+    try await waitUntil { !expiredEvents.isEmpty }
+
+    #expect(expiredEvents.count == 1)
+    #expect(fixture.client.session == nil)
+    #expect(fixture.signer.clearCallCount == 1)
+    #expect(fixture.transport.requestCount(for: WaasAPI.SignMessage.urlPath) == 0)
+}
+
+@Test func TestCredentialRefreshKeepsSessionForGatewayUnauthorized() async throws {
+    // The API gateway also names an error "Unauthorized", with code 1000; only WaaS's 7207 counts.
+    let fixture = makeMockWalletClient(currentDate: { Date(timeIntervalSince1970: 1_767_225_601) })
+    activateTestSession(
+        fixture,
+        wallet: activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main"),
+        expiresAt: "2026-01-01T00:00:00Z"
+    )
+    fixture.transport.enqueueRawHTTPError(
+        statusCode: 401,
+        body: Data(#"{"error":"Unauthorized","code":1000,"msg":"Unauthorized","status":401}"#.utf8),
+        for: WaasAPI.GetCredential.urlPath
+    )
+
+    do {
+        _ = try await fixture.client.signMessage(network: .polygon, message: "hello")
+        Issue.record("Expected the refresh's request error")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .requestFailed)
+        #expect(error.upstreamError?.code == "1000")
+    }
+
+    #expect(fixture.client.session?.expiresAt == "2026-01-01T00:00:00Z")
+    #expect(fixture.signer.clearCallCount == 0)
+}
+
+@Test @MainActor func TestExpiryTimerDefersCheckAfterActivitySinceLastRead() async throws {
+    // A signed request after the last credential read slid the server's expiry past the local one,
+    // so the timer waits for that later expiry instead of asking (and extending) now.
+    let base = Date(timeIntervalSince1970: 1_767_225_600)
+    let now = LockedBox(base)
+    let fixture = makeMockWalletClient(currentDate: { now.withValue { $0 } })
+    let expiry = base.addingTimeInterval(0.5)
+    try await signIn(fixture, expiresAt: expiry)
+    try fixture.transport.enqueue(SignMessageResponse(signature: "0xsigned"), for: WaasAPI.SignMessage.urlPath)
+    now.withValue { $0 = base.addingTimeInterval(0.2) }
+    _ = try await fixture.client.signMessage(network: .polygon, message: "hello")
+
+    now.withValue { $0 = expiry.addingTimeInterval(1) }
+    let checkDate = expiry.addingTimeInterval(0.2 + WalletClient.sessionExpiryCheckGraceSeconds)
+    try await waitUntil { isSameInstant(sessionExpiryTimerFireDate(fixture.client), checkDate) }
+    try await Task.sleep(nanoseconds: 100_000_000)
+
+    #expect(isSameInstant(sessionExpiryTimerFireDate(fixture.client), checkDate))
+    #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 0)
+    #expect(fixture.client.activeWallet?.id == "wallet-main")
+}
+
+@Test @MainActor func TestExpiryTimerWithoutActivityChecksAfterGracePeriodAndEndsExpiredSession() async throws {
+    let base = Date(timeIntervalSince1970: 1_767_225_600)
+    let now = LockedBox(base)
+    let fixture = makeMockWalletClient(currentDate: { now.withValue { $0 } })
+    let expiry = base.addingTimeInterval(0.5)
+    try await signIn(fixture, expiresAt: expiry)
+    fixture.transport.enqueueRawHTTPError(statusCode: 400, body: keyExpiredBody, for: WaasAPI.GetCredential.urlPath)
+    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
+    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    defer { observation.cancel() }
+
+    // Before L + G the timer only reschedules itself to L + G.
+    let checkDate = expiry.addingTimeInterval(WalletClient.sessionExpiryCheckGraceSeconds)
+    now.withValue { $0 = checkDate.addingTimeInterval(-1) }
+    try await waitUntil { isSameInstant(sessionExpiryTimerFireDate(fixture.client), checkDate) }
+    try await Task.sleep(nanoseconds: 100_000_000)
+    #expect(isSameInstant(sessionExpiryTimerFireDate(fixture.client), checkDate))
+    #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 0)
+    #expect(fixture.client.activeWallet?.id == "wallet-main")
+
+    // The rescheduled timer would sleep in real time; fire it now that L + G has passed.
+    now.withValue { $0 = checkDate.addingTimeInterval(1) }
+    fixture.client.scheduleSessionExpiry(try #require(fixture.client.currentSessionSnapshot()))
+    try await waitUntil { !expiredEvents.isEmpty }
+
+    #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 1)
+    #expect(expiredEvents.count == 1)
+    #expect(fixture.client.session == nil)
+}
+
+@Test @MainActor func TestExpiryTimerAppliesServerExtendedExpiryAndReschedules() async throws {
+    let base = Date(timeIntervalSince1970: 1_767_225_600)
+    let now = LockedBox(base)
+    let fixture = makeMockWalletClient(currentDate: { now.withValue { $0 } })
+    let expiry = base.addingTimeInterval(0.5)
+    let extendedExpiry = base.addingTimeInterval(3_600)
+    try await signIn(fixture, expiresAt: expiry)
+    try fixture.transport.enqueue(
+        credentialResponse(expiresAt: isoTimestamp(extendedExpiry)),
+        for: WaasAPI.GetCredential.urlPath
+    )
+    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
+    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    defer { observation.cancel() }
+
+    now.withValue { $0 = expiry.addingTimeInterval(WalletClient.sessionExpiryCheckGraceSeconds + 1) }
+    try await waitUntil { fixture.client.session?.expiresAt == isoTimestamp(extendedExpiry) }
+    try await waitUntil { isSameInstant(sessionExpiryTimerFireDate(fixture.client), extendedExpiry) }
+
+    #expect(fixture.client.session?.expiresAt == isoTimestamp(extendedExpiry))
+    #expect(try fixture.storedCredentials()?.expiresAt == isoTimestamp(extendedExpiry))
+    #expect(isSameInstant(sessionExpiryTimerFireDate(fixture.client), extendedExpiry))
+    #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 1)
+    #expect(expiredEvents.isEmpty)
+    #expect(fixture.client.activeWallet?.id == "wallet-main")
+}
+
+@Test @MainActor func TestExpiryTimerCountsManualWalletSelectionAsActivity() async throws {
+    // The selection's UseWallet request, sent after the sign-in read, slid the server's expiry.
+    let base = Date(timeIntervalSince1970: 1_767_225_600)
+    let now = LockedBox(base)
+    let fixture = makeMockWalletClient(currentDate: { now.withValue { $0 } })
+    let expiry = base.addingTimeInterval(0.5)
+    let wallet = testWallet(id: "wallet-main", address: "0x2222222222222222222222222222222222222222")
+    try fixture.transport.enqueue(
+        completeAuthResponse(
+            wallets: [wallet],
+            credential: WaasCredentialInfo(
+                credentialId: "0xcredential",
+                type: .direct,
+                expiresAt: isoTimestamp(expiry),
+                isCaller: true
+            )
+        ),
+        for: WaasAPI.CompleteAuth.urlPath
+    )
+    try fixture.transport.enqueue(UseWalletResponse(wallet: wallet), for: WaasAPI.UseWallet.urlPath)
+
+    let result = try await fixture.client.completeEmailAuth(code: "123456", walletSelection: .manual)
+    guard case .walletSelection(let selection) = result else {
+        Issue.record("Expected a pending wallet selection")
+        return
+    }
+    now.withValue { $0 = base.addingTimeInterval(0.2) }
+    _ = try await selection.selectWallet(walletId: wallet.id)
+
+    now.withValue { $0 = expiry.addingTimeInterval(1) }
+    let checkDate = expiry.addingTimeInterval(0.2 + WalletClient.sessionExpiryCheckGraceSeconds)
+    try await waitUntil { isSameInstant(sessionExpiryTimerFireDate(fixture.client), checkDate) }
+
+    #expect(isSameInstant(sessionExpiryTimerFireDate(fixture.client), checkDate))
+    #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 0)
 }

@@ -8,7 +8,7 @@ public enum WalletImportCipherSuite: String, CaseIterable, Sendable {
     case p256Sha256ChaCha20Poly1305 = "p256-sha256-chacha20poly1305"
 }
 
-public enum WalletImportPrivateKey: Sendable {
+public enum WalletImportPrivateKey: Sendable, CustomStringConvertible, CustomDebugStringConvertible {
     case ethereum(String)
     case ethereumBytes(Data)
     case solana(String)
@@ -25,6 +25,27 @@ public enum WalletImportPrivateKey: Sendable {
         case .solana, .solanaBytes: .solana
         case .tron, .tronBytes: .tron
         }
+    }
+}
+
+/// String conversion names the case but never includes the key, so a logged or interpolated
+/// `WalletImportPrivateKey` does not leak it.
+extension WalletImportPrivateKey {
+    public var description: String {
+        let name: String
+        switch self {
+        case .ethereum: name = "ethereum"
+        case .ethereumBytes: name = "ethereumBytes"
+        case .solana: name = "solana"
+        case .solanaBytes: name = "solanaBytes"
+        case .tron: name = "tron"
+        case .tronBytes: name = "tronBytes"
+        }
+        return "WalletImportPrivateKey.\(name)(<redacted>)"
+    }
+
+    public var debugDescription: String {
+        description
     }
 }
 

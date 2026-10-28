@@ -543,8 +543,8 @@ private func waitForSessionExpiredEvent(
 }
 
 @Test @MainActor func TestWalletSessionExpiryTimerFiresAfterDelayAndNotifiesObserver() async throws {
-    // The credential expires at 1_767_225_600. Start shortly before it so the client schedules the
-    // delayed expiry task instead of taking the already-expired branch.
+    // The credential expires at 1_767_225_600. Start shortly before expiry so the expiry timer
+    // gets a positive delay; an expiry already in the past would fire it immediately.
     let now = LockedBox(Date(timeIntervalSince1970: 1_767_225_599.8))
     let fixture = makeMockWalletClient(
         currentDate: { now.withValue { $0 } }
@@ -578,7 +578,10 @@ private func waitForSessionExpiredEvent(
     #expect(fixture.client.activeWallet?.address == wallet.address)
     #expect(expiredEvents.isEmpty)
 
-    now.withValue { $0 = Date(timeIntervalSince1970: 1_767_225_601) }
+    // The timer asks the server only once the grace period after the expiry has passed.
+    now.withValue {
+        $0 = Date(timeIntervalSince1970: 1_767_225_601 + WalletClient.sessionExpiryCheckGraceSeconds)
+    }
     let expiredEvent = try await waitForSessionExpiredEvent { expiredEvents.first }
 
     #expect(expiredEvents.count == 1)

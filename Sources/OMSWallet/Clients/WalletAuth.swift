@@ -582,6 +582,9 @@ extension WalletClient {
                 try requireCurrentSessionRevisionLocked(requiredSessionRevision)
                 self.sessionExpiresAt = sessionMetadata.expiresAt
                 self.sessionAuth = sessionMetadata.auth
+                // Sign-in counts as a credential read. Taking the time here, before any wallet
+                // request below, lets the expiry timer count a later wallet selection as activity.
+                self._lastCredentialRefreshAt = self.currentDate()
             }
         }
 

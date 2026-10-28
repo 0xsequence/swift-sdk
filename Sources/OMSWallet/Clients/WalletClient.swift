@@ -20,15 +20,21 @@ public final class WalletClient: @unchecked Sendable {
     /// The session lifetime used when a sign-in call does not pass `sessionLifetimeSeconds`
     /// (180 days, the maximum).
     public static let defaultSessionLifetimeSeconds: UInt32 = 15_552_000
-    /// The longest session lifetime the wallet API accepts (180 days).
+    /// The largest `sessionLifetimeSeconds` the SDK accepts (180 days).
     public static let maxSessionLifetimeSeconds: UInt32 = 15_552_000
 
     /// How long after sign-in or the last credential refresh a successful wallet call triggers a
     /// background refresh of the sliding session expiry.
     static let credentialRefreshIntervalSeconds: TimeInterval = 6 * 60 * 60
-    /// The first and longest delay before the expiry timer rechecks a session it could not refresh.
+    /// The first delay before the expiry timer rechecks a session it could not refresh; each retry
+    /// doubles it.
     static let sessionExpiryRetryBaseSeconds: TimeInterval = 60
+    /// The cap on that retry delay (15 minutes).
     static let sessionExpiryRetryMaxSeconds: TimeInterval = 15 * 60
+    /// How long after a session's predicted server expiry the expiry timer waits before asking WaaS
+    /// with `GetCredential`. That request extends a live session itself, so the margin keeps
+    /// request latency from letting the check extend an idle one.
+    static let sessionExpiryCheckGraceSeconds: TimeInterval = 5 * 60
 
     static let defaultTransactionStatusPollTimeoutMs: UInt64 = 60_000
     static let defaultFastTransactionStatusPollIntervalMs: UInt64 = 400
@@ -110,8 +116,14 @@ public final class WalletClient: @unchecked Sendable {
     var _credentialRefresh: (id: UUID, revision: UInt64, task: Task<CredentialRefreshOutcome, Never>)?
     /// Set once the server reports it has no `GetCredential` method; never retried afterwards.
     var _isCredentialRefreshUnsupported = false
-    /// When the active session's expiry was last taken from the server (sign-in or refresh).
+    /// When the request that last gave the active session's expiry was sent: the sign-in, or the
+    /// last successful `GetCredential`.
     var _lastCredentialRefreshAt: Date?
+    /// When the last request signed with the session credential, other than `GetCredential`, was
+    /// sent, whatever its outcome. WaaS extends the session for each one that reaches it.
+    var _lastSessionRequestSentAt: Date?
+    /// When the scheduled expiry timer fires.
+    var _sessionExpiryTimerFireDate: Date?
     /// The last session revision ended because WaaS rejected its credential.
     var _serverRejectedSessionRevision: UInt64?
     private var _sessionExpiredObservers: [UUID: SessionExpiredObserver] = [:]
@@ -119,8 +131,9 @@ public final class WalletClient: @unchecked Sendable {
     private var _challenge = ""
     private var _pendingEmailAuth: PendingEmailAuth?
 
-    /// The active wallet, or `nil` until auth completes or a session is restored, and after
-    /// sign-out or session expiry. Same shape as `listWallets()` entries.
+    /// The active wallet, or `nil` until auth completes or a session is restored, while a manual
+    /// wallet selection is pending, and after sign-out or session expiry. Same shape as
+    /// `listWallets()` entries.
     public internal(set) var activeWallet: Wallet? {
         get {
             withSessionLock { _activeWallet }
@@ -328,6 +341,9 @@ public final class WalletClient: @unchecked Sendable {
                 base: client.transport,
                 gate: signedRequestGate,
                 activeSessionRevision: { [weak self] in self?.activeWalletSessionRevision() },
+                onRequestSent: { [weak self] path in
+                    self?.recordSessionCredentialRequestSent(path: path)
+                },
                 onResponse: { [weak self] response, path, revision in
                     self?.handleSessionCredentialResponse(response, path: path, revision: revision)
                 }

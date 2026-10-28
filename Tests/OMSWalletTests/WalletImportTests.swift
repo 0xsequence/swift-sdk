@@ -213,3 +213,25 @@ private func expectAttestationFailure(
         Issue.record("Unexpected error: \(error)")
     }
 }
+
+@Test func TestWalletImportPrivateKeyStringFormsRedactTheKey() {
+    let hexKey = "0x" + String(repeating: "ab", count: 32)
+    let solanaKey = "5MaiiCavjCmn9Hs1o3eznqDEhRwxo7pXiAYez7keQUviUkauRiTMD8DrESdrNjN8zd9mTmVhRvBJeg5vhyvgrAhG"
+    let bytes = Data(repeating: 0xab, count: 32)
+    let cases: [(WalletImportPrivateKey, String, String)] = [
+        (.ethereum(hexKey), "ethereum", hexKey),
+        (.ethereumBytes(bytes), "ethereumBytes", String(repeating: "ab", count: 32)),
+        (.solana(solanaKey), "solana", solanaKey),
+        (.solanaBytes(bytes), "solanaBytes", String(repeating: "ab", count: 32)),
+        (.tron(hexKey), "tron", hexKey),
+        (.tronBytes(bytes), "tronBytes", String(repeating: "ab", count: 32)),
+    ]
+    for (privateKey, caseName, keyMaterial) in cases {
+        let expected = "WalletImportPrivateKey.\(caseName)(<redacted>)"
+        for rendered in [String(describing: privateKey), String(reflecting: privateKey), "\(privateKey)"] {
+            #expect(rendered == expected)
+            #expect(!rendered.contains(keyMaterial))
+            #expect(!rendered.contains(String(keyMaterial.dropFirst(2))))
+        }
+    }
+}

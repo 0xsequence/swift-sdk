@@ -25,8 +25,8 @@ private enum WalletImportActivationContext {
 extension WalletClient {
     /// Imports and activates an Ethereum, Solana, or Tron private key.
     ///
-    /// The plaintext key is sealed locally to a recipient key from an attested WaaS enclave and is
-    /// never sent over the ordinary WaaS transport.
+    /// The plaintext key is sealed locally to an attested WaaS enclave key; only the ciphertext
+    /// leaves the device, through the wallet-import client.
     @discardableResult
     public func importWallet(
         privateKey: WalletImportPrivateKey,

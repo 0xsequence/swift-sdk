@@ -230,10 +230,17 @@ let expiry = formatter.date(from: session.expiresAt)
 
 The wallet API now extends a session's expiry while it is used, up to the requested
 `sessionLifetimeSeconds`, and ends idle sessions sooner. `OMSWalletSession.expiresAt` is the current
-expiry, not a fixed value from sign-in: the SDK refreshes it after restoring a session, while the
-session is in use, and before treating a locally expired session as ended. Read
-`omsWallet.wallet.session?.expiresAt` again instead of caching the sign-in
-`WalletCredential.expiresAt`.
+expiry, not a fixed value from sign-in: the SDK refreshes it after restoring a session and while the
+session is in use. Read `omsWallet.wallet.session?.expiresAt` again instead of caching the sign-in
+`WalletCredential.expiresAt`. Restoring still discards a session whose stored expiry has passed,
+without asking the wallet API. A session active in memory that reaches its local expiry is checked
+with the wallet API before it is treated as ended.
+
+An idle session ends about 10 days after its last use. While your app makes no wallet calls, the SDK
+notices up to 5 minutes later: the expiry check (`GetCredential`) extends a session the server still
+holds, so the SDK's expiry timer waits until the server's expiry, predicted from the session's last
+signed request, plus 5 minutes before asking. Until then `activeWallet` and `session` stay set; a
+wallet call in that window checks with the wallet API first, as before.
 
 When the wallet API reports the session's credential expired or gone (WaaS `KeyExpired` 7203 or
 `KeyNotFound` 7202), the SDK ends the session as on local expiry, notifies session-expired observers
@@ -245,13 +252,41 @@ transaction `Execute`, which WaaS refuses before running it: it throws `.session
 `.requestFailed` with that upstream error instead of `.transactionExecutionUnconfirmed`. If the wallet API is unreachable when a session reaches its local expiry, operations throw
 the network error (`.requestFailed`) and keep the session instead of throwing `.sessionExpired`.
 
-The longest accepted session lifetime rose from 2,592,000 seconds (30 days) to 15,552,000 (180 days),
-`WalletClient.maxSessionLifetimeSeconds`. The default rose from 604,800 seconds (7 days) to the same
-maximum, `WalletClient.defaultSessionLifetimeSeconds`: sign-in calls that omit
-`sessionLifetimeSeconds` now request 180 days. A session still ends after 10 days without use; pass a
-shorter `sessionLifetimeSeconds` if you need a hard limit. Wallet API versions without sliding expiry
-clamp the requested lifetime to their 30-day maximum and have no idle timeout, so the 180-day default
-gives a fixed 30-day session there.
+The SDK's expiry check (`GetCredential`) treats `Unauthorized` (7207) like 7202 and 7203: that
+request involves no wallet, so a 7207 means the credential was revoked, and the session ends with
+`.sessionExpired` and a session-expired event. A 7207 from any other wallet call still throws
+`.requestFailed` and keeps the session.
+
+A request that WaaS rejects for a stale nonce (`PreconditionFailed`, 7206, HTTP 412), for example
+when concurrent calls reach it out of order, is now signed again with a fresh nonce and resent, at
+most twice, instead of failing on the first rejection. WaaS rejects a stale nonce before running any
+method, so a resent `Execute` cannot submit a transaction twice. A third rejection throws as before.
+
+The largest `sessionLifetimeSeconds` the SDK accepts rose from 2,592,000 seconds (30 days) to
+15,552,000 (180 days), `WalletClient.maxSessionLifetimeSeconds`. The default rose from 604,800
+seconds (7 days) to the same maximum, `WalletClient.defaultSessionLifetimeSeconds`: sign-in calls
+that omit `sessionLifetimeSeconds` now request 180 days. A session still ends after 10 days without
+use; pass a shorter `sessionLifetimeSeconds` if you need a hard limit. Wallet API versions without
+sliding expiry clamp the requested lifetime to their 30-day maximum and have no idle timeout, so the
+180-day default gives a fixed 30-day session there.
+
+### `WalletImportPrivateKey` string conversion
+
+`WalletImportPrivateKey` now conforms to `CustomStringConvertible` and
+`CustomDebugStringConvertible`. `String(describing:)`, `String(reflecting:)`, and string
+interpolation give the case name with the key redacted, for example
+`WalletImportPrivateKey.ethereum(<redacted>)`, instead of the key.
+
+### Keychain items stay on the device
+
+The SDK's keychain items (the session metadata, the request nonce, the OIDC redirect state, and the
+P-256 signing key) are now stored with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`: readable only
+while the device is unlocked, as before, and never moved to another device from a backup. Items
+written by 0.3.x move to this class the next time the SDK writes them. The signing key is created
+with it at each sign-in; a key from a 0.3.x session restored after upgrading keeps its previous class
+until the next sign-in. Restoring a backup onto another device therefore does not carry the session
+over; the user signs in again there. On macOS, where the SDK uses the file-based keychain, the
+attribute is accepted but has no effect.
 
 ### Networks
 

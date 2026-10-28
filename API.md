@@ -28,8 +28,9 @@ public final class WalletClient: @unchecked Sendable
 public internal(set) var activeWallet: Wallet? { get set }
 ```
 
-The active wallet, or `nil` until auth completes or a session is restored, and after
-sign-out or session expiry. Same shape as `listWallets()` entries.
+The active wallet, or `nil` until auth completes or a session is restored, while a manual
+wallet selection is pending, and after sign-out or session expiry. Same shape as
+`listWallets()` entries.
 
 ### `WalletClient.session`
 
@@ -55,7 +56,7 @@ The session lifetime used when a sign-in call does not pass `sessionLifetimeSeco
 public static let maxSessionLifetimeSeconds: UInt32
 ```
 
-The longest session lifetime the wallet API accepts (180 days).
+The largest `sessionLifetimeSeconds` the SDK accepts (180 days).
 
 ### `WalletClient.addSessionExpiredObserver(_:)`
 
@@ -371,7 +372,7 @@ public enum WalletImportCipherSuite: String, CaseIterable, Sendable {
 ### `WalletImportPrivateKey`
 
 ```swift
-public enum WalletImportPrivateKey: Sendable {
+public enum WalletImportPrivateKey: Sendable, CustomStringConvertible, CustomDebugStringConvertible {
     case ethereum(String)
     case ethereumBytes(Data)
     case solana(String)
@@ -382,6 +383,8 @@ public enum WalletImportPrivateKey: Sendable {
     /// A 32-byte secp256k1 private key.
     case tronBytes(Data)
     public var walletType: WalletType { get }
+    public var description: String { get }
+    public var debugDescription: String { get }
 }
 ```
 

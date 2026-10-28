@@ -113,20 +113,27 @@ final class AppleKeychainP256CredentialSigner: CredentialSigner, @unchecked Send
         }
 
         var error: Unmanaged<CFError>?
-        let attributes: [String: Any] = [
-            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-            kSecAttrKeySizeInBits as String: 256,
-            kSecPrivateKeyAttrs as String: [
-                kSecAttrIsPermanent as String: true,
-                kSecAttrApplicationTag as String: applicationTag,
-                kSecAttrIsExtractable as String: false
-            ]
-        ]
+        let attributes = Self.keyCreationAttributes(applicationTag: applicationTag)
 
         guard let key = SecKeyCreateRandomKey(attributes as CFDictionary, &error) else {
             throw SignerError.keyCreationFailed(errorDescription(error))
         }
         return key
+    }
+
+    /// A new key is created at each sign-in (sign-out and every sign-in flow clear the previous
+    /// one), so its accessibility is set only here.
+    static func keyCreationAttributes(applicationTag: Data) -> [String: Any] {
+        [
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecAttrKeySizeInBits as String: 256,
+            kSecPrivateKeyAttrs as String: [
+                kSecAttrIsPermanent as String: true,
+                kSecAttrApplicationTag as String: applicationTag,
+                kSecAttrIsExtractable as String: false,
+                kSecAttrAccessible as String: KeychainManager.accessibility
+            ] as [String: Any]
+        ]
     }
 
     private func existingPrivateKey() throws -> SecKey? {

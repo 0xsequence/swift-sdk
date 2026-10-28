@@ -99,7 +99,7 @@ Pass your OMS publishable key when creating the client. The SDK derives the wall
 
 Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `ecdsa-p256-sha256` signing algorithm. The credential remains Keychain-managed and is not serialized into SDK session storage.
 
-Only completed wallet session metadata is restored automatically, including the active wallet (ID, type, address, reference, and key origin), expiry, and auth metadata such as email or OIDC issuer/provider details when available. The SDK checks the cached session expiry before restoring a session, then asks the wallet API for the current expiry in the background. Expired sessions are not activated, and invalid session metadata is cleared; expired session metadata remains in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it.
+Only completed wallet session metadata is restored automatically, including the active wallet (ID, type, address, reference, and key origin), expiry, and auth metadata such as email or OIDC issuer/provider details when available. The SDK checks the cached session expiry before restoring a session, then asks the wallet API for the current expiry in the background. Sessions whose cached expiry has passed are not activated (the wallet API is not asked), and invalid session metadata is cleared; expired session metadata remains in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it.
 
 ## Authentication Flow
 
@@ -141,15 +141,21 @@ the expiry while the session is used. Wallet API versions without sliding expiry
 lifetime to their 30-day maximum and have no idle timeout, so the 180-day default gives a fixed
 30-day session there.
 
-The SDK refreshes `session.expiresAt` from the wallet API after restoring a session, at least every
-six hours while the session is in use, and before it treats a locally expired session as ended. A
-session the server has extended continues. When the wallet API rejects a request signed with the
-session's credential because that credential expired or is gone (WaaS `KeyExpired` 7203 or
-`KeyNotFound` 7202), the SDK ends the session exactly as on local expiry: it notifies
-session-expired observers once and throws `.sessionExpired`. If the device is offline when the
-expiry passes, the session is kept and rechecked later; operations meanwhile throw the network
-error. Wallet API versions without expiry refresh keep the local expiry. Refresh requests never
-overlap your own wallet calls, so request nonces stay in order. Use
+The SDK refreshes `session.expiresAt` from the wallet API after restoring a session and at least
+every six hours while the session is in use. Restoring discards a session whose stored expiry has
+passed without asking the wallet API. A session active in memory that reaches its local expiry is
+checked with the wallet API before it is treated as ended, and a session the server has extended
+continues. An idle session ends about 10 days after its last use; while your app makes no wallet
+calls, the SDK notices up to 5 minutes later, because the check itself would extend a session the
+server still holds. When the wallet API rejects a request signed with the session's credential
+because that credential expired or is gone (WaaS `KeyExpired` 7203 or `KeyNotFound` 7202), or
+answers the SDK's expiry check with `Unauthorized` (7207, the credential was revoked), the SDK ends
+the session exactly as on local expiry: it notifies session-expired observers once and throws
+`.sessionExpired`. If the device is offline when the expiry passes, the session is kept and
+rechecked later; operations meanwhile throw the network error. Wallet API versions without expiry
+refresh keep the local expiry. Refresh requests never overlap your own wallet calls, so request
+nonces stay in order; a request the wallet API rejects for a stale nonce (`PreconditionFailed`
+7206) is signed again with a fresh nonce and resent, at most twice. Use
 `addSessionExpiredObserver` when your app needs to react to session expiry:
 
 ```swift
@@ -906,6 +912,11 @@ For an owner-approved smart session, inspect the remote credential before showin
 authorize bounded EVM transfer grants. The returned wallet and session IDs can be shared with the
 remote backend; backend credential registration and execution stay outside this SDK surface. WaaS
 caps the requested session expiry at the remote credential's expiry.
+
+WaaS limits the active remote sessions per wallet (100 by default). Past the limit,
+`authorizeRemoteAccess` throws `.requestFailed` with `status == 409`, `retryable == false`, and
+`upstreamError?.code == "7208"` (`SessionCapExceeded`). Revoke an existing session with
+`revokeAccess(credentialId:sessionId:)`, then authorize again.
 
 ```swift
 import Foundation

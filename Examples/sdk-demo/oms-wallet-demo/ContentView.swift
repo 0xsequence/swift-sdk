@@ -271,7 +271,8 @@ final class AppViewModel: ObservableObject {
     }
 
     /// Wallet family to sign in with. Fresh sign-ins use the SDK default (Ethereum) and switch
-    /// type on the wallet screen; reauthenticating an expired session keeps its wallet family.
+    /// type on the wallet screen; reauthentication keeps the expired wallet's family. An expiry
+    /// during a pending wallet selection has no wallet, so it uses Ethereum.
     private var reauthWalletType: WalletType?
 
     private var walletType: WalletType {
@@ -619,7 +620,8 @@ final class AppViewModel: ObservableObject {
         if let email = event.session.auth.email {
             loginEmail = email
         }
-        // Sign the user back in to the same wallet family.
+        // Sign the user back in to the expired wallet's family; an expiry during a pending wallet
+        // selection has no wallet, so it uses Ethereum.
         reauthWalletType = DemoWalletType(event.wallet?.type)?.walletType
         screen = .login
         sessionExpiredPrompt = SessionExpiredPrompt(event: event)
