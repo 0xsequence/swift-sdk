@@ -10,13 +10,29 @@ enum WalletImportAttestationError {
 struct AttestedSignedWaasTransport: WebRPCTransport {
     let session: URLSession
     private let client: HttpClient
-    private let publishableKey: String
+    private let publishableKey: PublishableKeyHolder
     private let scope: String
     private let signer: any CredentialSigner
     private let trustedPcr0s: Set<String>
 
     init(
         publishableKey: String,
+        scope: String,
+        signer: any CredentialSigner,
+        trustedPcr0s: Set<String>,
+        session: URLSession = .shared
+    ) {
+        self.init(
+            publishableKey: PublishableKeyHolder(publishableKey),
+            scope: scope,
+            signer: signer,
+            trustedPcr0s: trustedPcr0s,
+            session: session
+        )
+    }
+
+    init(
+        publishableKey: PublishableKeyHolder,
         scope: String,
         signer: any CredentialSigner,
         trustedPcr0s: Set<String>,
@@ -37,7 +53,7 @@ struct AttestedSignedWaasTransport: WebRPCTransport {
             let nonce = try randomNonce()
             let authHeader = try buildAuthHeader(endpoint: endpoint, payload: payload)
             var requestHeaders = [
-                "Api-Key": publishableKey,
+                "Api-Key": publishableKey.current,
                 "OMS-Wallet-Signature": authHeader,
                 "X-Attestation-Nonce": nonce
             ]

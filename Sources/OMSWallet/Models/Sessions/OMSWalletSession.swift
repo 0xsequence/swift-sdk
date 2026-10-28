@@ -36,7 +36,8 @@ public struct OMSWalletSessionExpiredEvent: Equatable, Sendable {
     /// while a manual wallet selection was still pending.
     public let wallet: Wallet?
     public let session: OMSWalletSession
-    /// The ISO-8601 expiry timestamp of the session that expired.
+    /// The ISO-8601 time the session ended: its expiry, or, when the SDK found it ended before its
+    /// expiry (another process replaced its keychain key), the time that was found.
     public let expiredAt: String
 
     public init(wallet: Wallet?, session: OMSWalletSession, expiredAt: String) {

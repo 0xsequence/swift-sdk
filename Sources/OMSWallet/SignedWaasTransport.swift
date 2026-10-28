@@ -5,7 +5,7 @@ struct SignedWaasTransport: WebRPCTransport {
     public let session: URLSession
 
     private let client: HttpClient
-    private let publishableKey: String
+    private let publishableKey: PublishableKeyHolder
     private let scope: String
     private let signer: any CredentialSigner
 
@@ -13,6 +13,14 @@ struct SignedWaasTransport: WebRPCTransport {
                 scope: String,
                 signer: any CredentialSigner,
                 session: URLSession = .shared
+    ) {
+        self.init(publishableKey: PublishableKeyHolder(publishableKey), scope: scope, signer: signer, session: session)
+    }
+
+    init(publishableKey: PublishableKeyHolder,
+         scope: String,
+         signer: any CredentialSigner,
+         session: URLSession = .shared
     ) {
         self.publishableKey = publishableKey
         self.scope = scope
@@ -29,6 +37,7 @@ struct SignedWaasTransport: WebRPCTransport {
     ) async throws -> WebRPCHTTPResponse {
         let endpoint = resolveEndpoint(path)
         let payload = String(data: body, encoding: .utf8) ?? ""
+        let publishableKey = self.publishableKey.current
 
         let authHeader: String
         do {

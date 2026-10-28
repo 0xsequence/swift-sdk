@@ -10,6 +10,11 @@
 public final class OMSWallet: Sendable {
     public let wallet: WalletClient
     public let indexer: IndexerClient
+    /// Creating `OMSWallet` again for the same project and environment returns the same `wallet`:
+    /// one session, active wallet, expiry timer, and set of observers per project in the process,
+    /// so instances cannot drift apart. A publishable key with another key ID for the same project
+    /// (a rotated key) keeps that session and is used for later requests. Another project or
+    /// environment is a separate session.
     public convenience init(publishableKey: String) throws
 }
 ```
@@ -669,7 +674,8 @@ public struct OMSWalletSessionExpiredEvent: Equatable, Sendable {
     /// while a manual wallet selection was still pending.
     public let wallet: Wallet?
     public let session: OMSWalletSession
-    /// The ISO-8601 expiry timestamp of the session that expired.
+    /// The ISO-8601 time the session ended: its expiry, or, when the SDK found it ended before its
+    /// expiry (another process replaced its keychain key), the time that was found.
     public let expiredAt: String
     public init(wallet: Wallet?, session: OMSWalletSession, expiredAt: String)
 }

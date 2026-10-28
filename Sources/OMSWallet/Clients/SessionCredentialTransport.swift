@@ -1,99 +1,72 @@
 import Foundation
 
-/// Orders requests signed with the wallet session's credential. WaaS requires each request's nonce
-/// to exceed the last one it accepted, so the SDK's own expiry refresh (`GetCredential`) must not
-/// overlap an app request: a refresh starts only once no other signed request is in flight, and
-/// signed requests that start while a refresh is pending or in flight wait for it to finish.
+/// Orders requests signed with the wallet session's credential: one at a time per signing
+/// credential, in the order they arrive, the SDK's own expiry reads (`GetCredential`) included.
+/// WaaS accepts a request only when its nonce exceeds the last one it accepted for the credential,
+/// an atomic conditional write (`:nonce > LastNonce`, waas v1.2.0 data/credential.go:741,837,894).
+/// Requests in flight together can reach it out of order and be rejected with 7206; one at a time,
+/// each nonce is taken after the previous request completed, so none is. Nonces of different
+/// credentials are independent, so a new sign-in's requests do not wait behind a request of the
+/// credential it replaced. Other processes using the same credential are not covered, so the
+/// transport still resends a 7206.
 final class SignedRequestGate: @unchecked Sendable {
+    private struct Queue {
+        var isHeld = false
+        /// Waiting acquirers in arrival order; a release hands the gate to the first.
+        var waiters: [(id: UUID, continuation: CheckedContinuation<Void, any Error>)] = []
+    }
+
     private let lock = NSLock()
-    private var activeRequests = 0
-    private var isRefreshActive = false
-    private var pendingRefreshes = 0
-    /// Blocked acquirers; each is resumed with `false` on a release, or when its task is cancelled,
-    /// and then retries or stops.
-    private var waiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
+    /// The queues in use, by credential ID (`nil` before the signer has a key); a queue no request
+    /// holds or waits for is removed.
+    private var queues: [String?: Queue] = [:]
 
-    /// Waits for the request's turn. Throws `CancellationError`, without holding the gate, when the
-    /// task is cancelled first.
-    func acquire(isRefresh: Bool) async throws {
-        var isPending = false
-        while true {
-            let id = UUID()
-            let acquired = await withTaskCancellationHandler {
-                await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                    lock.lock()
-                    // A cancellation before this point found no waiter to resume.
-                    if Task.isCancelled {
-                        lock.unlock()
-                        continuation.resume(returning: false)
-                        return
-                    }
-                    let canAcquire = isRefresh
-                        ? !isRefreshActive && activeRequests == 0
-                        : !isRefreshActive && pendingRefreshes == 0
-                    if canAcquire {
-                        if isRefresh {
-                            isRefreshActive = true
-                            if isPending {
-                                pendingRefreshes -= 1
-                            }
-                        } else {
-                            activeRequests += 1
-                        }
-                        lock.unlock()
-                        continuation.resume(returning: true)
-                        return
-                    }
-                    if isRefresh && !isPending {
-                        isPending = true
-                        pendingRefreshes += 1
-                    }
-                    waiters[id] = continuation
-                    lock.unlock()
-                }
-            } onCancel: {
+    /// Waits for the request's turn among those of `credentialId`. Throws `CancellationError`,
+    /// without holding the gate, when the task is cancelled first.
+    func acquire(credentialId: String? = nil) async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 lock.lock()
-                let continuation = waiters.removeValue(forKey: id)
-                lock.unlock()
-                continuation?.resume(returning: false)
-            }
-            if acquired {
-                return
-            }
-            if Task.isCancelled {
-                if isPending {
-                    abandonPendingRefresh()
+                // A cancellation before this point found no waiter to remove.
+                if Task.isCancelled {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                    return
                 }
-                throw CancellationError()
+                var queue = queues[credentialId] ?? Queue()
+                guard queue.isHeld else {
+                    queue.isHeld = true
+                    queues[credentialId] = queue
+                    lock.unlock()
+                    continuation.resume()
+                    return
+                }
+                queue.waiters.append((id, continuation))
+                queues[credentialId] = queue
+                lock.unlock()
             }
+        } onCancel: {
+            lock.lock()
+            let index = queues[credentialId]?.waiters.firstIndex { $0.id == id }
+            let continuation = index.flatMap { queues[credentialId]?.waiters.remove(at: $0).continuation }
+            lock.unlock()
+            continuation?.resume(throwing: CancellationError())
         }
     }
 
-    func release(isRefresh: Bool) {
+    /// Hands `credentialId`'s gate to its next waiter, or frees it.
+    func release(credentialId: String? = nil) {
         lock.lock()
-        if isRefresh {
-            isRefreshActive = false
-        } else {
-            activeRequests -= 1
+        guard var queue = queues[credentialId], !queue.waiters.isEmpty else {
+            queues[credentialId] = nil
+            lock.unlock()
+            return
         }
-        let waiters = takeWaitersLocked()
+        let next = queue.waiters.removeFirst()
+        queues[credentialId] = queue
         lock.unlock()
-        waiters.forEach { $0.resume(returning: false) }
-    }
-
-    /// A refresh that gives up no longer holds back the requests waiting behind it.
-    private func abandonPendingRefresh() {
-        lock.lock()
-        pendingRefreshes -= 1
-        let waiters = takeWaitersLocked()
-        lock.unlock()
-        waiters.forEach { $0.resume(returning: false) }
-    }
-
-    private func takeWaitersLocked() -> [CheckedContinuation<Bool, Never>] {
-        let waiters = Array(self.waiters.values)
-        self.waiters = [:]
-        return waiters
+        next.continuation.resume()
     }
 }
 
@@ -188,6 +161,9 @@ struct SessionCredentialTransport: WebRPCTransport {
     /// received bytes, and the gate wait has no limit of its own.
     static let requestDeadlineSeconds: TimeInterval = 30
     var deadlineSeconds = Self.requestDeadlineSeconds
+    /// The credential the request will be signed with, which picks its queue in `gate`; `nil`
+    /// before the signer has a key.
+    var signingCredentialId: @Sendable () -> String? = { nil }
 
     func post(
         baseURL: String,
@@ -226,10 +202,12 @@ struct SessionCredentialTransport: WebRPCTransport {
         headers: [String: String],
         attempt: SignedRequestAttempt
     ) async throws -> WebRPCHTTPResponse {
-        let isRefresh = path == WaasAPI.GetCredential.urlPath
-        try await gate.acquire(isRefresh: isRefresh)
+        // Read before queueing; a request signed with a key that replaced it meanwhile is ordered
+        // with the old credential's, which WaaS no longer accepts anyway.
+        let credentialId = signingCredentialId()
+        try await gate.acquire(credentialId: credentialId)
         guard attempt.begin() else {
-            gate.release(isRefresh: isRefresh)
+            gate.release(credentialId: credentialId)
             throw CancellationError()
         }
         let revision = activeSessionRevision()
@@ -249,11 +227,11 @@ struct SessionCredentialTransport: WebRPCTransport {
                 RequestSendRecord.current?.recordFailedBeforeSending()
             }
             onRequestCompleted(path)
-            gate.release(isRefresh: isRefresh)
+            gate.release(credentialId: credentialId)
             throw error
         }
         onRequestCompleted(path)
-        gate.release(isRefresh: isRefresh)
+        gate.release(credentialId: credentialId)
         if let revision {
             onResponse(response, path, revision)
         }

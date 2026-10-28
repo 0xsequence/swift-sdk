@@ -62,14 +62,22 @@ private struct GetTransactionHistoryResponse: Decodable {
 
 @available(macOS 12.0, iOS 15.0, *)
 public final class IndexerClient: Sendable {
-    private let publishableKey: String
+    private let publishableKey: PublishableKeyHolder
     private let environment: OMSWalletEnvironment
     private let client: HttpClient
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    internal init(
+    internal convenience init(
         publishableKey: String,
+        environment: OMSWalletEnvironment,
+        client: HttpClient = HttpClient()
+    ) {
+        self.init(publishableKey: PublishableKeyHolder(publishableKey), environment: environment, client: client)
+    }
+
+    internal init(
+        publishableKey: PublishableKeyHolder,
         environment: OMSWalletEnvironment,
         client: HttpClient = HttpClient()
     ) {
@@ -298,7 +306,7 @@ public final class IndexerClient: Sendable {
 
     private func defaultHeaders(webRPCHeaderValue: String) -> [String: String] {
         [
-            "Api-Key": publishableKey,
+            "Api-Key": publishableKey.current,
             "Accept": "application/json",
             "Webrpc": webRPCHeaderValue
         ]

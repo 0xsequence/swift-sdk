@@ -296,6 +296,28 @@ use; pass a shorter `sessionLifetimeSeconds` if you need a hard limit. Wallet AP
 sliding expiry clamp the requested lifetime to their 30-day maximum and have no idle timeout, so the
 180-day default gives a fixed 30-day session there.
 
+### One wallet per project in the process
+
+Creating `OMSWallet` again for the same project and environment now returns the same `wallet` and
+`indexer` instead of new ones, so instances share one session, active wallet, expiry timer, and set
+of session-expired observers, and a stored session is restored once. Previously each instance kept
+its own copy of the session, and they could disagree after a sign-out, sign-in, or wallet switch
+through another instance. Observers registered through any instance receive every session-expired
+event of that project. A publishable key with another key ID for the same project keeps the session
+and is used for later requests; another project or environment remains a separate session.
+
+Before each protected operation and expiry check, the SDK now also checks that the keychain still
+holds the key the session signed in with. When another process sharing the keychain signed out or
+signed in again, the operation fails with `.sessionMissing` without sending anything, and this
+process's session ends without deleting the newer session's key or record; a background expiry
+check that finds it notifies session-expired observers, with `expiredAt` the time it was found when
+the session's expiry had not passed.
+
+Signed wallet API requests are now sent one at a time per signing credential, in the order they are
+made, so concurrent calls no longer reach the wallet API out of nonce order. Concurrent calls take
+longer in total; each still has its 30-second deadline, which includes the wait. Requests of a new
+sign-in, which uses a new key, do not wait for those of the previous credential.
+
 ### `WalletImportPrivateKey` string conversion
 
 `WalletImportPrivateKey` now conforms to `CustomStringConvertible`,

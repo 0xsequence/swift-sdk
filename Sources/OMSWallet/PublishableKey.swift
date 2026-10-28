@@ -98,3 +98,27 @@ private func invalidPublishableKey() -> OMSWalletError {
         message: "Invalid publishableKey."
     )
 }
+
+/// The publishable key a shared `WalletClient` sends. Another `OMSWallet` for the same project and
+/// environment can bring a newer key (a rotated one) for the same session: requests started after
+/// it read the new key, and one in flight keeps the key it was sent with.
+final class PublishableKeyHolder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var key: String
+
+    init(_ key: String) {
+        self.key = key
+    }
+
+    var current: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return key
+    }
+
+    func update(_ key: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        self.key = key
+    }
+}

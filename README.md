@@ -84,6 +84,10 @@ if let wallet = auth.wallet {
 
 `OMSWallet` is the root object for the SDK. Create a single instance at app startup and keep it alive for the session. It constructs the SDK sub-clients and restores any saved secure session automatically.
 
+Creating `OMSWallet` again for the same project and environment returns the same `wallet` and `indexer`: one session, active wallet, expiry timer, and set of session-expired observers per project in the process, so a second instance (for example from a recreated SwiftUI view) cannot drift from the first or restore the session twice. A publishable key with another key ID for the same project, such as a rotated key, keeps the session and is sent with later requests. A key for another project or environment is a separate session.
+
+Wallet API requests are sent one at a time per signing credential, in the order they are made. The wallet API only accepts a request whose nonce is above the last one it accepted for that credential, so concurrent calls would otherwise be rejected when they arrive out of order. Each signed call waits for the earlier ones of its credential, within its 30-second deadline; a new sign-in's requests use a new key and do not wait for the previous credential's.
+
 `OMSWallet` is the only public composition root. Access `WalletClient` and
 `IndexerClient` through `omsWallet.wallet` and `omsWallet.indexer`; their
 initialization and endpoint environment are SDK-managed.

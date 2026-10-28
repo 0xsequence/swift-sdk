@@ -3710,7 +3710,17 @@ final class MockCredentialSigner: CredentialSigner, @unchecked Sendable {
 
     private let lock = NSLock()
     private var credentialAvailable = true
+    private var credential = "0xmock-credential"
     private var clearCalls = 0
+
+    /// Replaces the keychain key with a new one, as another process sharing the keychain does when
+    /// it signs in again.
+    func replaceKey(credentialId: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        credential = credentialId
+        credentialAvailable = true
+    }
 
     var hasStoredCredential: Bool {
         lock.lock()
@@ -3728,7 +3738,7 @@ final class MockCredentialSigner: CredentialSigner, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         credentialAvailable = true
-        return "0xmock-credential"
+        return credential
     }
 
     func nextNonce() throws -> String {

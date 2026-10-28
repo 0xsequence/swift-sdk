@@ -108,7 +108,7 @@ private func sessionTransport(
 @Test func TestRequestThatNeverGetsItsTurnIsNotSentAfterTheDeadline() async throws {
     let gate = SignedRequestGate()
     // An expiry read holds the gate and never finishes.
-    try await gate.acquire(isRefresh: true)
+    try await gate.acquire()
     let base = MockWaasTransport()
     let transport = sessionTransport(base: base, gate: gate, deadlineSeconds: 0.2)
     let record = RequestSendRecord()
@@ -123,9 +123,9 @@ private func sessionTransport(
     #expect(record.failedBeforeSending)
     #expect(base.totalRequestCount == 0)
     // The expired waiter left the gate as it was: once the read ends, requests run again.
-    gate.release(isRefresh: true)
-    try await gate.acquire(isRefresh: false)
-    gate.release(isRefresh: false)
+    gate.release()
+    try await gate.acquire()
+    gate.release()
 }
 
 @Test func TestRequestThatHangsAfterItWasSentTimesOutAsPossiblySent() async throws {
@@ -149,27 +149,32 @@ private func sessionTransport(
     #expect(base.callCount == 1)
     #expect(base.cancellationCount == 1)
     // The request released the gate when it was cancelled.
-    try await gate.acquire(isRefresh: true)
-    gate.release(isRefresh: true)
+    try await gate.acquire()
+    gate.release()
 }
 
-@Test func TestCancelledPendingReadNoLongerHoldsBackRequests() async throws {
+@Test func TestCancelledWaiterDoesNotHoldTheGate() async throws {
     let gate = SignedRequestGate()
-    try await gate.acquire(isRefresh: false)
-    let read = Task { try await gate.acquire(isRefresh: true) }
-    // Let the read register as pending, which holds back new requests.
+    try await gate.acquire()
+    let read = Task { try await gate.acquire() }
+    // Let the read start waiting behind the request.
     try await Task.sleep(nanoseconds: 50_000_000)
     read.cancel()
     await #expect(throws: CancellationError.self) { try await read.value }
 
     let acquired = LockedBox(false)
     let request = Task {
-        try await gate.acquire(isRefresh: false)
+        try await gate.acquire()
         acquired.withValue { $0 = true }
     }
+    try await Task.sleep(nanoseconds: 50_000_000)
+    #expect(!acquired.withValue { $0 })
+    // The release goes to the waiting request, not to the cancelled read.
+    gate.release()
     for _ in 0..<40 where !acquired.withValue({ $0 }) {
         try await Task.sleep(nanoseconds: 25_000_000)
     }
     #expect(acquired.withValue { $0 })
-    request.cancel()
+    gate.release()
+    _ = try await request.value
 }

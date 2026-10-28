@@ -66,6 +66,8 @@ public final class WalletClient: @unchecked Sendable {
     /// Shared by every client that signs with the session credential, so their nonces stay ordered.
     let signedRequestGate = SignedRequestGate()
     let indexerClient: IndexerClient
+    /// The publishable key every transport of this client sends; see `adoptPublishableKey(_:)`.
+    let publishableKeyHolder: PublishableKeyHolder
     
     let projectId: String
     let environment: OMSWalletEnvironment
@@ -157,6 +159,10 @@ public final class WalletClient: @unchecked Sendable {
     var _sessionExpiryTimerFireDate: Date?
     /// The last session revision ended because WaaS rejected its credential.
     var _serverRejectedSessionRevision: UInt64?
+    /// The signer credential the active wallet session was signed in with, or `nil` without one.
+    /// Another process sharing the keychain can sign in again and replace the key; operations
+    /// compare it with the signer's current credential first (`requireSessionSignerMatches`).
+    var _sessionSignerCredentialId: String?
     private var _sessionExpiredObservers: [UUID: SessionExpiredObserver] = [:]
     private var _verifier = ""
     private var _challenge = ""
@@ -272,6 +278,8 @@ public final class WalletClient: @unchecked Sendable {
     ) {
         self.projectId = projectId
         self.environment = environment
+        let publishableKeyHolder = PublishableKeyHolder(publishableKey)
+        self.publishableKeyHolder = publishableKeyHolder
         let credentialSession = WalletCredentialSession(environment: environment, projectId: projectId)
         let storedWallet = credentialSession.storedMetadata()
         self.oidcRedirectAuthStore = KeychainOIDCRedirectAuthStore(projectId: projectId, environment: environment)
@@ -283,7 +291,7 @@ public final class WalletClient: @unchecked Sendable {
         self.runWhenActive = ForegroundActivation.runWhenActive
         let makeSignedClient: (any CredentialSigner) -> WaasClient = { signer in
             Self.makeSignedClient(
-                publishableKey: publishableKey,
+                publishableKey: publishableKeyHolder,
                 projectId: projectId,
                 environment: environment,
                 signer: signer
@@ -292,7 +300,7 @@ public final class WalletClient: @unchecked Sendable {
         self.signedClientFactory = makeSignedClient
         self.walletImportClient = walletImportTrustedPcr0s.map {
             Self.makeWalletImportClient(
-                publishableKey: publishableKey,
+                publishableKey: publishableKeyHolder,
                 projectId: projectId,
                 environment: environment,
                 signer: credentialSession.signer,
@@ -307,11 +315,11 @@ public final class WalletClient: @unchecked Sendable {
 
         self._signedClient = makeSignedClient(credentialSession.signer)
         self.publicClient = Self.makePublicClient(
-            publishableKey: publishableKey,
+            publishableKey: publishableKeyHolder,
             environment: environment
         )
         self.indexerClient = IndexerClient(
-            publishableKey: publishableKey,
+            publishableKey: publishableKeyHolder,
             environment: environment
         )
         observeSessionCredentialClients()
@@ -335,6 +343,8 @@ public final class WalletClient: @unchecked Sendable {
     ) {
         self.projectId = projectId
         self.environment = environment
+        let publishableKeyHolder = PublishableKeyHolder(publishableKey)
+        self.publishableKeyHolder = publishableKeyHolder
         let storedWallet = credentialSession.storedMetadata()
         self.oidcRedirectAuthStore = oidcRedirectAuthStore ?? KeychainOIDCRedirectAuthStore(projectId: projectId, environment: environment)
         self.oidcRedirectAuthLock = OIDCRedirectAuthLockRegistry.lock(
@@ -354,7 +364,7 @@ public final class WalletClient: @unchecked Sendable {
         self.walletImportClient = walletImportClient
         self.publicClient = publicClient
         self.indexerClient = indexerClient ?? IndexerClient(
-            publishableKey: publishableKey,
+            publishableKey: publishableKeyHolder,
             environment: environment
         )
         observeSessionCredentialClients()
@@ -382,7 +392,8 @@ public final class WalletClient: @unchecked Sendable {
                 },
                 onResponse: { [weak self] response, path, revision in
                     self?.handleSessionCredentialResponse(response, path: path, revision: revision)
-                }
+                },
+                signingCredentialId: { [weak self] in self?.signerCredentialIdIfPresent() }
             ),
             headers: client.headers
         )
@@ -506,7 +517,18 @@ public final class WalletClient: @unchecked Sendable {
         return try requireActiveWalletAddress()
     }
 
+    /// The signer's credential ID, or `nil` when it has no key. Never creates one, as reading the
+    /// ID of a missing key would.
+    func signerCredentialIdIfPresent() -> String? {
+        let signer = credentialSession.signer
+        guard (try? signer.hasCredential()) == true else {
+            return nil
+        }
+        return try? signer.credentialId()
+    }
+
     func requireActiveCredential() throws {
+        try requireSessionSignerMatches()
         guard try credentialSession.signer.hasCredential() else {
             throw OMSWalletError.sessionMissing()
         }
@@ -541,6 +563,8 @@ public final class WalletClient: @unchecked Sendable {
                     auth: metadata.auth,
                     expiryBounds: metadata.expiryBounds
                 )
+                // The credential `persist` just recorded with the wallet.
+                self._sessionSignerCredentialId = try? self.credentialSession.signer.credentialId()
                 self._latestSessionExpiredEvent = nil
                 self._activeWallet = wallet
                 self._sessionExpiresAt = metadata.expiresAt
@@ -562,8 +586,15 @@ public final class WalletClient: @unchecked Sendable {
         }
     }
 
+    /// Makes later requests of every transport send `publishableKey`, a newer key for this
+    /// client's project and environment (see `OMSWallet`). The session is kept: it belongs to the
+    /// project, not to the key.
+    func adoptPublishableKey(_ publishableKey: String) {
+        publishableKeyHolder.update(publishableKey)
+    }
+
     private static func makeSignedClient(
-        publishableKey: String,
+        publishableKey: PublishableKeyHolder,
         projectId: String,
         environment: OMSWalletEnvironment,
         signer: any CredentialSigner
@@ -580,21 +611,21 @@ public final class WalletClient: @unchecked Sendable {
     }
 
     private static func makePublicClient(
-        publishableKey: String,
+        publishableKey: PublishableKeyHolder,
         environment: OMSWalletEnvironment
     ) -> WaasPublicClient {
         return WaasPublicClient(
             baseURL: environment.walletApiUrl,
             headers: {
                 [
-                    "Api-Key": publishableKey
+                    "Api-Key": publishableKey.current
                 ]
             }
         )
     }
 
     private static func makeWalletImportClient(
-        publishableKey: String,
+        publishableKey: PublishableKeyHolder,
         projectId: String,
         environment: OMSWalletEnvironment,
         signer: any CredentialSigner,
