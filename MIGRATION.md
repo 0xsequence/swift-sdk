@@ -209,9 +209,11 @@ for wallet in result.claimableWallets {
 
 ### Session expiry timestamps
 
-`OMSWalletSession.expiresAt` and `OMSWalletSessionExpiredEvent.expiredAt` are now the ISO-8601
-`String` returned by the wallet API (the same value as `WalletCredential.expiresAt`) instead of a
-`Date`. `OMSWalletSession.init(expiresAt:auth:)` and `OMSWalletSessionExpiredEvent.init` take a
+`OMSWalletSession.expiresAt` and `OMSWalletSessionExpiredEvent.expiredAt` are now ISO-8601
+`String`s instead of `Date`s. `expiresAt` starts as the sign-in's `WalletCredential.expiresAt` and
+follows the wallet API's sliding expiry as the SDK refreshes it (see Sliding session expiry);
+`expiredAt` is the session's expiry, or the time the SDK found its keychain key replaced by another
+process when that came first. `OMSWalletSession.init(expiresAt:auth:)` and `OMSWalletSessionExpiredEvent.init` take a
 `String`. Parse the value when you need a `Date`; the wallet API may include fractional seconds:
 
 ```swift
@@ -244,7 +246,9 @@ server's expiry can be: the completion of the session's last signed request plus
 capped at the requested lifetime. The wallet API skips extensions shorter than
 6 hours, so while your app makes no wallet calls the SDK can notice the end of an idle session up to
 about 6 hours late (assuming an accurate device clock and an app that keeps running); a session whose lifetime is shorter than the idle window is checked 5 minutes
-after its fixed expiry. Until then `activeWallet` and `session` stay set; a wallet call in that
+after its fixed expiry. After a restore whose expiry refresh has not reached the wallet API (offline,
+or an app extension that never becomes active), the restore counts as the last use, so the end can
+be noticed up to about an idle window late. Until then `activeWallet` and `session` stay set; a wallet call in that
 window checks with the wallet API first, as before.
 
 When the wallet API reports the session's credential expired or gone (WaaS `KeyExpired` 7203 or
@@ -260,7 +264,9 @@ error (`.requestFailed`) and keep the session instead of throwing `.sessionExpir
 
 Requests signed with the session credential now fail after 30 seconds in all, including the time
 spent waiting behind other requests of the same credential and signing, with `.requestFailed`
-(`URLError.timedOut`). The call returns at the deadline even while the signer is still running, and
+(`retryable == true`, `upstreamError?.name == "WebrpcRequestFailed"`; the generated client wraps the
+underlying `URLError.timedOut` in its transport error, so match on those fields rather than on
+`URLError`). The call returns at the deadline even while the signer is still running, and
 a request whose signing finishes later is never sent. Before, only `URLSession`'s timeout between
 received bytes applied, and a request could wait behind a stalled refresh without limit. An
 `Execute` that fails before its HTTP request starts (signing failed, or it timed out while waiting
@@ -410,12 +416,12 @@ if error.code == .walletAddressAlreadyImported { /* already imported */ }
 
 ### New members that may shadow app extensions
 
-`TronBalance` and `SolanaBalance` now expose `network`, `accountAddress`, `name`, `symbol`,
+`SolanaBalance` now exposes `network`, `accountAddress`, `name`, `symbol`,
 `decimals`, `balance`, `formattedBalance`, `imageUrl`, `metadataUri`, `verificationStatus`,
 `verificationSource`, `priceUSD`, and `balanceUSD` directly. `WalletImportPrivateKey.walletType`,
 `WalletClient.defaultSessionLifetimeSeconds`, and
 `WalletClient.maxSessionLifetimeSeconds` are now public. Remove app extensions that
-declare members with these names on those types.
+declare members with these names on those types. (`TronBalance` is new in 0.4.0.)
 
 ### Empty Solana balance metadata
 
