@@ -1232,7 +1232,8 @@ private func makeRestoredFixture(
     #expect(runs.withValue { $0 } == 1)
 }
 
-@Test func TestForegroundActivationCancelStopsObserving() async throws {
+// On the main actor, so the immediate check `runOnce` schedules there cannot run before `cancel()`.
+@Test @MainActor func TestForegroundActivationCancelStopsObserving() async throws {
     let center = NotificationCenter()
     let name = Notification.Name("TestDidBecomeActive")
     let runs = LockedBox(0)
