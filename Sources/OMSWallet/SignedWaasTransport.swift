@@ -30,12 +30,19 @@ struct SignedWaasTransport: WebRPCTransport {
         let endpoint = resolveEndpoint(path)
         let payload = String(data: body, encoding: .utf8) ?? ""
 
-        let authHeader = try buildAuthHeader(
-            endpoint: endpoint,
-            scope: self.scope,
-            signer: signer,
-            payload: payload
-        )
+        let authHeader: String
+        do {
+            authHeader = try buildAuthHeader(
+                endpoint: endpoint,
+                scope: self.scope,
+                signer: signer,
+                payload: payload
+            )
+        } catch {
+            throw RequestNotSentError(underlying: error)
+        }
+        // A request whose caller gave up (or whose deadline passed) while it was signed is not sent.
+        try Task.checkCancellation()
 
         var requestHeaders = [
             "Api-Key": publishableKey,

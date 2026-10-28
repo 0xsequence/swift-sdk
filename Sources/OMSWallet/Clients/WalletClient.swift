@@ -38,6 +38,10 @@ public final class WalletClient: @unchecked Sendable {
     /// with `GetCredential`. That request extends a live session itself, so the margin keeps
     /// request latency from letting the check extend an idle one.
     static let sessionExpiryCheckGraceSeconds: TimeInterval = 5 * 60
+    /// How long after WaaS answers `GetCredential` with `WebrpcBadRoute` the SDK keeps treating the
+    /// local expiry as final before asking again: a server without the method is not asked on every
+    /// trigger, and one routing error does not disable refreshes for good.
+    static let credentialRefreshUnsupportedCooldownSeconds: TimeInterval = 15 * 60
     /// WaaS skips moving a credential's expiry forward by less than this (its slide dampening).
     /// The expiry timer adds it to its check when the session's `SessionExpiryBounds` are unknown.
     static let serverExpirySlideDampeningSeconds: TimeInterval = 6 * 60 * 60
@@ -130,8 +134,9 @@ public final class WalletClient: @unchecked Sendable {
         isExpiryCheck: Bool,
         task: Task<CredentialRefreshOutcome, Never>
     )?
-    /// Set once the server reports it has no `GetCredential` method; never retried afterwards.
-    var _isCredentialRefreshUnsupported = false
+    /// When the server last reported it has no `GetCredential` method (`WebrpcBadRoute`); refreshes
+    /// are skipped until `credentialRefreshUnsupportedCooldownSeconds` later, then probed again.
+    var _credentialRefreshUnsupportedAt: Date?
     /// When the request that last gave the active session's expiry completed: the sign-in, or the
     /// last successful `GetCredential`. `nil` after a restore until a read succeeds.
     var _lastCredentialRefreshAt: Date?

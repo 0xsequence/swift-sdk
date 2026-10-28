@@ -246,7 +246,7 @@ extension WalletClient {
                 return .notExpired
             }
             // Without `GetCredential` the local expiry is final.
-            guard !_isCredentialRefreshUnsupported else {
+            guard !isCredentialRefreshUnsupportedLocked() else {
                 return .due
             }
             let checkDate = sessionExpiryCheckDateLocked(session)
@@ -361,7 +361,7 @@ extension WalletClient {
             if let inFlight = _credentialRefresh, inFlight.revision == _sessionRevision {
                 return .task(inFlight.task)
             }
-            guard !_isCredentialRefreshUnsupported else {
+            guard !isCredentialRefreshUnsupportedLocked() else {
                 return .outcome(.unsupported)
             }
             guard currentSessionLocked() != nil else {
@@ -377,6 +377,8 @@ extension WalletClient {
                     // later than the send.
                     let sentAt = self?.currentDate() ?? Date()
                     let response = try await client.getCredential()
+                    // The server has the method, whatever an earlier read reported.
+                    self?.withSessionLock { self?._credentialRefreshUnsupportedAt = nil }
                     outcome = self?.applyRefreshedCredentialExpiry(
                         response.credential.expiresAt,
                         sentAt: sentAt,
@@ -397,6 +399,15 @@ extension WalletClient {
         case .outcome(let outcome):
             return outcome
         }
+    }
+
+    /// Whether a `WebrpcBadRoute` from `GetCredential` within the cooldown still marks refreshes
+    /// unsupported.
+    func isCredentialRefreshUnsupportedLocked() -> Bool {
+        guard let unsupportedAt = _credentialRefreshUnsupportedAt else {
+            return false
+        }
+        return currentDate().timeIntervalSince(unsupportedAt) < Self.credentialRefreshUnsupportedCooldownSeconds
     }
 
     private func finishCredentialRefresh(_ id: UUID) {
@@ -476,7 +487,7 @@ extension WalletClient {
         }
         if let webRPCError = error as? WebRPCError,
            webRPCError.kind == .webrpcBadRoute || webRPCError.error == "WebrpcBadRoute" {
-            withSessionLock { _isCredentialRefreshUnsupported = true }
+            withSessionLock { _credentialRefreshUnsupportedAt = currentDate() }
             return .unsupported
         }
         return .unavailable(error)
@@ -486,7 +497,7 @@ extension WalletClient {
     /// `credentialRefreshIntervalSeconds` old.
     func refreshCredentialExpiryInBackgroundIfStale() {
         let isStale = withSessionLock { () -> Bool in
-            guard !_isCredentialRefreshUnsupported, currentSessionLocked() != nil else {
+            guard !isCredentialRefreshUnsupportedLocked(), currentSessionLocked() != nil else {
                 return false
             }
             guard let lastRefresh = _lastCredentialRefreshAt else {

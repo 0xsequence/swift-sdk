@@ -258,6 +258,18 @@ throws `.requestFailed` with that upstream error instead of `.transactionExecuti
 the wallet API is unreachable when a session reaches its local expiry, operations throw the network
 error (`.requestFailed`) and keep the session instead of throwing `.sessionExpired`.
 
+Requests signed with the session credential now fail after 30 seconds in all, including the time
+spent waiting behind the SDK's expiry refresh, with `.requestFailed` (`URLError.timedOut`). Before,
+only `URLSession`'s timeout between received bytes applied, and a request could wait behind a
+stalled refresh without limit. An `Execute` that fails before it is sent (signing failed, or it
+timed out waiting for its turn) now throws `.requestFailed` without a `txnId` instead of
+`.transactionExecutionUnconfirmed`, since nothing reached the wallet API; one that was sent and
+then failed or timed out is still `.transactionExecutionUnconfirmed`.
+
+When the wallet API answers the expiry check with `WebrpcBadRoute` (a version without
+`GetCredential`), the SDK treats the local expiry as final for 15 minutes and then asks again,
+instead of for the rest of the client's lifetime.
+
 The SDK's expiry check (`GetCredential`) treats `Unauthorized` (7207) like 7202 and 7203: that
 request involves no wallet, so a 7207 means the credential was revoked, and the session ends with
 `.sessionExpired` and a session-expired event. A 7207 from any other wallet call still throws
@@ -271,8 +283,10 @@ method, so a resent `Execute` cannot submit a transaction twice. A third rejecti
 `.requestFailed` (status 412), also from `sendTransaction`, where it is not reported as
 `.transactionExecutionUnconfirmed`, because the transaction was never submitted. The same now holds
 for an `Execute` refused with `InvalidSignature` (7201), `UsageLimitExceeded` (7205), or
-`Unauthorized` (7207): WaaS refuses these before submitting anything, so they throw `.requestFailed`
-with the upstream error and no `txnId`.
+`Unauthorized` (7207), and for a Tron `Execute` refused with `InvalidRequest` (7200) or
+`InvalidFeeOption` (7310), which WaaS raises while pricing it again before broadcasting: WaaS
+refuses these before submitting anything, so they throw `.requestFailed` with the upstream error and
+no `txnId`.
 
 The largest `sessionLifetimeSeconds` the SDK accepts rose from 2,592,000 seconds (30 days) to
 15,552,000 (180 days), `WalletClient.maxSessionLifetimeSeconds`. The default rose from 604,800

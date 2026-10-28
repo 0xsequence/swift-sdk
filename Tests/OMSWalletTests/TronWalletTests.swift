@@ -484,3 +484,72 @@ func TestTronOperationsRejectNonTronWalletsBeforeAnyRequest(type: WalletType, ad
     #expect(result.wallet == expected)
     #expect(fixture.client.activeWallet == expected)
 }
+
+@Test(arguments: [
+    (7200, "InvalidRequest", "The request was invalid"),
+    (7310, "InvalidFeeOption", "Invalid fee option"),
+])
+func TestTronExecuteRefusedWhileRepricingIsRequestFailure(
+    _ refusal: (code: Int, name: String, message: String)
+) async throws {
+    // Tron's Execute raises these while pricing the transaction again, before claiming it as
+    // pending or broadcasting it, so the write is not unconfirmed.
+    let fixture = makeActiveWalletFixture()
+    try fixture.transport.enqueue(sponsoredPrepareResponse("txn-refused"), for: WaasAPI.PrepareTronTransaction.urlPath)
+    fixture.transport.enqueueRawHTTPError(
+        statusCode: 400,
+        body: Data(#"{"error":"\#(refusal.name)","code":\#(refusal.code),"msg":"\#(refusal.message)","status":400}"#.utf8),
+        for: WaasAPI.Execute.urlPath
+    )
+
+    do {
+        _ = try await fixture.client.sendTronTransaction(network: .nile, to: tronRecipient, value: "1")
+        Issue.record("Expected the refused Execute to fail")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .requestFailed)
+        #expect(error.operation == .walletSendTronTransaction)
+        #expect(error.txnId == nil)
+        #expect(error.upstreamError?.code == String(refusal.code))
+    }
+}
+
+@Test func TestTronExecuteExpiredStaysUnconfirmed() async throws {
+    // `TransactionExpired` can mean an earlier Execute already claimed and broadcast it.
+    let fixture = makeActiveWalletFixture()
+    try fixture.transport.enqueue(sponsoredPrepareResponse("txn-claimed"), for: WaasAPI.PrepareTronTransaction.urlPath)
+    fixture.transport.enqueueRawHTTPError(
+        statusCode: 400,
+        body: Data(#"{"error":"TransactionExpired","code":7309,"msg":"Transaction expired","status":400}"#.utf8),
+        for: WaasAPI.Execute.urlPath
+    )
+
+    do {
+        _ = try await fixture.client.sendTronTransaction(network: .nile, to: tronRecipient, value: "1")
+        Issue.record("Expected the expired Execute to fail")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .transactionExecutionUnconfirmed)
+        #expect(error.txnId == "txn-claimed")
+    }
+}
+
+@Test func TestEvmExecuteInvalidRequestStaysUnconfirmed() async throws {
+    // Only Tron's Execute is known to raise `InvalidRequest` before submission.
+    let fixture = makeActiveWalletFixture(type: .ethereum, address: "0x1111111111111111111111111111111111111111")
+    try fixture.transport.enqueue(sponsoredPrepareResponse("txn-evm"), for: WaasAPI.PrepareEthereumTransaction.urlPath)
+    fixture.transport.enqueueRawHTTPError(
+        statusCode: 400,
+        body: Data(#"{"error":"InvalidRequest","code":7200,"msg":"The request was invalid","status":400}"#.utf8),
+        for: WaasAPI.Execute.urlPath
+    )
+
+    do {
+        _ = try await fixture.client.sendTransaction(
+            network: .polygon,
+            request: SendTransactionRequest(to: "0x2222222222222222222222222222222222222222", value: "0")
+        )
+        Issue.record("Expected the failed Execute to fail")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .transactionExecutionUnconfirmed)
+        #expect(error.txnId == "txn-evm")
+    }
+}

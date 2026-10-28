@@ -418,8 +418,18 @@ extension WalletClient {
         }
     }
 
-    private static func isExecuteRefusedBeforeSubmission(_ error: WebRPCError) -> Bool {
-        [.invalidSignature, .usageLimitExceeded, .preconditionFailed, .unauthorized].contains(error.kind)
+    private static func isExecuteRefusedBeforeSubmission(_ error: WebRPCError, network: FeeBalanceNetwork?) -> Bool {
+        if [.invalidSignature, .usageLimitExceeded, .preconditionFailed, .unauthorized].contains(error.kind) {
+            return true
+        }
+        // Tron's Execute prices the transaction again before claiming it as pending and
+        // broadcasting it, and raises `InvalidRequest` (7200) and `InvalidFeeOption` (7310) only
+        // there (waas v1.2.0 rpc/transaction.go:246-298, rpc/tron_transaction.go:220-262).
+        // `TransactionExpired` can mean an earlier Execute already claimed it, so it is not here.
+        guard case .tron? = network else {
+            return false
+        }
+        return [.invalidRequest, .invalidFeeOption].contains(error.kind)
     }
 
     private func execute(
@@ -446,20 +456,28 @@ extension WalletClient {
         )
 
         let executeResponse: ExecuteResponse
+        let sendRecord = RequestSendRecord()
         do {
-            executeResponse = try await signedClient.execute(executeRequest)
+            executeResponse = try await RequestSendRecord.$current.withValue(sendRecord) {
+                try await signedClient.execute(executeRequest)
+            }
         } catch let error as CancellationError {
             throw error
         } catch let error as WebRPCError where error.kind == .transactionSimulationFailed {
             // The relayer refused to dispatch a reverting transaction (7314): WaaS closed it as
             // failed and never sent it, so this is a request failure, not an unconfirmed write.
             throw error
-        } catch let error as WebRPCError where Self.isExecuteRefusedBeforeSubmission(error) {
+        } catch let error as WebRPCError
+            where Self.isExecuteRefusedBeforeSubmission(error, network: feeBalanceNetwork) {
             // WaaS refused it before submitting anything, so this is a request failure: its
             // credential middleware rejects a bad signature (7201), an exceeded usage limit (7205)
             // or a stale nonce (7206, still rejected after the transport's resends) before Execute
             // runs, and `Unauthorized` (7207) comes from that middleware or from Execute's access
-            // checks, which also run before submission.
+            // checks, which also run before submission. For Tron, the re-pricing refusals too.
+            throw error
+        } catch where sendRecord.failedBeforeSending {
+            // It failed before it was sent (signing failed, or its deadline passed while it waited
+            // for its turn), so WaaS never saw it.
             throw error
         } catch {
             let sdkError = toOMSWalletError(error, operation: .walletExecute)

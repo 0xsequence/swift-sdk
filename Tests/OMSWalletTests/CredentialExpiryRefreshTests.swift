@@ -1262,6 +1262,45 @@ private func makeRestoredFixture(
     #expect(trigger.pendingCount == 0)
 }
 
+// MARK: - GetCredential unsupported cooldown
+
+@Test func TestCredentialRefreshProbesAgainAfterUnsupportedCooldown() async throws {
+    // One `WebrpcBadRoute` skips refreshes only for the cooldown, not for the client's lifetime.
+    let start = Date(timeIntervalSince1970: 1_767_225_600)
+    let now = LockedBox(start)
+    let fixture = makeMockWalletClient(currentDate: { now.withValue { $0 } })
+    activateTestSession(
+        fixture,
+        wallet: activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main"),
+        expiresAt: "2098-01-01T00:00:00Z"
+    )
+    fixture.transport.enqueueWebRPCBadRoute(for: WaasAPI.GetCredential.urlPath)
+
+    guard case .unsupported = await fixture.client.refreshCredentialExpiry() else {
+        Issue.record("Expected the first read to find GetCredential unsupported")
+        return
+    }
+    now.withValue { $0 = start.addingTimeInterval(WalletClient.credentialRefreshUnsupportedCooldownSeconds - 1) }
+    guard case .unsupported = await fixture.client.refreshCredentialExpiry() else {
+        Issue.record("Expected no read within the cooldown")
+        return
+    }
+    #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 1)
+
+    now.withValue { $0 = start.addingTimeInterval(WalletClient.credentialRefreshUnsupportedCooldownSeconds) }
+    try fixture.transport.enqueue(
+        credentialResponse(expiresAt: "2099-06-01T00:00:00Z"),
+        for: WaasAPI.GetCredential.urlPath
+    )
+    guard case .refreshed = await fixture.client.refreshCredentialExpiry() else {
+        Issue.record("Expected the read after the cooldown to refresh the expiry")
+        return
+    }
+    #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 2)
+    #expect(fixture.client.session?.expiresAt == "2099-06-01T00:00:00Z")
+    #expect(fixture.client.withSessionLock { fixture.client._credentialRefreshUnsupportedAt } == nil)
+}
+
 // MARK: - Timer scheduling, activation metadata, and 7207 reads
 
 @Test func TestZeroDelayExpiryTimerKeepsTheTimerItReschedules() throws {

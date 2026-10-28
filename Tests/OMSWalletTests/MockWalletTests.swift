@@ -3760,6 +3760,8 @@ enum MockWaasResponse: Sendable {
     case success(Data)
     case httpError(statusCode: Int, body: Data)
     case failure(WebRPCTransportError)
+    /// Any other error a transport throws, such as `RequestNotSentError` from signing.
+    case thrown(any Error)
     case cancellation
 }
 
@@ -3840,6 +3842,12 @@ final class MockWaasTransport: WebRPCTransport, @unchecked Sendable {
         responses[path, default: []].append(.failure(error))
     }
 
+    func enqueueError(_ error: any Error, for path: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        responses[path, default: []].append(.thrown(error))
+    }
+
     func enqueueCancellation(for path: String) {
         lock.lock()
         defer { lock.unlock() }
@@ -3864,6 +3872,8 @@ final class MockWaasTransport: WebRPCTransport, @unchecked Sendable {
         case .httpError(let statusCode, let body):
             return WebRPCHTTPResponse(statusCode: statusCode, body: body)
         case .failure(let error):
+            throw error
+        case .thrown(let error):
             throw error
         case .cancellation:
             throw CancellationError()
