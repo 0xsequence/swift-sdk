@@ -18,6 +18,24 @@ How testing works in this repo. `AGENTS.md` points here so agents know how to ve
 Test files are organized one per area, for example `MockWalletTests.swift` for wallet auth and
 session logic and `PublicErrorContractsTests.swift` for public error contracts.
 
+## Device tests
+
+- **Scope:** Behavior that needs a physical iOS device, such as Secure Enclave session keys (they
+  sign, and the private key cannot be exported, right after creation and after a reload). The
+  package's tests are tool-hosted, which Xcode cannot run on a device, so these live in an Xcode
+  project with a small host app that links the local package.
+- **Location:** `Tests/DeviceTests/` (`OMSWalletDeviceTests.xcodeproj`)
+- **Run:** on an unlocked device, with a development team that can sign for it:
+
+  ```bash
+  xcodebuild test -project Tests/DeviceTests/OMSWalletDeviceTests.xcodeproj \
+    -scheme OMSWalletDeviceTests -destination 'platform=iOS,id=<device UDID>' \
+    -allowProvisioningUpdates DEVELOPMENT_TEAM=<team ID>
+  ```
+
+  In the Simulator they only check that software keys are used. `scripts/verify.sh` builds them.
+  The project targets iOS 17, which Swift Testing needs; the SDK itself still supports iOS 15.
+
 ## Public error contract tests
 
 `PublicErrorContractsTests.swift` is the centralized owner for app-facing SDK

@@ -367,6 +367,16 @@ at the next sign-in uses the new class. Restoring a backup onto another device t
 over; the user signs in again there. On macOS, where the SDK uses the file-based keychain, the
 attribute is accepted but has no effect.
 
+### Session keys are generated in the Secure Enclave
+
+On an iOS device the P-256 key that signs wallet API requests is now generated in the Secure Enclave,
+usable only to sign and only while the device is unlocked (`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`
+with `privateKeyUsage`); the private key cannot be exported. There is no fallback: if the Secure
+Enclave cannot create the key, sign-in fails with `.storageError`. A session restored with a software
+key from an earlier build ends as `.expired`, with its wallet and authentication kept for signing in
+again, and the next sign-in creates a Secure Enclave key. The iOS Simulator, which has no Secure
+Enclave, and macOS keep using a non-extractable keychain key; nothing needs configuring.
+
 ### Networks
 
 `Network.polygonAmoy` was renamed to `Network.amoy` (raw value `"amoy"`, chain ID `80002`), and the

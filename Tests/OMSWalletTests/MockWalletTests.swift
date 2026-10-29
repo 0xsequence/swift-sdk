@@ -3826,7 +3826,47 @@ final class MockCredentialSigner: CredentialSigner, @unchecked Sendable {
         defer { lock.unlock() }
         try throwIfLockedLocked()
         credentialAvailable = false
+        unusableKey = nil
         clearCalls += 1
+    }
+
+    private var unusableKey: String?
+
+    /// A stored key the signer will not sign with, as a software key is on an iOS device.
+    var unusableKeyCredentialId: String? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return unusableKey
+        }
+        set {
+            lock.lock()
+            defer { lock.unlock() }
+            unusableKey = newValue
+        }
+    }
+
+    /// Holds only an unusable key for the current credential, as a device holds a software key
+    /// saved before session keys moved to the Secure Enclave.
+    func holdOnlyUnusableKey() {
+        lock.lock()
+        defer { lock.unlock() }
+        unusableKey = credential
+        credentialAvailable = false
+    }
+
+    func unusableKeyCredentialIds() throws -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        try throwIfLockedLocked()
+        return unusableKey.map { [$0] } ?? []
+    }
+
+    func deleteUnusableKeys() throws {
+        lock.lock()
+        defer { lock.unlock() }
+        try throwIfLockedLocked()
+        unusableKey = nil
     }
 }
 

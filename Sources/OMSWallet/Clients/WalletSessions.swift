@@ -33,6 +33,23 @@ extension WalletClient {
     /// `activeWallet` or `session`. A deferred attempt passes `expectedRevision` and restores only
     /// while no sign-out or new sign-in has happened since the restore was deferred.
     func restoreStoredWalletSession(expectedRevision: UInt64? = nil) {
+        // On an iOS device a session signed by a software key ends now, as expired, and is
+        // restored below like any expired session without its key (`retireUnusableSignerKey`).
+        let retired = withSessionLock { () -> Bool? in
+            guard isExpectedRevisionLocked(expectedRevision) else {
+                return nil
+            }
+            return credentialSession.retireUnusableSignerKey(endedAt: currentDate())
+        }
+        switch retired {
+        case nil:
+            return
+        case false:
+            deferRestore(afterFailedRetry: expectedRevision != nil)
+            return
+        case true:
+            break
+        }
         let storedWallet: WalletCredentialSession.WalletMetadata
         switch credentialSession.storedSession() {
         case .none:

@@ -54,6 +54,8 @@ typed-data signing, signature verification, token balances, and unit formatting.
   patch.
 - `Tests/OMSWalletTests/` contains Swift Testing tests using `@Test` and
   `#expect`.
+- `Tests/DeviceTests/OMSWalletDeviceTests.xcodeproj` hosts tests that need a
+  physical iOS device (Secure Enclave keys); see `TESTING.md`.
 - `Examples/sdk-demo/oms-wallet-demo.xcodeproj` and
   `Examples/sdk-demo/oms-wallet-demo/` contain the SwiftUI demo app.
 - `Examples/trails-actions/trails-actions.xcodeproj` and

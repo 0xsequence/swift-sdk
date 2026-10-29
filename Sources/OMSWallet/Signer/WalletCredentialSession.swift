@@ -90,6 +90,34 @@ final class WalletCredentialSession {
         }
     }
 
+    /// On an iOS device session keys must be in the Secure Enclave; a software key saved before
+    /// cannot be moved there. A stored session signed by one ends now and must sign in again: its
+    /// record is kept as the sign-in hint with its expiry set to `endedAt`, so this and later
+    /// launches replay it as expired, and the key is deleted. The record is rewritten first, so a
+    /// failed delete never leaves an unexpired session without its key. Returns `false` when the
+    /// keychain could not be read or written.
+    func retireUnusableSignerKey(endedAt: Date) -> Bool {
+        withLock {
+            do {
+                let signer = signerFactory()
+                let unusable = Set(try signer.unusableKeyCredentialIds().map { $0.lowercased() })
+                guard !unusable.isEmpty else {
+                    return true
+                }
+                if case .stored(let credentials) = loadCredentials(),
+                   unusable.contains(credentials.signerCredentialId.lowercased()) {
+                    let ended = credentials.expiring(at: ISO8601DateFormatter().string(from: endedAt))
+                    try keychain.set(ended.jsonString(), forKey: credentialsStorageKey)
+                }
+                try signer.deleteUnusableKeys()
+                currentSigner = signerFactory()
+                return true
+            } catch {
+                return false
+            }
+        }
+    }
+
     func restore() -> Restoration {
         withLock {
             restoreLocked()

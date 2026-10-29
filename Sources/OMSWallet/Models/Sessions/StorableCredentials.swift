@@ -71,6 +71,18 @@ struct StorableCredentials: Codable {
         self.expiryCeilingEpochSeconds = expiryBounds.ceilingEpochSeconds
     }
 
+    /// This record with its expiry replaced by `expiresAt`.
+    func expiring(at expiresAt: String) -> StorableCredentials {
+        StorableCredentials(
+            wallet: wallet,
+            signerCredentialId: signerCredentialId,
+            alg: alg,
+            expiresAt: expiresAt,
+            auth: auth,
+            expiryBounds: expiryBounds
+        )
+    }
+
     var expiryBounds: SessionExpiryBounds? {
         SessionExpiryBounds(ceilingEpochSeconds: expiryCeilingEpochSeconds)
     }
