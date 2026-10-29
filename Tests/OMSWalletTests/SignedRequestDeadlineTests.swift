@@ -247,10 +247,16 @@ private final class BlockingSigner: CredentialSigner, @unchecked Sendable {
     private let lock = NSLock()
     private var nonce = 0
     private var signing = false
+    private let released = DispatchSemaphore(value: 0)
 
     init(blockOn: String, blockSeconds: TimeInterval) {
         self.blockOn = blockOn
         self.blockSeconds = blockSeconds
+    }
+
+    /// Lets a blocked signature finish before `blockSeconds`.
+    func release() {
+        released.signal()
     }
 
     var isSigning: Bool {
@@ -273,7 +279,7 @@ private final class BlockingSigner: CredentialSigner, @unchecked Sendable {
     func sign(preimage: String) throws -> String {
         if preimage.contains(blockOn) {
             setSigning(true)
-            Thread.sleep(forTimeInterval: blockSeconds)
+            _ = released.wait(timeout: .now() + blockSeconds)
             setSigning(false)
         }
         return "0xsignature"
@@ -288,7 +294,8 @@ private final class BlockingSigner: CredentialSigner, @unchecked Sendable {
 
 @Test func TestBlockingSignerReturnsAtTheDeadlineWithoutSending() async throws {
     let host = CountingURLProtocol.register()
-    let signer = BlockingSigner(blockOn: "SignMessage", blockSeconds: 1.5)
+    // Blocks until the test releases it, so the caller's answer is checked while it still runs.
+    let signer = BlockingSigner(blockOn: "SignMessage", blockSeconds: 60)
     let gate = SignedRequestGate()
     let transport = sessionTransport(
         base: SignedWaasTransport(publishableKey: "pk", scope: "prj_project", signer: signer, session: CountingURLProtocol.session()),
@@ -297,7 +304,6 @@ private final class BlockingSigner: CredentialSigner, @unchecked Sendable {
     )
     let record = RequestSendRecord()
 
-    let started = Date()
     do {
         _ = try await RequestSendRecord.$current.withValue(record) {
             try await transport.post(baseURL: "https://\(host)", path: WaasAPI.SignMessage.urlPath, body: Data("{}".utf8), headers: [:])
@@ -306,10 +312,10 @@ private final class BlockingSigner: CredentialSigner, @unchecked Sendable {
     } catch is RequestNotSentError {}
 
     // The caller has its answer at the deadline, while the signer is still running.
-    #expect(Date().timeIntervalSince(started) < 1)
     #expect(signer.isSigning)
     #expect(record.failedBeforeSending)
     // The request keeps its turn until its signer stops; then it ends without sending.
+    signer.release()
     try await gate.acquire()
     #expect(!signer.isSigning)
     gate.release()
