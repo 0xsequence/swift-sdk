@@ -1324,8 +1324,9 @@ private func makeRestoredFixture(
     var lostTimers = 0
     for _ in 0..<6_000 {
         try fireExpiryTimer(client)
-        // A rescheduled timer shows up within microseconds; one not there after 100 ms is lost.
-        let giveUpAt = Date().addingTimeInterval(0.1)
+        // A lost timer never shows up. A rescheduled one normally does within microseconds, but a
+        // loaded runner can take over 100 ms to start the timer task, so allow 5 seconds.
+        let giveUpAt = Date().addingTimeInterval(5)
         var isRescheduled = false
         while !isRescheduled, Date() < giveUpAt {
             isRescheduled = isSameInstant(sessionExpiryTimerFireDate(client), checkDate)
