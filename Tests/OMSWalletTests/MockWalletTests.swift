@@ -433,12 +433,11 @@ func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut
         alg: .ecdsaP256Sha256,
         expiresAt: "2026-01-01T00:00:00Z",
         auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com")),
-        expiryBounds: testExpiryBounds
+        // The expiry is the lifetime cap, so nothing can have extended it.
+        expiryBounds: SessionExpiryBounds(ceilingEpochSeconds: 1_767_225_600)!
     )
-    // Past the stored expiry by more than the server can have extended it since the last read:
-    // the 6-hour dampening, 6 hours of requests until the next read, and the 5-minute grace.
     let fixture = makeMockWalletClient(
-        currentDate: { Date(timeIntervalSince1970: 1_767_225_600 + 12 * 3_600 + 5 * 60) },
+        currentDate: { Date(timeIntervalSince1970: 1_767_225_600 + 60) },
         storedCredentials: storedCredentials
     )
     var changes: [OMSWalletSessionChangeEvent] = []
@@ -507,11 +506,11 @@ func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut
         alg: .ecdsaP256Sha256,
         expiresAt: "2026-01-01T00:00:00Z",
         auth: .email(OMSWalletEmailSessionAuth(email: "user@example.com")),
-        expiryBounds: testExpiryBounds
+        // The expiry is the lifetime cap, so nothing can have extended it.
+        expiryBounds: SessionExpiryBounds(ceilingEpochSeconds: 1_767_225_600)!
     )
     let fixture = makeMockWalletClient(
-        // Past what the server can have extended since the last read.
-        currentDate: { Date(timeIntervalSince1970: 1_767_225_600 + 12 * 3_600 + 5 * 60) },
+        currentDate: { Date(timeIntervalSince1970: 1_767_225_600 + 60) },
         storedCredentials: storedCredentials
     )
     var changes: [OMSWalletSessionChangeEvent] = []
@@ -592,10 +591,8 @@ private func waitForExpiredSession(
     #expect(fixture.client.activeWallet?.address == wallet.address)
     #expect(changes.map(\.name) == ["signedIn"])
 
-    // The timer asks the server only once the grace period after the expiry has passed.
-    now.withValue {
-        $0 = Date(timeIntervalSince1970: 1_767_225_601 + WalletClient.sessionExpiryCheckGraceSeconds)
-    }
+    // The timer asks the server once the expiry has passed.
+    now.withValue { $0 = Date(timeIntervalSince1970: 1_767_225_601) }
     let expiredEvent = try await waitForExpiredSession { changes.last?.expiredSession }
 
     #expect(changes.map(\.name) == ["signedIn", "expired"])
@@ -3158,9 +3155,9 @@ let testEnvironment = OMSWalletEnvironment(
     indexerGatewayUrl: "https://indexer.example.test/v1/IndexerGateway/"
 )
 
-/// Expiry bounds for seeded and stored test sessions: a 10-day idle window and a ceiling past every
-/// test expiry. Stored records need valid bounds to restore.
-let testExpiryBounds = SessionExpiryBounds(idleWindowSeconds: 864_000, ceilingEpochSeconds: 4_102_444_800)!
+/// The lifetime cap for seeded and stored test sessions, past every test expiry. Stored records
+/// need a valid cap to restore.
+let testExpiryBounds = SessionExpiryBounds(ceilingEpochSeconds: 4_102_444_800)!
 
 /// Seeds an active wallet session directly, without going through an auth flow.
 func activateTestSession(
@@ -3231,12 +3228,12 @@ func makeMockWalletClient(
     currentDate: @escaping () -> Date = Date.init,
     storedCredentials: StorableCredentials? = nil,
     walletImportClient: WaasClient? = nil,
-    // Runs the restore read at once; pass a `ForegroundTrigger` to hold it.
+    // Runs the session read at once; pass a `ForegroundTrigger` to hold it.
     runWhenActive: @escaping (@escaping @Sendable () -> Void) -> ForegroundActivation.Cancel = { body in
         body()
         return {}
     },
-    restoreReadRetrySleep: @escaping @Sendable (TimeInterval) async -> Void = WalletClient.sleep,
+    sessionReadRetrySleep: @escaping @Sendable (TimeInterval) async -> Void = WalletClient.sleep,
     runWhenProtectedDataAvailable: @escaping (Bool, @escaping @Sendable () -> Void) -> ForegroundActivation.Cancel = { _, _ in
         {}
     },
@@ -3283,7 +3280,7 @@ func makeMockWalletClient(
         oidcNonceGenerator: oidcNonceGenerator,
         currentDate: currentDate,
         runWhenActive: runWhenActive,
-        restoreReadRetrySleep: restoreReadRetrySleep,
+        sessionReadRetrySleep: sessionReadRetrySleep,
         runWhenProtectedDataAvailable: runWhenProtectedDataAvailable,
         walletImportClient: walletImportClient
     )

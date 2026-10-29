@@ -2,9 +2,9 @@ import Foundation
 
 /// The persisted wallet-session record. Version 1 records (SDK 0.3.x) stored only the wallet ID and
 /// address, without the wallet type; they fail to decode and are discarded, so users sign in again.
-/// The expiry-bound fields were added within version 2 (pre-release 0.4.0 records lack them); a
-/// record without valid bounds fails to decode and is discarded like any invalid record, so the
-/// user signs in again.
+/// The lifetime cap was added within version 2 (pre-release 0.4.0 records lack it); a record
+/// without a valid cap fails to decode and is discarded like any invalid record, so the user signs
+/// in again. Pre-release records also stored an `idleWindowSeconds`, which is ignored.
 struct StorableCredentials: Codable {
     static let currentVersion = 2
 
@@ -14,10 +14,8 @@ struct StorableCredentials: Codable {
     let alg: SigningAlgorithm
     let expiresAt: String
     let auth: OMSWalletSessionAuth
-    /// `SessionExpiryBounds.idleWindowSeconds`. Optional only so that a session whose bounds are
-    /// unknown can still be written; such a record is discarded on restore.
-    let idleWindowSeconds: Double?
-    /// `SessionExpiryBounds.ceiling`, in seconds since 1970.
+    /// `SessionExpiryBounds.ceiling`, in seconds since 1970. Optional only so that a session whose
+    /// cap is unknown can still be written; such a record is discarded on restore.
     let expiryCeilingEpochSeconds: Double?
 
     init(
@@ -34,7 +32,6 @@ struct StorableCredentials: Codable {
         self.alg = alg
         self.expiresAt = expiresAt
         self.auth = auth
-        self.idleWindowSeconds = expiryBounds?.idleWindowSeconds
         self.expiryCeilingEpochSeconds = expiryBounds?.ceilingEpochSeconds
     }
 
@@ -63,21 +60,19 @@ struct StorableCredentials: Codable {
         self.expiresAt = try container.decode(String.self, forKey: .expiresAt)
         self.auth = try container.decode(OMSWalletSessionAuth.self, forKey: .auth)
         guard let expiryBounds = SessionExpiryBounds(
-            idleWindowSeconds: try container.decodeIfPresent(Double.self, forKey: .idleWindowSeconds),
             ceilingEpochSeconds: try container.decodeIfPresent(Double.self, forKey: .expiryCeilingEpochSeconds)
         ) else {
             throw DecodingError.dataCorruptedError(
-                forKey: .idleWindowSeconds,
+                forKey: .expiryCeilingEpochSeconds,
                 in: container,
-                debugDescription: "Stored session has no valid expiry bounds"
+                debugDescription: "Stored session has no valid lifetime cap"
             )
         }
-        self.idleWindowSeconds = expiryBounds.idleWindowSeconds
         self.expiryCeilingEpochSeconds = expiryBounds.ceilingEpochSeconds
     }
 
     var expiryBounds: SessionExpiryBounds? {
-        SessionExpiryBounds(idleWindowSeconds: idleWindowSeconds, ceilingEpochSeconds: expiryCeilingEpochSeconds)
+        SessionExpiryBounds(ceilingEpochSeconds: expiryCeilingEpochSeconds)
     }
 
     /// Sign-in uses the same rule, so it never activates a wallet that restore would discard.

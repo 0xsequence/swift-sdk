@@ -607,8 +607,7 @@ extension WalletClient {
                 self.sessionExpiresAt = sessionMetadata.expiresAt
                 self.sessionAuth = sessionMetadata.auth
                 self._sessionExpiryBounds = sessionMetadata.expiryBounds
-                // Sign-in counts as a credential read. Taking the time here, before any wallet
-                // request below, lets the expiry timer count a later wallet selection as activity.
+                // Sign-in counts as a credential read, for the 6-hour background refresh.
                 self._lastCredentialRefreshAt = self.currentDate()
             }
         }

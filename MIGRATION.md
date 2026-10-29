@@ -260,23 +260,18 @@ The wallet API now extends a session's expiry while it is used, up to the reques
 `sessionLifetimeSeconds`, and ends idle sessions sooner. `OMSWalletSession.expiresAt` is the current
 expiry, not a fixed value from sign-in: the SDK refreshes it after restoring a session and while the
 session is in use. Read `omsWallet.wallet.session?.expiresAt` again instead of caching the sign-in
-`WalletCredential.expiresAt`. Restoring discards a session whose stored expiry passed more than 12
-hours ago, without asking the wallet API; a more recently passed one may still be active there, so it
-is restored and the expiry refresh after the restore decides. A session active in memory that reaches its local expiry is checked
-with the wallet API before it is treated as ended. On iOS the expiry refresh after a restore runs once
-the app is active (right away when it already is), so a background launch or an app extension does
-not extend an idle session.
+`WalletCredential.expiresAt`. A stored session whose expiry has passed may still be active on the wallet API, so unless its
+requested lifetime has run out it is restored and the expiry refresh after the restore decides. A
+session active in memory that reaches its local expiry ends at once if its lifetime has run out, and
+is otherwise checked with the wallet API before it is treated as ended. The check (`GetCredential`)
+counts as use, so on iOS it runs once the app is active (right away when it already is): a background
+launch or an app extension does not extend an idle session.
 
-An idle session ends about 10 days after its last use. The expiry check (`GetCredential`) extends a
-session the server still holds, so the SDK's expiry timer asks only 5 minutes after the latest the
-server's expiry can be: the completion of the session's last signed request plus the idle window,
-capped at the requested lifetime. The wallet API skips extensions shorter than
-6 hours, so while your app makes no wallet calls the SDK can notice the end of an idle session up to
-about 6 hours late (assuming an accurate device clock and an app that keeps running); a session whose lifetime is shorter than the idle window is checked 5 minutes
-after its fixed expiry. After a restore whose expiry refresh could not reach the wallet API, the SDK
-retries it while the app is active, at most 15 minutes apart; in an app extension or a launch that
-never becomes active, the end can be noticed up to an idle window after the restore. Until then `activeWallet` and `session` stay set; a wallet call in that
-window checks with the wallet API first, as before.
+An idle session ends about 10 days after its last use, and never after the requested lifetime. With
+an accurate device clock and an app that keeps running, an ended session is noticed at its expiry.
+When the check cannot reach the wallet API, the SDK keeps the session and retries the check while the
+app is active, at most 15 minutes apart; until then `activeWallet` and `session` stay set, and a
+wallet call checks with the wallet API first, as before.
 
 When the wallet API reports the session's credential expired or gone (WaaS `KeyExpired` 7203 or
 `KeyNotFound` 7202), the SDK ends the session as on local expiry, notifies session-expired observers

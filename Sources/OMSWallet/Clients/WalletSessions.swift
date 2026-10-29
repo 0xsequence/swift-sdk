@@ -57,16 +57,12 @@ extension WalletClient {
             }
             return
         }
-        // A passed expiry may still be active on the server; the restored session's read decides.
-        // Without its signing key, an earlier launch already ended it (keeping the record as the
-        // sign-in hint), so it is replayed as expired again. A key that cannot be read is not
-        // missing: the restore waits instead.
+        // A passed expiry may have been extended on the server, so the restored session's read
+        // decides, unless its lifetime cap has passed too. Without its signing key, an earlier
+        // launch already ended it (keeping the record as the sign-in hint), so it is replayed as
+        // expired again. A key that cannot be read is not missing: the restore waits instead.
         if isSessionExpired(storedSession) {
-            guard savedSessionMayBeActiveOnServer(
-                expiresAt: storedSession.expiryDate,
-                bounds: storedWallet.expiryBounds,
-                now: currentDate()
-            ) else {
+            guard storedWallet.expiryBounds?.hasPassed(at: currentDate()) != true else {
                 expireStoredSession(
                     storedSession,
                     signerCredentialId: storedWallet.signerCredentialId,
@@ -124,72 +120,108 @@ extension WalletClient {
             _sessionExpiryBounds = restoredWallet.expiryBounds
             // `restore()` matched the signer's key to the stored record's credential.
             _sessionSignerCredentialId = try? credentialSession.signer.credentialId()
-            // Any request of the previous process completed before now, and nothing says when its
-            // last read was, so the restore counts as activity until a read succeeds.
-            _lastSessionRequestCompletedAt = currentDate()
             // At init nobody observes yet; a deferred restore (after unlock) reaches observers.
             publishSessionChangeLocked(.restored)
         }
         if let snapshot = currentSessionSnapshot() {
             scheduleSessionExpiry(snapshot)
-            // The stored expiry may be stale: the server slides it forward with use. The read
-            // extends the session too, so it waits for the app to be in the foreground: a
-            // background launch or an app extension is not user activity.
-            readRestoredSessionWhenActive(revision: sessionRevisionSnapshot(), attempt: 0)
+            // The stored expiry may be stale: the server slides it forward with use.
+            readSessionExpiryWhenActive()
         }
     }
 
-    /// Reads the restored session's expiry once the app is active, unless a read has succeeded
-    /// since the restore (a wallet call may have read it). Ending the session cancels the wait, so
-    /// an app extension or a launch that never becomes active does not keep the observer
-    /// registered.
-    private func readRestoredSessionWhenActive(revision: UInt64, attempt: Int) {
+    /// Reads the session's expiry with `GetCredential` once the app is active, unless a read is
+    /// already pending. The read extends a live session like any signed request, so it waits for
+    /// the foreground: a background launch or an app extension is not user activity. Used after a
+    /// restore and by the expiry timer.
+    func readSessionExpiryWhenActive() {
+        let request = withSessionLock { () -> (revision: UInt64, readBefore: Date?)? in
+            guard currentSessionLocked() != nil, !_sessionReadPending else {
+                return nil
+            }
+            _sessionReadPending = true
+            return (_sessionRevision, _lastCredentialRefreshAt)
+        }
+        if let request {
+            readSessionExpiryWhenActive(revision: request.revision, readBefore: request.readBefore)
+        }
+    }
+
+    /// Ending the session cancels the wait, so an app extension or a launch that never becomes
+    /// active does not keep the observer registered. A read that succeeded since `readBefore` (for
+    /// example a wallet call's) has already applied the expiry, so this one is skipped.
+    private func readSessionExpiryWhenActive(revision: UInt64, readBefore: Date?) {
         let cancel = runWhenActive { [weak self] in
-            guard let self, self.activeWalletSessionRevision() == revision,
-                  self.withSessionLock({ self._lastCredentialRefreshAt == nil }) else {
+            guard let self, self.activeWalletSessionRevision() == revision else {
+                return
+            }
+            guard self.withSessionLock({ self._lastCredentialRefreshAt == readBefore }) else {
+                self.finishSessionRead(revision: revision)
                 return
             }
             Task { [weak self] in
-                await self?.readRestoredSession(revision: revision, attempt: attempt)
+                await self?.readSessionExpiry(revision: revision)
             }
         }
-        storeRestoreReadCancel(cancel, revision: revision)
+        storeSessionReadCancel(cancel, revision: revision)
     }
 
-    /// Until a read succeeds, a restore read that could not reach the wallet API is retried with
-    /// the expiry timer's backoff, each time once the app is active, where reading counts as use:
-    /// a session restored offline is settled soon after the network returns. The expiry timer reads
-    /// no sooner for it, since the saved expiry may be older than the server's.
-    private func readRestoredSession(revision: UInt64, attempt: Int) async {
-        let outcome = await refreshCredentialExpiry()
-        guard activeWalletSessionRevision() == revision, let current = currentSessionSnapshot() else {
+    /// A read that could not reach the wallet API keeps the session and is retried with backoff,
+    /// each time once the app is active, so a session read offline is settled soon after the
+    /// network returns. Without `GetCredential` the local expiry is final.
+    private func readSessionExpiry(revision: UInt64) async {
+        if case .unavailable = await refreshCredentialExpiry() {
+            retrySessionRead(revision: revision)
             return
         }
-        if case .unavailable = outcome, withSessionLock({ _lastCredentialRefreshAt == nil }) {
-            let retryAttempt = attempt + 1
-            let delay = Self.sessionExpiryRetryDelay(attempt: retryAttempt)
-            let sleep = restoreReadRetrySleep
-            let retry = Task { [weak self] in
-                await sleep(delay)
-                guard !Task.isCancelled else {
-                    return
-                }
-                self?.readRestoredSessionWhenActive(revision: revision, attempt: retryAttempt)
-            }
-            storeRestoreReadCancel({ retry.cancel() }, revision: revision)
+        finishSessionRead(revision: revision)
+        guard activeWalletSessionRevision() == revision,
+              let current = currentSessionSnapshot(),
+              isSessionExpired(current) else {
+            return
         }
-        // Without `GetCredential` the local expiry is final: the timer ends a locally expired session.
-        if isSessionExpired(current) {
-            scheduleSessionExpiry(current)
+        expireSessionFromTimer(current)
+    }
+
+    private func retrySessionRead(revision: UInt64) {
+        let retry = withSessionLock { () -> (delay: TimeInterval, readBefore: Date?)? in
+            guard _sessionRevision == revision, currentSessionLocked() != nil else {
+                return nil
+            }
+            _sessionReadRetryAttempt += 1
+            return (Self.sessionExpiryRetryDelay(attempt: _sessionReadRetryAttempt), _lastCredentialRefreshAt)
+        }
+        guard let retry else {
+            return
+        }
+        let sleep = sessionReadRetrySleep
+        let task = Task { [weak self] in
+            await sleep(retry.delay)
+            guard !Task.isCancelled else {
+                return
+            }
+            self?.readSessionExpiryWhenActive(revision: revision, readBefore: retry.readBefore)
+        }
+        storeSessionReadCancel({ task.cancel() }, revision: revision)
+    }
+
+    private func finishSessionRead(revision: UInt64) {
+        withSessionLock {
+            guard _sessionRevision == revision else {
+                return
+            }
+            _sessionReadPending = false
+            _sessionReadRetryAttempt = 0
+            _cancelSessionRead = nil
         }
     }
 
-    private func storeRestoreReadCancel(_ cancel: @escaping ForegroundActivation.Cancel, revision: UInt64) {
+    private func storeSessionReadCancel(_ cancel: @escaping ForegroundActivation.Cancel, revision: UInt64) {
         let isCurrent = withSessionLock {
             guard _sessionRevision == revision else {
                 return false
             }
-            _cancelRestoreRead = cancel
+            _cancelSessionRead = cancel
             return true
         }
         if !isCurrent {
@@ -317,14 +349,14 @@ extension WalletClient {
         _sessionRevision += 1
         _sessionSignerCredentialId = nil
         _lastCredentialRefreshAt = nil
-        _lastSessionRequestCompletedAt = nil
-        _lastCredentialReadCompletedAt = nil
         _sessionExpiryBounds = nil
         _sessionExpiryTimerFireDate = nil
         sessionExpiryTask?.cancel()
         sessionExpiryTask = nil
-        _cancelRestoreRead?()
-        _cancelRestoreRead = nil
+        _cancelSessionRead?()
+        _cancelSessionRead = nil
+        _sessionReadPending = false
+        _sessionReadRetryAttempt = 0
         activePendingWalletSelection = nil
         try? credentialSession.clearSignerKeepingCredentials(ifCredentialId: sessionCredentialId)
         activeWallet = nil
@@ -405,14 +437,14 @@ extension WalletClient {
         _sessionRevision += 1
         _sessionSignerCredentialId = nil
         _lastCredentialRefreshAt = nil
-        _lastSessionRequestCompletedAt = nil
-        _lastCredentialReadCompletedAt = nil
         _sessionExpiryBounds = nil
         _sessionExpiryTimerFireDate = nil
         sessionExpiryTask?.cancel()
         sessionExpiryTask = nil
-        _cancelRestoreRead?()
-        _cancelRestoreRead = nil
+        _cancelSessionRead?()
+        _cancelSessionRead = nil
+        _sessionReadPending = false
+        _sessionReadRetryAttempt = 0
         activePendingWalletSelection = nil
         activeWallet = nil
         sessionExpiresAt = nil
@@ -426,19 +458,10 @@ extension WalletClient {
         )
     }
 
-    /// Schedules the expiry timer for `session`: at `fireDate` when given, otherwise at its expiry,
-    /// or, for `retryAttempt` > 0, after a backed-off delay to recheck a session whose expiry could
-    /// not be refreshed.
-    func scheduleSessionExpiry(_ session: WalletSessionSnapshot, retryAttempt: Int = 0, at fireDate: Date? = nil) {
+    /// Schedules the expiry timer for `session` at its expiry.
+    func scheduleSessionExpiry(_ session: WalletSessionSnapshot) {
         let now = currentDate()
-        let delay: TimeInterval
-        if let fireDate {
-            delay = max(0, fireDate.timeIntervalSince(now))
-        } else if retryAttempt > 0 {
-            delay = Self.sessionExpiryRetryDelay(attempt: retryAttempt)
-        } else {
-            delay = max(0, session.expiryDate.timeIntervalSince(now))
-        }
+        let delay = max(0, session.expiryDate.timeIntervalSince(now))
         // A far-future expiry (for example a bad server value) must not overflow the conversion.
         let sleepSeconds = delay.isFinite
             ? min(delay, Self.sessionExpiryMaxTimerDelaySeconds)
@@ -458,7 +481,7 @@ extension WalletClient {
                 guard !Task.isCancelled else {
                     return
                 }
-                await self?.handleSessionExpiryTimer(session, retryAttempt: retryAttempt)
+                self?.handleSessionExpiryTimer(session)
             }
             _sessionExpiryTimerFireDate = now.addingTimeInterval(delay)
         }
@@ -469,16 +492,14 @@ extension WalletClient {
         return min(sessionExpiryRetryBaseSeconds * pow(2, exponent), sessionExpiryRetryMaxSeconds)
     }
 
-    /// After local expiry, asks the server for the current expiry once the session would have
-    /// ended there too (see `sessionExpiryCheckDateLocked`): a session the server has extended is
-    /// rescheduled, and one it cannot vouch for because it is offline is rechecked later instead
-    /// of being ended.
-    private func handleSessionExpiryTimer(_ session: WalletSessionSnapshot, retryAttempt: Int) async {
+    /// At local expiry, ends a session whose lifetime cap has passed, or whose expiry cannot be
+    /// read, and otherwise reads its expiry once the app is active: WaaS may have extended it.
+    private func handleSessionExpiryTimer(_ session: WalletSessionSnapshot) {
         enum Step {
             case superseded
             case notExpired
-            case deferred(until: Date)
-            case due
+            case end
+            case read
         }
         let step = withSessionLock { () -> Step in
             guard isCurrentSessionSnapshotLocked(session) else {
@@ -488,75 +509,21 @@ extension WalletClient {
                 return .notExpired
             }
             // Without `GetCredential` the local expiry is final.
-            guard !isCredentialRefreshUnsupportedLocked() else {
-                return .due
+            if isCredentialRefreshUnsupportedLocked() || _sessionExpiryBounds?.hasPassed(at: currentDate()) == true {
+                return .end
             }
-            let checkDate = sessionExpiryCheckDateLocked(session)
-            return currentDate() < checkDate ? .deferred(until: checkDate) : .due
+            return .read
         }
         switch step {
         case .superseded:
             return
         case .notExpired:
             scheduleSessionExpiry(session)
-            return
-        case .deferred(let checkDate):
-            scheduleSessionExpiry(session, retryAttempt: retryAttempt, at: checkDate)
-            return
-        case .due:
-            break
-        }
-        // Sent after the bound on the server's expiry, this read finds the session already ended
-        // there if it reaches it, so it is not activity: a retry after a failure keeps the same check
-        // time and follows the backoff.
-        switch await refreshCredentialExpiry(isExpiryCheck: true) {
-        case .refreshed, .ended, .superseded:
-            return
-        case .unsupported:
+        case .end:
             expireSessionFromTimer(session)
-        case .unavailable:
-            scheduleSessionExpiry(session, retryAttempt: retryAttempt + 1)
+        case .read:
+            readSessionExpiryWhenActive()
         }
-    }
-
-    /// When the expiry timer may ask WaaS about the locally expired `session`. `GetCredential`
-    /// extends a live session like any signed request, so asking before the server's expiry would
-    /// keep an idle session alive; the timer waits until an upper bound on that expiry has passed.
-    ///
-    /// The local expiry L came from the read completed at C (sign-in or the last successful
-    /// `GetCredential` in this process; unset after a restore until a read succeeds). A is when
-    /// the last signed request completed, whatever its outcome (`GetCredential` included, except
-    /// this timer's own check), or the restore time if later; a request that stalls before
-    /// reaching WaaS moves the expiry later than its send, never later than its completion. With
-    /// no request since C (A is not later than C), the server's expiry is still L, and the timer
-    /// asks at L + grace. Otherwise each request by A moved the server's expiry to at most
-    /// min(A + I, N), where the sign-in gave the idle window I and the ceiling N
-    /// (`SessionExpiryBounds`), so the timer asks at max(L, min(A + I, N)) + grace. The server
-    /// skips small moves (it dampens writes), which can only leave its expiry lower, so this stays
-    /// an upper bound; with a lifetime shorter than the idle window it is N itself and activity
-    /// cannot delay the check. Restore discards a stored session without the bounds, so they are
-    /// unknown only if a sign-in returned an expiry not after its send; the timer then asks at
-    /// L + max(0, A - C) + slide dampening + grace, taking C = A when C is unset.
-    private func sessionExpiryCheckDateLocked(_ session: WalletSessionSnapshot) -> Date {
-        let grace = Self.sessionExpiryCheckGraceSeconds
-        let localExpiry = session.expiryDate
-        let lastRequest = _lastSessionRequestCompletedAt
-        let lastRefresh = _lastCredentialRefreshAt
-        guard let bounds = _sessionExpiryBounds else {
-            var sinceRead: TimeInterval = 0
-            if let lastRequest, let lastRefresh {
-                sinceRead = max(0, lastRequest.timeIntervalSince(lastRefresh))
-            }
-            return localExpiry.addingTimeInterval(sinceRead + Self.serverExpirySlideDampeningSeconds + grace)
-        }
-        guard let lastRequest else {
-            return localExpiry.addingTimeInterval(grace)
-        }
-        if let lastRefresh, lastRequest <= lastRefresh {
-            return localExpiry.addingTimeInterval(grace)
-        }
-        let serverExpiryBound = min(lastRequest.addingTimeInterval(bounds.idleWindowSeconds), bounds.ceiling)
-        return max(localExpiry, serverExpiryBound).addingTimeInterval(grace)
     }
 
     private func expireSessionFromTimer(_ session: WalletSessionSnapshot) {
@@ -571,11 +538,16 @@ extension WalletClient {
 
     /// Before an operation uses a locally expired session, asks the server whether it extended
     /// the expiry. An extended session continues; an ended session throws `sessionExpired`; an
-    /// unreachable server throws its error and keeps the session. Without server support the
-    /// caller's local expiry check applies as before.
+    /// unreachable server throws its error and keeps the session. A session past its lifetime cap
+    /// ends without a request. Without server support the caller's local expiry check applies as
+    /// before.
     func refreshLocallyExpiredSession() async throws {
         guard let session = currentSessionSnapshot(), isSessionExpired(session) else {
             return
+        }
+        if withSessionLock({ _sessionExpiryBounds?.hasPassed(at: currentDate()) == true }) {
+            expireSessionFromTimer(session)
+            throw OMSWalletError.sessionExpired()
         }
         // A missing or replaced signer key ends the session without a request (see
         // `endSessionWithReplacedSignerLocked`): as expired here, since the expiry passed.
@@ -591,14 +563,10 @@ extension WalletClient {
 
     /// Fetches the active credential's current expiry with `getCredential` and applies it to the
     /// session. Concurrent callers for the same session share one request, and a result is
-    /// applied only while the session it was requested for is still current. `isExpiryCheck` marks
-    /// the expiry timer's check, whose send is not recorded as session activity; a caller that
-    /// joins an in-flight refresh shares it as started. A session whose signer key is missing or was
-    /// replaced elsewhere ends without a request (see `endSessionWithReplacedSignerLocked`), as
+    /// applied only while the session it was requested for is still current. A session whose
+    /// signer key is missing or was replaced elsewhere ends without a request (see `endSessionWithReplacedSignerLocked`), as
     /// `ended` when it ended as expired.
-    func refreshCredentialExpiry(
-        isExpiryCheck: Bool = false
-    ) async -> CredentialRefreshOutcome {
+    func refreshCredentialExpiry() async -> CredentialRefreshOutcome {
         enum Start {
             case task(Task<CredentialRefreshOutcome, Never>)
             case outcome(CredentialRefreshOutcome)
@@ -630,15 +598,11 @@ extension WalletClient {
             let task = Task { [weak self] () -> CredentialRefreshOutcome in
                 let outcome: CredentialRefreshOutcome
                 do {
-                    // Taken before the request waits for in-flight signed requests, so it is never
-                    // later than the send.
-                    let sentAt = self?.currentDate() ?? Date()
                     let response = try await client.getCredential()
                     // The server has the method, whatever an earlier read reported.
                     self?.withSessionLock { self?._credentialRefreshUnsupportedAt = nil }
                     outcome = self?.applyRefreshedCredentialExpiry(
                         response.credential.expiresAt,
-                        sentAt: sentAt,
                         revision: revision
                     ) ?? .superseded
                 } catch {
@@ -647,7 +611,7 @@ extension WalletClient {
                 self?.finishCredentialRefresh(id)
                 return outcome
             }
-            _credentialRefresh = (id, revision, isExpiryCheck, task)
+            _credentialRefresh = (id, revision, task)
             return .task(task)
         }
         switch start {
@@ -677,7 +641,6 @@ extension WalletClient {
 
     private func applyRefreshedCredentialExpiry(
         _ expiresAt: String,
-        sentAt: Date,
         revision: UInt64
     ) -> CredentialRefreshOutcome {
         guard OMSWalletSession.parseDate(expiresAt) != nil else {
@@ -706,10 +669,7 @@ extension WalletClient {
                 expiryBounds: _sessionExpiryBounds
             )
             sessionExpiresAt = expiresAt
-            // The read's completion, the same timestamp recorded as its activity, so A <= C until
-            // another request completes; no request overlaps a read, so any later one completes
-            // after it. `sentAt` guards against a stale timestamp from an earlier read.
-            _lastCredentialRefreshAt = max(sentAt, _lastCredentialReadCompletedAt ?? currentDate())
+            _lastCredentialRefreshAt = currentDate()
             guard !isSessionExpired(session) else {
                 // The server's expiry has already passed by the local clock; end it as local
                 // expiry does rather than refreshing again.
@@ -775,29 +735,6 @@ extension WalletClient {
     /// sign-in, before a wallet is activated).
     func activeWalletSessionRevision() -> UInt64? {
         withSessionLock { currentSessionLocked() == nil ? nil : _sessionRevision }
-    }
-
-    /// Called by `SessionCredentialTransport` when a request signed with the session credential
-    /// completes, whatever its outcome. A `GetCredential` counts too, since one whose response is
-    /// lost may still have moved the server's expiry, except the expiry timer's check (see
-    /// `handleSessionExpiryTimer`). No other request overlaps a `GetCredential`, so the in-flight
-    /// refresh is the one completing. A request that got its turn under an earlier session (before a
-    /// sign-out or new sign-in) is not this session's activity and is ignored.
-    func recordSessionCredentialRequestCompleted(path: String, revision: UInt64?) {
-        withSessionLock {
-            guard let revision, revision == _sessionRevision else {
-                return
-            }
-            let completedAt = currentDate()
-            guard path == WaasAPI.GetCredential.urlPath else {
-                _lastSessionRequestCompletedAt = completedAt
-                return
-            }
-            _lastCredentialReadCompletedAt = completedAt
-            if _credentialRefresh?.isExpiryCheck != true {
-                _lastSessionRequestCompletedAt = completedAt
-            }
-        }
     }
 
     /// Called by `SessionCredentialTransport` for every response to a request signed with the
@@ -932,8 +869,6 @@ extension WalletClient {
                     self._sessionRevision += 1
                     self._sessionSignerCredentialId = nil
                     self._lastCredentialRefreshAt = nil
-                    self._lastSessionRequestCompletedAt = nil
-                    self._lastCredentialReadCompletedAt = nil
                     self._sessionExpiryBounds = nil
                     self._sessionExpiryTimerFireDate = nil
                     // A sign-out or new sign-in makes an earlier expiry old news, whether or not a
@@ -941,8 +876,10 @@ extension WalletClient {
                     self._latestExpiredChange = nil
                     self.sessionExpiryTask?.cancel()
                     self.sessionExpiryTask = nil
-                    self._cancelRestoreRead?()
-                    self._cancelRestoreRead = nil
+                    self._cancelSessionRead?()
+                    self._cancelSessionRead = nil
+                    self._sessionReadPending = false
+                    self._sessionReadRetryAttempt = 0
                     self._restoreDeferred = false
                     self._cancelDeferredRestore?()
                     self._cancelDeferredRestore = nil

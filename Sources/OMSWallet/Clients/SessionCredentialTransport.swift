@@ -149,14 +149,6 @@ final class SignedRequestAttempt: @unchecked Sendable {
         return true
     }
 
-    /// Whether the request may have reached WaaS: its HTTP request was about to start (or, for a
-    /// transport that does not report that, it got its turn).
-    var mayHaveBeenSent: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return state == .sending
-    }
-
     /// Whether the request expired before it was possibly sent, so it never will be.
     func expire() -> Bool {
         lock.lock()
@@ -224,12 +216,6 @@ struct SessionCredentialTransport: WebRPCTransport {
     let gate: SignedRequestGate
     /// The session revision when a wallet session is active, or `nil` (for example during sign-in).
     let activeSessionRevision: @Sendable () -> UInt64?
-    /// Called once a request that may have reached WaaS completes (its last response received or
-    /// its error thrown), with the session revision (`sessionRevision`) when it got its turn, while
-    /// the gate is still held: no `GetCredential` overlaps another request, so a request processed
-    /// after a read completes after it. A request that failed before it could be sent is not
-    /// reported.
-    let onRequestCompleted: @Sendable (_ path: String, _ revision: UInt64?) -> Void
     let onResponse: @Sendable (_ response: WebRPCHTTPResponse, _ path: String, _ revision: UInt64) -> Void
 
     /// The most a signed request may take in all, from waiting for its turn through signing to its
@@ -240,9 +226,6 @@ struct SessionCredentialTransport: WebRPCTransport {
     /// The credential the request will be signed with, which picks its queue in `gate`; `nil`
     /// before the signer has a key.
     var signingCredentialId: @Sendable () -> String? = { nil }
-    /// The client's session revision, active wallet or not (a pending wallet selection's requests
-    /// count for the session it completes); a sign-out or new sign-in changes it.
-    var sessionRevision: @Sendable () -> UInt64? = { nil }
 
     func post(
         baseURL: String,
@@ -315,7 +298,6 @@ struct SessionCredentialTransport: WebRPCTransport {
             throw CancellationError()
         }
         let revision = activeSessionRevision()
-        let completionRevision = sessionRevision()
         var response: WebRPCHTTPResponse
         do {
             // The gate stays held across resends, so each fresh nonce is still taken in order.
@@ -331,13 +313,9 @@ struct SessionCredentialTransport: WebRPCTransport {
             if error is RequestNotSentError {
                 RequestSendRecord.current?.recordFailedBeforeSending()
             }
-            if attempt.mayHaveBeenSent {
-                onRequestCompleted(path, completionRevision)
-            }
             gate.release(credentialId: credentialId)
             throw error
         }
-        onRequestCompleted(path, completionRevision)
         gate.release(credentialId: credentialId)
         if let revision {
             onResponse(response, path, revision)

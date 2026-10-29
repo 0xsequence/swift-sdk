@@ -37,17 +37,10 @@ public final class WalletClient: @unchecked Sendable {
     /// The longest the expiry timer sleeps at once (about 100 years, well below 2^63 nanoseconds);
     /// a later expiry is checked again when it wakes.
     static let sessionExpiryMaxTimerDelaySeconds: TimeInterval = 100 * 365 * 24 * 60 * 60
-    /// How long after a session's predicted server expiry the expiry timer waits before asking WaaS
-    /// with `GetCredential`. That request extends a live session itself, so the margin keeps
-    /// request latency from letting the check extend an idle one.
-    static let sessionExpiryCheckGraceSeconds: TimeInterval = 5 * 60
     /// How long after WaaS answers `GetCredential` with `WebrpcBadRoute` the SDK keeps treating the
     /// local expiry as final before asking again: a server without the method is not asked on every
     /// trigger, and one routing error does not disable refreshes for good.
     static let credentialRefreshUnsupportedCooldownSeconds: TimeInterval = 15 * 60
-    /// WaaS skips moving a credential's expiry forward by less than this (its slide dampening).
-    /// The expiry timer adds it to its check when the session's `SessionExpiryBounds` are unknown.
-    static let serverExpirySlideDampeningSeconds: TimeInterval = 6 * 60 * 60
     /// Sleeps for the given seconds; a cancelled task wakes early.
     static let sleep: @Sendable (TimeInterval) async -> Void = { seconds in
         try? await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1_000_000_000))
@@ -86,10 +79,10 @@ public final class WalletClient: @unchecked Sendable {
     let oidcNonceGenerator: () throws -> String
     let signedClientFactory: (any CredentialSigner) -> WaasClient
     let currentDate: () -> Date
-    /// Runs the restore read once the app is in the foreground (`ForegroundActivation`).
+    /// Runs the session read once the app is in the foreground (`ForegroundActivation`).
     let runWhenActive: (@escaping @Sendable () -> Void) -> ForegroundActivation.Cancel
-    /// Waits before retrying a restore read that could not reach the wallet API.
-    let restoreReadRetrySleep: @Sendable (TimeInterval) async -> Void
+    /// Waits before retrying a session read that could not reach the wallet API.
+    let sessionReadRetrySleep: @Sendable (TimeInterval) async -> Void
     /// Runs a deferred keychain restore once protected data may be readable
     /// (`ForegroundActivation.runWhenProtectedDataAvailable`); the flag allows an immediate check.
     let runWhenProtectedDataAvailable: (Bool, @escaping @Sendable () -> Void) -> ForegroundActivation.Cancel
@@ -136,8 +129,13 @@ public final class WalletClient: @unchecked Sendable {
     var _cancelDeferredRestore: ForegroundActivation.Cancel?
     /// When a session read last retried a deferred restore, to retry at most once a second.
     var _lastDeferredRestoreAttempt: Date?
-    /// Cancels the restore read still waiting for the app to become active.
-    var _cancelRestoreRead: ForegroundActivation.Cancel?
+    /// Cancels the session read waiting for the app to become active or for its retry.
+    var _cancelSessionRead: ForegroundActivation.Cancel?
+    /// Whether a session read is waiting, running or retrying, so the timer and a restore never
+    /// start a second one.
+    var _sessionReadPending = false
+    /// How many times the pending session read has failed to reach the wallet API in a row.
+    var _sessionReadRetryAttempt = 0
     /// The last `expired` change, replayed to observers added before the next sign-in or sign-out.
     var _latestExpiredChange: OMSWalletSessionChangeEvent?
     /// The active wallet and session of the last published change; a change is published only when
@@ -152,11 +150,9 @@ public final class WalletClient: @unchecked Sendable {
     var _activeWallet: Wallet?
     var _sessionRevision: UInt64 = 0
     /// The in-flight `getCredential` refresh, shared by concurrent callers of the same session.
-    /// `isExpiryCheck` marks the expiry timer's own read, whose send is not recorded as activity.
     var _credentialRefresh: (
         id: UUID,
         revision: UInt64,
-        isExpiryCheck: Bool,
         task: Task<CredentialRefreshOutcome, Never>
     )?
     /// When the server last reported it has no `GetCredential` method (`WebrpcBadRoute`); refreshes
@@ -165,18 +161,8 @@ public final class WalletClient: @unchecked Sendable {
     /// When the request that last gave the active session's expiry completed: the sign-in, or the
     /// last successful `GetCredential`. `nil` after a restore until a read succeeds.
     var _lastCredentialRefreshAt: Date?
-    /// When the last request signed with the session credential completed, whatever its outcome
-    /// (WaaS extends the session for each one that reaches it, at the latest by its completion).
-    /// `GetCredential` counts, except the expiry timer's own check, which is sent only after the
-    /// bound on the server's expiry. A restore sets it to the restore time, which is after any
-    /// request of the previous process.
-    var _lastSessionRequestCompletedAt: Date?
-    /// When the last `GetCredential` completed; the same timestamp as
-    /// `_lastSessionRequestCompletedAt` for that read, so a successful read with no later request
-    /// leaves no activity after it.
-    var _lastCredentialReadCompletedAt: Date?
-    /// The active session's expiry bounds from its sign-in, or `nil` when unknown (a sign-in
-    /// whose credential expiry was not after its send).
+    /// The active session's lifetime cap from its sign-in, or `nil` when unknown (a sign-in whose
+    /// credential expiry was not after its send).
     var _sessionExpiryBounds: SessionExpiryBounds?
     /// When the scheduled expiry timer fires.
     var _sessionExpiryTimerFireDate: Date?
@@ -290,8 +276,8 @@ public final class WalletClient: @unchecked Sendable {
         withSessionLock {
             sessionExpiryTask?.cancel()
             sessionExpiryTask = nil
-            _cancelRestoreRead?()
-            _cancelRestoreRead = nil
+            _cancelSessionRead?()
+            _cancelSessionRead = nil
         }
     }
 
@@ -313,7 +299,7 @@ public final class WalletClient: @unchecked Sendable {
         self.oidcNonceGenerator = OIDCRedirectAuth.generateNonce
         self.currentDate = Date.init
         self.runWhenActive = ForegroundActivation.runWhenActive
-        self.restoreReadRetrySleep = WalletClient.sleep
+        self.sessionReadRetrySleep = WalletClient.sleep
         self.runWhenProtectedDataAvailable = ForegroundActivation.runWhenProtectedDataAvailable
         let makeSignedClient: (any CredentialSigner) -> WaasClient = { signer in
             Self.makeSignedClient(
@@ -365,7 +351,7 @@ public final class WalletClient: @unchecked Sendable {
         signedClientFactory: ((any CredentialSigner) -> WaasClient)? = nil,
         currentDate: @escaping () -> Date = Date.init,
         runWhenActive: @escaping (@escaping @Sendable () -> Void) -> ForegroundActivation.Cancel = ForegroundActivation.runWhenActive,
-        restoreReadRetrySleep: @escaping @Sendable (TimeInterval) async -> Void = WalletClient.sleep,
+        sessionReadRetrySleep: @escaping @Sendable (TimeInterval) async -> Void = WalletClient.sleep,
         runWhenProtectedDataAvailable: @escaping (Bool, @escaping @Sendable () -> Void) -> ForegroundActivation.Cancel =
             ForegroundActivation.runWhenProtectedDataAvailable,
         walletImportClient: WaasClient? = nil
@@ -381,7 +367,7 @@ public final class WalletClient: @unchecked Sendable {
         self.oidcNonceGenerator = oidcNonceGenerator
         self.currentDate = currentDate
         self.runWhenActive = runWhenActive
-        self.restoreReadRetrySleep = restoreReadRetrySleep
+        self.sessionReadRetrySleep = sessionReadRetrySleep
         self.runWhenProtectedDataAvailable = runWhenProtectedDataAvailable
         let makeSignedClient = signedClientFactory ?? { _ in signedClient }
         self.signedClientFactory = makeSignedClient
@@ -417,15 +403,11 @@ public final class WalletClient: @unchecked Sendable {
                 base: client.transport,
                 gate: signedRequestGate,
                 activeSessionRevision: { [weak self] in self?.activeWalletSessionRevision() },
-                onRequestCompleted: { [weak self] path, revision in
-                    self?.recordSessionCredentialRequestCompleted(path: path, revision: revision)
-                },
                 onResponse: { [weak self] response, path, revision in
                     self?.handleSessionCredentialResponse(response, path: path, revision: revision)
                 },
                 deadlineSeconds: signedRequestDeadlineSeconds,
-                signingCredentialId: { [weak self] in self?.signerCredentialIdIfPresent() },
-                sessionRevision: { [weak self] in self?.sessionRevisionSnapshot() }
+                signingCredentialId: { [weak self] in self?.signerCredentialIdIfPresent() }
             ),
             headers: client.headers
         )
