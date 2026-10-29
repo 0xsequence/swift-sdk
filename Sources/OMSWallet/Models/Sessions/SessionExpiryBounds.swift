@@ -53,9 +53,11 @@ func savedSessionMayBeActiveOnServer(expiresAt: Date, bounds: SessionExpiryBound
     now < latestServerExpiryOfSavedSession(expiresAt: expiresAt, bounds: bounds)
 }
 
-/// The latest the server expiry of a session saved with `expiresAt` can be, plus the expiry check's
-/// grace: see `savedSessionMayBeActiveOnServer`. It holds while every read and its save succeeded;
-/// a missed one can only leave the server expiry later, which ends the session early.
+/// The latest the server expiry of a session saved with `expiresAt` normally is, plus the expiry
+/// check's grace: see `savedSessionMayBeActiveOnServer`. A read that was missed or not saved can
+/// leave the server expiry later, so it only decides whether a restored session's read may settle
+/// it; the expiry timer never reads by it, since reading a live credential would extend an idle
+/// session.
 @available(macOS 12.0, iOS 15.0, *)
 func latestServerExpiryOfSavedSession(expiresAt: Date, bounds: SessionExpiryBounds?) -> Date {
     var latest = expiresAt.addingTimeInterval(

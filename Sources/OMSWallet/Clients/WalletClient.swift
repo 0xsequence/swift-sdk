@@ -45,6 +45,10 @@ public final class WalletClient: @unchecked Sendable {
     /// WaaS skips moving a credential's expiry forward by less than this (its slide dampening).
     /// The expiry timer adds it to its check when the session's `SessionExpiryBounds` are unknown.
     static let serverExpirySlideDampeningSeconds: TimeInterval = 6 * 60 * 60
+    /// Sleeps for the given seconds; a cancelled task wakes early.
+    static let sleep: @Sendable (TimeInterval) async -> Void = { seconds in
+        try? await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1_000_000_000))
+    }
 
     static let defaultTransactionStatusPollTimeoutMs: UInt64 = 60_000
     static let defaultFastTransactionStatusPollIntervalMs: UInt64 = 400
@@ -81,6 +85,8 @@ public final class WalletClient: @unchecked Sendable {
     let currentDate: () -> Date
     /// Runs the restore read once the app is in the foreground (`ForegroundActivation`).
     let runWhenActive: (@escaping @Sendable () -> Void) -> ForegroundActivation.Cancel
+    /// Waits before retrying a restore read that could not reach the wallet API.
+    let restoreReadRetrySleep: @Sendable (TimeInterval) async -> Void
     private var _sessionExpiresAt: String?
     var sessionExpiresAt: String? {
         get {
@@ -150,10 +156,6 @@ public final class WalletClient: @unchecked Sendable {
     /// bound on the server's expiry. A restore sets it to the restore time, which is after any
     /// request of the previous process.
     var _lastSessionRequestCompletedAt: Date?
-    /// When the active session was restored from the keychain. While no read has succeeded and no
-    /// request has completed since, the saved expiry bounds the server's
-    /// (`latestServerExpiryOfSavedSession`).
-    var _restoredAt: Date?
     /// When the last `GetCredential` completed; the same timestamp as
     /// `_lastSessionRequestCompletedAt` for that read, so a successful read with no later request
     /// leaves no activity after it.
@@ -295,6 +297,7 @@ public final class WalletClient: @unchecked Sendable {
         self.oidcNonceGenerator = OIDCRedirectAuth.generateNonce
         self.currentDate = Date.init
         self.runWhenActive = ForegroundActivation.runWhenActive
+        self.restoreReadRetrySleep = WalletClient.sleep
         let makeSignedClient: (any CredentialSigner) -> WaasClient = { signer in
             Self.makeSignedClient(
                 publishableKey: publishableKeyHolder,
@@ -345,6 +348,7 @@ public final class WalletClient: @unchecked Sendable {
         signedClientFactory: ((any CredentialSigner) -> WaasClient)? = nil,
         currentDate: @escaping () -> Date = Date.init,
         runWhenActive: @escaping (@escaping @Sendable () -> Void) -> ForegroundActivation.Cancel = ForegroundActivation.runWhenActive,
+        restoreReadRetrySleep: @escaping @Sendable (TimeInterval) async -> Void = WalletClient.sleep,
         walletImportClient: WaasClient? = nil
     ) {
         self.projectId = projectId
@@ -359,6 +363,7 @@ public final class WalletClient: @unchecked Sendable {
         self.oidcNonceGenerator = oidcNonceGenerator
         self.currentDate = currentDate
         self.runWhenActive = runWhenActive
+        self.restoreReadRetrySleep = restoreReadRetrySleep
         let makeSignedClient = signedClientFactory ?? { _ in signedClient }
         self.signedClientFactory = makeSignedClient
 
@@ -578,10 +583,9 @@ public final class WalletClient: @unchecked Sendable {
                 self._sessionExpiresAt = metadata.expiresAt
                 self._sessionAuth = metadata.auth
                 self._sessionExpiryBounds = metadata.expiryBounds
-                // Sign-in counts as a refresh; a wallet switch keeps the existing refresh time.
-                if self._lastCredentialRefreshAt == nil {
-                    self._lastCredentialRefreshAt = self.currentDate()
-                }
+                // Sign-in recorded its read in `completeWalletAuth`. Activating another wallet is not
+                // a read: a restored session not read yet stays unread, so the expiry timer keeps
+                // the restore-time bound instead of trusting the saved expiry.
             }
             if let snapshot = self.currentSessionSnapshot() {
                 self.scheduleSessionExpiry(snapshot)

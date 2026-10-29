@@ -158,9 +158,10 @@ background launch or an app extension does not extend an idle session. An idle s
 SDK's expiry timer asks only 5 minutes after the latest the server's expiry can be: the completion
 of the last signed request plus the idle window, capped at the requested lifetime. The wallet API
 skips extensions shorter than 6 hours, so while your app makes no wallet calls the SDK can notice
-the end of an idle session up to about 6 hours late. After a restore whose expiry refresh has not
-reached the wallet API (for example offline, or in an app extension that never becomes active), the
-SDK notices the end about 12 hours after the stored expiry at the latest. These times assume an accurate device clock
+the end of an idle session up to about 6 hours late. After a restore whose expiry refresh could not
+reach the wallet API, the SDK retries it while the app is active, at most 15 minutes apart, until it
+succeeds. In an app extension or a launch that never becomes active, the end can be noticed up to
+an idle window (10 days) after the restore. These times assume an accurate device clock
 and an app that keeps running in the foreground; the timer cannot fire while the app is suspended,
 and a wallet call on a locally expired session always checks with the wallet API first. When the wallet API rejects a request signed
 with the session's credential because that credential expired or is gone (WaaS `KeyExpired` 7203

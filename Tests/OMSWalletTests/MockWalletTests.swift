@@ -3225,6 +3225,7 @@ func makeMockWalletClient(
         body()
         return {}
     },
+    restoreReadRetrySleep: @escaping @Sendable (TimeInterval) async -> Void = WalletClient.sleep,
     prepareTransport: (MockWaasTransport) throws -> Void = { _ in }
 ) -> MockWalletClientFixture {
     let transport = MockWaasTransport()
@@ -3268,6 +3269,7 @@ func makeMockWalletClient(
         oidcNonceGenerator: oidcNonceGenerator,
         currentDate: currentDate,
         runWhenActive: runWhenActive,
+        restoreReadRetrySleep: restoreReadRetrySleep,
         walletImportClient: walletImportClient
     )
     client.verifier = "verifier"

@@ -867,9 +867,9 @@ func TestStoredSessionWithoutValidExpiryBoundsIsDiscardedOnRestore(_ fields: [St
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 0)
 }
 
-@Test @MainActor func TestExpiryTimerAfterFailedRestoreReadWaitsForBoundOfSavedExpiry() async throws {
-    // With no read or request since the restore, the saved expiry bounds the server's: the timer
-    // asks at min(L + 12 hours, N) + grace, not an idle window after the restore.
+@Test @MainActor func TestExpiryTimerAfterFailedRestoreReadWaitsForBoundFromRestoreTime() async throws {
+    // Nothing is known about the previous process's last read, so the restore counts as activity:
+    // the timer asks at max(L, min(restore + I, N)) + grace.
     let restoredAt = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
     let now = LockedBox(restoredAt)
     let keychain = InMemoryKeychain()
@@ -904,7 +904,7 @@ func TestStoredSessionWithoutValidExpiryBoundsIsDiscardedOnRestore(_ fields: [St
     try await waitForCredentialRefreshToFinish(fixture.client)
     #expect(fixture.client.withSessionLock { fixture.client._lastCredentialRefreshAt } == nil)
 
-    let checkDate = expiry.addingTimeInterval(12 * hour + grace)
+    let checkDate = restoredAt.addingTimeInterval(10 * day + grace)
     now.withValue { $0 = expiry.addingTimeInterval(grace + 1) }
     try await expectTimerDefers(fixture.client, to: checkDate)
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 1)
@@ -1151,8 +1151,10 @@ private func makeRestoredFixture(
     )
 }
 
-@Test @MainActor func TestRestoreReadWaitsForAppActivationAndTimerWaitsForBoundOfSavedExpiry() async throws {
-    // A background launch must not extend an idle session, so the restore read waits.
+@Test @MainActor func TestBackgroundRestoreWithStaleSavedExpiryNeverReadsEarly() async throws {
+    // A background launch must not extend an idle session, so the restore read waits. The saved
+    // expiry (2 days) is older than the server's (12 days), as when saving a refreshed expiry
+    // failed, so the timer must not read by the saved expiry either.
     let restoredAt = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
     let expiry = restoredAt.addingTimeInterval(2 * day)
     let now = LockedBox(restoredAt)
@@ -1165,9 +1167,9 @@ private func makeRestoredFixture(
     try await Task.sleep(nanoseconds: 200_000_000)
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 0)
 
-    // Without the read, the timer waits until the server expiry must have passed.
+    // Without the read, the restore time bounds the server expiry: the timer waits an idle window.
     now.withValue { $0 = expiry.addingTimeInterval(grace + 1) }
-    try await expectTimerDefers(fixture.client, to: expiry.addingTimeInterval(12 * hour + grace))
+    try await expectTimerDefers(fixture.client, to: restoredAt.addingTimeInterval(10 * day + grace))
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 0)
 
     trigger.activate()
@@ -1451,6 +1453,7 @@ private func restoreFourHoursPastSavedExpiry(
         body()
         return {}
     },
+    restoreReadRetrySleep: @escaping @Sendable (TimeInterval) async -> Void = WalletClient.sleep,
     prepareTransport: (MockWaasTransport) throws -> Void
 ) throws -> MockWalletClientFixture {
     makeMockWalletClient(
@@ -1467,6 +1470,7 @@ private func restoreFourHoursPastSavedExpiry(
             expiryBounds: testExpiryBounds
         ),
         runWhenActive: runWhenActive,
+        restoreReadRetrySleep: restoreReadRetrySleep,
         prepareTransport: prepareTransport
     )
 }
@@ -1546,4 +1550,109 @@ private func restoreFourHoursPastSavedExpiry(
     #expect(next.client.session == nil)
     #expect(next.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 0)
     #expect(try next.storedCredentials() != nil)
+}
+
+/// Holds each restore-read retry until the test releases it, and records the requested delays.
+private final class RetrySleepGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    private var requested: [TimeInterval] = []
+
+    var delays: [TimeInterval] {
+        lock.lock()
+        defer { lock.unlock() }
+        return requested
+    }
+
+    var waitingCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return waiting.count
+    }
+
+    func sleep(_ seconds: TimeInterval) async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            requested.append(seconds)
+            waiting.append(continuation)
+            lock.unlock()
+        }
+    }
+
+    func releaseAll() {
+        lock.lock()
+        let released = waiting
+        waiting = []
+        lock.unlock()
+        released.forEach { $0.resume() }
+    }
+}
+
+private let offlineError = WebRPCTransportError(message: "The Internet connection appears to be offline.")
+
+@Test @MainActor func TestRestoredSessionReadIsRetriedWhileActiveUntilItSucceeds() async throws {
+    let gate = RetrySleepGate()
+    let fixture = try restoreFourHoursPastSavedExpiry(restoreReadRetrySleep: gate.sleep) { transport in
+        transport.enqueueTransportError(offlineError, for: WaasAPI.GetCredential.urlPath)
+        transport.enqueueTransportError(offlineError, for: WaasAPI.GetCredential.urlPath)
+        transport.enqueueRawHTTPError(statusCode: 400, body: keyExpiredBody, for: WaasAPI.GetCredential.urlPath)
+    }
+    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
+    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    defer { observation.cancel() }
+
+    try await waitUntil { gate.waitingCount == 1 }
+    #expect(fixture.client.session != nil)
+    gate.releaseAll()
+    try await waitUntil { gate.waitingCount == 1 && gate.delays.count == 2 }
+    gate.releaseAll()
+    try await waitUntil { !expiredEvents.isEmpty }
+
+    // The expiry timer's backoff: 1 minute, then 2.
+    #expect(gate.delays == [60, 120])
+    #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 3)
+    #expect(expiredEvents.count == 1)
+    #expect(fixture.client.session == nil)
+}
+
+@Test @MainActor func TestRestoredSessionReadRetryStopsOnceAWalletCallReadsTheExpiry() async throws {
+    let gate = RetrySleepGate()
+    let fixture = try restoreFourHoursPastSavedExpiry(restoreReadRetrySleep: gate.sleep) { transport in
+        transport.enqueueTransportError(offlineError, for: WaasAPI.GetCredential.urlPath)
+        try transport.enqueue(
+            credentialResponse(expiresAt: "2026-01-11T04:00:00.000Z"),
+            for: WaasAPI.GetCredential.urlPath
+        )
+    }
+    try await waitUntil { gate.waitingCount == 1 }
+
+    // The call reads the locally expired session's expiry before signing.
+    try await signMessage(fixture)
+    #expect(fixture.client.session?.expiresAt == "2026-01-11T04:00:00.000Z")
+    #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 2)
+
+    gate.releaseAll()
+    try await Task.sleep(nanoseconds: 200_000_000)
+    #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 2)
+    #expect(gate.delays == [60])
+}
+
+@Test @MainActor func TestWalletSwitchOnUnreadRestoredSessionKeepsTheRestoreTimeBound() async throws {
+    // Activating another wallet is not a read: the saved expiry may be older than the server's.
+    let restoredAt = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+    let expiry = restoredAt.addingTimeInterval(2 * day)
+    let now = LockedBox(restoredAt)
+    let trigger = ForegroundTrigger()
+    let other = testWallet(id: "wallet-other", address: "0x2222222222222222222222222222222222222222")
+    let fixture = try makeRestoredFixture(restoredAt: restoredAt, now: now, trigger: trigger) { transport in
+        try transport.enqueue(UseWalletResponse(wallet: other), for: WaasAPI.UseWallet.urlPath)
+    }
+    _ = try await fixture.client.useWallet(walletId: other.id)
+    #expect(fixture.client.activeWallet?.id == other.id)
+    #expect(fixture.client.withSessionLock { fixture.client._lastCredentialRefreshAt } == nil)
+
+    // The switch request is activity after the restore, so the bound runs from it.
+    let switchedAt = try #require(fixture.client.withSessionLock { fixture.client._lastSessionRequestCompletedAt })
+    now.withValue { $0 = expiry.addingTimeInterval(grace + 1) }
+    try await expectTimerDefers(fixture.client, to: switchedAt.addingTimeInterval(10 * day + grace))
 }
