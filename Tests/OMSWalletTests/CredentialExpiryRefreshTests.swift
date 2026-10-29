@@ -61,20 +61,21 @@ private func waitUntil(attempts: Int = 40, _ condition: () -> Bool) async throws
             transport.enqueueWebRPCBadRoute(for: WaasAPI.GetCredential.urlPath)
         }
     )
-    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
-    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    var changes: [OMSWalletSessionChangeEvent] = []
+    let observation = fixture.client.addSessionChangeObserver { changes.append($0) }
     defer { observation.cancel() }
 
     try await waitUntil { fixture.client.session?.expiresAt == refreshedExpiresAt }
     #expect(fixture.client.session?.expiresAt == refreshedExpiresAt)
     #expect(try fixture.storedCredentials()?.expiresAt == refreshedExpiresAt)
-    #expect(expiredEvents.isEmpty)
+    try await waitUntil { changes.map(\.name) == ["expiryUpdated"] }
+    #expect(changes.map(\.name) == ["expiryUpdated"])
 
     now.withValue { $0 = base.addingTimeInterval(1 + WalletClient.sessionExpiryCheckGraceSeconds) }
-    try await waitUntil { !expiredEvents.isEmpty }
+    try await waitUntil { changes.last?.name == "expired" }
 
-    #expect(expiredEvents.count == 1)
-    #expect(expiredEvents.first?.expiredAt == refreshedExpiresAt)
+    #expect(changes.map(\.name) == ["expiryUpdated", "expired"])
+    #expect(changes.last?.expiredSession?.expiredAt == refreshedExpiresAt)
     #expect(fixture.client.session == nil)
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 2)
 }
@@ -100,8 +101,8 @@ private func waitUntil(attempts: Int = 40, _ condition: () -> Bool) async throws
         WebRPCTransportError(message: "The Internet connection appears to be offline."),
         for: WaasAPI.GetCredential.urlPath
     )
-    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
-    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    var changes: [OMSWalletSessionChangeEvent] = []
+    let observation = fixture.client.addSessionChangeObserver { changes.append($0) }
     defer { observation.cancel() }
 
     _ = try await fixture.client.completeEmailAuth(code: "123456")
@@ -112,7 +113,8 @@ private func waitUntil(attempts: Int = 40, _ condition: () -> Bool) async throws
     try await Task.sleep(nanoseconds: 200_000_000)
 
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 1)
-    #expect(expiredEvents.isEmpty)
+    // Only the sign-in: the unreachable read changed nothing.
+    #expect(changes.map(\.name) == ["signedIn"])
     #expect(fixture.client.session?.expiresAt == "2026-01-01T00:00:00Z")
     #expect(fixture.client.activeWallet?.address == wallet.address)
 }
@@ -361,16 +363,16 @@ private func isSameInstant(_ lhs: Date?, _ rhs: Date) -> Bool {
     let expiry = base.addingTimeInterval(0.5)
     try await signIn(fixture, expiresAt: expiry)
     fixture.transport.enqueueRawHTTPError(statusCode: 401, body: unauthorizedBody, for: WaasAPI.GetCredential.urlPath)
-    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
-    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    var changes: [OMSWalletSessionChangeEvent] = []
+    let observation = fixture.client.addSessionChangeObserver { changes.append($0) }
     defer { observation.cancel() }
 
     now.withValue { $0 = expiry.addingTimeInterval(WalletClient.sessionExpiryCheckGraceSeconds + 1) }
-    try await waitUntil { !expiredEvents.isEmpty }
+    try await waitUntil { changes.last?.name == "expired" }
     try await Task.sleep(nanoseconds: 100_000_000)
 
-    #expect(expiredEvents.count == 1)
-    #expect(expiredEvents.first?.wallet?.id == "wallet-main")
+    #expect(changes.map(\.name) == ["expired"])
+    #expect(changes.last?.expiredSession?.wallet?.id == "wallet-main")
     #expect(fixture.client.session == nil)
     #expect(fixture.client.activeWallet == nil)
     #expect(fixture.signer.clearCallCount == 1)
@@ -385,8 +387,8 @@ private func isSameInstant(_ lhs: Date?, _ rhs: Date) -> Bool {
         expiresAt: "2026-01-01T00:00:00Z"
     )
     fixture.transport.enqueueRawHTTPError(statusCode: 401, body: unauthorizedBody, for: WaasAPI.GetCredential.urlPath)
-    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
-    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    var changes: [OMSWalletSessionChangeEvent] = []
+    let observation = fixture.client.addSessionChangeObserver { changes.append($0) }
     defer { observation.cancel() }
 
     do {
@@ -397,9 +399,9 @@ private func isSameInstant(_ lhs: Date?, _ rhs: Date) -> Bool {
         #expect(error.operation == .walletSignMessage)
         #expect(error.upstreamError == nil)
     }
-    try await waitUntil { !expiredEvents.isEmpty }
+    try await waitUntil { changes.last?.name == "expired" }
 
-    #expect(expiredEvents.count == 1)
+    #expect(changes.map(\.name) == ["expired"])
     #expect(fixture.client.session == nil)
     #expect(fixture.signer.clearCallCount == 1)
     #expect(fixture.transport.requestCount(for: WaasAPI.SignMessage.urlPath) == 0)
@@ -460,8 +462,8 @@ private func isSameInstant(_ lhs: Date?, _ rhs: Date) -> Bool {
     let expiry = base.addingTimeInterval(0.5)
     try await signIn(fixture, expiresAt: expiry)
     fixture.transport.enqueueRawHTTPError(statusCode: 400, body: keyExpiredBody, for: WaasAPI.GetCredential.urlPath)
-    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
-    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    var changes: [OMSWalletSessionChangeEvent] = []
+    let observation = fixture.client.addSessionChangeObserver { changes.append($0) }
     defer { observation.cancel() }
 
     // Before L + G the timer only reschedules itself to L + G.
@@ -476,10 +478,10 @@ private func isSameInstant(_ lhs: Date?, _ rhs: Date) -> Bool {
     // The rescheduled timer would sleep in real time; fire it now that L + G has passed.
     now.withValue { $0 = checkDate.addingTimeInterval(1) }
     fixture.client.scheduleSessionExpiry(try #require(fixture.client.currentSessionSnapshot()))
-    try await waitUntil { !expiredEvents.isEmpty }
+    try await waitUntil { changes.last?.name == "expired" }
 
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 1)
-    #expect(expiredEvents.count == 1)
+    #expect(changes.map(\.name) == ["expired"])
     #expect(fixture.client.session == nil)
 }
 
@@ -494,8 +496,8 @@ private func isSameInstant(_ lhs: Date?, _ rhs: Date) -> Bool {
         credentialResponse(expiresAt: isoTimestamp(extendedExpiry)),
         for: WaasAPI.GetCredential.urlPath
     )
-    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
-    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    var changes: [OMSWalletSessionChangeEvent] = []
+    let observation = fixture.client.addSessionChangeObserver { changes.append($0) }
     defer { observation.cancel() }
 
     now.withValue { $0 = expiry.addingTimeInterval(WalletClient.sessionExpiryCheckGraceSeconds + 1) }
@@ -506,7 +508,8 @@ private func isSameInstant(_ lhs: Date?, _ rhs: Date) -> Bool {
     #expect(try fixture.storedCredentials()?.expiresAt == isoTimestamp(extendedExpiry))
     #expect(isSameInstant(sessionExpiryTimerFireDate(fixture.client), extendedExpiry))
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 1)
-    #expect(expiredEvents.isEmpty)
+    try await waitUntil { changes.map(\.name) == ["expiryUpdated"] }
+    #expect(changes.map(\.name) == ["expiryUpdated"])
     #expect(fixture.client.activeWallet?.id == "wallet-main")
 }
 
@@ -583,12 +586,12 @@ private func expectTimerDefers(_ client: WalletClient, to checkDate: Date) async
 @MainActor
 private func expectTimerEndsSession(_ fixture: MockWalletClientFixture, getCredentialCount: Int) async throws {
     fixture.transport.enqueueRawHTTPError(statusCode: 400, body: keyExpiredBody, for: WaasAPI.GetCredential.urlPath)
-    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
-    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    var changes: [OMSWalletSessionChangeEvent] = []
+    let observation = fixture.client.addSessionChangeObserver { changes.append($0) }
     defer { observation.cancel() }
     try fireExpiryTimer(fixture.client)
-    try await waitUntil { !expiredEvents.isEmpty }
-    #expect(expiredEvents.count == 1)
+    try await waitUntil { changes.last?.name == "expired" }
+    #expect(changes.map(\.name) == ["expired"])
     #expect(fixture.client.session == nil)
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == getCredentialCount)
 }
@@ -754,15 +757,15 @@ private func waitForCredentialRefreshToFinish(_ client: WalletClient) async thro
     // The retry, due after the backoff, asks again rather than deferring.
     now.withValue { $0 = retryAt.addingTimeInterval(1) }
     fixture.transport.enqueueRawHTTPError(statusCode: 400, body: keyExpiredBody, for: WaasAPI.GetCredential.urlPath)
-    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
-    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    var changes: [OMSWalletSessionChangeEvent] = []
+    let observation = fixture.client.addSessionChangeObserver { changes.append($0) }
     defer { observation.cancel() }
     fixture.client.scheduleSessionExpiry(
         try #require(fixture.client.currentSessionSnapshot()),
         retryAttempt: 1,
         at: now.withValue { $0 }
     )
-    try await waitUntil { !expiredEvents.isEmpty }
+    try await waitUntil { changes.last?.name == "expired" }
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 2)
     #expect(fixture.client.session == nil)
 }
@@ -1407,8 +1410,8 @@ private let walletCallUnauthorizedBody = Data(
     )
     fixture.transport.enqueueRawHTTPError(statusCode: 401, body: walletCallUnauthorizedBody, for: WaasAPI.SignMessage.urlPath)
     fixture.transport.enqueueRawHTTPError(statusCode: 401, body: unauthorizedBody, for: WaasAPI.GetCredential.urlPath)
-    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
-    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    var changes: [OMSWalletSessionChangeEvent] = []
+    let observation = fixture.client.addSessionChangeObserver { changes.append($0) }
     defer { observation.cancel() }
 
     do {
@@ -1418,9 +1421,9 @@ private let walletCallUnauthorizedBody = Data(
         #expect(error.code == .requestFailed)
         #expect(error.upstreamError?.code == "7207")
     }
-    try await waitUntil { !expiredEvents.isEmpty }
+    try await waitUntil { changes.last?.name == "expired" }
 
-    #expect(expiredEvents.count == 1)
+    #expect(changes.map(\.name) == ["expired"])
     #expect(fixture.client.session == nil)
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 1)
 }
@@ -1483,27 +1486,28 @@ private func restoreFourHoursPastSavedExpiry(
             for: WaasAPI.GetCredential.urlPath
         )
     }
-    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
-    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    var changes: [OMSWalletSessionChangeEvent] = []
+    let observation = fixture.client.addSessionChangeObserver { changes.append($0) }
     defer { observation.cancel() }
 
     #expect(fixture.client.session != nil)
     try await waitUntil { fixture.client.session?.expiresAt == "2026-01-11T04:00:00.000Z" }
     #expect(fixture.client.session?.expiresAt == "2026-01-11T04:00:00.000Z")
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 1)
-    #expect(expiredEvents.isEmpty)
+    try await waitUntil { changes.map(\.name) == ["expiryUpdated"] }
+    #expect(changes.map(\.name) == ["expiryUpdated"])
 }
 
 @Test @MainActor func TestRestoredSessionPastSavedExpiryEndsWhenTheServerEndedIt() async throws {
     let fixture = try restoreFourHoursPastSavedExpiry { transport in
         transport.enqueueRawHTTPError(statusCode: 400, body: keyExpiredBody, for: WaasAPI.GetCredential.urlPath)
     }
-    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
-    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    var changes: [OMSWalletSessionChangeEvent] = []
+    let observation = fixture.client.addSessionChangeObserver { changes.append($0) }
     defer { observation.cancel() }
 
-    try await waitUntil { !expiredEvents.isEmpty }
-    #expect(expiredEvents.count == 1)
+    try await waitUntil { changes.last?.name == "expired" }
+    #expect(changes.map(\.name) == ["expired"])
     #expect(fixture.client.session == nil)
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 1)
 }
@@ -1515,15 +1519,15 @@ private func restoreFourHoursPastSavedExpiry(
     let fixture = try restoreFourHoursPastSavedExpiry(runWhenActive: trigger.runWhenActive) { transport in
         transport.enqueueWebRPCBadRoute(for: WaasAPI.GetCredential.urlPath)
     }
-    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
-    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    var changes: [OMSWalletSessionChangeEvent] = []
+    let observation = fixture.client.addSessionChangeObserver { changes.append($0) }
     defer { observation.cancel() }
     try await Task.sleep(nanoseconds: 100_000_000)
     #expect(fixture.client.session != nil)
 
     trigger.activate()
-    try await waitUntil { !expiredEvents.isEmpty }
-    #expect(expiredEvents.count == 1)
+    try await waitUntil { changes.last?.name == "expired" }
+    #expect(changes.map(\.name) == ["expired"])
     #expect(fixture.client.session == nil)
 }
 
@@ -1543,8 +1547,8 @@ private func restoreFourHoursPastSavedExpiry(
         signer: signer,
         currentDate: { Date(timeIntervalSince1970: 1_767_225_600 + 5 * 3_600) }
     )
-    var replayed: OMSWalletSessionExpiredEvent?
-    let observation = next.client.addSessionExpiredObserver { replayed = $0 }
+    var replayed: OMSWalletExpiredSession?
+    let observation = next.client.addSessionChangeObserver { replayed = $0.expiredSession }
     defer { observation.cancel() }
     try await waitUntil { replayed != nil }
     #expect(replayed?.expiredAt == "2026-01-01T00:00:00Z")
@@ -1598,8 +1602,8 @@ private let offlineError = WebRPCTransportError(message: "The Internet connectio
         transport.enqueueTransportError(offlineError, for: WaasAPI.GetCredential.urlPath)
         transport.enqueueRawHTTPError(statusCode: 400, body: keyExpiredBody, for: WaasAPI.GetCredential.urlPath)
     }
-    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
-    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    var changes: [OMSWalletSessionChangeEvent] = []
+    let observation = fixture.client.addSessionChangeObserver { changes.append($0) }
     defer { observation.cancel() }
 
     try await waitUntil { gate.waitingCount == 1 }
@@ -1607,12 +1611,12 @@ private let offlineError = WebRPCTransportError(message: "The Internet connectio
     gate.releaseAll()
     try await waitUntil { gate.waitingCount == 1 && gate.delays.count == 2 }
     gate.releaseAll()
-    try await waitUntil { !expiredEvents.isEmpty }
+    try await waitUntil { changes.last?.name == "expired" }
 
     // The expiry timer's backoff: 1 minute, then 2.
     #expect(gate.delays == [60, 120])
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 3)
-    #expect(expiredEvents.count == 1)
+    #expect(changes.map(\.name) == ["expired"])
     #expect(fixture.client.session == nil)
 }
 

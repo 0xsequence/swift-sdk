@@ -69,8 +69,8 @@ private struct LockedLaunch {
     let keychain: InMemoryKeychain
     let signer: MockCredentialSigner
     let trigger: ProtectedDataTrigger
-    let expiredEvents: LockedBox<[OMSWalletSessionExpiredEvent]>
-    let observation: OMSWalletSessionExpiredObservation
+    let changes: LockedBox<[OMSWalletSessionChangeEvent]>
+    let observation: OMSWalletSessionChangeObservation
 
     var storedRecord: String? {
         get throws {
@@ -123,8 +123,8 @@ private func launch(
         runWhenProtectedDataAvailable: trigger.run,
         prepareTransport: prepareTransport
     )
-    let events = LockedBox<[OMSWalletSessionExpiredEvent]>([])
-    let observation = fixture.client.addSessionExpiredObserver { event in
+    let events = LockedBox<[OMSWalletSessionChangeEvent]>([])
+    let observation = fixture.client.addSessionChangeObserver { event in
         events.withValue { $0.append(event) }
     }
     return LockedLaunch(
@@ -132,7 +132,7 @@ private func launch(
         keychain: keychain,
         signer: signer,
         trigger: trigger,
-        expiredEvents: events,
+        changes: events,
         observation: observation
     )
 }
@@ -150,7 +150,7 @@ private func restoredWallet(_ client: WalletClient) -> Wallet? {
 
     // Locked: nothing restored, nothing reported, and one wait registered.
     #expect(restoredWallet(launched.fixture.client) == nil)
-    #expect(launched.expiredEvents.withValue { $0 }.isEmpty)
+    #expect(launched.changes.withValue { $0.map(\.name) } == [])
     #expect(launched.trigger.immediateChecks == [true])
 
     // Nothing was deleted either.
@@ -163,8 +163,9 @@ private func restoredWallet(_ client: WalletClient) -> Wallet? {
 
     #expect(launched.fixture.client.activeWallet?.id == wallet.id)
     #expect(launched.fixture.client.session?.expiresAt == "2099-01-01T00:00:00Z")
-    #expect(launched.expiredEvents.withValue { $0 }.isEmpty)
     #expect(launched.trigger.pendingCount == 0)
+    // The observer, added after init, learns of the restore; nothing expired.
+    try await waitForChanges(launched, ["restored"])
 }
 
 @Test @MainActor func TestLockedLaunchKeepsWaitingWithoutALoopUntilTheKeychainIsReadable() async throws {
@@ -256,7 +257,7 @@ private func restoredWallet(_ client: WalletClient) -> Wallet? {
     defer { launched.observation.cancel() }
 
     #expect(restoredWallet(launched.fixture.client) == nil)
-    #expect(launched.expiredEvents.withValue { $0 }.isEmpty)
+    #expect(launched.changes.withValue { $0.map(\.name) } == [])
     #expect(launched.signer.clearCallCount == 0)
     #expect(try launched.storedRecord != nil)
 
@@ -265,7 +266,17 @@ private func restoredWallet(_ client: WalletClient) -> Wallet? {
 
     #expect(restoredWallet(launched.fixture.client)?.id == wallet.id)
     try await waitForSessionExpiry(launched.fixture.client, "2026-01-11T04:00:00.000Z")
-    #expect(launched.expiredEvents.withValue { $0 }.isEmpty)
+    // Restored once readable, then the restore read moved its expiry; never expired.
+    try await waitForChanges(launched, ["restored", "expiryUpdated"])
+}
+
+/// Waits until the observer has received changes named `names`, then expects exactly those.
+@MainActor
+private func waitForChanges(_ launched: LockedLaunch, _ names: [String]) async throws {
+    for _ in 0..<40 where launched.changes.withValue({ $0.map(\.name) }) != names {
+        try await Task.sleep(nanoseconds: 50_000_000)
+    }
+    #expect(launched.changes.withValue { $0.map(\.name) } == names)
 }
 
 @MainActor

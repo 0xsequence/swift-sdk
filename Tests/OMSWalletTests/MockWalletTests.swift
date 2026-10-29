@@ -378,20 +378,20 @@ func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut
     )
 
     _ = try await fixture.client.completeEmailAuth(code: "123456")
-    var expiredEvent: OMSWalletSessionExpiredEvent?
-    var secondExpiredEvent: OMSWalletSessionExpiredEvent?
-    var canceledExpiredEvent: OMSWalletSessionExpiredEvent?
-    let observation = fixture.client.addSessionExpiredObserver { event in
+    var changes: [OMSWalletSessionChangeEvent] = []
+    var secondChanges: [OMSWalletSessionChangeEvent] = []
+    var canceledChanges: [OMSWalletSessionChangeEvent] = []
+    let observation = fixture.client.addSessionChangeObserver { event in
         #expect(Thread.isMainThread)
-        expiredEvent = event
+        changes.append(event)
     }
     defer { observation.cancel() }
-    let secondObservation = fixture.client.addSessionExpiredObserver { event in
-        secondExpiredEvent = event
+    let secondObservation = fixture.client.addSessionChangeObserver { event in
+        secondChanges.append(event)
     }
     defer { secondObservation.cancel() }
-    let canceledObservation = fixture.client.addSessionExpiredObserver { event in
-        canceledExpiredEvent = event
+    let canceledObservation = fixture.client.addSessionChangeObserver { event in
+        canceledChanges.append(event)
     }
     canceledObservation.cancel()
     // A server without GetCredential keeps local expiry authoritative.
@@ -405,16 +405,17 @@ func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut
         #expect(error.code == .sessionExpired)
         #expect(error.operation == .walletSignMessage)
     }
-    _ = try await waitForSessionExpiredEvent { expiredEvent }
-    _ = try await waitForSessionExpiredEvent { secondExpiredEvent }
+    let expired = try await waitForExpiredSession { changes.last?.expiredSession }
+    _ = try await waitForExpiredSession { secondChanges.last?.expiredSession }
 
     let storedCredentials = try fixture.storedCredentials()
-    #expect(expiredEvent?.wallet?.address == wallet.address)
-    #expect(expiredEvent?.session.expiresAt == expiresAt)
-    #expect(isEmailAuth(expiredEvent?.session.auth))
-    #expect(expiredEvent?.expiredAt == expiresAt)
-    #expect(secondExpiredEvent?.wallet?.address == wallet.address)
-    #expect(canceledExpiredEvent == nil)
+    #expect(changes.map(\.name) == ["expired"])
+    #expect(expired?.wallet?.address == wallet.address)
+    #expect(expired?.session.expiresAt == expiresAt)
+    #expect(isEmailAuth(expired?.session.auth))
+    #expect(expired?.expiredAt == expiresAt)
+    #expect(secondChanges == changes)
+    #expect(canceledChanges.isEmpty)
     #expect(fixture.client.session == nil)
     #expect(storedCredentials?.wallet.id == wallet.id)
     #expect(storedCredentials?.wallet.address == wallet.address)
@@ -440,13 +441,14 @@ func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut
         currentDate: { Date(timeIntervalSince1970: 1_767_225_600 + 12 * 3_600 + 5 * 60) },
         storedCredentials: storedCredentials
     )
-    var expiredEvent: OMSWalletSessionExpiredEvent?
+    var changes: [OMSWalletSessionChangeEvent] = []
 
-    let observation = fixture.client.addSessionExpiredObserver { event in
-        expiredEvent = event
+    let observation = fixture.client.addSessionChangeObserver { event in
+        changes.append(event)
     }
     defer { observation.cancel() }
-    let replayedEvent = try await waitForSessionExpiredEvent { expiredEvent }
+    let replayedEvent = try await waitForExpiredSession { changes.last?.expiredSession }
+    #expect(changes.map(\.name) == ["expired"])
 
     #expect(fixture.client.session == nil)
     #expect(replayedEvent?.wallet?.address == storedCredentials.wallet.address)
@@ -512,11 +514,11 @@ func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut
         currentDate: { Date(timeIntervalSince1970: 1_767_225_600 + 12 * 3_600 + 5 * 60) },
         storedCredentials: storedCredentials
     )
-    var expiredEvent: OMSWalletSessionExpiredEvent?
-    let expiredObservation = fixture.client.addSessionExpiredObserver { event in
-        expiredEvent = event
+    var changes: [OMSWalletSessionChangeEvent] = []
+    let expiredObservation = fixture.client.addSessionChangeObserver { event in
+        changes.append(event)
     }
-    let initialReplay = try await waitForSessionExpiredEvent { expiredEvent }
+    let initialReplay = try await waitForExpiredSession { changes.last?.expiredSession }
     expiredObservation.cancel()
     #expect(initialReplay?.wallet?.address == storedCredentials.wallet.address)
 
@@ -530,27 +532,28 @@ func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut
     )
     try await fixture.client.startEmailAuth(email: "new@example.com")
 
-    var replayedEvent: OMSWalletSessionExpiredEvent?
-    let replayObservation = fixture.client.addSessionExpiredObserver { event in
-        replayedEvent = event
+    var laterChanges: [OMSWalletSessionChangeEvent] = []
+    let replayObservation = fixture.client.addSessionChangeObserver { event in
+        laterChanges.append(event)
     }
     defer { replayObservation.cancel() }
-    await Task.yield()
-    #expect(replayedEvent == nil)
+    try await Task.sleep(nanoseconds: 100_000_000)
+    // Starting a sign-in changed nothing visible (no wallet was active), yet the replay is gone.
+    #expect(laterChanges.isEmpty)
 }
 
 @MainActor
-private func waitForSessionExpiredEvent(
-    _ event: () -> OMSWalletSessionExpiredEvent?,
+private func waitForExpiredSession(
+    _ expired: () -> OMSWalletExpiredSession?,
     attempts: Int = 40
-) async throws -> OMSWalletSessionExpiredEvent? {
+) async throws -> OMSWalletExpiredSession? {
     for _ in 0..<attempts {
-        if let event = event() {
-            return event
+        if let expired = expired() {
+            return expired
         }
         try await Task.sleep(nanoseconds: 50_000_000)
     }
-    return event()
+    return expired()
 }
 
 @Test @MainActor func TestWalletSessionExpiryTimerFiresAfterDelayAndNotifiesObserver() async throws {
@@ -577,25 +580,25 @@ private func waitForSessionExpiredEvent(
     )
     fixture.transport.enqueueWebRPCBadRoute(for: WaasAPI.GetCredential.urlPath)
 
-    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
-    let observation = fixture.client.addSessionExpiredObserver { event in
-        expiredEvents.append(event)
+    var changes: [OMSWalletSessionChangeEvent] = []
+    let observation = fixture.client.addSessionChangeObserver { event in
+        changes.append(event)
     }
     defer { observation.cancel() }
 
     _ = try await fixture.client.completeEmailAuth(code: "123456")
-    await Task.yield()
+    try await Task.sleep(nanoseconds: 50_000_000)
     #expect(fixture.client.session?.expiresAt == "2026-01-01T00:00:00Z")
     #expect(fixture.client.activeWallet?.address == wallet.address)
-    #expect(expiredEvents.isEmpty)
+    #expect(changes.map(\.name) == ["signedIn"])
 
     // The timer asks the server only once the grace period after the expiry has passed.
     now.withValue {
         $0 = Date(timeIntervalSince1970: 1_767_225_601 + WalletClient.sessionExpiryCheckGraceSeconds)
     }
-    let expiredEvent = try await waitForSessionExpiredEvent { expiredEvents.first }
+    let expiredEvent = try await waitForExpiredSession { changes.last?.expiredSession }
 
-    #expect(expiredEvents.count == 1)
+    #expect(changes.map(\.name) == ["signedIn", "expired"])
     #expect(expiredEvent?.wallet?.address == wallet.address)
     #expect(isEmailAuth(expiredEvent?.session.auth))
     #expect(fixture.client.session == nil)

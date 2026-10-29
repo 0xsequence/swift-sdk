@@ -63,11 +63,17 @@ public static let maxSessionLifetimeSeconds: UInt32
 
 The largest `sessionLifetimeSeconds` the SDK accepts (180 days).
 
-### `WalletClient.addSessionExpiredObserver(_:)`
+### `WalletClient.addSessionChangeObserver(_:)`
 
 ```swift
-@discardableResult public func addSessionExpiredObserver(_ observer: @escaping @MainActor @Sendable (OMSWalletSessionExpiredEvent) -> Void) -> OMSWalletSessionExpiredObservation
+public func addSessionChangeObserver(_ observer: @escaping @MainActor @Sendable (OMSWalletSessionChangeEvent) -> Void) -> OMSWalletSessionChangeObservation
 ```
+
+Calls `observer` on the main actor after every change of `activeWallet` or `session`, in
+order and after the change (never during the call that made it). Add the observer first,
+then read `activeWallet` and `session`, so no change is missed. An observer added while signed
+out first receives the last `.expired` change, if a session expired since the last sign-in or
+sign-out (for example while the app was not running).
 
 ### `WalletClient.startEmailAuth(email:sessionLifetimeSeconds:)`
 
@@ -666,25 +672,56 @@ public enum OMSWalletOidcSessionAuthFlow: String, Codable, Equatable, Sendable {
 }
 ```
 
-### `OMSWalletSessionExpiredEvent`
+### `OMSWalletSessionChangeEvent`
 
 ```swift
-public struct OMSWalletSessionExpiredEvent: Equatable, Sendable {
+public enum OMSWalletSessionChangeEvent: Equatable, Sendable {
+    /// A sign-in made a wallet active.
+    case signedIn(wallet: Wallet, session: OMSWalletSession)
+    /// A session saved on this device became active after the client was created, for example once
+    /// the device was unlocked after a launch while it was locked. Treat it like `signedIn`; the
+    /// user did not just sign in.
+    case restored(wallet: Wallet, session: OMSWalletSession)
+    /// Another wallet of the same sign-in became active.
+    case walletChanged(wallet: Wallet, session: OMSWalletSession)
+    /// `session.expiresAt` moved. Safe to ignore unless you show the expiry.
+    case expiryUpdated(wallet: Wallet, session: OMSWalletSession)
+    /// There is no session any more and it did not expire: `signOut()`, a sign-in started while
+    /// signed in, or another process sharing the keychain signing in. Not necessarily the user's
+    /// choice.
+    case signedOut
+    /// The session expired, or the wallet API no longer accepts it.
+    case expired(OMSWalletExpiredSession)
+    /// The active wallet after the change; `nil` for `signedOut` and `expired`.
+    public var activeWallet: Wallet? { get }
+    /// The session after the change; non-`nil` exactly when `activeWallet` is.
+    public var session: OMSWalletSession? { get }
+}
+```
+
+A change of `WalletClient.activeWallet` or `WalletClient.session`, with the state right after it.
+
+### `OMSWalletExpiredSession`
+
+```swift
+public struct OMSWalletExpiredSession: Equatable, Sendable {
     /// The wallet that was active when the session expired, or `nil` when the credential expired
     /// while a manual wallet selection was still pending.
     public let wallet: Wallet?
     public let session: OMSWalletSession
     /// The ISO-8601 time the session ended: its expiry, or, when the SDK found it ended before its
-    /// expiry (another process replaced its keychain key), the time that was found.
+    /// expiry (for example after another process's session ended it), the time that was found.
     public let expiredAt: String
     public init(wallet: Wallet?, session: OMSWalletSession, expiredAt: String)
 }
 ```
 
-### `OMSWalletSessionExpiredObservation`
+A session that expired, as reported by `OMSWalletSessionChangeEvent.expired`.
+
+### `OMSWalletSessionChangeObservation`
 
 ```swift
-public final class OMSWalletSessionExpiredObservation: @unchecked Sendable {
+public final class OMSWalletSessionChangeObservation: @unchecked Sendable {
     public func cancel()
 }
 ```

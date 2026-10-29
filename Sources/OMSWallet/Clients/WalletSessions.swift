@@ -127,6 +127,8 @@ extension WalletClient {
             // Any request of the previous process completed before now, and nothing says when its
             // last read was, so the restore counts as activity until a read succeeds.
             _lastSessionRequestCompletedAt = currentDate()
+            // At init nobody observes yet; a deferred restore (after unlock) reaches observers.
+            publishSessionChangeLocked(.restored)
         }
         if let snapshot = currentSessionSnapshot() {
             scheduleSessionExpiry(snapshot)
@@ -262,25 +264,21 @@ extension WalletClient {
         signerCredentialId: String,
         expectedRevision: UInt64? = nil
     ) {
-        deliverSessionExpiredNotification(
-            withSessionLock { () -> SessionExpiredNotification? in
-                guard isExpectedRevisionLocked(expectedRevision) else {
-                    return nil
-                }
-                try? credentialSession.clearSignerKeepingCredentials(ifCredentialId: signerCredentialId)
-                signedClient = signedClientFactory(credentialSession.signer)
-                return makeSessionExpiredNotificationLocked(session)
+        withSessionLock {
+            guard isExpectedRevisionLocked(expectedRevision) else {
+                return
             }
-        )
+            try? credentialSession.clearSignerKeepingCredentials(ifCredentialId: signerCredentialId)
+            signedClient = signedClientFactory(credentialSession.signer)
+            publishExpiredLocked(session)
+        }
     }
 
     func expireSession(_ session: WalletSessionSnapshot) {
-        deliverSessionExpiredNotification(
-            withSessionLock {
-                clearActiveSessionForExpiryLocked()
-                return makeSessionExpiredNotificationLocked(session)
-            }
-        )
+        withSessionLock {
+            clearActiveSessionForExpiryLocked()
+            publishExpiredLocked(session)
+        }
     }
 
     func currentSessionSnapshot() -> WalletSessionSnapshot? {
@@ -289,7 +287,7 @@ extension WalletClient {
         }
     }
 
-    private func currentSessionLocked() -> WalletSessionSnapshot? {
+    func currentSessionLocked() -> WalletSessionSnapshot? {
         guard let activeWallet = _activeWallet, let sessionAuth else {
             return nil
         }
@@ -301,14 +299,16 @@ extension WalletClient {
         )
     }
 
-    func expireCurrentSessionIfNeeded() -> SessionExpiredNotification? {
+    /// Ends the session as expired when its local expiry has passed; returns whether it did.
+    func expireCurrentSessionIfNeeded() -> Bool {
         withSessionLock {
             guard let currentSession = currentSessionLocked(),
                   isSessionExpired(currentSession) else {
-                return nil
+                return false
             }
             clearActiveSessionForExpiryLocked()
-            return makeSessionExpiredNotificationLocked(currentSession)
+            publishExpiredLocked(currentSession)
+            return true
         }
     }
 
@@ -336,23 +336,57 @@ extension WalletClient {
         signedClient = signedClientFactory(credentialSession.signer)
     }
 
-    /// Throws `sessionMissing`, after dropping this client's session, when the keychain no longer
-    /// holds the key the active session signed in with: another process sharing the keychain signed
-    /// out or signed in again. Nothing is sent with the other key.
+    /// Throws, after ending this client's session, when the keychain no longer holds the key the
+    /// active session signed in with: `sessionExpired` when it ended as expired, `sessionMissing`
+    /// when another sign-in replaced it (see `endSessionWithReplacedSignerLocked`). Nothing is sent
+    /// with the other key.
     func requireSessionSignerMatches() throws {
-        let replaced = try withSessionLock { () -> Bool in
-            guard let credentialId = _sessionSignerCredentialId, currentSessionLocked() != nil else {
-                return false
+        let ended = try withSessionLock { () -> SessionChange? in
+            guard let session = currentSessionLocked(), let credentialId = _sessionSignerCredentialId,
+                  !(try sessionSignerMatchesLocked(credentialId)) else {
+                return nil
             }
-            guard try sessionSignerMatchesLocked(credentialId) else {
-                clearSessionWithReplacedSignerLocked()
-                return true
-            }
-            return false
+            return endSessionWithReplacedSignerLocked(session, credentialId: credentialId)
         }
-        if replaced {
+        switch ended {
+        case nil:
+            return
+        case .expired:
+            throw OMSWalletError.sessionExpired()
+        default:
             throw OMSWalletError.sessionMissing()
         }
+    }
+
+    /// Ends a session whose signer no longer holds its key, in memory only (the keychain key and
+    /// record are already gone or belong to a newer session), and publishes how it ended: expired
+    /// when it ended on its own (its stored record is still its own while the signer holds no key,
+    /// after an expiry or a rejection elsewhere) or its expiry had passed, otherwise signed out
+    /// (another sign-in replaced its key).
+    @discardableResult
+    private func endSessionWithReplacedSignerLocked(
+        _ session: WalletSessionSnapshot,
+        credentialId: String
+    ) -> SessionChange {
+        let now = currentDate()
+        let keyIsGone = (try? credentialSession.signer.hasCredential()) == false
+        var recordIsOwn = false
+        if case .stored(let stored) = credentialSession.storedSession() {
+            recordIsOwn = stored.signerCredentialId.lowercased() == credentialId.lowercased()
+        }
+        clearSessionWithReplacedSignerLocked()
+        let change: SessionChange
+        if (keyIsGone && recordIsOwn) || now >= session.expiryDate {
+            // It ended when that was found, unless its expiry passed first.
+            let expiredAt = now < session.expiryDate ? ISO8601DateFormatter().string(from: now) : session.expiresAt
+            change = .expired(
+                OMSWalletExpiredSession(wallet: session.wallet, session: session.session, expiredAt: expiredAt)
+            )
+        } else {
+            change = .signedOut
+        }
+        publishSessionChangeLocked(change)
+        return change
     }
 
     /// Whether the signer still holds the key with `credentialId`. Checks for a key first, because
@@ -385,32 +419,11 @@ extension WalletClient {
         sessionAuth = nil
     }
 
-    private func makeSessionExpiredNotificationLocked(
-        _ session: WalletSessionSnapshot,
-        expiredAt: String? = nil
-    ) -> SessionExpiredNotification {
-        let event = OMSWalletSessionExpiredEvent(
-            wallet: session.wallet,
-            session: session.session,
-            expiredAt: expiredAt ?? session.expiresAt
+    /// Publishes that `session` expired at its expiry.
+    private func publishExpiredLocked(_ session: WalletSessionSnapshot) {
+        publishSessionChangeLocked(
+            .expired(OMSWalletExpiredSession(wallet: session.wallet, session: session.session, expiredAt: session.expiresAt))
         )
-        latestSessionExpiredEvent = event
-        return (sessionExpiredObserversLocked(), event)
-    }
-
-    func deliverSessionExpiredNotification(_ notification: SessionExpiredNotification?) {
-        guard let notification else {
-            return
-        }
-        Task { @MainActor [weak self] in
-            guard let self else {
-                return
-            }
-            for registration in notification.observers
-            where self.isSessionExpiredObserverRegistered(registration.id) {
-                registration.observer(notification.event)
-            }
-        }
     }
 
     /// Schedules the expiry timer for `session`: at `fireDate` when given, otherwise at its expiry,
@@ -547,15 +560,13 @@ extension WalletClient {
     }
 
     private func expireSessionFromTimer(_ session: WalletSessionSnapshot) {
-        deliverSessionExpiredNotification(
-            withSessionLock { () -> SessionExpiredNotification? in
-                guard isCurrentSessionSnapshotLocked(session), isSessionExpired(session) else {
-                    return nil
-                }
-                clearActiveSessionForExpiryLocked()
-                return makeSessionExpiredNotificationLocked(session)
+        withSessionLock {
+            guard isCurrentSessionSnapshotLocked(session), isSessionExpired(session) else {
+                return
             }
-        )
+            clearActiveSessionForExpiryLocked()
+            publishExpiredLocked(session)
+        }
     }
 
     /// Before an operation uses a locally expired session, asks the server whether it extended
@@ -566,8 +577,9 @@ extension WalletClient {
         guard let session = currentSessionSnapshot(), isSessionExpired(session) else {
             return
         }
-        // A replaced signer key ends the session; the operation then fails with `sessionMissing`.
-        switch await refreshCredentialExpiry(notifiesReplacedSigner: false) {
+        // A missing or replaced signer key ends the session without a request (see
+        // `endSessionWithReplacedSignerLocked`): as expired here, since the expiry passed.
+        switch await refreshCredentialExpiry() {
         case .refreshed, .unsupported, .superseded:
             return
         case .ended:
@@ -581,17 +593,15 @@ extension WalletClient {
     /// session. Concurrent callers for the same session share one request, and a result is
     /// applied only while the session it was requested for is still current. `isExpiryCheck` marks
     /// the expiry timer's check, whose send is not recorded as session activity; a caller that
-    /// joins an in-flight refresh shares it as started. A session whose signer key was replaced
-    /// elsewhere ends without a request; `notifiesReplacedSigner` tells observers, since nothing
-    /// else reports it when no operation asked.
+    /// joins an in-flight refresh shares it as started. A session whose signer key is missing or was
+    /// replaced elsewhere ends without a request (see `endSessionWithReplacedSignerLocked`), as
+    /// `ended` when it ended as expired.
     func refreshCredentialExpiry(
-        isExpiryCheck: Bool = false,
-        notifiesReplacedSigner: Bool = true
+        isExpiryCheck: Bool = false
     ) async -> CredentialRefreshOutcome {
         enum Start {
             case task(Task<CredentialRefreshOutcome, Never>)
             case outcome(CredentialRefreshOutcome)
-            case signerReplaced(SessionExpiredNotification?)
         }
         let start = withSessionLock { () -> Start in
             if let inFlight = _credentialRefresh, inFlight.revision == _sessionRevision {
@@ -603,15 +613,10 @@ extension WalletClient {
             if let session = currentSessionLocked(),
                let credentialId = _sessionSignerCredentialId,
                (try? sessionSignerMatchesLocked(credentialId)) == false {
-                clearSessionWithReplacedSignerLocked()
-                // The session ended when the key was found replaced, unless its expiry passed first.
-                let now = currentDate()
-                let expiredAt = now < session.expiryDate ? ISO8601DateFormatter().string(from: now) : session.expiresAt
-                return .signerReplaced(
-                    notifiesReplacedSigner
-                        ? makeSessionExpiredNotificationLocked(session, expiredAt: expiredAt)
-                        : nil
-                )
+                if case .expired = endSessionWithReplacedSignerLocked(session, credentialId: credentialId) {
+                    return .outcome(.ended)
+                }
+                return .outcome(.superseded)
             }
             guard !isCredentialRefreshUnsupportedLocked() else {
                 return .outcome(.unsupported)
@@ -650,9 +655,6 @@ extension WalletClient {
             return await task.value
         case .outcome(let outcome):
             return outcome
-        case .signerReplaced(let notification):
-            deliverSessionExpiredNotification(notification)
-            return .superseded
         }
     }
 
@@ -686,7 +688,7 @@ extension WalletClient {
         enum Applied {
             case superseded
             case extended(WalletSessionSnapshot)
-            case expired(SessionExpiredNotification)
+            case expired
         }
         let applied = withSessionLock { () -> Applied in
             guard _sessionRevision == revision,
@@ -712,8 +714,10 @@ extension WalletClient {
                 // The server's expiry has already passed by the local clock; end it as local
                 // expiry does rather than refreshing again.
                 clearActiveSessionForExpiryLocked()
-                return .expired(makeSessionExpiredNotificationLocked(session))
+                publishExpiredLocked(session)
+                return .expired
             }
+            publishSessionChangeLocked(.expiryUpdated)
             return .extended(session)
         }
         switch applied {
@@ -722,8 +726,7 @@ extension WalletClient {
         case .extended(let session):
             scheduleSessionExpiry(session)
             return .refreshed
-        case .expired(let notification):
-            deliverSessionExpiredNotification(notification)
+        case .expired:
             return .ended
         }
     }
@@ -822,15 +825,14 @@ extension WalletClient {
     /// Ends the session as local expiry does when the server reported its credential gone or
     /// expired, unless a newer sign-in or sign-out already replaced it.
     func endSessionRejectedByServer(revision: UInt64) {
-        let notification = withSessionLock { () -> SessionExpiredNotification? in
+        withSessionLock {
             guard _sessionRevision == revision, let session = currentSessionLocked() else {
-                return nil
+                return
             }
             clearActiveSessionForExpiryLocked()
             _serverRejectedSessionRevision = revision
-            return makeSessionExpiredNotificationLocked(session)
+            publishExpiredLocked(session)
         }
-        deliverSessionExpiredNotification(notification)
     }
 
     func wasSessionRejectedByServer(_ revision: UInt64) -> Bool {
@@ -878,7 +880,13 @@ extension WalletClient {
 
     func reauthenticationSessionEmail() -> String? {
         withSessionLock {
-            currentSessionLocked()?.auth.email ?? latestSessionExpiredEvent?.session.auth.email
+            if let email = currentSessionLocked()?.auth.email {
+                return email
+            }
+            if case .expired(let expired) = _latestExpiredChange {
+                return expired.session.auth.email
+            }
+            return nil
         }
     }
 
@@ -928,7 +936,9 @@ extension WalletClient {
                     self._lastCredentialReadCompletedAt = nil
                     self._sessionExpiryBounds = nil
                     self._sessionExpiryTimerFireDate = nil
-                    self.latestSessionExpiredEvent = nil
+                    // A sign-out or new sign-in makes an earlier expiry old news, whether or not a
+                    // change is published.
+                    self._latestExpiredChange = nil
                     self.sessionExpiryTask?.cancel()
                     self.sessionExpiryTask = nil
                     self._cancelRestoreRead?()
@@ -945,6 +955,7 @@ extension WalletClient {
                     self.sessionExpiresAt = nil
                     self.sessionAuth = nil
                     self.signedClient = self.signedClientFactory(self.credentialSession.signer)
+                    self.publishSessionChangeLocked(.signedOut)
                     return true
                 }
             } catch {

@@ -167,26 +167,82 @@ and a wallet call on a locally expired session always checks with the wallet API
 with the session's credential because that credential expired or is gone (WaaS `KeyExpired` 7203
 or `KeyNotFound` 7202), or answers the SDK's expiry check with `Unauthorized` (7207, the credential
 was revoked), the SDK ends the session exactly as on local expiry: it notifies session-expired
-observers once and throws `.sessionExpired`. A wallet call that WaaS answers with `Unauthorized`
+observers with `.expired` once and throws `.sessionExpired`. A wallet call that WaaS answers with `Unauthorized`
 (7207) itself fails with `.requestFailed`; the SDK then checks the credential with `GetCredential`
 in the background, which ends the session as above only if the credential was revoked. If the device is offline when the expiry passes, the session is kept and
 rechecked later; operations meanwhile throw the network error. Wallet API versions without expiry
 refresh keep the local expiry. Refresh requests never overlap your own wallet calls, so request
 nonces stay in order; a request the wallet API rejects for a stale nonce (`PreconditionFailed`
-7206) is signed again with a fresh nonce and resent, at most twice. Use
-`addSessionExpiredObserver` when your app needs to react to session expiry:
+7206) is signed again with a fresh nonce and resent, at most twice.
+
+### Keep your UI in sync
+
+`addSessionChangeObserver` calls your observer on the main actor after every change of
+`activeWallet` or `session`: a sign-in, a restore after unlock, a wallet switch, an expiry update,
+a sign-out, or an expiry. Add the observer first, then read `activeWallet` and `session`, so no
+change is missed. Observers run shortly after the change, never during the call that made it, so
+`activeWallet` and `session` are always the current state. Keep the observation: delivery stops
+when it is cancelled or released.
 
 ```swift
-let sessionExpiredObservation = omsWallet.wallet.addSessionExpiredObserver { event in
-    // `wallet` is nil when the credential expired during a pending manual wallet selection.
-    print("Session expired:", event.wallet?.address ?? "no wallet selected", event.expiredAt)
-}
+@MainActor @Observable
+final class SessionStore {
+    private(set) var wallet: Wallet?
+    private(set) var session: OMSWalletSession?
+    private(set) var expired: OMSWalletExpiredSession?
+    private var observation: OMSWalletSessionChangeObservation?
 
-// Later, when the observer is no longer needed:
-sessionExpiredObservation.cancel()
+    init(wallet client: WalletClient) {
+        observation = client.addSessionChangeObserver { [weak self] change in
+            self?.apply(change)
+        }
+        wallet = client.activeWallet
+        session = client.session
+    }
+
+    private func apply(_ change: OMSWalletSessionChangeEvent) {
+        wallet = change.activeWallet
+        session = change.session
+        if case .expired(let expiredSession) = change {
+            // Prefill reauthentication. `wallet` is nil when it expired during a pending manual
+            // wallet selection.
+            expired = expiredSession
+        } else if change.activeWallet != nil {
+            expired = nil
+        }
+    }
+}
 ```
 
-Session-expiry observers are `@Sendable` and always run on `MainActor`.
+| Change | Meaning |
+| --- | --- |
+| `.signedIn` | A sign-in made a wallet active |
+| `.restored` | A saved session became active after the client was created, for example once the device was unlocked after a launch while it was locked; treat it like `.signedIn`, without a welcome |
+| `.walletChanged` | Another wallet of the same sign-in became active |
+| `.expiryUpdated` | `session.expiresAt` moved; safe to ignore unless you show it |
+| `.signedOut` | There is no session any more and it did not expire: `signOut()`, a new sign-in started while signed in, or another process sharing the keychain signing in. Not necessarily the user's choice; don't navigate away from a sign-in in progress |
+| `.expired` | The session expired, or the wallet API no longer accepts it |
+
+An observer added while signed out first receives the last `.expired` change, if a session expired
+since the last sign-in or sign-out, for example while the app was not running. Each new observer
+receives it, so keep one app-level store.
+
+A sign-in or sign-out in an app extension or another process sharing the keychain is noticed at
+this process's next wallet call, which reports `.signedOut` (or `.expired` when that session's own
+expiry ended it).
+
+Prefer streams? Wrap the observer:
+
+```swift
+extension WalletClient {
+    var sessionChanges: AsyncStream<OMSWalletSessionChangeEvent> {
+        AsyncStream { continuation in
+            let observation = addSessionChangeObserver { continuation.yield($0) }
+            continuation.onTermination = { _ in observation.cancel() }
+        }
+    }
+}
+```
 
 To opt out of automatic activation and drive wallet selection yourself:
 

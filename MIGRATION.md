@@ -63,9 +63,35 @@ let email = omsWallet.wallet.session.auth?.email
 let email = omsWallet.wallet.session?.auth.email
 ```
 
-`OMSWalletSessionExpiredEvent` gained `wallet: Wallet?`, and its `session` no longer carries
-`walletAddress`. `wallet` is `nil` when the credential expired while a manual wallet selection was
-still pending.
+### `addSessionChangeObserver` replaces `addSessionExpiredObserver`
+
+`addSessionExpiredObserver` and `OMSWalletSessionExpiredObservation` were removed.
+`addSessionChangeObserver` reports every change of `activeWallet` or `session` as an
+`OMSWalletSessionChangeEvent`: `.signedIn`, `.restored`, `.walletChanged`, `.expiryUpdated`,
+`.signedOut`, or `.expired`. `.expired` carries an `OMSWalletExpiredSession`, which replaces
+`OMSWalletSessionExpiredEvent`. It gained `wallet: Wallet?` (`nil` when the credential expired
+during a pending manual wallet selection), and its `session` no longer carries `walletAddress`. The
+method returns `OMSWalletSessionChangeObservation` and is no longer `@discardableResult`: keep the
+observation, since delivery stops when it is released.
+
+```swift
+// 0.3.x
+let observation = omsWallet.wallet.addSessionExpiredObserver { event in showSignIn(event.session.auth) }
+
+// 0.4.0
+let observation = omsWallet.wallet.addSessionChangeObserver { change in
+    if case .expired(let expired) = change {
+        showSignIn(expired.session.auth)
+    }
+}
+```
+
+The `.expired` replay to new observers is unchanged. A session whose keychain key another process
+removed or replaced now reports its end on every path: `.expired` when its stored record is still
+its own or its expiry passed, `.signedOut` when another sign-in replaced it. Previously only
+background checks reported it, always as an expiry. An operation that finds a session ended this way
+throws `.sessionExpired` when it reports `.expired`. A restore that waited for the device to unlock
+now reports `.restored`.
 
 ```swift
 // 0.3.x
@@ -209,11 +235,11 @@ for wallet in result.claimableWallets {
 
 ### Session expiry timestamps
 
-`OMSWalletSession.expiresAt` and `OMSWalletSessionExpiredEvent.expiredAt` are now ISO-8601
+`OMSWalletSession.expiresAt` and `OMSWalletExpiredSession.expiredAt` are now ISO-8601
 `String`s instead of `Date`s. `expiresAt` starts as the sign-in's `WalletCredential.expiresAt` and
 follows the wallet API's sliding expiry as the SDK refreshes it (see Sliding session expiry);
 `expiredAt` is the session's expiry, or the time the SDK found its keychain key replaced by another
-process when that came first. `OMSWalletSession.init(expiresAt:auth:)` and `OMSWalletSessionExpiredEvent.init` take a
+process when that came first. `OMSWalletSession.init(expiresAt:auth:)` and `OMSWalletExpiredSession.init` take a
 `String`. Parse the value when you need a `Date`; the wallet API may include fractional seconds:
 
 ```swift
@@ -281,7 +307,7 @@ instead of for the rest of the client's lifetime.
 
 The SDK's expiry check (`GetCredential`) treats `Unauthorized` (7207) like 7202 and 7203: that
 request involves no wallet, so a 7207 means the credential was revoked, and the session ends with
-`.sessionExpired` and a session-expired event. A 7207 from any other wallet call still throws
+`.sessionExpired` and an `.expired` session change. A 7207 from any other wallet call still throws
 `.requestFailed`; the SDK then checks the credential with `GetCredential` in the background, which
 ends the session if the credential was revoked and otherwise keeps it.
 

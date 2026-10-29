@@ -7,15 +7,18 @@ struct PendingEmailAuth: Sendable {
 
 @available(macOS 12.0, iOS 15.0, *)
 public final class WalletClient: @unchecked Sendable {
-    typealias SessionExpiredObserver = @MainActor @Sendable (OMSWalletSessionExpiredEvent) -> Void
-    typealias SessionExpiredObserverRegistration = (
-        id: UUID,
-        observer: SessionExpiredObserver
-    )
-    typealias SessionExpiredNotification = (
-        observers: [SessionExpiredObserverRegistration],
-        event: OMSWalletSessionExpiredEvent
-    )
+    typealias SessionChangeObserver = @MainActor @Sendable (OMSWalletSessionChangeEvent) -> Void
+    typealias SessionChangeObserverRegistration = (id: UUID, observer: SessionChangeObserver)
+
+    /// What changed the session, for its change event. `activation` (a wallet became active) is
+    /// published as `walletChanged` when a wallet was active before, and as `signedIn` otherwise.
+    enum SessionChange {
+        case activation
+        case restored
+        case expiryUpdated
+        case signedOut
+        case expired(OMSWalletExpiredSession)
+    }
 
     /// The session lifetime used when a sign-in call does not pass `sessionLifetimeSeconds`
     /// (180 days, the maximum).
@@ -135,15 +138,17 @@ public final class WalletClient: @unchecked Sendable {
     var _lastDeferredRestoreAttempt: Date?
     /// Cancels the restore read still waiting for the app to become active.
     var _cancelRestoreRead: ForegroundActivation.Cancel?
-    private var _latestSessionExpiredEvent: OMSWalletSessionExpiredEvent?
-    var latestSessionExpiredEvent: OMSWalletSessionExpiredEvent? {
-        get {
-            withSessionLock { _latestSessionExpiredEvent }
-        }
-        set {
-            withSessionLock { _latestSessionExpiredEvent = newValue }
-        }
-    }
+    /// The last `expired` change, replayed to observers added before the next sign-in or sign-out.
+    var _latestExpiredChange: OMSWalletSessionChangeEvent?
+    /// The active wallet and session of the last published change; a change is published only when
+    /// they differ.
+    var _publishedState: (wallet: Wallet?, session: OMSWalletSession?) = (nil, nil)
+    /// Changes not yet delivered, each with the observers registered when it happened.
+    private var _pendingSessionChanges: [(
+        event: OMSWalletSessionChangeEvent,
+        observers: [SessionChangeObserverRegistration]
+    )] = []
+    private var _sessionChangeDeliveryScheduled = false
     var _activeWallet: Wallet?
     var _sessionRevision: UInt64 = 0
     /// The in-flight `getCredential` refresh, shared by concurrent callers of the same session.
@@ -181,7 +186,8 @@ public final class WalletClient: @unchecked Sendable {
     /// Another process sharing the keychain can sign in again and replace the key; operations
     /// compare it with the signer's current credential first (`requireSessionSignerMatches`).
     var _sessionSignerCredentialId: String?
-    private var _sessionExpiredObservers: [UUID: SessionExpiredObserver] = [:]
+    /// In registration order.
+    private var _sessionChangeObservers: [SessionChangeObserverRegistration] = []
     private var _verifier = ""
     private var _challenge = ""
     private var _pendingEmailAuth: PendingEmailAuth?
@@ -425,49 +431,106 @@ public final class WalletClient: @unchecked Sendable {
         )
     }
 
-    @discardableResult
-    public func addSessionExpiredObserver(
-        _ observer: @escaping @MainActor @Sendable (OMSWalletSessionExpiredEvent) -> Void
-    ) -> OMSWalletSessionExpiredObservation {
-        let observerId = UUID()
-        let replayEvent = withSessionLock { () -> OMSWalletSessionExpiredEvent? in
-            _sessionExpiredObservers[observerId] = observer
-            return _latestSessionExpiredEvent
-        }
-        if let replayEvent {
-            Task { @MainActor [weak self] in
-                guard self?.shouldReplaySessionExpiredEvent(replayEvent, to: observerId) == true else {
-                    return
-                }
-                observer(replayEvent)
+    /// Calls `observer` on the main actor after every change of `activeWallet` or `session`, in
+    /// order and after the change (never during the call that made it). Add the observer first,
+    /// then read `activeWallet` and `session`, so no change is missed. An observer added while signed
+    /// out first receives the last `.expired` change, if a session expired since the last sign-in or
+    /// sign-out (for example while the app was not running).
+    ///
+    /// Keep the returned observation: delivery stops when it is cancelled or released.
+    public func addSessionChangeObserver(
+        _ observer: @escaping @MainActor @Sendable (OMSWalletSessionChangeEvent) -> Void
+    ) -> OMSWalletSessionChangeObservation {
+        let registration = (id: UUID(), observer: observer)
+        withSessionLock {
+            _sessionChangeObservers.append(registration)
+            if let replay = _latestExpiredChange, _activeWallet == nil {
+                queueSessionChangeLocked(replay, observers: [registration])
             }
         }
-        return OMSWalletSessionExpiredObservation { [weak self] in
-            self?.removeSessionExpiredObserver(observerId)
+        return OMSWalletSessionChangeObservation { [weak self] in
+            self?.withSessionLock {
+                self?._sessionChangeObservers.removeAll { $0.id == registration.id }
+            }
         }
     }
 
-    func removeSessionExpiredObserver(_ observerId: UUID) {
-        withSessionLock {
-            _sessionExpiredObservers[observerId] = nil
+    /// Publishes a change of `activeWallet` or `session` to the observers registered now. Every
+    /// change except `expired` is published only when they differ from the last published ones.
+    /// Call it, under the session lock, once the change is complete; observers run later on the main
+    /// actor.
+    func publishSessionChangeLocked(_ change: SessionChange) {
+        let wallet = _activeWallet
+        let session = currentSessionLocked()?.session
+        let previous = _publishedState
+        var expiredSession: OMSWalletExpiredSession?
+        if case .expired(let expired) = change, wallet == nil {
+            expiredSession = expired
+        }
+        guard expiredSession != nil || previous.wallet != wallet || previous.session != session else {
+            return
+        }
+        _publishedState = (wallet, session)
+
+        let event: OMSWalletSessionChangeEvent
+        if let expiredSession {
+            event = .expired(expiredSession)
+            _latestExpiredChange = event
+        } else if let wallet, let session {
+            switch change {
+            case .restored:
+                event = .restored(wallet: wallet, session: session)
+            case .expiryUpdated:
+                event = .expiryUpdated(wallet: wallet, session: session)
+            case .activation, .signedOut, .expired:
+                event = previous.wallet == nil
+                    ? .signedIn(wallet: wallet, session: session)
+                    : .walletChanged(wallet: wallet, session: session)
+            }
+            _latestExpiredChange = nil
+        } else {
+            event = .signedOut
+        }
+        queueSessionChangeLocked(event, observers: _sessionChangeObservers)
+    }
+
+    private func queueSessionChangeLocked(
+        _ event: OMSWalletSessionChangeEvent,
+        observers: [SessionChangeObserverRegistration]
+    ) {
+        guard !observers.isEmpty else {
+            return
+        }
+        _pendingSessionChanges.append((event, observers))
+        guard !_sessionChangeDeliveryScheduled else {
+            return
+        }
+        _sessionChangeDeliveryScheduled = true
+        Task { @MainActor [weak self] in
+            self?.deliverSessionChanges()
         }
     }
 
-    func sessionExpiredObserversLocked() -> [SessionExpiredObserverRegistration] {
-        _sessionExpiredObservers.map { (id: $0.key, observer: $0.value) }
-    }
-
-    func shouldReplaySessionExpiredEvent(
-        _ event: OMSWalletSessionExpiredEvent,
-        to observerId: UUID
-    ) -> Bool {
-        withSessionLock {
-            _sessionExpiredObservers[observerId] != nil && _latestSessionExpiredEvent == event
+    /// Delivers queued changes in the order they happened; a change an observer causes is
+    /// delivered after the ones before it.
+    @MainActor
+    private func deliverSessionChanges() {
+        while let next = withSessionLock({ () -> (OMSWalletSessionChangeEvent, [SessionChangeObserverRegistration])? in
+            guard !_pendingSessionChanges.isEmpty else {
+                _sessionChangeDeliveryScheduled = false
+                return nil
+            }
+            let next = _pendingSessionChanges.removeFirst()
+            return (next.event, next.observers)
+        }) {
+            for registration in next.1 where isSessionChangeObserverRegistered(registration.id) {
+                registration.observer(next.0)
+            }
         }
     }
 
-    func isSessionExpiredObserverRegistered(_ observerId: UUID) -> Bool {
-        withSessionLock { _sessionExpiredObservers[observerId] != nil }
+    private func isSessionChangeObserverRegistered(_ id: UUID) -> Bool {
+        withSessionLock { _sessionChangeObservers.contains { $0.id == id } }
     }
 
     func withSessionLock<T>(_ body: () throws -> T) rethrows -> T {
@@ -502,8 +565,7 @@ public final class WalletClient: @unchecked Sendable {
 
     func requireWalletSelectionOrActiveSession() async throws {
         try await refreshLocallyExpiredSession()
-        if let notification = expireCurrentSessionIfNeeded() {
-            deliverSessionExpiredNotification(notification)
+        if expireCurrentSessionIfNeeded() {
             throw OMSWalletError.sessionExpired()
         }
         let hasActiveSession = withSessionLock { () -> Bool in
@@ -518,8 +580,7 @@ public final class WalletClient: @unchecked Sendable {
 
     func requireActiveWalletId() async throws -> String {
         try await refreshLocallyExpiredSession()
-        if let notification = expireCurrentSessionIfNeeded() {
-            deliverSessionExpiredNotification(notification)
+        if expireCurrentSessionIfNeeded() {
             throw OMSWalletError.sessionExpired()
         }
         let walletId = self.walletId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -591,7 +652,6 @@ public final class WalletClient: @unchecked Sendable {
                 )
                 // The credential `persist` just recorded with the wallet.
                 self._sessionSignerCredentialId = try? self.credentialSession.signer.credentialId()
-                self._latestSessionExpiredEvent = nil
                 self._activeWallet = wallet
                 self._sessionExpiresAt = metadata.expiresAt
                 self._sessionAuth = metadata.auth
@@ -599,6 +659,7 @@ public final class WalletClient: @unchecked Sendable {
                 // Sign-in recorded its read in `completeWalletAuth`. Activating another wallet is not
                 // a read: a restored session not read yet stays unread, so the expiry timer keeps
                 // the restore-time bound instead of trusting the saved expiry.
+                self.publishSessionChangeLocked(.activation)
             }
             if let snapshot = self.currentSessionSnapshot() {
                 self.scheduleSessionExpiry(snapshot)
@@ -670,7 +731,8 @@ public final class WalletClient: @unchecked Sendable {
 }
 
 @available(macOS 12.0, iOS 15.0, *)
-public final class OMSWalletSessionExpiredObservation: @unchecked Sendable {
+/// Keeps a session change observer registered; delivery stops when it is cancelled or released.
+public final class OMSWalletSessionChangeObservation: @unchecked Sendable {
     private let lock = NSLock()
     private var onCancel: (@Sendable () -> Void)?
 

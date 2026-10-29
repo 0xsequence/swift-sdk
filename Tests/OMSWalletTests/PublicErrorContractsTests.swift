@@ -415,9 +415,9 @@ func TestPublicErrorContractsServerRejectedCredentialEndsSessionOnce(
             for: WaasAPI.SignMessage.urlPath
         )
     }
-    let expiredEvents = LockedBox<[OMSWalletSessionExpiredEvent]>([])
-    let observation = fixture.client.addSessionExpiredObserver { event in
-        expiredEvents.withValue { $0.append(event) }
+    let changes = LockedBox<[OMSWalletSessionChangeEvent]>([])
+    let observation = fixture.client.addSessionChangeObserver { event in
+        changes.withValue { $0.append(event) }
     }
     defer { observation.cancel() }
 
@@ -441,15 +441,15 @@ func TestPublicErrorContractsServerRejectedCredentialEndsSessionOnce(
             )
         )
     }
-    for _ in 0..<10 where expiredEvents.withValue({ $0.isEmpty }) {
+    for _ in 0..<10 where changes.withValue({ $0.last?.name != "expired" }) {
         try await Task.sleep(nanoseconds: 20_000_000)
     }
     try await Task.sleep(nanoseconds: 50_000_000)
 
-    let events = expiredEvents.withValue { $0 }
+    let events = changes.withValue { $0 }
     #expect(fixture.transport.requestCount(for: WaasAPI.SignMessage.urlPath) == 2)
-    #expect(events.count == 1)
-    #expect(events.first?.wallet?.id == "wallet-main")
+    #expect(events.map(\.name) == ["expired"])
+    #expect(events.last?.expiredSession?.wallet?.id == "wallet-main")
     #expect(fixture.client.session == nil)
     #expect(fixture.signer.clearCallCount == 1)
 }

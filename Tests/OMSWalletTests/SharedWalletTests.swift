@@ -224,7 +224,8 @@ private func signedInFixture(
 
 @Test func TestOperationAfterAnotherProcessSignedOutFailsAndEndsTheSession() async throws {
     let fixture = try signedInFixture()
-    try fixture.signer.clear()
+    // Another process sharing the keychain signs out: its stored session and key are deleted.
+    try fixture.client.credentialSession.clear()
 
     await #expect {
         _ = try await fixture.client.signMessage(network: .polygon, message: "hello")
@@ -236,11 +237,11 @@ private func signedInFixture(
     #expect(fixture.transport.totalRequestCount == 0)
 }
 
-@Test @MainActor func TestBackgroundReadThatFindsTheKeyReplacedNotifiesObservers() async throws {
+@Test @MainActor func TestBackgroundReadThatFindsTheKeyReplacedReportsASignOut() async throws {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
     let fixture = try signedInFixture(currentDate: { now })
-    let events = LockedBox<[OMSWalletSessionExpiredEvent]>([])
-    let observation = fixture.client.addSessionExpiredObserver { event in events.withValue { $0.append(event) } }
+    let events = LockedBox<[OMSWalletSessionChangeEvent]>([])
+    let observation = fixture.client.addSessionChangeObserver { event in events.withValue { $0.append(event) } }
     fixture.signer.replaceKey(credentialId: "0xnewer-credential")
 
     _ = await fixture.client.refreshCredentialExpiry()
@@ -248,9 +249,8 @@ private func signedInFixture(
         try await Task.sleep(nanoseconds: 25_000_000)
     }
 
-    #expect(events.withValue { $0.count } == 1)
-    // The session's expiry (2099) had not passed, so it ended when the replaced key was found.
-    #expect(events.withValue { $0.first?.expiredAt } == ISO8601DateFormatter().string(from: now))
+    // Another sign-in replaced the key before the session's expiry (2099) passed.
+    #expect(events.withValue { $0 } == [.signedOut])
     #expect(fixture.client.activeWallet == nil)
     #expect(fixture.transport.requestCount(for: WaasAPI.GetCredential.urlPath) == 0)
     #expect(fixture.signer.clearCallCount == 0)
@@ -263,8 +263,8 @@ private func signedInFixture(
         expiresAt: ISO8601DateFormatter().string(from: expiry),
         currentDate: { expiry.addingTimeInterval(60) }
     )
-    let events = LockedBox<[OMSWalletSessionExpiredEvent]>([])
-    let observation = fixture.client.addSessionExpiredObserver { event in events.withValue { $0.append(event) } }
+    let events = LockedBox<[OMSWalletSessionChangeEvent]>([])
+    let observation = fixture.client.addSessionChangeObserver { event in events.withValue { $0.append(event) } }
     fixture.signer.replaceKey(credentialId: "0xnewer-credential")
 
     _ = await fixture.client.refreshCredentialExpiry()
@@ -272,7 +272,7 @@ private func signedInFixture(
         try await Task.sleep(nanoseconds: 25_000_000)
     }
 
-    #expect(events.withValue { $0.first?.expiredAt } == ISO8601DateFormatter().string(from: expiry))
+    #expect(events.withValue { $0.last?.expiredSession?.expiredAt } == ISO8601DateFormatter().string(from: expiry))
     observation.cancel()
 }
 

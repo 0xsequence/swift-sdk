@@ -43,7 +43,7 @@ struct SafariAuthSession: Identifiable {
 
 struct SessionExpiredPrompt: Identifiable {
     let id = UUID()
-    let event: OMSWalletSessionExpiredEvent
+    let event: OMSWalletExpiredSession
 
     var email: String? {
         event.session.auth.email
@@ -258,12 +258,16 @@ final class AppViewModel: ObservableObject {
     @Published var omsWallet: OMSWallet = try! OMSWallet(
         publishableKey: "pk_sdbx_01m2mwxcn8p59_01m2n33tshe52vt5jyjyt0kc6g"
     )
-    private var sessionExpiredObservation: OMSWalletSessionExpiredObservation?
+    /// The SDK's active wallet, kept current by the session change observer so views update.
+    @Published private(set) var activeWallet: Wallet?
+    private var sessionChangeObservation: OMSWalletSessionChangeObservation?
 
     init() {
-        sessionExpiredObservation = omsWallet.wallet.addSessionExpiredObserver { [weak self] event in
-            self?.handleSessionExpired(event)
+        // Observe first, then read, so no change is missed.
+        sessionChangeObservation = omsWallet.wallet.addSessionChangeObserver { [weak self] change in
+            self?.handleSessionChange(change)
         }
+        activeWallet = omsWallet.wallet.activeWallet
     }
 
     private var walletSelectionBehavior: WalletSelectionBehavior {
@@ -613,7 +617,29 @@ final class AppViewModel: ObservableObject {
         screen = .login
     }
 
-    private func handleSessionExpired(_ event: OMSWalletSessionExpiredEvent) {
+    private func handleSessionChange(_ change: OMSWalletSessionChangeEvent) {
+        activeWallet = change.activeWallet
+        switch change {
+        case .expired(let expired):
+            handleSessionExpired(expired)
+        case .restored:
+            // A launch while the device was locked restores the session once it is unlocked.
+            if case .introduction = screen {
+                showWallet()
+            }
+        case .walletChanged, .expiryUpdated, .signedIn:
+            if let walletType = DemoWalletType(change.activeWallet?.type) {
+                selectedWalletType = walletType
+            }
+        case .signedOut:
+            // For example another process sharing the keychain signed in again.
+            if case .wallet = screen {
+                screen = .introduction
+            }
+        }
+    }
+
+    private func handleSessionExpired(_ event: OMSWalletExpiredSession) {
         safariAuthSession = nil
         feeOptionSelectionRequest?.cancel()
         feeOptionSelectionRequest = nil
@@ -1182,7 +1208,7 @@ struct WalletWindow: View {
     }
 
     private func refreshBalance() async {
-        guard let walletAddress = vm.omsWallet.wallet.activeWallet?.address else { return }
+        guard let walletAddress = vm.activeWallet?.address else { return }
         isFetchingBalance = true
         clearBalance()
         defer { isFetchingBalance = false }
@@ -1221,7 +1247,7 @@ struct WalletWindow: View {
     }
 
     var body: some View {
-        switch vm.omsWallet.wallet.activeWallet?.type {
+        switch vm.activeWallet?.type {
         case .tron:
             TronWalletWindow()
         case .solana:
@@ -1311,7 +1337,7 @@ struct WalletWindow: View {
     private var walletAddressBar: some View {
         VStack(spacing: 8) {
             HStack(spacing: 6) {
-                Text(collapsedAddress(vm.omsWallet.wallet.activeWallet?.address ?? ""))
+                Text(collapsedAddress(vm.activeWallet?.address ?? ""))
                     .font(.system(size: 22, weight: .semibold, design: .monospaced))
                     .foregroundStyle(DesignTokens.Color.primaryText)
                     .lineLimit(1)
@@ -1319,7 +1345,7 @@ struct WalletWindow: View {
                     .textSelection(.enabled)
 
                 Button {
-                    guard let walletAddress = vm.omsWallet.wallet.activeWallet?.address else { return }
+                    guard let walletAddress = vm.activeWallet?.address else { return }
                     Clipboard.copy(walletAddress)
                     didCopy = true
                     Task {
@@ -1332,7 +1358,7 @@ struct WalletWindow: View {
                         .foregroundStyle(didCopy ? DesignTokens.Color.success : DesignTokens.Color.info)
                 }
                 .buttonStyle(.plain)
-                .disabled(vm.omsWallet.wallet.activeWallet == nil)
+                .disabled(vm.activeWallet == nil)
                 .help(didCopy ? "Copied" : "Copy address")
             }
 
@@ -1644,7 +1670,7 @@ private struct TronBalancesWindow: View {
                 isDisabled: isBusy || vm.feeOptionSelectionRequest != nil || vm.switchingWalletType != nil
             )
 
-            if let address = vm.omsWallet.wallet.activeWallet?.address {
+            if let address = vm.activeWallet?.address {
                 FieldGroup(title: "Address") {
                     CopyableResult(text: address)
                     if let url = tronAddressExplorerURL(address, config: config) {
@@ -1717,7 +1743,7 @@ private struct TronBalancesWindow: View {
     }
 
     private func refreshBalances() async {
-        guard let address = vm.omsWallet.wallet.activeWallet?.address else { return }
+        guard let address = vm.activeWallet?.address else { return }
         let config = config
         balanceRequest += 1
         let request = balanceRequest
@@ -2011,7 +2037,7 @@ private struct TronSignMessageWindow: View {
     }
 
     private func signAndVerify() async {
-        guard let walletAddress = vm.omsWallet.wallet.activeWallet?.address else { return }
+        guard let walletAddress = vm.activeWallet?.address else { return }
         let message = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         isSigning = true
         signature = ""
@@ -2170,7 +2196,7 @@ private struct SolanaBalancesWindow: View {
                 isDisabled: isBusy || vm.feeOptionSelectionRequest != nil || vm.switchingWalletType != nil
             )
 
-            if let address = vm.omsWallet.wallet.activeWallet?.address {
+            if let address = vm.activeWallet?.address {
                 FieldGroup(title: "Address") {
                     CopyableResult(text: address)
                     if let url = solanaExplorerURL("address/\(address)", config: config) {
@@ -2253,7 +2279,7 @@ private struct SolanaBalancesWindow: View {
     }
 
     private func refreshBalances() async {
-        guard let address = vm.omsWallet.wallet.activeWallet?.address else { return }
+        guard let address = vm.activeWallet?.address else { return }
         let config = config
         balanceRequest += 1
         let request = balanceRequest
@@ -2717,7 +2743,7 @@ struct SendTransactionWindow: View {
                 .environmentObject(vm)
         }
         .onAppear {
-            if toText.isEmpty, let walletAddress = vm.omsWallet.wallet.activeWallet?.address {
+            if toText.isEmpty, let walletAddress = vm.activeWallet?.address {
                 toText = walletAddress
             }
         }

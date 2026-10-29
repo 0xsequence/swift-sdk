@@ -93,6 +93,8 @@ conformance	OMSWalletErrorCode	Swift.Equatable
 conformance	OMSWalletErrorCode	Swift.Hashable
 conformance	OMSWalletErrorCode	Swift.RawRepresentable
 conformance	OMSWalletErrorCode	Swift.Sendable
+conformance	OMSWalletExpiredSession	Swift.Equatable
+conformance	OMSWalletExpiredSession	Swift.Sendable
 conformance	OMSWalletOidcSessionAuth	Swift.Decodable
 conformance	OMSWalletOidcSessionAuth	Swift.Encodable
 conformance	OMSWalletOidcSessionAuth	Swift.Equatable
@@ -113,9 +115,9 @@ conformance	OMSWalletSessionAuth	Swift.Decodable
 conformance	OMSWalletSessionAuth	Swift.Encodable
 conformance	OMSWalletSessionAuth	Swift.Equatable
 conformance	OMSWalletSessionAuth	Swift.Sendable
-conformance	OMSWalletSessionExpiredEvent	Swift.Equatable
-conformance	OMSWalletSessionExpiredEvent	Swift.Sendable
-conformance	OMSWalletSessionExpiredObservation	Swift.Sendable
+conformance	OMSWalletSessionChangeEvent	Swift.Equatable
+conformance	OMSWalletSessionChangeEvent	Swift.Sendable
+conformance	OMSWalletSessionChangeObservation	Swift.Sendable
 conformance	OMSWalletUpstreamError	Swift.Equatable
 conformance	OMSWalletUpstreamError	Swift.Sendable
 conformance	OMSWalletUpstreamService	Swift.Equatable
@@ -311,7 +313,7 @@ conformance	WalletType	Swift.Hashable
 conformance	WalletType	Swift.Sendable
 symbol	swift.class	IndexerClient	final class IndexerClient
 symbol	swift.class	OMSWallet	final class OMSWallet
-symbol	swift.class	OMSWalletSessionExpiredObservation	final class OMSWalletSessionExpiredObservation
+symbol	swift.class	OMSWalletSessionChangeObservation	final class OMSWalletSessionChangeObservation
 symbol	swift.class	PendingWalletSelection	final class PendingWalletSelection
 symbol	swift.class	WalletClient	final class WalletClient
 symbol	swift.enum	AccessGrant	enum AccessGrant
@@ -328,6 +330,7 @@ symbol	swift.enum	OMSWalletErrorCode	enum OMSWalletErrorCode
 symbol	swift.enum	OMSWalletOidcSessionAuthFlow	enum OMSWalletOidcSessionAuthFlow
 symbol	swift.enum	OMSWalletOperation	enum OMSWalletOperation
 symbol	swift.enum	OMSWalletSessionAuth	enum OMSWalletSessionAuth
+symbol	swift.enum	OMSWalletSessionChangeEvent	enum OMSWalletSessionChangeEvent
 symbol	swift.enum	OMSWalletUpstreamService	enum OMSWalletUpstreamService
 symbol	swift.enum	SmartSessionGrant	enum SmartSessionGrant
 symbol	swift.enum	SolanaBalance	enum SolanaBalance
@@ -460,6 +463,12 @@ symbol	swift.enum.case	OMSWalletOperation.walletTransactionStatus	case walletTra
 symbol	swift.enum.case	OMSWalletOperation.walletUseWallet	case walletUseWallet
 symbol	swift.enum.case	OMSWalletSessionAuth.email(_:)	case email(OMSWalletEmailSessionAuth)
 symbol	swift.enum.case	OMSWalletSessionAuth.oidc(_:)	case oidc(OMSWalletOidcSessionAuth)
+symbol	swift.enum.case	OMSWalletSessionChangeEvent.expired(_:)	case expired(OMSWalletExpiredSession)
+symbol	swift.enum.case	OMSWalletSessionChangeEvent.expiryUpdated(wallet:session:)	case expiryUpdated(wallet: Wallet, session: OMSWalletSession)
+symbol	swift.enum.case	OMSWalletSessionChangeEvent.restored(wallet:session:)	case restored(wallet: Wallet, session: OMSWalletSession)
+symbol	swift.enum.case	OMSWalletSessionChangeEvent.signedIn(wallet:session:)	case signedIn(wallet: Wallet, session: OMSWalletSession)
+symbol	swift.enum.case	OMSWalletSessionChangeEvent.signedOut	case signedOut
+symbol	swift.enum.case	OMSWalletSessionChangeEvent.walletChanged(wallet:session:)	case walletChanged(wallet: Wallet, session: OMSWalletSession)
 symbol	swift.enum.case	OMSWalletUpstreamService.indexer	case indexer
 symbol	swift.enum.case	OMSWalletUpstreamService.waas	case waas
 symbol	swift.enum.case	SmartSessionGrant.erc20Transfer(token:to:limit:cumulative:)	case erc20Transfer(token: String, to: String? = nil, limit: String, cumulative: Bool? = nil)
@@ -558,13 +567,13 @@ symbol	swift.init	OMSWallet.init(publishableKey:)	convenience init(publishableKe
 symbol	swift.init	OMSWalletEmailSessionAuth.init(email:)	init(email: String)
 symbol	swift.init	OMSWalletEmailSessionAuth.init(from:)	init(from decoder: Decoder) throws
 symbol	swift.init	OMSWalletErrorCode.init(rawValue:)	init?(rawValue: String)
+symbol	swift.init	OMSWalletExpiredSession.init(wallet:session:expiredAt:)	init(wallet: Wallet?, session: OMSWalletSession, expiredAt: String)
 symbol	swift.init	OMSWalletOidcSessionAuth.init(flow:issuer:provider:providerLabel:email:)	init(flow: OMSWalletOidcSessionAuthFlow, issuer: String, provider: String? = nil, providerLabel: String? = nil, email: String? = nil)
 symbol	swift.init	OMSWalletOidcSessionAuth.init(from:)	init(from decoder: Decoder) throws
 symbol	swift.init	OMSWalletOidcSessionAuthFlow.init(rawValue:)	init?(rawValue: String)
 symbol	swift.init	OMSWalletOperation.init(rawValue:)	init?(rawValue: String)
 symbol	swift.init	OMSWalletSession.init(expiresAt:auth:)	init(expiresAt: String, auth: OMSWalletSessionAuth)
 symbol	swift.init	OMSWalletSessionAuth.init(from:)	init(from decoder: Decoder) throws
-symbol	swift.init	OMSWalletSessionExpiredEvent.init(wallet:session:expiredAt:)	init(wallet: Wallet?, session: OMSWalletSession, expiredAt: String)
 symbol	swift.init	OMSWalletUpstreamService.init(rawValue:)	init?(rawValue: String)
 symbol	swift.init	Page.init(from:)	init(from decoder: any Decoder) throws
 symbol	swift.init	Page.init(limit:cursor:)	init(limit: UInt32? = nil, cursor: String? = nil)
@@ -642,7 +651,7 @@ symbol	swift.method	NativeTokenBalance.encode(to:)	func encode(to encoder: Encod
 symbol	swift.method	OMSWalletEmailSessionAuth.encode(to:)	func encode(to encoder: Encoder) throws
 symbol	swift.method	OMSWalletOidcSessionAuth.encode(to:)	func encode(to encoder: Encoder) throws
 symbol	swift.method	OMSWalletSessionAuth.encode(to:)	func encode(to encoder: Encoder) throws
-symbol	swift.method	OMSWalletSessionExpiredObservation.cancel()	func cancel()
+symbol	swift.method	OMSWalletSessionChangeObservation.cancel()	func cancel()
 symbol	swift.method	PendingWalletSelection.claimAndSelectWallet(walletId:)	@discardableResult func claimAndSelectWallet(walletId: String) async throws -> WalletActivationResult
 symbol	swift.method	PendingWalletSelection.createAndSelectWallet(reference:)	@discardableResult func createAndSelectWallet(reference: String? = nil) async throws -> WalletActivationResult
 symbol	swift.method	PendingWalletSelection.selectWallet(walletId:)	@discardableResult func selectWallet(walletId: String) async throws -> WalletActivationResult
@@ -652,7 +661,7 @@ symbol	swift.method	Transaction.encode(to:)	func encode(to encoder: Encoder) thr
 symbol	swift.method	TransactionMode.encode(to:)	func encode(to encoder: Encoder) throws
 symbol	swift.method	TransactionStatus.encode(to:)	func encode(to encoder: Encoder) throws
 symbol	swift.method	TransactionTransfer.encode(to:)	func encode(to encoder: Encoder) throws
-symbol	swift.method	WalletClient.addSessionExpiredObserver(_:)	@discardableResult func addSessionExpiredObserver(_ observer: @escaping @MainActor @Sendable (OMSWalletSessionExpiredEvent) -> Void) -> OMSWalletSessionExpiredObservation
+symbol	swift.method	WalletClient.addSessionChangeObserver(_:)	func addSessionChangeObserver(_ observer: @escaping @MainActor @Sendable (OMSWalletSessionChangeEvent) -> Void) -> OMSWalletSessionChangeObservation
 symbol	swift.method	WalletClient.authorizeRemoteAccess(credentialId:network:grants:expiresAt:sessionId:)	func authorizeRemoteAccess(credentialId: String, network: Network, grants: [SmartSessionGrant], expiresAt: String, sessionId: String? = nil) async throws -> AuthorizedRemoteAccess
 symbol	swift.method	WalletClient.callContract(network:contractAddress:method:args:selectFeeOption:mode:waitForStatus:statusPolling:)	func callContract(network: Network, contractAddress: String, method: String, args: [AbiArg]? = nil, selectFeeOption: FeeOptionSelector? = nil, mode: TransactionMode = .relayer, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
 symbol	swift.method	WalletClient.callTronContract(network:contractAddress:method:args:selectFeeOption:waitForStatus:statusPolling:)	func callTronContract(network: TronNetwork, contractAddress: String, method: String, args: [AbiArg]? = nil, selectFeeOption: FeeOptionSelector? = nil, waitForStatus: Bool = true, statusPolling: TransactionStatusPollingOptions = TransactionStatusPollingOptions()) async throws -> SendTransactionResponse
@@ -821,6 +830,9 @@ symbol	swift.property	OMSWalletError.status	let status: Int?
 symbol	swift.property	OMSWalletError.txnId	let txnId: String?
 symbol	swift.property	OMSWalletError.underlyingError	let underlyingError: (any Error)?
 symbol	swift.property	OMSWalletError.upstreamError	let upstreamError: OMSWalletUpstreamError?
+symbol	swift.property	OMSWalletExpiredSession.expiredAt	let expiredAt: String
+symbol	swift.property	OMSWalletExpiredSession.session	let session: OMSWalletSession
+symbol	swift.property	OMSWalletExpiredSession.wallet	let wallet: Wallet?
 symbol	swift.property	OMSWalletOidcSessionAuth.email	let email: String?
 symbol	swift.property	OMSWalletOidcSessionAuth.flow	let flow: OMSWalletOidcSessionAuthFlow
 symbol	swift.property	OMSWalletOidcSessionAuth.issuer	let issuer: String
@@ -829,9 +841,8 @@ symbol	swift.property	OMSWalletOidcSessionAuth.providerLabel	let providerLabel: 
 symbol	swift.property	OMSWalletSession.auth	let auth: OMSWalletSessionAuth
 symbol	swift.property	OMSWalletSession.expiresAt	let expiresAt: String
 symbol	swift.property	OMSWalletSessionAuth.email	var email: String? { get }
-symbol	swift.property	OMSWalletSessionExpiredEvent.expiredAt	let expiredAt: String
-symbol	swift.property	OMSWalletSessionExpiredEvent.session	let session: OMSWalletSession
-symbol	swift.property	OMSWalletSessionExpiredEvent.wallet	let wallet: Wallet?
+symbol	swift.property	OMSWalletSessionChangeEvent.activeWallet	var activeWallet: Wallet? { get }
+symbol	swift.property	OMSWalletSessionChangeEvent.session	var session: OMSWalletSession? { get }
 symbol	swift.property	OMSWalletUpstreamError.cause	let cause: String?
 symbol	swift.property	OMSWalletUpstreamError.code	let code: String?
 symbol	swift.property	OMSWalletUpstreamError.message	let message: String?
@@ -1104,9 +1115,9 @@ symbol	swift.struct	NativeTokenBalance	struct NativeTokenBalance
 symbol	swift.struct	OMSRelayOIDCProvider	struct OMSRelayOIDCProvider
 symbol	swift.struct	OMSWalletEmailSessionAuth	struct OMSWalletEmailSessionAuth
 symbol	swift.struct	OMSWalletError	struct OMSWalletError
+symbol	swift.struct	OMSWalletExpiredSession	struct OMSWalletExpiredSession
 symbol	swift.struct	OMSWalletOidcSessionAuth	struct OMSWalletOidcSessionAuth
 symbol	swift.struct	OMSWalletSession	struct OMSWalletSession
-symbol	swift.struct	OMSWalletSessionExpiredEvent	struct OMSWalletSessionExpiredEvent
 symbol	swift.struct	OMSWalletUpstreamError	struct OMSWalletUpstreamError
 symbol	swift.struct	Page	struct Page
 symbol	swift.struct	RemoteAccessGrant	struct RemoteAccessGrant

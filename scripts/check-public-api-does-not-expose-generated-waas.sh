@@ -109,7 +109,7 @@ func checkPublicAPI(omsWallet: OMSWallet) async throws {
     let _: TransactionStatusResolution = .notRequested
     let _: any Sendable = omsWallet
     let _: any Sendable = omsWallet.indexer
-    _ = omsWallet.wallet.addSessionExpiredObserver { _ in }
+    _ = omsWallet.wallet.addSessionChangeObserver { _ in }
     let _: String = try await omsWallet.wallet.getIdToken()
 }
 EOF

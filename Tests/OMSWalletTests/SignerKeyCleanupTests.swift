@@ -73,19 +73,19 @@ private struct SharedTag {
         fixture,
         wallet: activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main")
     )
-    var expiredEvents: [OMSWalletSessionExpiredEvent] = []
-    let observation = fixture.client.addSessionExpiredObserver { expiredEvents.append($0) }
+    var changes: [OMSWalletSessionChangeEvent] = []
+    let observation = fixture.client.addSessionChangeObserver { changes.append($0) }
     defer { observation.cancel() }
     let revision = fixture.client.withSessionLock { fixture.client._sessionRevision }
 
     // While this session's request was in flight, another process signed in with a new key.
     fixture.signer.replaceKey(credentialId: "0xnewer-sign-in")
     fixture.client.endSessionRejectedByServer(revision: revision)
-    for _ in 0..<40 where expiredEvents.isEmpty {
+    for _ in 0..<40 where changes.last?.name != "expired" {
         try await Task.sleep(nanoseconds: 25_000_000)
     }
 
-    #expect(expiredEvents.count == 1)
+    #expect(changes.map(\.name) == ["expired"])
     #expect(fixture.client.session == nil)
     #expect(fixture.signer.hasStoredCredential)
     #expect(fixture.signer.clearCallCount == 0)

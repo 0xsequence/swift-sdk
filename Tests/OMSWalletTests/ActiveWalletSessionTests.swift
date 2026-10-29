@@ -276,9 +276,9 @@ func TestSignInRejectsWalletsThatCannotBeRestored(wallet: WaasWallet) async thro
         ),
         for: WaasAPI.CompleteAuth.urlPath
     )
-    var expiredEvent: OMSWalletSessionExpiredEvent?
-    let observation = fixture.client.addSessionExpiredObserver { event in
-        expiredEvent = event
+    var changes: [OMSWalletSessionChangeEvent] = []
+    let observation = fixture.client.addSessionChangeObserver { event in
+        changes.append(event)
     }
     defer { observation.cancel() }
 
@@ -296,11 +296,12 @@ func TestSignInRejectsWalletsThatCannotBeRestored(wallet: WaasWallet) async thro
     } catch let error as OMSWalletError {
         #expect(error.code == .sessionExpired)
     }
-    for _ in 0..<100 where expiredEvent == nil {
+    for _ in 0..<100 where changes.isEmpty {
         try await Task.sleep(nanoseconds: 10_000_000)
     }
 
-    let event = try #require(expiredEvent)
+    #expect(changes.map(\.name) == ["expired"])
+    let event = try #require(changes.last?.expiredSession)
     #expect(event.wallet == nil)
     #expect(event.session.auth.email == "user@example.com")
     #expect(event.expiredAt == "2026-01-01T00:00:00Z")
