@@ -20,14 +20,28 @@ extension WalletClient {
     /// Expiry and auth metadata for the active wallet session. Non-`nil` exactly when
     /// `activeWallet` is.
     public var session: OMSWalletSession? {
-        withSessionLock {
+        retryDeferredRestore(throttled: true)
+        return withSessionLock {
             currentSessionLocked()?.session
         }
     }
 
-    func restoreStoredWalletSession(_ storedWallet: WalletCredentialSession.WalletMetadata?) {
-        guard let storedWallet else {
+    /// Restores the session stored in the keychain. A keychain that cannot be read (for example
+    /// while the device is locked during a background launch) defers the restore instead of
+    /// treating the session as absent: nothing is deleted and no expiry is reported, and the
+    /// restore runs again once protected data may be available, or when the app next reads
+    /// `activeWallet` or `session`. A deferred attempt passes `expectedRevision` and restores only
+    /// while no sign-out or new sign-in has happened since the restore was deferred.
+    func restoreStoredWalletSession(expectedRevision: UInt64? = nil) {
+        let storedWallet: WalletCredentialSession.WalletMetadata
+        switch credentialSession.storedSession() {
+        case .none:
             return
+        case .unavailable:
+            deferRestore(afterFailedRetry: expectedRevision != nil)
+            return
+        case .stored(let stored):
+            storedWallet = stored
         }
 
         guard let storedSession = WalletSessionSnapshot(
@@ -36,28 +50,76 @@ extension WalletClient {
             auth: storedWallet.auth
         ) else {
             // An unreadable expiry is treated as expired; restore() discards the stored session.
-            _ = credentialSession.restore()
+            withSessionLock {
+                if isExpectedRevisionLocked(expectedRevision) {
+                    _ = credentialSession.restore()
+                }
+            }
             return
         }
         // A passed expiry may still be active on the server; the restored session's read decides.
         // Without its signing key, an earlier launch already ended it (keeping the record as the
-        // sign-in hint), so it is replayed as expired again.
-        guard !isSessionExpired(storedSession)
-            || (savedSessionMayBeActiveOnServer(
+        // sign-in hint), so it is replayed as expired again. A key that cannot be read is not
+        // missing: the restore waits instead.
+        if isSessionExpired(storedSession) {
+            guard savedSessionMayBeActiveOnServer(
                 expiresAt: storedSession.expiryDate,
                 bounds: storedWallet.expiryBounds,
                 now: currentDate()
-            ) && credentialSession.signerHoldsKey()) else {
-            expireStoredSession(storedSession)
-            return
+            ) else {
+                expireStoredSession(
+                    storedSession,
+                    signerCredentialId: storedWallet.signerCredentialId,
+                    expectedRevision: expectedRevision
+                )
+                return
+            }
+            switch credentialSession.signerKey() {
+            case .unavailable:
+                deferRestore(afterFailedRetry: expectedRevision != nil)
+                return
+            case .missing:
+                expireStoredSession(
+                    storedSession,
+                    signerCredentialId: storedWallet.signerCredentialId,
+                    expectedRevision: expectedRevision
+                )
+                return
+            case .present:
+                break
+            }
         }
-        guard let restoredWallet = credentialSession.restore() else {
+        // Under the session lock, so a sign-out or new sign-in cannot interleave with the cleanup
+        // of a record that does not match the signer's key.
+        let restoration = withSessionLock { () -> WalletCredentialSession.Restoration? in
+            guard isExpectedRevisionLocked(expectedRevision) else {
+                return nil
+            }
+            return credentialSession.restore()
+        }
+        let restoredWallet: WalletCredentialSession.WalletMetadata
+        switch restoration {
+        case nil, .discarded:
             return
+        case .unavailable:
+            deferRestore(afterFailedRetry: expectedRevision != nil)
+            return
+        case .restored(let restored):
+            restoredWallet = restored
         }
 
-        activeWallet = restoredWallet.wallet
-        sessionExpiresAt = restoredWallet.expiresAt
-        sessionAuth = restoredWallet.auth
+        let isCommitted = withSessionLock { () -> Bool in
+            guard isExpectedRevisionLocked(expectedRevision) else {
+                return false
+            }
+            activeWallet = restoredWallet.wallet
+            sessionExpiresAt = restoredWallet.expiresAt
+            sessionAuth = restoredWallet.auth
+            return true
+        }
+        guard isCommitted else {
+            return
+        }
         withSessionLock {
             _sessionExpiryBounds = restoredWallet.expiryBounds
             // `restore()` matched the signer's key to the stored record's credential.
@@ -137,10 +199,75 @@ extension WalletClient {
         currentDate() >= session.expiryDate
     }
 
-    private func expireStoredSession(_ session: WalletSessionSnapshot) {
+    /// Whether a deferred restore (`expected` set) still belongs to the current session revision.
+    private func isExpectedRevisionLocked(_ expected: UInt64?) -> Bool {
+        expected.map { $0 == _sessionRevision } ?? true
+    }
+
+    /// Waits for the keychain to become readable, then restores again. Only one wait is pending at a
+    /// time; a sign-out or new sign-in cancels it (`clearSession`).
+    private func deferRestore(afterFailedRetry: Bool) {
+        let revision = withSessionLock { () -> UInt64? in
+            guard !_restoreDeferred else {
+                return nil
+            }
+            _restoreDeferred = true
+            return _sessionRevision
+        }
+        guard let revision else {
+            return
+        }
+        // Right after a failed retry the keychain is not checked again at once, so a keychain that
+        // keeps failing while protected data is available is not retried in a loop.
+        let cancel = runWhenProtectedDataAvailable(!afterFailedRetry) { [weak self] in
+            self?.retryDeferredRestore()
+        }
+        let isCurrent = withSessionLock { () -> Bool in
+            guard _restoreDeferred, _sessionRevision == revision else {
+                return false
+            }
+            _cancelDeferredRestore = cancel
+            return true
+        }
+        if !isCurrent {
+            cancel()
+        }
+    }
+
+    /// Retries a deferred restore. The first of several triggers claims it; `throttled` (a session
+    /// read) retries at most once a second.
+    func retryDeferredRestore(throttled: Bool = false) {
+        let revision = withSessionLock { () -> UInt64? in
+            guard _restoreDeferred else {
+                return nil
+            }
+            let now = Date()
+            if throttled, let last = _lastDeferredRestoreAttempt, now.timeIntervalSince(last) < 1 {
+                return nil
+            }
+            _lastDeferredRestoreAttempt = now
+            _restoreDeferred = false
+            _cancelDeferredRestore?()
+            _cancelDeferredRestore = nil
+            return _sessionRevision
+        }
+        guard let revision else {
+            return
+        }
+        restoreStoredWalletSession(expectedRevision: revision)
+    }
+
+    private func expireStoredSession(
+        _ session: WalletSessionSnapshot,
+        signerCredentialId: String,
+        expectedRevision: UInt64? = nil
+    ) {
         deliverSessionExpiredNotification(
-            withSessionLock {
-                try? credentialSession.clearSignerKeepingCredentials()
+            withSessionLock { () -> SessionExpiredNotification? in
+                guard isExpectedRevisionLocked(expectedRevision) else {
+                    return nil
+                }
+                try? credentialSession.clearSignerKeepingCredentials(ifCredentialId: signerCredentialId)
                 signedClient = signedClientFactory(credentialSession.signer)
                 return makeSessionExpiredNotificationLocked(session)
             }
@@ -163,7 +290,7 @@ extension WalletClient {
     }
 
     private func currentSessionLocked() -> WalletSessionSnapshot? {
-        guard let activeWallet, let sessionAuth else {
+        guard let activeWallet = _activeWallet, let sessionAuth else {
             return nil
         }
 
@@ -186,6 +313,7 @@ extension WalletClient {
     }
 
     private func clearActiveSessionForExpiryLocked() {
+        let sessionCredentialId = _sessionSignerCredentialId ?? activePendingWalletSelection?.signerCredentialId
         _sessionRevision += 1
         _sessionSignerCredentialId = nil
         _lastCredentialRefreshAt = nil
@@ -198,7 +326,7 @@ extension WalletClient {
         _cancelRestoreRead?()
         _cancelRestoreRead = nil
         activePendingWalletSelection = nil
-        try? credentialSession.clearSignerKeepingCredentials()
+        try? credentialSession.clearSignerKeepingCredentials(ifCredentialId: sessionCredentialId)
         activeWallet = nil
         verifier = ""
         challenge = ""
@@ -562,7 +690,7 @@ extension WalletClient {
         }
         let applied = withSessionLock { () -> Applied in
             guard _sessionRevision == revision,
-                  let wallet = activeWallet,
+                  let wallet = _activeWallet,
                   let auth = sessionAuth,
                   let session = WalletSessionSnapshot(wallet: wallet, expiresAt: expiresAt, auth: auth) else {
                 return .superseded
@@ -805,6 +933,9 @@ extension WalletClient {
                     self.sessionExpiryTask = nil
                     self._cancelRestoreRead?()
                     self._cancelRestoreRead = nil
+                    self._restoreDeferred = false
+                    self._cancelDeferredRestore?()
+                    self._cancelDeferredRestore = nil
                     self.activePendingWalletSelection = nil
                     try self.credentialSession.clear()
                     self.activeWallet = nil

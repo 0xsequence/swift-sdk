@@ -87,6 +87,9 @@ public final class WalletClient: @unchecked Sendable {
     let runWhenActive: (@escaping @Sendable () -> Void) -> ForegroundActivation.Cancel
     /// Waits before retrying a restore read that could not reach the wallet API.
     let restoreReadRetrySleep: @Sendable (TimeInterval) async -> Void
+    /// Runs a deferred keychain restore once protected data may be readable
+    /// (`ForegroundActivation.runWhenProtectedDataAvailable`); the flag allows an immediate check.
+    let runWhenProtectedDataAvailable: (Bool, @escaping @Sendable () -> Void) -> ForegroundActivation.Cancel
     private var _sessionExpiresAt: String?
     var sessionExpiresAt: String? {
         get {
@@ -123,6 +126,13 @@ public final class WalletClient: @unchecked Sendable {
             withSessionLock { _sessionExpiryTask = newValue }
         }
     }
+    /// Whether restoring the stored session waits for the keychain to become readable (for example
+    /// after a launch while the device was locked).
+    var _restoreDeferred = false
+    /// Stops waiting for protected data for a deferred restore.
+    var _cancelDeferredRestore: ForegroundActivation.Cancel?
+    /// When a session read last retried a deferred restore, to retry at most once a second.
+    var _lastDeferredRestoreAttempt: Date?
     /// Cancels the restore read still waiting for the app to become active.
     var _cancelRestoreRead: ForegroundActivation.Cancel?
     private var _latestSessionExpiredEvent: OMSWalletSessionExpiredEvent?
@@ -134,7 +144,7 @@ public final class WalletClient: @unchecked Sendable {
             withSessionLock { _latestSessionExpiredEvent = newValue }
         }
     }
-    private var _activeWallet: Wallet?
+    var _activeWallet: Wallet?
     var _sessionRevision: UInt64 = 0
     /// The in-flight `getCredential` refresh, shared by concurrent callers of the same session.
     /// `isExpiryCheck` marks the expiry timer's own read, whose send is not recorded as activity.
@@ -181,7 +191,8 @@ public final class WalletClient: @unchecked Sendable {
     /// `listWallets()` entries.
     public internal(set) var activeWallet: Wallet? {
         get {
-            withSessionLock { _activeWallet }
+            retryDeferredRestore(throttled: true)
+            return withSessionLock { _activeWallet }
         }
         set {
             withSessionLock { _activeWallet = newValue }
@@ -289,7 +300,6 @@ public final class WalletClient: @unchecked Sendable {
         let publishableKeyHolder = PublishableKeyHolder(publishableKey)
         self.publishableKeyHolder = publishableKeyHolder
         let credentialSession = WalletCredentialSession(environment: environment, projectId: projectId)
-        let storedWallet = credentialSession.storedMetadata()
         self.oidcRedirectAuthStore = KeychainOIDCRedirectAuthStore(projectId: projectId, environment: environment)
         self.oidcRedirectAuthLock = OIDCRedirectAuthLockRegistry.lock(
             for: Constants.oidcRedirectAuthStorageKey(environment: environment, scope: projectId)
@@ -298,6 +308,7 @@ public final class WalletClient: @unchecked Sendable {
         self.currentDate = Date.init
         self.runWhenActive = ForegroundActivation.runWhenActive
         self.restoreReadRetrySleep = WalletClient.sleep
+        self.runWhenProtectedDataAvailable = ForegroundActivation.runWhenProtectedDataAvailable
         let makeSignedClient: (any CredentialSigner) -> WaasClient = { signer in
             Self.makeSignedClient(
                 publishableKey: publishableKeyHolder,
@@ -332,7 +343,7 @@ public final class WalletClient: @unchecked Sendable {
             environment: environment
         )
         observeSessionCredentialClients()
-        restoreStoredWalletSession(storedWallet)
+        restoreStoredWalletSession()
     }
 
     init(
@@ -349,13 +360,14 @@ public final class WalletClient: @unchecked Sendable {
         currentDate: @escaping () -> Date = Date.init,
         runWhenActive: @escaping (@escaping @Sendable () -> Void) -> ForegroundActivation.Cancel = ForegroundActivation.runWhenActive,
         restoreReadRetrySleep: @escaping @Sendable (TimeInterval) async -> Void = WalletClient.sleep,
+        runWhenProtectedDataAvailable: @escaping (Bool, @escaping @Sendable () -> Void) -> ForegroundActivation.Cancel =
+            ForegroundActivation.runWhenProtectedDataAvailable,
         walletImportClient: WaasClient? = nil
     ) {
         self.projectId = projectId
         self.environment = environment
         let publishableKeyHolder = PublishableKeyHolder(publishableKey)
         self.publishableKeyHolder = publishableKeyHolder
-        let storedWallet = credentialSession.storedMetadata()
         self.oidcRedirectAuthStore = oidcRedirectAuthStore ?? KeychainOIDCRedirectAuthStore(projectId: projectId, environment: environment)
         self.oidcRedirectAuthLock = OIDCRedirectAuthLockRegistry.lock(
             for: Constants.oidcRedirectAuthStorageKey(environment: environment, scope: projectId)
@@ -364,6 +376,7 @@ public final class WalletClient: @unchecked Sendable {
         self.currentDate = currentDate
         self.runWhenActive = runWhenActive
         self.restoreReadRetrySleep = restoreReadRetrySleep
+        self.runWhenProtectedDataAvailable = runWhenProtectedDataAvailable
         let makeSignedClient = signedClientFactory ?? { _ in signedClient }
         self.signedClientFactory = makeSignedClient
 
@@ -379,7 +392,7 @@ public final class WalletClient: @unchecked Sendable {
             environment: environment
         )
         observeSessionCredentialClients()
-        restoreStoredWalletSession(storedWallet)
+        restoreStoredWalletSession()
     }
 
     /// Routes the clients that sign with the session credential through

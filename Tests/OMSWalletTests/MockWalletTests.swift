@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import Testing
 @testable import OMSWallet
 
@@ -489,7 +490,10 @@ func TestWalletAuthEntryPointsRejectInvalidSessionLifetimeBeforeRequestOrSignOut
         signerFactory: { _, _, _ in signer }
     )
 
-    #expect(session.restore() == nil)
+    guard case .discarded = session.restore() else {
+        Issue.record("Expected the invalid record to be discarded")
+        return
+    }
     #expect(try keychain.string(forKey: storageKey) == nil)
     #expect(signer.clearCallCount == 1)
 }
@@ -3164,7 +3168,11 @@ func activateTestSession(
     fixture.client.activeWallet = wallet
     fixture.client.sessionExpiresAt = expiresAt
     fixture.client.sessionAuth = .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
-    fixture.client.withSessionLock { fixture.client._sessionExpiryBounds = testExpiryBounds }
+    fixture.client.withSessionLock {
+        fixture.client._sessionExpiryBounds = testExpiryBounds
+        // A real sign-in or restore records the credential the session signs with.
+        fixture.client._sessionSignerCredentialId = try? fixture.signer.credentialId()
+    }
 }
 
 final class LockedBox<Value>: @unchecked Sendable {
@@ -3226,6 +3234,9 @@ func makeMockWalletClient(
         return {}
     },
     restoreReadRetrySleep: @escaping @Sendable (TimeInterval) async -> Void = WalletClient.sleep,
+    runWhenProtectedDataAvailable: @escaping (Bool, @escaping @Sendable () -> Void) -> ForegroundActivation.Cancel = { _, _ in
+        {}
+    },
     prepareTransport: (MockWaasTransport) throws -> Void = { _ in }
 ) -> MockWalletClientFixture {
     let transport = MockWaasTransport()
@@ -3270,6 +3281,7 @@ func makeMockWalletClient(
         currentDate: currentDate,
         runWhenActive: runWhenActive,
         restoreReadRetrySleep: restoreReadRetrySleep,
+        runWhenProtectedDataAvailable: runWhenProtectedDataAvailable,
         walletImportClient: walletImportClient
     )
     client.verifier = "verifier"
@@ -3661,11 +3673,34 @@ private func urlDecode(_ value: String) -> String {
 final class InMemoryKeychain: KeychainManaging {
     private let lock = NSLock()
     private var storage: [String: String] = [:]
+    private var locked = false
+
+    /// While set, every operation fails as the keychain does while the device is locked
+    /// (`errSecInteractionNotAllowed` for `WhenUnlocked` items).
+    var isLocked: Bool {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return locked
+        }
+        set {
+            lock.lock()
+            defer { lock.unlock() }
+            locked = newValue
+        }
+    }
+
+    private func throwIfLockedLocked() throws {
+        if locked {
+            throw KeychainManager.KeychainError.unhandledError(status: errSecInteractionNotAllowed)
+        }
+    }
 
     @discardableResult
     func set(_ value: String, forKey key: String, service: String) throws -> Bool {
         lock.lock()
         defer { lock.unlock() }
+        try throwIfLockedLocked()
         storage[storageKey(key: key, service: service)] = value
         return true
     }
@@ -3673,6 +3708,7 @@ final class InMemoryKeychain: KeychainManaging {
     func string(forKey key: String, service: String) throws -> String? {
         lock.lock()
         defer { lock.unlock() }
+        try throwIfLockedLocked()
         return storage[storageKey(key: key, service: service)]
     }
 
@@ -3680,6 +3716,7 @@ final class InMemoryKeychain: KeychainManaging {
     func delete(forKey key: String, service: String) throws -> Bool {
         lock.lock()
         defer { lock.unlock() }
+        try throwIfLockedLocked()
         return storage.removeValue(forKey: storageKey(key: key, service: service)) != nil
     }
 
@@ -3718,6 +3755,27 @@ final class MockCredentialSigner: CredentialSigner, @unchecked Sendable {
     private var credentialAvailable = true
     private var credential = "0xmock-credential"
     private var clearCalls = 0
+    private var locked = false
+
+    /// While set, key lookups fail as they do while the device is locked.
+    var isLocked: Bool {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return locked
+        }
+        set {
+            lock.lock()
+            defer { lock.unlock() }
+            locked = newValue
+        }
+    }
+
+    private func throwIfLockedLocked() throws {
+        if locked {
+            throw AppleKeychainP256CredentialSigner.SignerError.keyLookupFailed(errSecInteractionNotAllowed)
+        }
+    }
 
     /// Replaces the keychain key with a new one, as another process sharing the keychain does when
     /// it signs in again.
@@ -3743,6 +3801,7 @@ final class MockCredentialSigner: CredentialSigner, @unchecked Sendable {
     func credentialId() throws -> String {
         lock.lock()
         defer { lock.unlock() }
+        try throwIfLockedLocked()
         credentialAvailable = true
         return credential
     }
@@ -3756,12 +3815,16 @@ final class MockCredentialSigner: CredentialSigner, @unchecked Sendable {
     }
 
     func hasCredential() throws -> Bool {
-        hasStoredCredential
+        lock.lock()
+        defer { lock.unlock() }
+        try throwIfLockedLocked()
+        return credentialAvailable
     }
 
     func clear() throws {
         lock.lock()
         defer { lock.unlock() }
+        try throwIfLockedLocked()
         credentialAvailable = false
         clearCalls += 1
     }

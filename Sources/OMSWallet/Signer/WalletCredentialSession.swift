@@ -8,6 +8,8 @@ final class WalletCredentialSession {
         let auth: OMSWalletSessionAuth
         /// `nil` when the record has no readable bounds.
         let expiryBounds: SessionExpiryBounds?
+        /// The credential the session signed in with.
+        let signerCredentialId: String
     }
 
     private let keychain: any KeychainManaging
@@ -34,45 +36,82 @@ final class WalletCredentialSession {
         self.currentSigner = factory()
     }
 
-    func storedMetadata() -> WalletMetadata? {
-        withLock {
-            guard let credentials = loadCredentials() else {
-                return nil
-            }
+    /// The stored session record. `.unavailable` means the keychain could not be read, for example
+    /// while the device is locked; it says nothing about whether a record exists.
+    enum StoredSession {
+        case none
+        case unavailable
+        case stored(WalletMetadata)
+    }
 
-            return WalletMetadata(
-                wallet: credentials.wallet,
-                expiresAt: credentials.expiresAt,
-                auth: credentials.auth,
-                expiryBounds: credentials.expiryBounds
-            )
+    /// Whether the signer holds its key. `.unavailable` means the keychain could not be read.
+    enum SignerKey {
+        case present
+        case missing
+        case unavailable
+    }
+
+    enum Restoration {
+        case restored(WalletMetadata)
+        /// Nothing to restore, or a record that cannot be used, which was discarded.
+        case discarded
+        /// The keychain could not be read; nothing was changed.
+        case unavailable
+    }
+
+    func storedSession() -> StoredSession {
+        withLock {
+            switch loadCredentials() {
+            case .none:
+                return .none
+            case .unavailable:
+                return .unavailable
+            case .stored(let credentials):
+                return .stored(WalletMetadata(
+                    wallet: credentials.wallet,
+                    expiresAt: credentials.expiresAt,
+                    auth: credentials.auth,
+                    expiryBounds: credentials.expiryBounds,
+                    signerCredentialId: credentials.signerCredentialId
+                ))
+            }
         }
     }
 
     /// Whether the signer holds a key, without restoring or deleting anything. Expiry clears the
-    /// key but keeps the record.
-    func signerHoldsKey() -> Bool {
+    /// key but keeps the record. A failed lookup is `.unavailable`, never `.missing`.
+    func signerKey() -> SignerKey {
         withLock {
-            (try? signerFactory().hasCredential()) ?? false
+            do {
+                return try signerFactory().hasCredential() ? .present : .missing
+            } catch {
+                return .unavailable
+            }
         }
     }
 
-    func restore() -> WalletMetadata? {
+    func restore() -> Restoration {
         withLock {
             restoreLocked()
         }
     }
 
-    private func restoreLocked() -> WalletMetadata? {
-        guard let credentials = loadCredentials() else {
-            return nil
+    private func restoreLocked() -> Restoration {
+        let credentials: StorableCredentials
+        switch loadCredentials() {
+        case .none:
+            return .discarded
+        case .unavailable:
+            return .unavailable
+        case .stored(let stored):
+            credentials = stored
         }
 
         // The caller decided, on its clock, that the session may still be active; an unreadable
         // expiry is discarded.
         guard OMSWalletSession.parseDate(credentials.expiresAt) != nil else {
             clearStoredSession()
-            return nil
+            return .discarded
         }
 
         let candidateSigner = signerFactory()
@@ -80,28 +119,31 @@ final class WalletCredentialSession {
             guard try candidateSigner.hasCredential() else {
                 _ = try? keychain.delete(forKey: credentialsStorageKey)
                 currentSigner = signerFactory()
-                return nil
+                return .discarded
             }
 
             if try signerMatchesStoredCredential(candidateSigner, credentials: credentials) {
                 currentSigner = candidateSigner
-                return WalletMetadata(
+                return .restored(WalletMetadata(
                     wallet: credentials.wallet,
                     expiresAt: credentials.expiresAt,
                     auth: credentials.auth,
-                    expiryBounds: credentials.expiryBounds
-                )
+                    expiryBounds: credentials.expiryBounds,
+                    signerCredentialId: credentials.signerCredentialId
+                ))
             }
 
             try candidateSigner.clear()
             try keychain.delete(forKey: credentialsStorageKey)
         } catch {
+            // A keychain that cannot be read or written now (for example while the device is
+            // locked) keeps the record and key for a later attempt.
             currentSigner = signerFactory()
-            return nil
+            return .unavailable
         }
 
         currentSigner = signerFactory()
-        return nil
+        return .discarded
     }
 
     func persist(
@@ -124,9 +166,14 @@ final class WalletCredentialSession {
         }
     }
 
-    func clearSignerKeepingCredentials() throws {
+    /// Deletes the signer's key for a session that ended on its own, keeping the record as the
+    /// sign-in hint. Only a key that is still `credentialId` is deleted: another process sharing the
+    /// keychain may already hold a newer sign-in's key under the same tag.
+    func clearSignerKeepingCredentials(ifCredentialId credentialId: String?) throws {
         try withLock {
-            try currentSigner.clear()
+            if let credentialId {
+                try currentSigner.clear(ifCredentialId: credentialId)
+            }
             currentSigner = signerFactory()
         }
     }
@@ -139,15 +186,27 @@ final class WalletCredentialSession {
         }
     }
 
-    private func loadCredentials() -> StorableCredentials? {
-        guard let credentialsJson = try? keychain.string(forKey: credentialsStorageKey) else {
-            return nil
+    private enum LoadedCredentials {
+        case none
+        case unavailable
+        case stored(StorableCredentials)
+    }
+
+    private func loadCredentials() -> LoadedCredentials {
+        let credentialsJson: String?
+        do {
+            credentialsJson = try keychain.string(forKey: credentialsStorageKey)
+        } catch {
+            return .unavailable
+        }
+        guard let credentialsJson else {
+            return .none
         }
         do {
-            return try StorableCredentials.from(jsonString: credentialsJson)
+            return .stored(try StorableCredentials.from(jsonString: credentialsJson))
         } catch {
             clearStoredSession()
-            return nil
+            return .none
         }
     }
 

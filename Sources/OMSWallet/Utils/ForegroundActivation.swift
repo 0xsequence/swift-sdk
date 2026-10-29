@@ -27,6 +27,47 @@ enum ForegroundActivation {
         #endif
     }
 
+    /// With UIKit, runs `body` once protected data (the keychain) may be readable: on the main actor
+    /// right away when `checkNow` is set and protected data is available, otherwise on the next
+    /// `protectedDataDidBecomeAvailableNotification` or `didBecomeActiveNotification`, whichever
+    /// comes first. Both are hints, not proof: the caller reads the keychain again and waits again if
+    /// it still cannot. Pass `checkNow: false` right after a failed read, so a keychain that keeps
+    /// failing while protected data is available is not retried in a loop. Elsewhere `body` never
+    /// runs; the client retries when the session is next read.
+    @discardableResult
+    static func runWhenProtectedDataAvailable(
+        checkNow: Bool,
+        _ body: @escaping @Sendable () -> Void
+    ) -> Cancel {
+        #if canImport(UIKit) && !os(watchOS)
+        let once = RunOnceFlag()
+        let run: @Sendable () -> Void = {
+            if once.claim() {
+                body()
+            }
+        }
+        let isAvailableNow: @MainActor @Sendable () -> Bool
+        if checkNow {
+            isAvailableNow = { @MainActor @Sendable in isProtectedDataAvailable() }
+        } else {
+            isAvailableNow = { @MainActor @Sendable in false }
+        }
+        let cancelProtectedData = runOnce(
+            onNext: UIApplication.protectedDataDidBecomeAvailableNotification,
+            in: .default,
+            orNowIf: isAvailableNow,
+            run
+        )
+        let cancelActivation = runOnce(onNext: UIApplication.didBecomeActiveNotification, in: .default, run)
+        return {
+            cancelProtectedData()
+            cancelActivation()
+        }
+        #else
+        return {}
+        #endif
+    }
+
     /// Runs `body` once: on the main actor right away when `isActive` holds there, otherwise on the
     /// next `name` posted to `center`. Cancelling stops observing without running it.
     @discardableResult
@@ -62,6 +103,18 @@ enum ForegroundActivation {
     }
 
     #if canImport(UIKit) && !os(watchOS)
+    /// Whether protected data is available. An app extension cannot reach the shared application,
+    /// so it reports `false` and waits for the client's next session read instead.
+    @MainActor
+    private static func isProtectedDataAvailable() -> Bool {
+        guard Bundle.main.bundleURL.pathExtension != "appex",
+              let application = UIApplication.value(forKey: "sharedApplication") as? UIApplication
+        else {
+            return false
+        }
+        return application.isProtectedDataAvailable
+    }
+
     /// Whether the app is in the foreground. `UIApplication.shared` is unavailable in app
     /// extensions, so the shared application is looked up by name; an extension is never active.
     @MainActor
@@ -99,6 +152,22 @@ enum ForegroundActivation {
             isTaken = true
             self.token = nil
             return token
+        }
+    }
+
+    /// Lets only the first of several triggers run.
+    private final class RunOnceFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var claimed = false
+
+        func claim() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !claimed else {
+                return false
+            }
+            claimed = true
+            return true
         }
     }
 }

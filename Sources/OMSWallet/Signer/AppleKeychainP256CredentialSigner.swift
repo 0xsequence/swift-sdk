@@ -32,7 +32,44 @@ final class AppleKeychainP256CredentialSigner: CredentialSigner, @unchecked Send
     }
 
     func credentialId() throws -> String {
-        let privateKey = try getOrCreatePrivateKey()
+        try Self.credentialId(of: try getOrCreatePrivateKey())
+    }
+
+    /// Deletes the key only while it is `credentialId`. The key is looked up and then deleted by its
+    /// item reference, not by the shared application tag, so a key another process (an app extension
+    /// sharing the keychain) stored meanwhile under that tag is kept. The shared nonce is left alone:
+    /// a later key's nonces only need to keep increasing.
+    func clear(ifCredentialId credentialId: String) throws {
+        Self.keychainLock.lock()
+        defer { Self.keychainLock.unlock() }
+
+        guard let privateKey = try existingPrivateKey(),
+              try Self.credentialId(of: privateKey).lowercased() == credentialId.lowercased() else {
+            return
+        }
+        try Self.deleteKeyItem(privateKey)
+    }
+
+    /// The key currently stored under this signer's tag, without creating one.
+    func storedKey() throws -> SecKey? {
+        Self.keychainLock.lock()
+        defer { Self.keychainLock.unlock() }
+        return try existingPrivateKey()
+    }
+
+    /// Deletes exactly the keychain item `key` refers to. A key stored meanwhile under the same tag
+    /// is a different item, so it is kept.
+    static func deleteKeyItem(_ key: SecKey) throws {
+        let status = SecItemDelete([
+            kSecClass as String: kSecClassKey,
+            kSecValueRef as String: key
+        ] as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw SignerError.keyLookupFailed(status)
+        }
+    }
+
+    private static func credentialId(of privateKey: SecKey) throws -> String {
         guard let publicKey = SecKeyCopyPublicKey(privateKey) else {
             throw SignerError.publicKeyUnavailable
         }
@@ -80,7 +117,7 @@ final class AppleKeychainP256CredentialSigner: CredentialSigner, @unchecked Send
             Data(preimage.utf8) as CFData,
             &error
         ) as Data? else {
-            throw SignerError.signingFailed(errorDescription(error))
+            throw SignerError.signingFailed(Self.errorDescription(error))
         }
 
         let rawSignature = try P256EcdsaSignatureEncoding.derToRaw(derSignature)
@@ -116,7 +153,7 @@ final class AppleKeychainP256CredentialSigner: CredentialSigner, @unchecked Send
         let attributes = Self.keyCreationAttributes(applicationTag: applicationTag)
 
         guard let key = SecKeyCreateRandomKey(attributes as CFDictionary, &error) else {
-            throw SignerError.keyCreationFailed(errorDescription(error))
+            throw SignerError.keyCreationFailed(Self.errorDescription(error))
         }
         return key
     }
@@ -164,7 +201,7 @@ final class AppleKeychainP256CredentialSigner: CredentialSigner, @unchecked Send
         return query
     }
 
-    private func errorDescription(_ error: Unmanaged<CFError>?) -> String {
+    private static func errorDescription(_ error: Unmanaged<CFError>?) -> String {
         guard let error else {
             return "unknown error"
         }
