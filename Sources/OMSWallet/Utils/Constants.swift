@@ -18,6 +18,13 @@ class Constants {
         "oms-wallet-oidc-redirect-auth-\(environmentScopedSuffix(environment: environment, scope: scope))"
     }
 
+    /// Identifies a wallet session in the process: the wallet API origin and the project, the same
+    /// suffix that scopes the session's keychain items. The publishable key's own ID is not part of
+    /// it, so a rotated key for the same project keeps the session.
+    static func sessionScopeKey(environment: OMSWalletEnvironment, scope: String) -> String {
+        environmentScopedSuffix(environment: environment, scope: scope)
+    }
+
     private static func environmentScopedSuffix(environment: OMSWalletEnvironment, scope: String) -> String {
         let source = "\(normalizedWalletApiOrigin(environment.walletApiUrl))\u{0}\(scope)"
         let digest = SHA256.hash(data: Data(source.utf8))

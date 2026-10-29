@@ -11,10 +11,10 @@ extension WalletClient {
     /// - Parameters:
     ///   - email: The email address to send the one-time passcode to.
     ///   - sessionLifetimeSeconds: The requested credential lifetime. Must be from 1 through
-    ///     2,592,000 seconds (30 days).
+    ///     15,552,000 seconds (180 days).
     public func startEmailAuth(
         email: String,
-        sessionLifetimeSeconds: UInt32 = 604_800
+        sessionLifetimeSeconds: UInt32 = WalletClient.defaultSessionLifetimeSeconds
     ) async throws {
         try await runOMSWalletOperation(.walletStartEmailAuth) {
             let validatedSessionLifetimeSeconds = try requireWaasSessionLifetimeSeconds(sessionLifetimeSeconds)
@@ -59,12 +59,13 @@ extension WalletClient {
                 throw OMSWalletError.sessionMissing()
             }
             let authRevision = sessionRevisionSnapshot()
-            let response = try await confirmEmailSignIn(
+            let (response, expiryBounds) = try await confirmEmailSignIn(
                 code: code,
                 sessionLifetimeSeconds: pendingEmailAuth.sessionLifetimeSeconds
             )
             return try await completeWalletAuth(
                 response,
+                expiryBounds: expiryBounds,
                 walletType: walletType,
                 walletSelection: walletSelection,
                 sessionAuth: .email(OMSWalletEmailSessionAuth(email: response.email ?? pendingEmailAuth.email)),
@@ -85,7 +86,7 @@ extension WalletClient {
         audience: String,
         walletType: WalletType = WalletType.ethereum,
         walletSelection: WalletSelectionBehavior = .automatic,
-        sessionLifetimeSeconds: UInt32 = 604_800,
+        sessionLifetimeSeconds: UInt32 = WalletClient.defaultSessionLifetimeSeconds,
         provider: String? = nil,
         providerLabel: String? = nil
     ) async throws -> CompleteAuthResult {
@@ -112,12 +113,13 @@ extension WalletClient {
                 verifier = response.verifier
                 challenge = response.challenge
 
-                let auth = try await confirmOidcIdTokenSignIn(
+                let (auth, expiryBounds) = try await confirmOidcIdTokenSignIn(
                     idToken: idToken,
                     sessionLifetimeSeconds: validatedSessionLifetimeSeconds
                 )
                 return try await completeWalletAuth(
                     auth,
+                    expiryBounds: expiryBounds,
                     walletType: walletType,
                     walletSelection: walletSelection,
                     sessionAuth: oidcIdTokenSessionAuth(
@@ -145,10 +147,10 @@ extension WalletClient {
     public func startOIDCRedirectAuth(
         provider: CustomOIDCProviderConfiguration,
         walletType: WalletType = WalletType.ethereum,
-        loginHint: String? = nil,
-        authorizeParams: [String: String] = [:],
         walletSelection: WalletSelectionBehavior? = nil,
-        sessionLifetimeSeconds: UInt32? = nil
+        sessionLifetimeSeconds: UInt32? = nil,
+        loginHint: String? = nil,
+        authorizeParams: [String: String] = [:]
     ) async throws -> StartOIDCRedirectAuthResult {
         try await runOMSWalletOperation(.walletStartOIDCRedirectAuth) {
             guard !provider.providerRedirectURI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -174,9 +176,9 @@ extension WalletClient {
         provider: OMSRelayOIDCProvider,
         omsRelayReturnURI: String,
         walletType: WalletType = WalletType.ethereum,
-        loginHint: String? = nil,
         walletSelection: WalletSelectionBehavior? = nil,
-        sessionLifetimeSeconds: UInt32? = nil
+        sessionLifetimeSeconds: UInt32? = nil,
+        loginHint: String? = nil
     ) async throws -> StartOIDCRedirectAuthResult {
         try await runOMSWalletOperation(.walletStartOIDCRedirectAuth) {
             guard !omsRelayReturnURI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -376,9 +378,9 @@ extension WalletClient {
                 )
                 let resolvedWalletSelection = walletSelection ?? pending.walletSelection ?? .automatic
                 let resolvedSessionLifetimeSeconds = try requireWaasSessionLifetimeSeconds(
-                    sessionLifetimeSeconds ?? pending.sessionLifetimeSeconds ?? defaultWaasSessionLifetimeSeconds
+                    sessionLifetimeSeconds ?? pending.sessionLifetimeSeconds ?? WalletClient.defaultSessionLifetimeSeconds
                 )
-                let response = try await signedClient.completeAuth(
+                let (response, expiryBounds) = try await sendCompleteAuth(
                     CompleteAuthRequest(
                         identityType: .oidc,
                         authMode: pending.authMode.waasAuthMode,
@@ -389,6 +391,7 @@ extension WalletClient {
                 )
                 result = try await completeWalletAuth(
                     response,
+                    expiryBounds: expiryBounds,
                     walletType: pending.walletType,
                     walletSelection: resolvedWalletSelection,
                     sessionAuth: oidcRedirectSessionAuth(
@@ -522,7 +525,7 @@ extension WalletClient {
     private func confirmEmailSignIn(
         code: String,
         sessionLifetimeSeconds: UInt32
-    ) async throws -> CompleteAuthResponse {
+    ) async throws -> (CompleteAuthResponse, SessionExpiryBounds?) {
         guard !verifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !challenge.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw OMSWalletError.sessionMissing()
@@ -538,13 +541,13 @@ extension WalletClient {
             lifetime: sessionLifetimeSeconds
         )
 
-        return try await signedClient.completeAuth(params)
+        return try await sendCompleteAuth(params)
     }
 
     private func confirmOidcIdTokenSignIn(
         idToken: String,
         sessionLifetimeSeconds: UInt32
-    ) async throws -> CompleteAuthResponse {
+    ) async throws -> (CompleteAuthResponse, SessionExpiryBounds?) {
         let params = CompleteAuthRequest(
             identityType: IdentityType.oidc,
             authMode: AuthMode.idToken,
@@ -553,20 +556,48 @@ extension WalletClient {
             lifetime: sessionLifetimeSeconds
         )
 
-        return try await signedClient.completeAuth(params)
+        return try await sendCompleteAuth(params)
+    }
+
+    /// Sends `CompleteAuth` and derives the session's expiry bounds from the exchange (`nil` when
+    /// the response's expiry is unreadable or not after the send).
+    private func sendCompleteAuth(
+        _ request: CompleteAuthRequest
+    ) async throws -> (CompleteAuthResponse, SessionExpiryBounds?) {
+        // Taken before the request waits for in-flight signed requests, so it is never later than
+        // the send.
+        let sentAt = currentDate()
+        let response = try await signedClient.completeAuth(request)
+        let expiryBounds = request.lifetime.flatMap {
+            SessionExpiryBounds(
+                signInSentAt: sentAt,
+                expiresAt: response.credential.expiresAt,
+                requestedLifetimeSeconds: $0
+            )
+        }
+        return (response, expiryBounds)
     }
 
     private func completeWalletAuth(
         _ response: CompleteAuthResponse,
+        expiryBounds: SessionExpiryBounds?,
         walletType: WalletType,
         walletSelection: WalletSelectionBehavior,
         sessionAuth: OMSWalletSessionAuth,
         requiredSessionRevision: UInt64,
         oidcRedirectAuthOwnership: PendingOIDCRedirectAuth? = nil
     ) async throws -> CompleteAuthResult {
+        guard OMSWalletSession.parseDate(response.credential.expiresAt) != nil else {
+            // The redirect callback's caller clears its own session on failure.
+            if oidcRedirectAuthOwnership == nil {
+                clearSessionIfStillCurrent(requiredSessionRevision)
+            }
+            throw OMSWalletError(code: .invalidResponse, message: "Auth response has an invalid credential expiresAt")
+        }
         let sessionMetadata = SessionMetadata(
             expiresAt: response.credential.expiresAt,
-            auth: sessionAuth
+            auth: sessionAuth,
+            expiryBounds: expiryBounds
         )
         try withOptionalOIDCRedirectAuthOwnership(oidcRedirectAuthOwnership) {
             try requireCurrentSessionRevision(requiredSessionRevision)
@@ -575,22 +606,27 @@ extension WalletClient {
                 try requireCurrentSessionRevisionLocked(requiredSessionRevision)
                 self.sessionExpiresAt = sessionMetadata.expiresAt
                 self.sessionAuth = sessionMetadata.auth
+                self._sessionExpiryBounds = sessionMetadata.expiryBounds
+                // Sign-in counts as a credential read, for the 6-hour background refresh.
+                self._lastCredentialRefreshAt = self.currentDate()
             }
         }
 
-        let wallets: [Wallet]
-        if oidcRedirectAuthOwnership == nil {
-            wallets = try await signOutOnFailure {
-                try await walletsFromAuthResponse(response)
-            }
-        } else {
-            wallets = try await walletsFromAuthResponse(response)
+        let (wallets, claimableWallets) = try await signOutOnFailure(
+            unlessOwnedBy: oidcRedirectAuthOwnership,
+            requiredSessionRevision: requiredSessionRevision
+        ) {
+            (
+                try await walletsFromAuthResponse(response),
+                try claimableWalletsFromAuthResponse(response)
+            )
         }
         try withOptionalOIDCRedirectAuthOwnership(oidcRedirectAuthOwnership) {
             try requireCurrentSessionRevision(requiredSessionRevision)
         }
 
         let candidateWallets = wallets.filter { $0.type == walletType }
+        let candidateClaimableWallets = claimableWallets.filter { $0.type == walletType }
         guard walletSelection == .automatic else {
             let pendingSelectionSession = try withOptionalOIDCRedirectAuthOwnership(
                 oidcRedirectAuthOwnership
@@ -601,53 +637,47 @@ extension WalletClient {
                 pendingWalletSelection(
                     walletType: walletType,
                     wallets: candidateWallets,
+                    claimableWallets: candidateClaimableWallets,
                     credential: response.credential.walletCredential,
                     selectionSession: pendingSelectionSession
                 )
             )
         }
 
-        let activated: WalletSelectionResult
-        if let selectedWallet = candidateWallets.first {
-            if oidcRedirectAuthOwnership == nil {
-                activated = try await signOutOnFailure {
-                    try await useWallet(
-                        walletId: selectedWallet.id,
-                        sessionMetadata: sessionMetadata,
-                        requiredSessionRevision: requiredSessionRevision
-                    )
-                }
-            } else {
-                activated = try await useWallet(
+        // Owned wallets win; otherwise claim a wallet preallocated for this user, else create one.
+        let claimedWalletId = candidateWallets.isEmpty ? candidateClaimableWallets.first?.id : nil
+        let activated = try await signOutOnFailure(
+            unlessOwnedBy: oidcRedirectAuthOwnership,
+            requiredSessionRevision: requiredSessionRevision
+        ) {
+            if let selectedWallet = candidateWallets.first {
+                return try await useWallet(
                     walletId: selectedWallet.id,
                     sessionMetadata: sessionMetadata,
                     requiredSessionRevision: requiredSessionRevision,
                     oidcRedirectAuthOwnership: oidcRedirectAuthOwnership
                 )
             }
-        } else {
-            if oidcRedirectAuthOwnership == nil {
-                activated = try await signOutOnFailure {
-                    try await createWallet(
-                        walletType: walletType,
-                        sessionMetadata: sessionMetadata,
-                        requiredSessionRevision: requiredSessionRevision
-                    )
-                }
-            } else {
-                activated = try await createWallet(
-                    walletType: walletType,
+            if let claimedWalletId {
+                return try await claimWallet(
+                    walletId: claimedWalletId,
                     sessionMetadata: sessionMetadata,
                     requiredSessionRevision: requiredSessionRevision,
                     oidcRedirectAuthOwnership: oidcRedirectAuthOwnership
                 )
             }
+            return try await createWallet(
+                walletType: walletType,
+                sessionMetadata: sessionMetadata,
+                requiredSessionRevision: requiredSessionRevision,
+                oidcRedirectAuthOwnership: oidcRedirectAuthOwnership
+            )
         }
 
         return .walletSelected(
-            walletAddress: activated.walletAddress,
             wallet: activated.wallet,
             wallets: candidateWallets.isEmpty ? wallets + [activated.wallet] : wallets,
+            claimableWallets: claimableWallets.filter { $0.id != claimedWalletId },
             credential: response.credential.walletCredential
         )
     }
@@ -665,12 +695,14 @@ extension WalletClient {
     private func pendingWalletSelection(
         walletType: WalletType,
         wallets: [Wallet],
+        claimableWallets: [Wallet],
         credential: WalletCredential,
         selectionSession: PendingWalletSelectionSession
     ) -> PendingWalletSelection {
         PendingWalletSelection(
             walletType: walletType,
             wallets: wallets,
+            claimableWallets: claimableWallets,
             credential: credential,
             selectWalletAction: { walletId in
                 try self.requireActivePendingWalletSelection(selectionSession)
@@ -689,6 +721,17 @@ extension WalletClient {
                 let result = try await self.createWallet(
                     walletType: walletType,
                     reference: reference,
+                    sessionMetadata: selectionSession.metadata,
+                    requiredSessionRevision: selectionRevision
+                )
+                self.activePendingWalletSelection = nil
+                return result
+            },
+            claimAndSelectWalletAction: { walletId in
+                try self.requireActivePendingWalletSelection(selectionSession)
+                let selectionRevision = self.sessionRevisionSnapshot()
+                let result = try await self.claimWallet(
+                    walletId: walletId,
                     sessionMetadata: selectionSession.metadata,
                     requiredSessionRevision: selectionRevision
                 )
@@ -719,14 +762,15 @@ extension WalletClient {
         guard activePendingWalletSelection?.id == selectionSession.id else {
             throw OMSWalletError.walletSelectionStale()
         }
-        let selectionSessionState = OMSWalletSessionState(
-            walletAddress: nil,
-            expiresAtString: selectionSession.metadata.expiresAt,
+        if let selectionSessionState = WalletSessionSnapshot(
+            wallet: nil,
+            expiresAt: selectionSession.metadata.expiresAt,
             auth: selectionSession.metadata.auth
-        )
-        guard !isSessionExpired(selectionSessionState) else {
-            expireSession(selectionSessionState)
-            throw OMSWalletError.sessionExpired()
+        ) {
+            guard !isSessionExpired(selectionSessionState) else {
+                expireSession(selectionSessionState)
+                throw OMSWalletError.sessionExpired()
+            }
         }
         try requireActiveCredential()
         let signerCredentialId = try credentialSession.signer.credentialId()
@@ -736,23 +780,38 @@ extension WalletClient {
         }
     }
 
-    private func signOutOnFailure<T>(_ operation: () async throws -> T) async throws -> T {
+    /// Signs out when `operation` fails, except during an OIDC redirect callback (`ownership`
+    /// non-`nil`), whose caller clears the session itself.
+    private func signOutOnFailure<T>(
+        unlessOwnedBy ownership: PendingOIDCRedirectAuth?,
+        requiredSessionRevision: UInt64,
+        _ operation: () async throws -> T
+    ) async throws -> T {
+        guard ownership == nil else {
+            return try await operation()
+        }
         do {
             return try await operation()
         } catch let error as CancellationError {
             throw error
         } catch {
-            try? signOut()
+            clearSessionIfStillCurrent(requiredSessionRevision)
             throw error
         }
     }
 
-    /// Activates an existing wallet by its WaaS wallet ID and persists its address and
+    /// Clears the session after a failed auth attempt, unless a newer sign-in or sign-out has
+    /// already replaced the session this attempt started from.
+    private func clearSessionIfStillCurrent(_ requiredSessionRevision: UInt64) {
+        _ = try? clearSession(clearOidcRedirectAuth: true, requiredSessionRevision: requiredSessionRevision)
+    }
+
+    /// Activates an existing wallet by its WaaS wallet ID and persists the wallet and
     /// signer metadata to the keychain.
     @discardableResult
-    public func useWallet(walletId: String) async throws -> WalletSelectionResult {
-        try await runOMSWalletOperation(.walletUseWallet) {
-            try requireWalletSelectionOrActiveSession()
+    public func useWallet(walletId: String) async throws -> WalletActivationResult {
+        try await runSessionOperation(.walletUseWallet) {
+            try await requireWalletSelectionOrActiveSession()
             try requireActiveCredential()
             let activationRevision = sessionRevisionSnapshot()
             return try await useWallet(
@@ -763,20 +822,46 @@ extension WalletClient {
         }
     }
 
+    /// Claims a wallet preallocated for the signed-in user and activates it, persisting the wallet
+    /// and signer metadata to the keychain.
+    ///
+    /// Claimable wallets are listed in `CompleteAuthResult.claimableWallets` and
+    /// `PendingWalletSelection.claimableWallets`. Call this after sign-in returns
+    /// `.walletSelection` to complete the selection with a claimed wallet, or with an active
+    /// session to switch to the claimed wallet. Automatic wallet selection already claims a
+    /// wallet of the requested type when the user owns none. WaaS answers a wallet that is not
+    /// claimable by the caller (not allocated to their verified email, or already claimed) with
+    /// `AccountNotFound`, surfaced as `.requestFailed` with the upstream WaaS error.
+    ///
+    /// - Parameter walletId: The ID of a claimable wallet.
+    @discardableResult
+    public func claimWallet(walletId: String) async throws -> WalletActivationResult {
+        try await runSessionOperation(.walletClaimWallet) {
+            try await requireWalletSelectionOrActiveSession()
+            try requireActiveCredential()
+            let activationRevision = sessionRevisionSnapshot()
+            return try await claimWallet(
+                walletId: walletId,
+                sessionMetadata: try currentSessionMetadata(),
+                requiredSessionRevision: activationRevision
+            )
+        }
+    }
+
     /// Creates a new wallet of the specified type for the authenticated user and persists
-    /// its address and signer metadata to the keychain.
+    /// the wallet and signer metadata to the keychain.
     ///
     /// Call this after `completeEmailAuth(code:walletSelection:walletType:)` returns
     /// `.walletSelection`, or when an authenticated session already exists.
     ///
-    /// - Parameter walletType: The wallet type to create: `.ethereum` (default) or `.solana`.
+    /// - Parameter walletType: The wallet type to create: `.ethereum` (default), `.solana`, or `.tron`.
     @discardableResult
     public func createWallet(
         walletType: WalletType = WalletType.ethereum,
         reference: String? = nil
-    ) async throws -> WalletSelectionResult {
-        try await runOMSWalletOperation(.walletCreateWallet) {
-            try requireWalletSelectionOrActiveSession()
+    ) async throws -> WalletActivationResult {
+        try await runSessionOperation(.walletCreateWallet) {
+            try await requireWalletSelectionOrActiveSession()
             try requireActiveCredential()
             let activationRevision = sessionRevisionSnapshot()
             return try await createWallet(
@@ -790,8 +875,8 @@ extension WalletClient {
 
     /// Lists all wallets available to the authenticated credential.
     public func listWallets() async throws -> [Wallet] {
-        try await runOMSWalletOperation(.walletListWallets) {
-            try requireWalletSelectionOrActiveSession()
+        try await runSessionOperation(.walletListWallets) {
+            try await requireWalletSelectionOrActiveSession()
             try requireActiveCredential()
             return try await listWallets(startingAt: nil)
         }
@@ -803,25 +888,22 @@ extension WalletClient {
         sessionMetadata: SessionMetadata,
         requiredSessionRevision: UInt64,
         oidcRedirectAuthOwnership: PendingOIDCRedirectAuth? = nil
-    ) async throws -> WalletSelectionResult {
+    ) async throws -> WalletActivationResult {
         let params = CreateWalletRequest(
             networkFamily: walletType.waasNetworkFamily,
             reference: reference
         )
 
         let response = try await signedClient.createWallet(params)
+        let wallet = try response.wallet.sdkValue
         try createSequenceWallet(
-            walletAddress: response.wallet.address,
-            walletId: response.wallet.id,
+            wallet: wallet,
             sessionMetadata: sessionMetadata,
             requiredSessionRevision: requiredSessionRevision,
             oidcRedirectAuthOwnership: oidcRedirectAuthOwnership
         )
 
-        return WalletSelectionResult(
-            walletAddress: response.wallet.address,
-            wallet: try response.wallet.sdkValue
-        )
+        return WalletActivationResult(wallet: wallet)
     }
 
     /// Loads an existing wallet by ID for the authenticated user and persists
@@ -836,24 +918,45 @@ extension WalletClient {
         sessionMetadata: SessionMetadata,
         requiredSessionRevision: UInt64,
         oidcRedirectAuthOwnership: PendingOIDCRedirectAuth? = nil
-    ) async throws -> WalletSelectionResult {
+    ) async throws -> WalletActivationResult {
         let params = UseWalletRequest(
             walletId: walletId
         )
 
         let response = try await signedClient.useWallet(params)
+        let wallet = try response.wallet.sdkValue
         try createSequenceWallet(
-            walletAddress: response.wallet.address,
-            walletId: response.wallet.id,
+            wallet: wallet,
             sessionMetadata: sessionMetadata,
             requiredSessionRevision: requiredSessionRevision,
             oidcRedirectAuthOwnership: oidcRedirectAuthOwnership
         )
 
-        return WalletSelectionResult(
-            walletAddress: response.wallet.address,
-            wallet: try response.wallet.sdkValue
+        return WalletActivationResult(wallet: wallet)
+    }
+
+    /// Claims a preallocated wallet and activates it the same way `createWallet` activates a
+    /// created wallet. WaaS grants the caller's credential access to the claimed wallet.
+    private func claimWallet(
+        walletId: String,
+        sessionMetadata: SessionMetadata,
+        requiredSessionRevision: UInt64,
+        oidcRedirectAuthOwnership: PendingOIDCRedirectAuth? = nil
+    ) async throws -> WalletActivationResult {
+        let response = try await signedClient.claimWallet(ClaimWalletRequest(walletId: walletId))
+        let wallet = try response.wallet.sdkValue
+        try createSequenceWallet(
+            wallet: wallet,
+            sessionMetadata: sessionMetadata,
+            requiredSessionRevision: requiredSessionRevision,
+            oidcRedirectAuthOwnership: oidcRedirectAuthOwnership
         )
+
+        return WalletActivationResult(wallet: wallet)
+    }
+
+    private func claimableWalletsFromAuthResponse(_ response: CompleteAuthResponse) throws -> [Wallet] {
+        try (response.claimable ?? []).map { try $0.sdkValue }
     }
 
     private func walletsFromAuthResponse(_ response: CompleteAuthResponse) async throws -> [Wallet] {
@@ -890,14 +993,13 @@ extension WalletClient {
 
 }
 
-private let defaultWaasSessionLifetimeSeconds: UInt32 = 604_800
-private let maxWaasSessionLifetimeSeconds: UInt32 = 2_592_000
-
+@available(macOS 12.0, iOS 15.0, *)
 private func requireWaasSessionLifetimeSeconds(_ sessionLifetimeSeconds: UInt32) throws -> UInt32 {
-    guard sessionLifetimeSeconds >= 1 && sessionLifetimeSeconds <= maxWaasSessionLifetimeSeconds else {
+    let maxSessionLifetimeSeconds = WalletClient.maxSessionLifetimeSeconds
+    guard sessionLifetimeSeconds >= 1 && sessionLifetimeSeconds <= maxSessionLifetimeSeconds else {
         throw OMSWalletError(
             code: .validationError,
-            message: "sessionLifetimeSeconds must be an integer between 1 and \(maxWaasSessionLifetimeSeconds)"
+            message: "sessionLifetimeSeconds must be an integer between 1 and \(maxSessionLifetimeSeconds)"
         )
     }
     return sessionLifetimeSeconds

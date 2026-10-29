@@ -2,8 +2,10 @@ import Foundation
 
 private let indexerGatewayWebRPCHeaderValue = "webrpc@v0.31.2;gen-swift@v0.1.2;sequence-indexer@v0.4.0"
 private let solanaIndexerGatewayWebRPCHeaderValue = "webrpc@v0.31.2;gen-swift@v0.1.2;solana-indexer-gateway@v1"
+private let tronIndexerGatewayWebRPCHeaderValue = "webrpc@v0.31.2;gen-swift@v0.1.2;tron-indexer-gateway@v1"
 
-private struct SolanaBalancesFilter: Encodable {
+/// Shared by the Solana and Tron indexer gateways, which take the same balance filter.
+private struct GatewayBalancesFilter: Encodable {
     let accountAddresses: [String]
     let omitNativeBalances: Bool?
     let contractWhitelist: [String]?
@@ -12,13 +14,24 @@ private struct SolanaBalancesFilter: Encodable {
 
 private struct GetSolanaBalancesRequest: Encodable {
     let networks: [SolanaNetwork]
-    let filter: SolanaBalancesFilter
+    let filter: GatewayBalancesFilter
     let omitMetadata: Bool
 }
 
 private struct GetSolanaBalancesResponse: Decodable {
     let balances: [SolanaBalance]
     let errors: [SolanaNetworkError]
+}
+
+private struct GetTronBalancesRequest: Encodable {
+    let networks: [TronNetwork]
+    let filter: GatewayBalancesFilter
+    let omitMetadata: Bool
+}
+
+private struct GetTronBalancesResponse: Decodable {
+    let balances: [TronBalance]
+    let errors: [TronNetworkError]
 }
 
 private struct GatewayNativeTokenBalances: Decodable {
@@ -49,14 +62,22 @@ private struct GetTransactionHistoryResponse: Decodable {
 
 @available(macOS 12.0, iOS 15.0, *)
 public final class IndexerClient: Sendable {
-    private let publishableKey: String
+    private let publishableKey: PublishableKeyHolder
     private let environment: OMSWalletEnvironment
     private let client: HttpClient
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    internal init(
+    internal convenience init(
         publishableKey: String,
+        environment: OMSWalletEnvironment,
+        client: HttpClient = HttpClient()
+    ) {
+        self.init(publishableKey: PublishableKeyHolder(publishableKey), environment: environment, client: client)
+    }
+
+    internal init(
+        publishableKey: PublishableKeyHolder,
         environment: OMSWalletEnvironment,
         client: HttpClient = HttpClient()
     ) {
@@ -141,7 +162,7 @@ public final class IndexerClient: Sendable {
         try await runOMSWalletOperation(.indexerGetSolanaBalances) {
             let request = GetSolanaBalancesRequest(
                 networks: params.networks,
-                filter: SolanaBalancesFilter(
+                filter: GatewayBalancesFilter(
                     accountAddresses: [params.walletAddress],
                     omitNativeBalances: params.omitNativeBalances,
                     contractWhitelist: nonEmpty(params.mintAddresses),
@@ -158,6 +179,34 @@ public final class IndexerClient: Sendable {
                 webRPCHeaderValue: solanaIndexerGatewayWebRPCHeaderValue
             )
             return SolanaBalancesResult(
+                status: response.statusCode,
+                balances: response.payload.balances,
+                errors: response.payload.errors
+            )
+        }
+    }
+
+    public func getTronBalances(_ params: GetTronBalancesParams) async throws -> TronBalancesResult {
+        try await runOMSWalletOperation(.indexerGetTronBalances) {
+            let request = GetTronBalancesRequest(
+                networks: params.networks,
+                filter: GatewayBalancesFilter(
+                    accountAddresses: [params.walletAddress],
+                    omitNativeBalances: params.omitNativeBalances,
+                    contractWhitelist: nonEmpty(params.contractAddresses),
+                    contractBlacklist: nonEmpty(params.excludedContractAddresses)
+                ),
+                omitMetadata: !params.includeMetadata
+            )
+            let response = try await postJson(
+                operation: .indexerGetTronBalances,
+                baseUrl: environment.tronIndexerGatewayUrl,
+                path: "/GetTokenBalancesDetails",
+                request: request,
+                responseType: GetTronBalancesResponse.self,
+                webRPCHeaderValue: tronIndexerGatewayWebRPCHeaderValue
+            )
+            return TronBalancesResult(
                 status: response.statusCode,
                 balances: response.payload.balances,
                 errors: response.payload.errors
@@ -257,7 +306,7 @@ public final class IndexerClient: Sendable {
 
     private func defaultHeaders(webRPCHeaderValue: String) -> [String: String] {
         [
-            "Api-Key": publishableKey,
+            "Api-Key": publishableKey.current,
             "Accept": "application/json",
             "Webrpc": webRPCHeaderValue
         ]
@@ -323,6 +372,7 @@ private func indexerResponseUpstreamError(
         name: stringField(payload, "name") ?? stringField(payload, "error"),
         code: stringOrNumberField(payload, "code"),
         message: stringField(payload, "message") ?? stringField(payload, "msg") ?? fallbackMessage,
+        cause: stringField(payload, "cause").flatMap { $0.isEmpty ? nil : $0 },
         status: status
     )
 }
@@ -330,9 +380,7 @@ private func indexerResponseUpstreamError(
 private struct TokenBalancesFilter: Encodable {
     let accountAddresses: [String]
     let contractStatus: ContractVerificationStatus?
-    let contractTypes: [String]? = nil
     let contractWhitelist: [String]?
-    let contractBlacklist: [String]? = nil
     let omitNativeBalances: Bool
     let omitPrices: Bool?
     let tokenIDs: [String]?

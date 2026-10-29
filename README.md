@@ -22,14 +22,14 @@ Add the package in Xcode with **File -> Add Package Dependencies** and enter the
 https://github.com/0xsequence/swift-sdk.git
 ```
 
-Use the dependency rule **Up to Next Minor Version** with version `0.3.1`. While the SDK is
+Use the dependency rule **Up to Next Minor Version** with version `0.4.0`. While the SDK is
 pre-1.0, minor releases can contain breaking changes (see [MIGRATION.md](MIGRATION.md)).
 
 To add the package from a `Package.swift` manifest instead:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/0xsequence/swift-sdk.git", .upToNextMinor(from: "0.3.1"))
+    .package(url: "https://github.com/0xsequence/swift-sdk.git", .upToNextMinor(from: "0.4.0"))
 ],
 targets: [
     .target(
@@ -46,7 +46,7 @@ targets: [
 Add the pod to your `Podfile`:
 
 ```ruby
-pod 'oms-wallet-swift-sdk', '0.3.1'
+pod 'oms-wallet-swift-sdk', '0.4.0'
 ```
 
 ## Quick Start
@@ -64,7 +64,7 @@ if let wallet = auth.wallet {
     print("Wallet address:", wallet.address)
 
     let signature = try await omsWallet.wallet.signMessage(
-        network: .polygonAmoy,
+        network: .amoy,
         message: "hello from OMS Wallet"
     )
     print("Signature:", signature)
@@ -84,6 +84,10 @@ if let wallet = auth.wallet {
 
 `OMSWallet` is the root object for the SDK. Create a single instance at app startup and keep it alive for the session. It constructs the SDK sub-clients and restores any saved secure session automatically.
 
+Creating `OMSWallet` again for the same project and environment returns the same `wallet` and `indexer`: one session, active wallet, expiry timer, and set of session-expired observers per project in the process, so a second instance (for example from a recreated SwiftUI view) cannot drift from the first or restore the session twice. A publishable key with another key ID for the same project, such as a rotated key, keeps the session and is sent with later requests. A key for another project or environment is a separate session.
+
+Wallet API requests are sent one at a time per signing credential, in the order they are made. The wallet API only accepts a request whose nonce is above the last one it accepted for that credential, so concurrent calls would otherwise be rejected when they arrive out of order. Each signed call waits for the earlier ones of its credential, within its 30-second deadline, which also covers signing and the response: the call returns by then even if signing has not finished, and a request whose signing finishes later is never sent; a new sign-in's requests use a new key and do not wait for the previous credential's.
+
 `OMSWallet` is the only public composition root. Access `WalletClient` and
 `IndexerClient` through `omsWallet.wallet` and `omsWallet.indexer`; their
 initialization and endpoint environment are SDK-managed.
@@ -97,16 +101,16 @@ Pass your OMS publishable key when creating the client. The SDK derives the wall
 
 ## Security Model
 
-Wallet API requests are signed with a non-extractable Keychain P-256 credential using the `webcrypto-secp256r1` key type. The credential remains Keychain-managed and is not serialized into SDK session storage.
+Wallet API requests are signed with a P-256 session key using the `ecdsa-p256-sha256` signing algorithm. On an iOS device the key is generated in the Secure Enclave: the private key never leaves it and can only be used to sign while the device is unlocked, and there is no fallback to a software key (sign-in fails with `OMSWalletError` code `.storageError` if the Secure Enclave cannot create it). The iOS Simulator has no Secure Enclave, so there, and on macOS, the key is a non-extractable Keychain key. The key is not serialized into SDK session storage.
 
-Only completed wallet session metadata is restored automatically, including wallet address, expiry, and auth metadata such as email or OIDC issuer/provider details when available. The SDK checks the cached session expiry before restoring a session. Expired sessions are not activated, and invalid session metadata is cleared; expired session metadata remains in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it.
+Only completed wallet session metadata is restored automatically, including the active wallet (ID, type, address, reference, and key origin), expiry, and auth metadata such as email or OIDC issuer/provider details when available. The SDK checks the cached session expiry before restoring a session, then asks the wallet API for the current expiry in the background. When the app launches in the background while the device is locked, the keychain cannot be read yet; the SDK restores the session once the device is unlocked (or when the app next reads `activeWallet` or `session`) instead of treating it as signed out. A session whose cached expiry has passed may still be active on the wallet API (requests after the last expiry read can extend it there), so it is restored and that read decides, unless its requested lifetime has run out: then it is not activated (the wallet API is not asked). Invalid session metadata is cleared; expired session metadata remains in storage as a reauth hint until `signOut()` or a new auth flow clears or replaces it.
 
 ## Authentication Flow
 
 OMS supports email-based OTP, OIDC ID-token auth, and OIDC redirect auth. The email two-step flow is:
 
 1. **`startEmailAuth(email:sessionLifetimeSeconds:)`** validates the requested session lifetime and sends a one-time code to the user's inbox.
-2. **`completeEmailAuth(code:walletSelection:walletType:)`** verifies the code using the session lifetime chosen when the flow started. In the default `.automatic` mode it selects the first matching wallet or creates one. The wallet address, wallet ID, and signer metadata are saved to the device keychain.
+2. **`completeEmailAuth(code:walletSelection:walletType:)`** verifies the code using the session lifetime chosen when the flow started. In the default `.automatic` mode it selects the first matching wallet, claims a [claimable wallet](#claimable-wallets) of the requested type, or creates one. The active wallet and signer metadata are saved to the device keychain.
 
 ```swift
 try await omsWallet.wallet.startEmailAuth(email: "user@example.com")
@@ -117,28 +121,123 @@ let result = try await omsWallet.wallet.completeEmailAuth(code: "123456")
 if let wallet = result.wallet {
     print(wallet.address)
 }
-let session = omsWallet.wallet.session
-print(session.walletAddress ?? "signed out")
-if let expiresAt = session.expiresAt { print(expiresAt) }
-print(session.auth?.email ?? "unknown")
+if let activeWallet = omsWallet.wallet.activeWallet,
+   let session = omsWallet.wallet.session {
+    print(activeWallet.type, activeWallet.address)
+    print(session.expiresAt)
+    print(session.auth.email ?? "unknown")
+} else {
+    print("signed out")
+}
 ```
 
-Pass `sessionLifetimeSeconds` to `startEmailAuth` when you need a shorter or
-longer email session. The default is one week, and custom values must be from 1
-through 2,592,000 seconds (30 days). The SDK validates the value before sending
-the one-time code. Use `addSessionExpiredObserver` when your app needs to react
-to session expiry:
+`activeWallet` is a `Wallet`, the same type `listWallets()` returns, or `nil` when signed out.
+`session` holds the expiry and auth metadata and is non-`nil` exactly when `activeWallet` is. Its
+`expiresAt` is the current expiry as an ISO-8601 timestamp from the wallet API: the server extends
+it with use up to the requested session lifetime, and the SDK refreshes it.
+
+Pass `sessionLifetimeSeconds` to `startEmailAuth` when you need a shorter email
+session (a hard limit). The default is `WalletClient.defaultSessionLifetimeSeconds` (180 days, the maximum), and
+custom values must be from 1 through `WalletClient.maxSessionLifetimeSeconds` (15,552,000 seconds,
+180 days). The SDK validates the value before sending
+the one-time code. The lifetime is a ceiling: the wallet API ends an idle session sooner and extends
+the expiry while the session is used. Wallet API versions without sliding expiry clamp the requested
+lifetime to their 30-day maximum and have no idle timeout, so the 180-day default gives a fixed
+30-day session there.
+
+The SDK refreshes `session.expiresAt` from the wallet API after restoring a session and, while the
+session is in use, after a successful wallet call when the last refresh is at least six hours old
+(so at most once every six hours). An idle session ends about 10 days after its last use, and never
+after the requested lifetime. When the local expiry passes, the SDK ends a session whose lifetime
+has run out without asking the wallet API; otherwise it reads the current expiry, and a session the
+server has extended continues. A restored session whose stored expiry has passed is handled the same
+way: unless its lifetime has run out, it is restored and the read after the restore decides whether
+it continues. The read counts as use, so on iOS it runs once the app is active (right away when it
+already is): a background launch or an app extension does not extend an idle session. When a read
+cannot reach the wallet API, the SDK keeps the session and retries the read while the app is active,
+at most 15 minutes apart, until it succeeds. With an accurate device clock and an app running in the
+foreground, an ended session is noticed at its expiry; the timer cannot fire while the app is
+suspended, and a wallet call on a locally expired session always checks with the wallet API first
+(or, once the lifetime has run out, ends the session without a request). When the wallet API rejects a request signed
+with the session's credential because that credential expired or is gone (WaaS `KeyExpired` 7203
+or `KeyNotFound` 7202), or answers the SDK's expiry check with `Unauthorized` (7207, the credential
+was revoked), the SDK ends the session exactly as on local expiry: it notifies session-expired
+observers with `.expired` once and throws `.sessionExpired`. A wallet call that WaaS answers with `Unauthorized`
+(7207) itself fails with `.requestFailed`; the SDK then checks the credential with `GetCredential`
+in the background, which ends the session as above only if the credential was revoked. If the device is offline when the expiry passes, the session is kept and
+rechecked later; operations meanwhile throw the network error. Wallet API versions without expiry
+refresh keep the local expiry. Refresh requests never overlap your own wallet calls, so request
+nonces stay in order; a request the wallet API rejects for a stale nonce (`PreconditionFailed`
+7206) is signed again with a fresh nonce and resent, at most twice.
+
+### Keep your UI in sync
+
+`addSessionChangeObserver` calls your observer on the main actor after every change of
+`activeWallet` or `session`: a sign-in, a restore after unlock, a wallet switch, an expiry update,
+a sign-out, or an expiry. Add the observer first, then read `activeWallet` and `session`, so no
+change is missed. Observers run shortly after the change, never during the call that made it, so
+`activeWallet` and `session` are always the current state. Keep the observation: delivery stops
+when it is cancelled or released.
 
 ```swift
-let sessionExpiredObservation = omsWallet.wallet.addSessionExpiredObserver { event in
-    print("Session expired:", event.session.walletAddress ?? "unknown")
-}
+@MainActor @Observable
+final class SessionStore {
+    private(set) var wallet: Wallet?
+    private(set) var session: OMSWalletSession?
+    private(set) var expired: OMSWalletExpiredSession?
+    private var observation: OMSWalletSessionChangeObservation?
 
-// Later, when the observer is no longer needed:
-sessionExpiredObservation.cancel()
+    init(wallet client: WalletClient) {
+        observation = client.addSessionChangeObserver { [weak self] change in
+            self?.apply(change)
+        }
+        wallet = client.activeWallet
+        session = client.session
+    }
+
+    private func apply(_ change: OMSWalletSessionChangeEvent) {
+        wallet = change.activeWallet
+        session = change.session
+        if case .expired(let expiredSession) = change {
+            // Prefill reauthentication. `wallet` is nil when it expired during a pending manual
+            // wallet selection.
+            expired = expiredSession
+        } else if change.activeWallet != nil {
+            expired = nil
+        }
+    }
+}
 ```
 
-Session-expiry observers are `@Sendable` and always run on `MainActor`.
+| Change | Meaning |
+| --- | --- |
+| `.signedIn` | A sign-in made a wallet active |
+| `.restored` | A saved session became active after the client was created, for example once the device was unlocked after a launch while it was locked; treat it like `.signedIn`, without a welcome |
+| `.walletChanged` | Another wallet of the same sign-in became active |
+| `.expiryUpdated` | `session.expiresAt` moved; safe to ignore unless you show it |
+| `.signedOut` | There is no session any more and it did not expire: `signOut()`, a new sign-in started while signed in, or another process sharing the keychain signing in. Not necessarily the user's choice; don't navigate away from a sign-in in progress |
+| `.expired` | The session expired, or the wallet API no longer accepts it |
+
+An observer added while signed out first receives the last `.expired` change, if a session expired
+since the last sign-in or sign-out, for example while the app was not running. Each new observer
+receives it, so keep one app-level store.
+
+A sign-in or sign-out in an app extension or another process sharing the keychain is noticed at
+this process's next wallet call, which reports `.signedOut` (or `.expired` when that session's own
+expiry ended it).
+
+Prefer streams? Wrap the observer:
+
+```swift
+extension WalletClient {
+    var sessionChanges: AsyncStream<OMSWalletSessionChangeEvent> {
+        AsyncStream { continuation in
+            let observation = addSessionChangeObserver { continuation.yield($0) }
+            continuation.onTermination = { _ in observation.cancel() }
+        }
+    }
+}
+```
 
 To opt out of automatic activation and drive wallet selection yourself:
 
@@ -153,6 +252,8 @@ if case .walletSelection(let pendingSelection) = result {
     try await pendingSelection.selectWallet(walletId: "wallet-id")
     // or:
     // try await pendingSelection.createAndSelectWallet()
+    // or claim a preallocated wallet (see Claimable Wallets below):
+    // try await pendingSelection.claimAndSelectWallet(walletId: "claimable-wallet-id")
 }
 ```
 
@@ -160,6 +261,46 @@ if case .walletSelection(let pendingSelection) = result {
 wallet is selected or created, after sign-out, or after another auth completion.
 Using an invalidated pending selection throws `OMSWalletError` with
 `code == .walletSelectionStale`.
+
+#### Claimable Wallets
+
+A project can preallocate a receive-only wallet for a user's email address before the user signs
+in. Sign-in lists the wallets still waiting to be claimed separately from the user's own wallets:
+`CompleteAuthResult.claimableWallets` (also the `claimableWallets` value of `.walletSelected`)
+and `PendingWalletSelection.claimableWallets`, which lists the claimable wallets of the pending
+`walletType`. Only sign-in reports claimable wallets; `listWallets()` never includes them.
+
+Automatic wallet selection (email OTP, OIDC ID token, and OIDC redirect) picks a wallet of the
+requested `walletType` in this order:
+
+1. the first wallet the user owns,
+2. otherwise a claimable wallet, which the SDK claims and activates,
+3. otherwise a new wallet.
+
+If the claim fails, sign-in fails; the SDK does not create a wallet instead. After automatic
+selection, `claimableWallets` lists only the wallets it did not claim.
+
+To claim a wallet yourself during a manual selection, call
+`pendingSelection.claimAndSelectWallet(walletId:)`. Like `selectWallet(walletId:)`, it completes
+the selection, and it accepts only IDs in that selection's `claimableWallets`; any other ID throws
+`.walletSelectionUnavailable` without a request. With an active session, call
+`omsWallet.wallet.claimWallet(walletId:)` to switch to the claimed wallet. Claiming grants the
+current credential access to the wallet and saves it as the active wallet:
+
+```swift
+let result = try await omsWallet.wallet.completeEmailAuth(
+    code: "123456",
+    walletSelection: .manual
+)
+
+if case .walletSelection(let pendingSelection) = result,
+   let claimable = pendingSelection.claimableWallets.first {
+    try await pendingSelection.claimAndSelectWallet(walletId: claimable.id)
+}
+```
+
+A wallet that was not preallocated for the user's verified email, or was already claimed, fails
+with `.requestFailed`; `upstreamError?.name` is `"AccountNotFound"`.
 
 For native iOS sign-in, prefer an OIDC ID-token flow when the provider SDK can
 supply a token. For example, pass a Google Sign-In ID token to OMS with the
@@ -179,7 +320,7 @@ if let wallet = result.wallet {
 
 Use `walletSelection: .manual` when the app should present its own wallet
 picker. Pass `provider` and `providerLabel` for custom ID-token providers when
-those labels should be stored in `omsWallet.wallet.session.auth`.
+those labels should be stored in `omsWallet.wallet.session?.auth`.
 
 For OIDC authorization-code redirect flows, start the redirect, open the
 returned URL with your browser UI, then safely handle incoming app links.
@@ -199,8 +340,8 @@ do {
         callbackURLString
     )
     switch result {
-    case .completed(.walletSelected(_, let wallet, let wallets, let credential)):
-        print(wallet.address, wallets.count, credential.credentialId)
+    case .completed(.walletSelected(let wallet, let wallets, let claimableWallets, let credential)):
+        print(wallet.address, wallets.count, claimableWallets.count, credential.credentialId)
     case .completed(.walletSelection(let pendingSelection)):
         // Show pendingSelection.wallets in your app UI.
         try await pendingSelection.selectWallet(walletId: "wallet-id")
@@ -254,8 +395,9 @@ let started = try await omsWallet.wallet.startOIDCRedirectAuth(provider: acmePro
 Pass `walletSelection` or `sessionLifetimeSeconds` to `startOIDCRedirectAuth`
 to store completion preferences with the pending redirect state. Values passed
 to `handleOIDCRedirectCallback` override pending values; otherwise the SDK uses
-automatic wallet selection and a one-week session lifetime. Custom session
-lifetime values must be from 1 through 2,592,000 seconds (30 days). Provider
+automatic wallet selection and `WalletClient.defaultSessionLifetimeSeconds`
+(180 days, the maximum). Custom session
+lifetime values must be from 1 through 15,552,000 seconds (180 days). Provider
 configs can use `.authCode` to omit PKCE parameters or `.authCodePKCE` for PKCE.
 Providers with omitted or empty `scopes` omit the OAuth `scope` authorization
 parameter.
@@ -273,7 +415,7 @@ On iOS, prefer `signInWithOidcIdToken` over defining a custom Google or Apple
 redirect configuration when the native provider SDK can supply an ID token.
 Use custom redirect auth for caller-owned or browser-only provider flows.
 
-On subsequent launches, an unexpired completed session is restored from secure storage automatically. To end the session:
+On subsequent launches, a completed session that may still be active is restored from secure storage automatically. To end the session:
 
 ```swift
 try omsWallet.wallet.signOut()
@@ -296,8 +438,8 @@ let imported = try await omsWallet.wallet.importWallet(
 print(imported.wallet.keyOrigin == .imported)
 ```
 
-Ethereum imports accept a 32-byte raw scalar or 64 hexadecimal digits, optionally prefixed with
-`0x`. Solana imports accept a 32-byte seed or 64-byte keypair as raw bytes, or the base58 encoding
+Ethereum and Tron imports (both secp256k1) accept a 32-byte raw scalar or 64 hexadecimal digits,
+optionally prefixed with `0x`, through `.ethereum`/`.ethereumBytes` or `.tron`/`.tronBytes`. Solana imports accept a 32-byte seed or 64-byte keypair as raw bytes, or the base58 encoding
 of either. The SDK does not persist plaintext imported keys. For
 caller-managed HPKE flows, use `getWalletImportRecipientKey(cipherSuite:)` and then
 `importEncryptedWallet(walletType:keyMaterial:reference:)`; both responses remain attestation
@@ -309,29 +451,30 @@ verified.
 
 ```swift
 let signature = try await omsWallet.wallet.signMessage(
-    network: .polygonAmoy,
+    network: .amoy,
     message: "hello from OMS Wallet"
 )
 
-guard let walletAddress = omsWallet.wallet.walletAddress else { return }
-
+// Omit `walletAddress` to verify against the active wallet, or pass any address to verify
+// without a session.
 let isValid = try await omsWallet.wallet.isValidMessageSignature(
-    network: .polygonAmoy,
-    walletAddress: walletAddress,
+    network: .amoy,
     message: "hello from OMS Wallet",
     signature: signature
 )
 ```
 
+Every `isValid…Signature` method takes an optional `walletAddress`. With an address it needs no
+session and ignores the active wallet. Without one it uses the active wallet's address: it throws
+`.sessionMissing` when signed out and `.validationError` when the active wallet belongs to another
+chain family (for example an Ethereum wallet passed to `isValidSolanaMessageSignature`).
+
 For a selected Solana wallet, use the Solana-specific message methods; off-chain messages do not
 require a cluster:
 
 ```swift
-guard let solanaWalletAddress = omsWallet.wallet.walletAddress else { return }
-
 let signature = try await omsWallet.wallet.signSolanaMessage(message: "hello from Solana")
 let valid = try await omsWallet.wallet.isValidSolanaMessageSignature(
-    walletAddress: solanaWalletAddress,
     message: "hello from Solana",
     signature: signature
 )
@@ -361,15 +504,12 @@ let typedData: JSONValue = .object([
 ])
 
 let signature = try await omsWallet.wallet.signTypedData(
-    network: .polygonAmoy,
+    network: .amoy,
     typedData: typedData
 )
 
-guard let walletAddress = omsWallet.wallet.walletAddress else { return }
-
 let typedDataValid = try await omsWallet.wallet.isValidTypedDataSignature(
-    network: .polygonAmoy,
-    walletAddress: walletAddress,
+    network: .amoy,
     typedData: typedData,
     signature: signature
 )
@@ -378,7 +518,8 @@ let typedDataValid = try await omsWallet.wallet.isValidTypedDataSignature(
 ### Query Balances
 
 ```swift
-guard let walletAddress = omsWallet.wallet.walletAddress else { return }
+guard let activeWallet = omsWallet.wallet.activeWallet, activeWallet.type == .ethereum else { return }
+let walletAddress = activeWallet.address
 
 let result = try await omsWallet.indexer.getBalances(
     GetBalancesParams(
@@ -425,12 +566,13 @@ print(balance?.balance ?? "0")
 ### Query Transaction History
 
 ```swift
-guard let walletAddress = omsWallet.wallet.walletAddress else { return }
+guard let activeWallet = omsWallet.wallet.activeWallet, activeWallet.type == .ethereum else { return }
+let walletAddress = activeWallet.address
 
 let history = try await omsWallet.indexer.getTransactionHistory(
     GetTransactionHistoryParams(
         walletAddress: walletAddress,
-        networks: [.polygonAmoy],
+        networks: [.amoy],
         includeMetadata: true
     )
 )
@@ -462,7 +604,7 @@ transaction is sponsored. Transaction mode defaults to `.relayer`; pass
 ```swift
 let value = try parseUnits(value: "0.001", decimals: 18)
 let txResult = try await omsWallet.wallet.sendTransaction(
-    network: .polygonAmoy,
+    network: .amoy,
     to: "0x1111111111111111111111111111111111111111",
     value: value
 )
@@ -481,7 +623,7 @@ transaction hash, `.timedOut` when the polling deadline expires first, and
 ```swift
 let value = try parseUnits(value: "0.001", decimals: 18)
 let txResult = try await omsWallet.wallet.sendTransaction(
-    network: .polygonAmoy,
+    network: .amoy,
     request: SendTransactionRequest(
         to: "0x1111111111111111111111111111111111111111",
         value: value,
@@ -496,15 +638,19 @@ let txResult = try await omsWallet.wallet.sendTransaction(
 ```swift
 let amount = try parseUnits(value: "0.001", decimals: 18)
 let txResult = try await omsWallet.wallet.callContract(
-    network: .polygonAmoy,
-    contract: "0x3333333333333333333333333333333333333333",
-    method: "transfer(address,uint256)",
+    network: .amoy,
+    contractAddress: "0x3333333333333333333333333333333333333333",
+    method: "transfer",
     args: [
         AbiArg(type: "address", value: .string("0x1111111111111111111111111111111111111111")),
         AbiArg(type: "uint256", value: .string(amount)),
     ]
 )
 ```
+
+Pass the bare function name, such as `"transfer"`, not a signature such as
+`"transfer(address,uint256)"`. The wallet service builds the signature from the argument types, and
+the SDK rejects any other value with `.validationError` before sending a request.
 
 To return immediately after execute without status polling, pass
 `waitForStatus: false`. You can then call `getTransactionStatus` with the
@@ -513,7 +659,7 @@ returned `txnId`. The immediate response has `statusResolution == .notRequested`
 ```swift
 let value = try parseUnits(value: "0.001", decimals: 18)
 let txResult = try await omsWallet.wallet.sendTransaction(
-    network: .polygonAmoy,
+    network: .amoy,
     to: "0x1111111111111111111111111111111111111111",
     value: value,
     waitForStatus: false
@@ -539,7 +685,7 @@ To tune polling, pass `statusPolling`:
 ```swift
 let value = try parseUnits(value: "0.001", decimals: 18)
 let txResult = try await omsWallet.wallet.sendTransaction(
-    network: .polygonAmoy,
+    network: .amoy,
     to: "0x1111111111111111111111111111111111111111",
     value: value,
     statusPolling: TransactionStatusPollingOptions(
@@ -555,7 +701,7 @@ from the returned fee options:
 ```swift
 let value = try parseUnits(value: "0.001", decimals: 18)
 let txResult = try await omsWallet.wallet.sendTransaction(
-    network: .polygonAmoy,
+    network: .amoy,
     to: "0x1111111111111111111111111111111111111111",
     value: value,
     selectFeeOption: .custom { options in
@@ -570,14 +716,93 @@ let txResult = try await omsWallet.wallet.sendTransaction(
 ```
 
 Custom selectors receive `FeeOptionWithBalance` values. For Ethereum fees, `balance`
-contains the matching `TokenBalance` when available. For both Ethereum and Solana fees,
+contains the matching `TokenBalance` when available. For Ethereum, Solana, and Tron fees,
 `available` is formatted with the token decimals, `availableRaw` is the raw integer
 balance, and `decimals` is the token decimal count used for formatting. This lets
-`.firstAvailable` select the first affordable option on either network family. Unsponsored
+`.firstAvailable` select the first affordable option on any network family. Unsponsored
 transactions require the selector to return a fee selection. Sponsored transactions
 invoke the selector with an empty array; return `nil` after acknowledging the free fee,
 or throw to stop execution. `.firstAvailable` returns `nil` for that empty array and
 continues execution as before.
+
+### Tron Wallets
+
+Tron wallets are EOAs and always execute in native mode, so the Tron methods take no `mode`
+parameter. Create one with `createWallet(walletType: .tron)`, sign in with `walletType: .tron`, or
+import a secp256k1 private key with `.tron(_:)`. Tron addresses are Base58Check strings (`T…`).
+Supported networks are `TronNetwork.mainnet` and `TronNetwork.nile`. TRC-10 tokens are not
+supported.
+
+```swift
+let created = try await omsWallet.wallet.createWallet(walletType: .tron)
+
+let signature = try await omsWallet.wallet.signTronMessage(message: "some message to sign")
+let isValid = try await omsWallet.wallet.isValidTronMessageSignature(
+    walletAddress: created.wallet.address,
+    message: "some message to sign",
+    signature: signature
+)
+
+// Replace with the Base58Check (`T…`) address that should receive the funds.
+let recipient = "<recipient T… address>"
+
+// TRX transfer. Values are in sun (1 TRX = 1,000,000 sun).
+let trxTransfer = try await omsWallet.wallet.sendTronTransaction(
+    network: .nile,
+    to: recipient,
+    value: try parseUnits(value: "1", decimals: 6)
+)
+
+// TRC-20 transfer. The wallet service ABI-encodes the call; address arguments accept `T…`.
+let trc20Transfer = try await omsWallet.wallet.callTronContract(
+    network: .nile,
+    contractAddress: "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf",
+    method: "transfer",
+    args: [
+        AbiArg(type: "address", value: .string(recipient)),
+        AbiArg(type: "uint256", value: .string("1000000")),
+    ]
+)
+```
+
+`signTronTypedData(typedData:)` and `isValidTronTypedDataSignature(walletAddress:typedData:signature:)`
+sign and verify TIP-712 typed data, whose address values may be Base58Check.
+
+Omitting `data` from `sendTronTransaction` sends a plain TRX transfer. Passing `data`, even `"0x"`,
+makes the transaction a contract call: `"0x"` calls the recipient contract's payable fallback.
+
+Tron transactions report `.pending` with a `txnHash` until the block is solidified (about a
+minute), so status polling returns as soon as the hash is available.
+
+Every Tron account gets a daily free bandwidth allowance (600 points, about two TRX transfers), so
+prepared Tron transactions are often sponsored even without a relayer. When the allowance is spent,
+WaaS quotes the TRX to burn as a single native fee option, which a fee selector receives like any
+other fee option.
+
+Use `getTronBalances` for TRX and TRC-20 balances. Omit `networks` to query both Tron Mainnet and
+Nile, or pass either network explicitly. Results have the same structure as `getSolanaBalances`:
+precision-safe raw and formatted balance strings, with TRC-20 entries identified by
+`tokenStandard` and `contractAddress` where Solana token entries use `tokenProgram` and
+`mintAddress`. `TronBalance` and `SolanaBalance` expose the fields shared by both cases (`network`,
+`accountAddress`, `symbol`, `decimals`, `balance`, `formattedBalance`, and so on) directly, so you
+only need to switch for the token-specific fields. Pass `contractAddresses` or `excludedContractAddresses` to filter tokens.
+Individual network failures are reported in `errors` without discarding balances returned by the
+other requested network.
+
+```swift
+let balances = try await omsWallet.indexer.getTronBalances(
+    GetTronBalancesParams(walletAddress: created.wallet.address, networks: [.nile])
+)
+
+for balance in balances.balances {
+    switch balance {
+    case .native(let trx):
+        print(trx.network, trx.symbol, trx.formattedBalance)
+    case .fungibleToken(let token):
+        print(token.network, token.contractAddress, token.symbol, token.formattedBalance)
+    }
+}
+```
 
 ## Advanced Configuration
 
@@ -597,7 +822,8 @@ the target environment rather than passing custom endpoint defaults in app code.
 
 Use `Network.supportedNetworks`, `Network.findById(_:)`, and
 `Network.findByName(_:)` to bind numeric chain IDs and network names to SDK
-networks. `polygonamoy` is also accepted as a lookup alias for `.polygonAmoy`.
+networks. `findByName(_:)` matches the indexer value in the table below, ignoring case and
+surrounding whitespace.
 
 ```swift
 let networks = Network.supportedNetworks
@@ -612,7 +838,7 @@ let katana = Network.findByName("katana")
 | `1` | Ethereum | `.mainnet` | `mainnet` | `ETH` |
 | `11155111` | Sepolia | `.sepolia` | `sepolia` | `ETH` |
 | `137` | Polygon | `.polygon` | `polygon` | `POL` |
-| `80002` | Polygon Amoy | `.polygonAmoy` | `amoy` | `POL` |
+| `80002` | Polygon Amoy | `.amoy` | `amoy` | `POL` |
 | `42161` | Arbitrum | `.arbitrum` | `arbitrum` | `ETH` |
 | `421614` | Arbitrum Sepolia | `.arbitrumSepolia` | `arbitrum-sepolia` | `ETH` |
 | `10` | Optimism | `.optimism` | `optimism` | `ETH` |
@@ -634,6 +860,13 @@ Solana uses the separate `SolanaNetwork` type, not `Network`:
 | `SolanaNetwork.mainnet` | `solana:mainnet` |
 
 `SolanaNetwork.mainnet` is distinct from `Network.mainnet`, which is Ethereum mainnet.
+
+Tron uses the separate `TronNetwork` type:
+
+| Swift case | Raw value |
+|---|---|
+| `TronNetwork.mainnet` | `tron:mainnet` |
+| `TronNetwork.nile` | `tron:nile` |
 
 ## Unit Formatting
 
@@ -663,17 +896,28 @@ values, branch application logic on `code`.
 For transaction writes, `.transactionExecutionUnconfirmed` means the SDK has a
 `txnId` from preparation, but execute failed before the SDK could confirm
 whether the transaction was submitted; do not blindly resend the same write.
+An execute that the wallet API rejects because the transaction would revert
+(`upstreamError.code == "7314"`, `TransactionSimulationFailed`) was never sent and
+throws `.requestFailed` instead.
 `.transactionStatusLookupFailed` means the transaction was submitted, but status
 polling failed, so retry status lookup with the returned `txnId`.
 `.walletSelectionInFlight` means another action on the same `PendingWalletSelection`
 is still running; wait for it to finish before starting another. `retryable`
 describes the failed SDK operation, not the whole user intent.
 
+`upstreamError.service` is `.waas` or `.indexer` (raw values `"waas"` and `"indexer"`), and
+`upstreamError.code` is a string; numeric WebRPC codes are stringified (for example `"7313"`).
+When the service explains the error, `upstreamError.cause` holds its reason, for example
+`"wallet is not activated on chain: it must receive TRX or a token before it can send"` behind the
+generic message `"The request was invalid"`.
+Wallet import reports an address that is already managed as `.walletAddressAlreadyImported`
+(status `409`, `retryable == false`); select the existing wallet or use a different key.
+
 ```swift
 let value = try parseUnits(value: "0.001", decimals: 18)
 do {
     let txResult = try await omsWallet.wallet.sendTransaction(
-        network: .polygonAmoy,
+        network: .amoy,
         to: "0x1111111111111111111111111111111111111111",
         value: value
     )
@@ -741,6 +985,11 @@ authorize bounded EVM transfer grants. The returned wallet and session IDs can b
 remote backend; backend credential registration and execution stay outside this SDK surface. WaaS
 caps the requested session expiry at the remote credential's expiry.
 
+WaaS limits the active remote sessions per wallet (100 by default). Past the limit,
+`authorizeRemoteAccess` throws `.requestFailed` with `status == 409`, `retryable == false`, and
+`upstreamError?.code == "7208"` (`SessionCapExceeded`). Revoke an existing session with
+`revokeAccess(credentialId:sessionId:)`, then authorize again.
+
 ```swift
 import Foundation
 
@@ -780,8 +1029,8 @@ try await omsWallet.wallet.revokeAccess(
 
 See [API.md](./API.md) for the full method and type reference.
 
-When upgrading from `0.2.0`, see [MIGRATION.md](./MIGRATION.md) for the breaking changes in
-`0.3.0`.
+When upgrading from `0.3.x`, see [MIGRATION.md](./MIGRATION.md) for the breaking changes in
+`0.4.0`.
 
 ## Publishing
 

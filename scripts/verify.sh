@@ -68,4 +68,13 @@ run \
         -destination "generic/platform=iOS Simulator" \
         build
 
+run \
+    "Build device tests" \
+    xcodebuild \
+        -quiet \
+        -project Tests/DeviceTests/OMSWalletDeviceTests.xcodeproj \
+        -scheme OMSWalletDeviceTests \
+        -destination "generic/platform=iOS Simulator" \
+        build-for-testing
+
 printf '\nVerified Swift SDK %s.\n' "$version"

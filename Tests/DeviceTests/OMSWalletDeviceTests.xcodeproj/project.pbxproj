@@ -1,0 +1,343 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		D476CBC0DFC7E3C9FD969EEA /* OMSWallet in Frameworks */ = {isa = PBXBuildFile; productRef = C5F859FBBD7128CB11B52B80 /* OMSWallet */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		ED823558B80E373D194C06D2 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3BE3A503AD9806E5AE2E8CF7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FD4B036306616FAC8AB0F481;
+			remoteInfo = DeviceTestHost;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		2520B7E8B9CF81BBD07CEA58 /* DeviceTestHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DeviceTestHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C5C617622C190E1EE995545C /* OMSWalletDeviceTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OMSWalletDeviceTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		0F474F05BF51A49C8FCCE9ED /* DeviceTestHost */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = DeviceTestHost;
+			sourceTree = "<group>";
+		};
+		031A33EE861CE399E4EFA397 /* OMSWalletDeviceTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = OMSWalletDeviceTests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		38CD4183E6C99248FD6CD4E3 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		69B70D418BED377EAD9CEA0D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D476CBC0DFC7E3C9FD969EEA /* OMSWallet in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		8FA048EA29990B762B9CA55D = {
+			isa = PBXGroup;
+			children = (
+				0F474F05BF51A49C8FCCE9ED /* DeviceTestHost */,
+				031A33EE861CE399E4EFA397 /* OMSWalletDeviceTests */,
+				217F7CEDDB2B9178A53BA715 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		217F7CEDDB2B9178A53BA715 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				2520B7E8B9CF81BBD07CEA58 /* DeviceTestHost.app */,
+				C5C617622C190E1EE995545C /* OMSWalletDeviceTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		FD4B036306616FAC8AB0F481 /* DeviceTestHost */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 191C8D04D893088245DBA7C8;
+			buildPhases = (
+				3CFDB0AF06D15081AD649DA4 /* Sources */,
+				38CD4183E6C99248FD6CD4E3 /* Frameworks */,
+				CB4D1B58969BF74D036BACD5 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				0F474F05BF51A49C8FCCE9ED /* DeviceTestHost */,
+			);
+			name = DeviceTestHost;
+			productName = DeviceTestHost;
+			productReference = 2520B7E8B9CF81BBD07CEA58 /* DeviceTestHost.app */;
+			productType = "com.apple.product-type.application";
+		};
+		1D009B4205624861E4A69FEE /* OMSWalletDeviceTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1DAF0807577C6900A130833F;
+			buildPhases = (
+				4421A9F7263C4643EBA8BC96 /* Sources */,
+				69B70D418BED377EAD9CEA0D /* Frameworks */,
+				AE3DBA3AAAF955918E911A31 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7331465B1D2EFD17283C7661 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				031A33EE861CE399E4EFA397 /* OMSWalletDeviceTests */,
+			);
+			name = OMSWalletDeviceTests;
+			packageProductDependencies = (
+				C5F859FBBD7128CB11B52B80 /* OMSWallet */,
+			);
+			productName = OMSWalletDeviceTests;
+			productReference = C5C617622C190E1EE995545C /* OMSWalletDeviceTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		3BE3A503AD9806E5AE2E8CF7 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					FD4B036306616FAC8AB0F481 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					1D009B4205624861E4A69FEE = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = FD4B036306616FAC8AB0F481;
+					};
+				};
+			};
+			buildConfigurationList = 011811510165F1270A348A46;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 8FA048EA29990B762B9CA55D;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				6503CDB6B4862393529701A8 /* XCLocalSwiftPackageReference "../.." */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 217F7CEDDB2B9178A53BA715 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				FD4B036306616FAC8AB0F481 /* DeviceTestHost */,
+				1D009B4205624861E4A69FEE /* OMSWalletDeviceTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		CB4D1B58969BF74D036BACD5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AE3DBA3AAAF955918E911A31 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		3CFDB0AF06D15081AD649DA4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4421A9F7263C4643EBA8BC96 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		7331465B1D2EFD17283C7661 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FD4B036306616FAC8AB0F481 /* DeviceTestHost */;
+			targetProxy = ED823558B80E373D194C06D2 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		B86CA91072F49DF423A74980 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				DEVELOPMENT_TEAM = XR9N5MTG4N;
+				CODE_SIGN_STYLE = Automatic;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		48897A1887BFCF71A3AC2D10 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				DEVELOPMENT_TEAM = XR9N5MTG4N;
+				CODE_SIGN_STYLE = Automatic;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		55839D067F771F9B8BE2845F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
+				PRODUCT_BUNDLE_IDENTIFIER = technology.polygon.omswallet.devicetests.host;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		9BDE7830ED405842EC2550FE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
+				PRODUCT_BUNDLE_IDENTIFIER = technology.polygon.omswallet.devicetests.host;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		58EE08E4A90CC8D84CB46FF2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = technology.polygon.omswallet.devicetests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/DeviceTestHost.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/DeviceTestHost";
+			};
+			name = Debug;
+		};
+		BB73625F7C76A62E77D5295D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = technology.polygon.omswallet.devicetests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/DeviceTestHost.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/DeviceTestHost";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		011811510165F1270A348A46 = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B86CA91072F49DF423A74980 /* Debug */,
+				48897A1887BFCF71A3AC2D10 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		191C8D04D893088245DBA7C8 = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				55839D067F771F9B8BE2845F /* Debug */,
+				9BDE7830ED405842EC2550FE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		1DAF0807577C6900A130833F = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				58EE08E4A90CC8D84CB46FF2 /* Debug */,
+				BB73625F7C76A62E77D5295D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		6503CDB6B4862393529701A8 /* XCLocalSwiftPackageReference "../.." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../..;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C5F859FBBD7128CB11B52B80 /* OMSWallet */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = OMSWallet;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 3BE3A503AD9806E5AE2E8CF7 /* Project object */;
+}

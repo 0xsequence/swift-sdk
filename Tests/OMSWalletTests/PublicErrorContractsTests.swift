@@ -45,8 +45,7 @@ import Testing
             transport: transport
         )
     )
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0x1111111111111111111111111111111111111111"
+    fixture.client.activeWallet = activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main")
 
     await expectPublicError(
         try await fixture.client.getWalletImportRecipientKey(cipherSuite: .p256Sha256Aes256Gcm),
@@ -88,6 +87,52 @@ import Testing
             )
         )
     )
+}
+
+@Test func TestPublicErrorContractsWalletImportAddressAlreadyImported() async throws {
+    let importTransport = MockWaasTransport()
+    let fixture = makeMockWalletClient(
+        walletImportClient: WaasClient(baseURL: "https://wallet-import.test", transport: importTransport)
+    )
+    fixture.client.activeWallet = activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main")
+    fixture.client.sessionExpiresAt = "2099-01-01T00:00:00Z"
+    fixture.client.sessionAuth = .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
+    importTransport.enqueueRawHTTPError(
+        statusCode: 400,
+        body: Data(
+            """
+            {"error":"AddressAlreadyImported","code":7313,"msg":"Address already imported","status":400}
+            """.utf8
+        ),
+        for: WaasAPI.ImportWallet.urlPath
+    )
+
+    await expectPublicError(
+        try await fixture.client.importEncryptedWallet(
+            walletType: .ethereum,
+            keyMaterial: EncryptedWalletImportKeyMaterial(
+                keyId: "recipient-key",
+                cipherSuite: .p256Sha256Aes256Gcm,
+                encapsulatedKey: Data([1, 2, 3]).base64EncodedString(),
+                ciphertext: Data([4, 5, 6]).base64EncodedString()
+            )
+        ),
+        equals: error(
+            code: .walletAddressAlreadyImported,
+            operation: .walletImportEncryptedWallet,
+            message: "Address already imported",
+            status: 409,
+            retryable: false,
+            upstreamError: upstream(
+                service: .waas,
+                name: "AddressAlreadyImported",
+                code: "7313",
+                message: "Address already imported",
+                status: 400
+            )
+        )
+    )
+    #expect(fixture.client.activeWallet?.id == "wallet-main")
 }
 
 @Test func TestPublicErrorContractsWaasHttpAndBadResponsesHaveUpstreamDetails() async throws {
@@ -200,7 +245,7 @@ import Testing
         equals: error(
             code: .validationError,
             operation: .walletStartEmailAuth,
-            message: "sessionLifetimeSeconds must be an integer between 1 and 2592000"
+            message: "sessionLifetimeSeconds must be an integer between 1 and 15552000"
         )
     )
 
@@ -322,9 +367,10 @@ import Testing
 
     let now = Date(timeIntervalSince1970: 1_800_000_000)
     let expiredFixture = makeMockWalletClient(currentDate: { now })
-    expiredFixture.client.walletId = "wallet-main"
-    expiredFixture.client.walletAddress = "0xwallet"
+    expiredFixture.client.activeWallet = activeTestWallet("0xwallet", id: "wallet-main")
     expiredFixture.client.sessionExpiresAt = "2025-01-01T00:00:00Z"
+    expiredFixture.client.sessionAuth = .email(OMSWalletEmailSessionAuth(email: "user@example.com"))
+    expiredFixture.transport.enqueueWebRPCBadRoute(for: WaasAPI.GetCredential.urlPath)
 
     await expectPublicError(
         try await expiredFixture.client.signMessage(network: .polygon, message: "hello"),
@@ -346,6 +392,221 @@ import Testing
             message: "No authenticated wallet session."
         )
     )
+}
+
+@Test(arguments: [
+    (statusCode: 404, name: "KeyNotFound", code: 7202),
+    (statusCode: 400, name: "KeyExpired", code: 7203)
+])
+func TestPublicErrorContractsServerRejectedCredentialEndsSessionOnce(
+    statusCode: Int,
+    name: String,
+    code: Int
+) async throws {
+    let fixture = makeRestoredWalletClient()
+    for _ in 0..<2 {
+        fixture.transport.enqueueRawHTTPError(
+            statusCode: statusCode,
+            body: Data(
+                """
+                {"error":"\(name)","code":\(code),"msg":"credential rejected","status":\(statusCode)}
+                """.utf8
+            ),
+            for: WaasAPI.SignMessage.urlPath
+        )
+    }
+    let changes = LockedBox<[OMSWalletSessionChangeEvent]>([])
+    let observation = fixture.client.addSessionChangeObserver { event in
+        changes.withValue { $0.append(event) }
+    }
+    defer { observation.cancel() }
+
+    // Two calls are rejected while both are in flight; the session ends only once.
+    let gate = fixture.transport.holdResponses(for: WaasAPI.SignMessage.urlPath)
+    let client = fixture.client
+    let first = Task { try await client.signMessage(network: .polygon, message: "first") }
+    let second = Task { try await client.signMessage(network: .polygon, message: "second") }
+    for _ in 0..<40 where fixture.transport.requestCount(for: WaasAPI.SignMessage.urlPath) < 2 {
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    gate.open()
+
+    for task in [first, second] {
+        await expectPublicError(
+            try await task.value,
+            equals: error(
+                code: .sessionExpired,
+                operation: .walletSignMessage,
+                message: "No active credential."
+            )
+        )
+    }
+    for _ in 0..<10 where changes.withValue({ $0.last?.name != "expired" }) {
+        try await Task.sleep(nanoseconds: 20_000_000)
+    }
+    try await Task.sleep(nanoseconds: 50_000_000)
+
+    let events = changes.withValue { $0 }
+    #expect(fixture.transport.requestCount(for: WaasAPI.SignMessage.urlPath) == 2)
+    #expect(events.map(\.name) == ["expired"])
+    #expect(events.last?.expiredSession?.wallet?.id == "wallet-main")
+    #expect(fixture.client.session == nil)
+    #expect(fixture.signer.clearCallCount == 1)
+}
+
+@Test func TestPublicErrorContractsPublicKeyNotFoundKeepsSession() async throws {
+    // WaasPublic.InspectCredential reports an unknown remote credential as 7202; that is about the
+    // remote credential, not the signed-in session.
+    let fixture = makeRestoredWalletClient()
+    fixture.transport.enqueueRawHTTPError(
+        statusCode: 404,
+        body: Data(
+            """
+            {"error":"KeyNotFound","code":7202,"msg":"credential not found","status":404}
+            """.utf8
+        ),
+        for: WaasPublicAPI.InspectCredential.urlPath
+    )
+
+    await expectPublicError(
+        try await fixture.client.inspectRemoteCredential(credentialId: "unknown-remote-credential"),
+        equals: error(
+            code: .requestFailed,
+            operation: .walletInspectRemoteCredential,
+            message: "credential not found",
+            status: 404,
+            retryable: false,
+            upstreamError: upstream(
+                service: .waas,
+                name: "KeyNotFound",
+                code: "7202",
+                message: "credential not found",
+                status: 404
+            )
+        )
+    )
+
+    #expect(fixture.client.session != nil)
+    #expect(fixture.client.activeWallet?.id == "wallet-main")
+    #expect(fixture.signer.clearCallCount == 0)
+}
+
+@Test func TestPublicErrorContractsWalletCallUnauthorizedKeepsSession() async throws {
+    // A wallet call's 7207 is not specific to the credential (for example, no access to that
+    // wallet), so only GetCredential's 7207 ends the session. The background read it starts finds
+    // the credential valid here.
+    let fixture = makeRestoredWalletClient()
+    fixture.transport.enqueueRawHTTPError(
+        statusCode: 401,
+        body: Data(
+            #"{"error":"Unauthorized","code":7207,"msg":"Unauthorized","status":401}"#.utf8
+        ),
+        for: WaasAPI.SignMessage.urlPath
+    )
+    try fixture.transport.enqueue(
+        WaasAPI.GetCredential.Response(
+            credential: WaasCredentialInfo(
+                credentialId: "0xmock-credential",
+                type: .direct,
+                expiresAt: "2099-01-01T00:00:00Z",
+                isCaller: true
+            )
+        ),
+        for: WaasAPI.GetCredential.urlPath
+    )
+
+    await expectPublicError(
+        try await fixture.client.signMessage(network: .polygon, message: "hello"),
+        equals: error(
+            code: .requestFailed,
+            operation: .walletSignMessage,
+            message: "Unauthorized",
+            status: 401,
+            retryable: false,
+            upstreamError: upstream(
+                service: .waas,
+                name: "Unauthorized",
+                code: "7207",
+                message: "Unauthorized",
+                status: 401
+            )
+        )
+    )
+
+    #expect(fixture.client.session != nil)
+    #expect(fixture.client.activeWallet?.id == "wallet-main")
+    #expect(fixture.signer.clearCallCount == 0)
+}
+
+@Test func TestPublicErrorContractsStaleNonceSurfacesAfterTwoResends() async throws {
+    let fixture = makeRestoredWalletClient()
+    for _ in 0..<3 {
+        fixture.transport.enqueueRawHTTPError(
+            statusCode: 412,
+            body: Data(
+                #"{"error":"PreconditionFailed","code":7206,"msg":"Precondition failed; try again with a higher nonce value","status":412}"#.utf8
+            ),
+            for: WaasAPI.SignMessage.urlPath
+        )
+    }
+
+    await expectPublicError(
+        try await fixture.client.signMessage(network: .polygon, message: "hello"),
+        equals: error(
+            code: .requestFailed,
+            operation: .walletSignMessage,
+            message: "Precondition failed; try again with a higher nonce value",
+            status: 412,
+            retryable: false,
+            upstreamError: upstream(
+                service: .waas,
+                name: "PreconditionFailed",
+                code: "7206",
+                message: "Precondition failed; try again with a higher nonce value",
+                status: 412
+            )
+        )
+    )
+
+    #expect(fixture.transport.requestCount(for: WaasAPI.SignMessage.urlPath) == 3)
+    #expect(fixture.client.session != nil)
+}
+
+@Test func TestPublicErrorContractsAuthorizeRemoteAccessSessionCapExceeded() async throws {
+    let fixture = makeRestoredWalletClient()
+    let message = "Too many active sessions for this wallet; revoke one before authorizing another"
+    fixture.transport.enqueueRawHTTPError(
+        statusCode: 409,
+        body: Data(
+            #"{"error":"SessionCapExceeded","code":7208,"msg":"\#(message)","cause":"limit is 100 active sessions per wallet","status":409}"#.utf8
+        ),
+        for: WaasAPI.AuthorizeRemoteAccess.urlPath
+    )
+
+    await expectPublicError(
+        try await fixture.client.authorizeRemoteAccess(
+            credentialId: "remote-credential",
+            network: .polygon,
+            grants: [.nativeTransfer(to: "0x2222222222222222222222222222222222222222", limit: "100")],
+            expiresAt: "2099-01-01T00:00:00Z"
+        ),
+        equals: error(
+            code: .requestFailed,
+            operation: .walletAuthorizeRemoteAccess,
+            message: message,
+            status: 409,
+            retryable: false,
+            upstreamError: upstream(
+                service: .waas,
+                name: "SessionCapExceeded",
+                code: "7208",
+                message: message,
+                cause: "limit is 100 active sessions per wallet",
+                status: 409
+            )
+        )
+    )
+    #expect(fixture.client.session != nil)
 }
 
 private final class MissingAttestationURLProtocol: URLProtocol, @unchecked Sendable {
@@ -428,7 +689,7 @@ private final class MissingAttestationURLProtocol: URLProtocol, @unchecked Senda
         equals: error(
             code: .validationError,
             operation: .walletHandleOIDCRedirectCallback,
-            message: "sessionLifetimeSeconds must be an integer between 1 and 2592000"
+            message: "sessionLifetimeSeconds must be an integer between 1 and 15552000"
         )
     )
 
@@ -656,6 +917,221 @@ private final class MissingAttestationURLProtocol: URLProtocol, @unchecked Senda
     )
 }
 
+@Test func TestPublicErrorContractsSimulationRevertedExecuteIsRequestFailure() async throws {
+    // WaaS answers Execute with 7314 when the relayer refuses to dispatch a reverting transaction:
+    // it closes the transaction as failed and never sends it, so the write is not unconfirmed.
+    let fixture = makeRestoredWalletClient()
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-reverted",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: true,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+    fixture.transport.enqueueRawHTTPError(
+        statusCode: 400,
+        body: Data(
+            #"{"error":"TransactionSimulationFailed","code":7314,"msg":"Transaction simulation failed","status":400}"#.utf8
+        ),
+        for: WaasAPI.Execute.urlPath
+    )
+
+    await expectPublicError(
+        try await fixture.client.sendTransaction(
+            network: .polygon,
+            request: SendTransactionRequest(to: "0x1111111111111111111111111111111111111111", value: "0")
+        ),
+        equals: error(
+            code: .requestFailed,
+            operation: .walletSendTransaction,
+            message: "Transaction simulation failed",
+            status: 400,
+            retryable: false,
+            upstreamError: upstream(
+                service: .waas,
+                name: "TransactionSimulationFailed",
+                code: "7314",
+                message: "Transaction simulation failed",
+                status: 400
+            )
+        )
+    )
+}
+
+@Test func TestPublicErrorContractsStaleNonceExecuteIsRequestFailure() async throws {
+    // WaaS rejects a stale nonce (7206) in its credential middleware before Execute runs, so an
+    // Execute still rejected after the resends was never submitted.
+    let fixture = makeRestoredWalletClient()
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-stale-nonce",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: true,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+    for _ in 0..<3 {
+        fixture.transport.enqueueRawHTTPError(
+            statusCode: 412,
+            body: Data(
+                #"{"error":"PreconditionFailed","code":7206,"msg":"Precondition failed; try again with a higher nonce value","status":412}"#.utf8
+            ),
+            for: WaasAPI.Execute.urlPath
+        )
+    }
+
+    await expectPublicError(
+        try await fixture.client.sendTransaction(
+            network: .polygon,
+            request: SendTransactionRequest(to: "0x1111111111111111111111111111111111111111", value: "0")
+        ),
+        equals: error(
+            code: .requestFailed,
+            operation: .walletSendTransaction,
+            message: "Precondition failed; try again with a higher nonce value",
+            status: 412,
+            retryable: false,
+            upstreamError: upstream(
+                service: .waas,
+                name: "PreconditionFailed",
+                code: "7206",
+                message: "Precondition failed; try again with a higher nonce value",
+                status: 412
+            )
+        )
+    )
+    #expect(fixture.transport.requestCount(for: WaasAPI.Execute.urlPath) == 3)
+}
+
+@Test(arguments: [
+    (7201, "InvalidSignature", "The signature was invalid", 400),
+    (7205, "UsageLimitExceeded", "Too many requests", 429),
+    (7207, "Unauthorized", "Unauthorized", 401),
+])
+func TestPublicErrorContractsExecuteRefusedBeforeSubmissionIsRequestFailure(
+    _ refusal: (code: Int, name: String, message: String, status: Int)
+) async throws {
+    // WaaS refuses these before Execute submits anything (in its credential middleware, or for
+    // 7207 also in Execute's access checks), so the write is not unconfirmed.
+    let fixture = makeRestoredWalletClient()
+    try fixture.transport.enqueue(
+        PrepareResponse(
+            txnId: "txn-refused",
+            status: .quoted,
+            feeOptions: [],
+            sponsored: true,
+            expiresAt: "2026-04-27T00:00:00Z"
+        ),
+        for: WaasAPI.PrepareEthereumTransaction.urlPath
+    )
+    fixture.transport.enqueueRawHTTPError(
+        statusCode: refusal.status,
+        body: Data(
+            #"{"error":"\#(refusal.name)","code":\#(refusal.code),"msg":"\#(refusal.message)","status":\#(refusal.status)}"#.utf8
+        ),
+        for: WaasAPI.Execute.urlPath
+    )
+    // A 7207 starts a background credential read; this one keeps the session.
+    try fixture.transport.enqueue(
+        WaasAPI.GetCredential.Response(
+            credential: WaasCredentialInfo(
+                credentialId: "0xmock-credential",
+                type: .direct,
+                expiresAt: "2099-01-01T00:00:00Z",
+                isCaller: true
+            )
+        ),
+        for: WaasAPI.GetCredential.urlPath
+    )
+
+    await expectPublicError(
+        try await fixture.client.sendTransaction(
+            network: .polygon,
+            request: SendTransactionRequest(to: "0x1111111111111111111111111111111111111111", value: "0")
+        ),
+        equals: error(
+            code: .requestFailed,
+            operation: .walletSendTransaction,
+            message: refusal.message,
+            status: refusal.status,
+            retryable: false,
+            upstreamError: upstream(
+                service: .waas,
+                name: refusal.name,
+                code: String(refusal.code),
+                message: refusal.message,
+                status: refusal.status
+            )
+        )
+    )
+    #expect(fixture.client.activeWallet?.id == "wallet-main")
+}
+
+@Test func TestPublicErrorContractsServerRejectedCredentialDuringTransactionFlow() async throws {
+    let keyExpired = Data(#"{"error":"KeyExpired","code":7203,"msg":"key expired","status":400}"#.utf8)
+    let request = SendTransactionRequest(to: "0x1111111111111111111111111111111111111111", value: "0")
+    func preparedFixture(txnId: String) throws -> MockWalletClientFixture {
+        let fixture = makeRestoredWalletClient()
+        try fixture.transport.enqueue(
+            PrepareResponse(
+                txnId: txnId,
+                status: .quoted,
+                feeOptions: [],
+                sponsored: true,
+                expiresAt: "2026-04-27T00:00:00Z"
+            ),
+            for: WaasAPI.PrepareEthereumTransaction.urlPath
+        )
+        return fixture
+    }
+
+    // The credential middleware rejects Execute before its handler runs, so nothing was sent.
+    let executeFixture = try preparedFixture(txnId: "txn-execute-expired")
+    executeFixture.transport.enqueueRawHTTPError(statusCode: 400, body: keyExpired, for: WaasAPI.Execute.urlPath)
+    await expectPublicError(
+        try await executeFixture.client.sendTransaction(network: .polygon, request: request),
+        equals: error(
+            code: .sessionExpired,
+            operation: .walletSendTransaction,
+            message: "No active credential."
+        )
+    )
+    #expect(executeFixture.client.session == nil)
+
+    // After a submitted transaction, the status lookup failure keeps its txnId.
+    let pollingFixture = try preparedFixture(txnId: "txn-polling-expired")
+    try pollingFixture.transport.enqueue(ExecuteResponse(status: .pending), for: WaasAPI.Execute.urlPath)
+    pollingFixture.transport.enqueueRawHTTPError(
+        statusCode: 400,
+        body: keyExpired,
+        for: WaasAPI.TransactionStatusMethod.urlPath
+    )
+    await expectPublicError(
+        try await pollingFixture.client.sendTransaction(network: .polygon, request: request),
+        equals: error(
+            code: .transactionStatusLookupFailed,
+            operation: .walletTransactionStatus,
+            message: "Transaction was submitted, but status polling failed",
+            status: 400,
+            retryable: true,
+            txnId: "txn-polling-expired",
+            upstreamError: upstream(
+                service: .waas,
+                name: "KeyExpired",
+                code: "7203",
+                message: "key expired",
+                status: 400
+            )
+        )
+    )
+    #expect(pollingFixture.client.session == nil)
+}
+
 @Test func TestPublicErrorContractsTransactionStatusPollingFailuresPreserveTxnAndUpstreamDetails() async throws {
     let backendFixture = makeRestoredWalletClient()
     try backendFixture.transport.enqueue(
@@ -769,6 +1245,57 @@ private final class MissingAttestationURLProtocol: URLProtocol, @unchecked Senda
         )
     )
 
+    // A `msg` field is used as the message when `message` is absent.
+    let msgFieldClient = makeRecordingIndexerClient(
+        recorder: IndexerRequestRecorder(
+            statusCode: 500,
+            responseBody: Data(#"{"msg":"gateway unavailable"}"#.utf8)
+        )
+    )
+    await expectPublicError(
+        try await msgFieldClient.getBalances(
+            GetBalancesParams(walletAddress: "0xwallet", networks: [.polygon], includeMetadata: true)
+        ),
+        equals: error(
+            code: .httpError,
+            operation: .indexerGetBalances,
+            message: "gateway unavailable",
+            status: 500,
+            retryable: true,
+            upstreamError: upstream(
+                service: .indexer,
+                message: "gateway unavailable",
+                status: 500
+            )
+        )
+    )
+
+    // A 4xx without a usable message is not retryable and gets the generic HTTP message.
+    let notFoundClient = makeRecordingIndexerClient(
+        recorder: IndexerRequestRecorder(
+            statusCode: 404,
+            responseBody: Data(#"{"cause":"not found"}"#.utf8)
+        )
+    )
+    await expectPublicError(
+        try await notFoundClient.getTransactionHistory(
+            GetTransactionHistoryParams(walletAddress: "0xwallet", networks: [.polygon])
+        ),
+        equals: error(
+            code: .httpError,
+            operation: .indexerGetTransactionHistory,
+            message: "indexer.getTransactionHistory failed with HTTP 404",
+            status: 404,
+            retryable: false,
+            upstreamError: upstream(
+                service: .indexer,
+                message: "indexer.getTransactionHistory failed with HTTP 404",
+                cause: "not found",
+                status: 404
+            )
+        )
+    )
+
     let nonJsonClient = makeRecordingIndexerClient(
         recorder: IndexerRequestRecorder(
             statusCode: 502,
@@ -857,46 +1384,9 @@ private final class MissingAttestationURLProtocol: URLProtocol, @unchecked Senda
     #expect(invalidUrlFailure.upstreamError == nil)
 }
 
-@Test func TestPublicErrorContractsConstructedErrorFieldsAreStable() {
-    let upstreamError = OMSWalletUpstreamError(
-        service: .waas,
-        name: "WebrpcRequestFailed",
-        code: "-1",
-        message: "request failed",
-        status: nil
-    )
-    let sdkError = OMSWalletError(
-        code: .requestFailed,
-        message: "request failed",
-        operation: .walletStartEmailAuth,
-        status: nil,
-        txnId: "txn-1",
-        retryable: true,
-        upstreamError: upstreamError
-    )
-
-    #expect(serialize(sdkError) == PublicErrorContract(
-        code: .requestFailed,
-        operation: .walletStartEmailAuth,
-        message: "request failed",
-        status: nil,
-        retryable: true,
-        txnId: "txn-1",
-        upstreamError: SerializedUpstreamError(
-            service: .waas,
-            name: "WebrpcRequestFailed",
-            code: "-1",
-            message: "request failed",
-            status: nil
-        )
-    ))
-}
-
 private func makeRestoredWalletClient() -> MockWalletClientFixture {
     let fixture = makeMockWalletClient()
-    fixture.client.walletId = "wallet-main"
-    fixture.client.walletAddress = "0x1111111111111111111111111111111111111111"
-    fixture.client.sessionExpiresAt = "2099-01-01T00:00:00Z"
+    activateTestSession(fixture, wallet: activeTestWallet("0x1111111111111111111111111111111111111111", id: "wallet-main"))
     return fixture
 }
 
@@ -960,6 +1450,7 @@ private func serialize(_ error: OMSWalletError) -> PublicErrorContract {
                 name: $0.name,
                 code: $0.code,
                 message: $0.message,
+                cause: $0.cause,
                 status: $0.status
             )
         }
@@ -991,6 +1482,7 @@ private func upstream(
     name: String? = nil,
     code: String? = nil,
     message: String? = nil,
+    cause: String? = nil,
     status: Int? = nil
 ) -> SerializedUpstreamError {
     SerializedUpstreamError(
@@ -998,6 +1490,7 @@ private func upstream(
         name: name,
         code: code,
         message: message,
+        cause: cause,
         status: status
     )
 }
@@ -1017,6 +1510,7 @@ private struct SerializedUpstreamError: Equatable {
     let name: String?
     let code: String?
     let message: String?
+    let cause: String?
     let status: Int?
 }
 

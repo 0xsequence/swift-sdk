@@ -7,15 +7,44 @@ struct PendingEmailAuth: Sendable {
 
 @available(macOS 12.0, iOS 15.0, *)
 public final class WalletClient: @unchecked Sendable {
-    typealias SessionExpiredObserver = @MainActor @Sendable (OMSWalletSessionExpiredEvent) -> Void
-    typealias SessionExpiredObserverRegistration = (
-        id: UUID,
-        observer: SessionExpiredObserver
-    )
-    typealias SessionExpiredNotification = (
-        observers: [SessionExpiredObserverRegistration],
-        event: OMSWalletSessionExpiredEvent
-    )
+    typealias SessionChangeObserver = @MainActor @Sendable (OMSWalletSessionChangeEvent) -> Void
+    typealias SessionChangeObserverRegistration = (id: UUID, observer: SessionChangeObserver)
+
+    /// What changed the session, for its change event. `activation` (a wallet became active) is
+    /// published as `walletChanged` when a wallet was active before, and as `signedIn` otherwise.
+    enum SessionChange {
+        case activation
+        case restored
+        case expiryUpdated
+        case signedOut
+        case expired(OMSWalletExpiredSession)
+    }
+
+    /// The session lifetime used when a sign-in call does not pass `sessionLifetimeSeconds`
+    /// (180 days, the maximum).
+    public static let defaultSessionLifetimeSeconds: UInt32 = 15_552_000
+    /// The largest `sessionLifetimeSeconds` the SDK accepts (180 days).
+    public static let maxSessionLifetimeSeconds: UInt32 = 15_552_000
+
+    /// How long after sign-in or the last credential refresh a successful wallet call triggers a
+    /// background refresh of the sliding session expiry.
+    static let credentialRefreshIntervalSeconds: TimeInterval = 6 * 60 * 60
+    /// The first delay before the expiry timer rechecks a session it could not refresh; each retry
+    /// doubles it.
+    static let sessionExpiryRetryBaseSeconds: TimeInterval = 60
+    /// The cap on that retry delay (15 minutes).
+    static let sessionExpiryRetryMaxSeconds: TimeInterval = 15 * 60
+    /// The longest the expiry timer sleeps at once (about 100 years, well below 2^63 nanoseconds);
+    /// a later expiry is checked again when it wakes.
+    static let sessionExpiryMaxTimerDelaySeconds: TimeInterval = 100 * 365 * 24 * 60 * 60
+    /// How long after WaaS answers `GetCredential` with `WebrpcBadRoute` the SDK keeps treating the
+    /// local expiry as final before asking again: a server without the method is not asked on every
+    /// trigger, and one routing error does not disable refreshes for good.
+    static let credentialRefreshUnsupportedCooldownSeconds: TimeInterval = 15 * 60
+    /// Sleeps for the given seconds; a cancelled task wakes early.
+    static let sleep: @Sendable (TimeInterval) async -> Void = { seconds in
+        try? await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1_000_000_000))
+    }
 
     static let defaultTransactionStatusPollTimeoutMs: UInt64 = 60_000
     static let defaultFastTransactionStatusPollIntervalMs: UInt64 = 400
@@ -29,12 +58,18 @@ public final class WalletClient: @unchecked Sendable {
             withSessionLock { _signedClient }
         }
         set {
-            withSessionLock { _signedClient = newValue }
+            withSessionLock { _signedClient = observingSessionCredential(newValue) }
         }
     }
     var publicClient: WaasPublicClient
-    let walletImportClient: WaasClient?
+    private(set) var walletImportClient: WaasClient?
+    /// Shared by every client that signs with the session credential, so their nonces stay ordered.
+    let signedRequestGate = SignedRequestGate()
+    /// The deadline of each signed request; tests shorten it before installing a signed client.
+    var signedRequestDeadlineSeconds = SessionCredentialTransport.requestDeadlineSeconds
     let indexerClient: IndexerClient
+    /// The publishable key every transport of this client sends; see `adoptPublishableKey(_:)`.
+    let publishableKeyHolder: PublishableKeyHolder
     
     let projectId: String
     let environment: OMSWalletEnvironment
@@ -44,6 +79,13 @@ public final class WalletClient: @unchecked Sendable {
     let oidcNonceGenerator: () throws -> String
     let signedClientFactory: (any CredentialSigner) -> WaasClient
     let currentDate: () -> Date
+    /// Runs the session read once the app is in the foreground (`ForegroundActivation`).
+    let runWhenActive: (@escaping @Sendable () -> Void) -> ForegroundActivation.Cancel
+    /// Waits before retrying a session read that could not reach the wallet API.
+    let sessionReadRetrySleep: @Sendable (TimeInterval) async -> Void
+    /// Runs a deferred keychain restore once protected data may be readable
+    /// (`ForegroundActivation.runWhenProtectedDataAvailable`); the flag allows an immediate check.
+    let runWhenProtectedDataAvailable: (Bool, @escaping @Sendable () -> Void) -> ForegroundActivation.Cancel
     private var _sessionExpiresAt: String?
     var sessionExpiresAt: String? {
         get {
@@ -80,41 +122,77 @@ public final class WalletClient: @unchecked Sendable {
             withSessionLock { _sessionExpiryTask = newValue }
         }
     }
-    private var _latestSessionExpiredEvent: OMSWalletSessionExpiredEvent?
-    var latestSessionExpiredEvent: OMSWalletSessionExpiredEvent? {
-        get {
-            withSessionLock { _latestSessionExpiredEvent }
-        }
-        set {
-            withSessionLock { _latestSessionExpiredEvent = newValue }
-        }
-    }
-    private var _walletAddress: String
-    private var _walletId: String
+    /// Whether restoring the stored session waits for the keychain to become readable (for example
+    /// after a launch while the device was locked).
+    var _restoreDeferred = false
+    /// Stops waiting for protected data for a deferred restore.
+    var _cancelDeferredRestore: ForegroundActivation.Cancel?
+    /// When a session read last retried a deferred restore, to retry at most once a second.
+    var _lastDeferredRestoreAttempt: Date?
+    /// Cancels the session read waiting for the app to become active or for its retry.
+    var _cancelSessionRead: ForegroundActivation.Cancel?
+    /// Whether a session read is waiting, running or retrying, so the timer and a restore never
+    /// start a second one.
+    var _sessionReadPending = false
+    /// How many times the pending session read has failed to reach the wallet API in a row.
+    var _sessionReadRetryAttempt = 0
+    /// The last `expired` change, replayed to observers added before the next sign-in or sign-out.
+    var _latestExpiredChange: OMSWalletSessionChangeEvent?
+    /// The active wallet and session of the last published change; a change is published only when
+    /// they differ.
+    var _publishedState: (wallet: Wallet?, session: OMSWalletSession?) = (nil, nil)
+    /// Changes not yet delivered, each with the observers registered when it happened.
+    private var _pendingSessionChanges: [(
+        event: OMSWalletSessionChangeEvent,
+        observers: [SessionChangeObserverRegistration]
+    )] = []
+    private var _sessionChangeDeliveryScheduled = false
+    var _activeWallet: Wallet?
     var _sessionRevision: UInt64 = 0
-    private var _sessionExpiredObservers: [UUID: SessionExpiredObserver] = [:]
+    /// The in-flight `getCredential` refresh, shared by concurrent callers of the same session.
+    var _credentialRefresh: (
+        id: UUID,
+        revision: UInt64,
+        task: Task<CredentialRefreshOutcome, Never>
+    )?
+    /// When the server last reported it has no `GetCredential` method (`WebrpcBadRoute`); refreshes
+    /// are skipped until `credentialRefreshUnsupportedCooldownSeconds` later, then probed again.
+    var _credentialRefreshUnsupportedAt: Date?
+    /// When the request that last gave the active session's expiry completed: the sign-in, or the
+    /// last successful `GetCredential`. `nil` after a restore until a read succeeds.
+    var _lastCredentialRefreshAt: Date?
+    /// The active session's lifetime cap from its sign-in, or `nil` when unknown (a sign-in whose
+    /// credential expiry was not after its send).
+    var _sessionExpiryBounds: SessionExpiryBounds?
+    /// When the scheduled expiry timer fires.
+    var _sessionExpiryTimerFireDate: Date?
+    /// The last session revision ended because WaaS rejected its credential.
+    var _serverRejectedSessionRevision: UInt64?
+    /// The signer credential the active wallet session was signed in with, or `nil` without one.
+    /// Another process sharing the keychain can sign in again and replace the key; operations
+    /// compare it with the signer's current credential first (`requireSessionSignerMatches`).
+    var _sessionSignerCredentialId: String?
+    /// In registration order.
+    private var _sessionChangeObservers: [SessionChangeObserverRegistration] = []
     private var _verifier = ""
     private var _challenge = ""
     private var _pendingEmailAuth: PendingEmailAuth?
 
-    public internal(set) var walletAddress: String? {
+    /// The active wallet, or `nil` until auth completes or a session is restored, while a manual
+    /// wallet selection is pending, and after sign-out or session expiry. Same shape as
+    /// `listWallets()` entries.
+    public internal(set) var activeWallet: Wallet? {
         get {
-            withSessionLock {
-                let walletAddress = _walletAddress.trimmingCharacters(in: .whitespacesAndNewlines)
-                return walletAddress.isEmpty ? nil : walletAddress
-            }
+            retryDeferredRestore(throttled: true)
+            return withSessionLock { _activeWallet }
         }
         set {
-            withSessionLock { _walletAddress = newValue ?? "" }
+            withSessionLock { _activeWallet = newValue }
         }
     }
-    public internal(set) var walletId: String {
-        get {
-            withSessionLock { _walletId }
-        }
-        set {
-            withSessionLock { _walletId = newValue }
-        }
+    /// The active wallet's ID, or `""` when there is none.
+    var walletId: String {
+        withSessionLock { _activeWallet?.id ?? "" }
     }
     var verifier: String {
         get {
@@ -180,10 +258,6 @@ public final class WalletClient: @unchecked Sendable {
         }
     }
 
-    func clearAllPendingOIDCRedirectAuth() throws {
-        try withOIDCRedirectAuthProjectLock { try oidcRedirectAuthStore.clear() }
-    }
-
     func withOIDCRedirectAuthOwnership<T>(
         _ pending: PendingOIDCRedirectAuth,
         _ body: () throws -> T
@@ -202,6 +276,8 @@ public final class WalletClient: @unchecked Sendable {
         withSessionLock {
             sessionExpiryTask?.cancel()
             sessionExpiryTask = nil
+            _cancelSessionRead?()
+            _cancelSessionRead = nil
         }
     }
 
@@ -213,17 +289,21 @@ public final class WalletClient: @unchecked Sendable {
     ) {
         self.projectId = projectId
         self.environment = environment
+        let publishableKeyHolder = PublishableKeyHolder(publishableKey)
+        self.publishableKeyHolder = publishableKeyHolder
         let credentialSession = WalletCredentialSession(environment: environment, projectId: projectId)
-        let storedWallet = credentialSession.storedMetadata()
         self.oidcRedirectAuthStore = KeychainOIDCRedirectAuthStore(projectId: projectId, environment: environment)
         self.oidcRedirectAuthLock = OIDCRedirectAuthLockRegistry.lock(
             for: Constants.oidcRedirectAuthStorageKey(environment: environment, scope: projectId)
         )
         self.oidcNonceGenerator = OIDCRedirectAuth.generateNonce
         self.currentDate = Date.init
+        self.runWhenActive = ForegroundActivation.runWhenActive
+        self.sessionReadRetrySleep = WalletClient.sleep
+        self.runWhenProtectedDataAvailable = ForegroundActivation.runWhenProtectedDataAvailable
         let makeSignedClient: (any CredentialSigner) -> WaasClient = { signer in
             Self.makeSignedClient(
-                publishableKey: publishableKey,
+                publishableKey: publishableKeyHolder,
                 projectId: projectId,
                 environment: environment,
                 signer: signer
@@ -232,7 +312,7 @@ public final class WalletClient: @unchecked Sendable {
         self.signedClientFactory = makeSignedClient
         self.walletImportClient = walletImportTrustedPcr0s.map {
             Self.makeWalletImportClient(
-                publishableKey: publishableKey,
+                publishableKey: publishableKeyHolder,
                 projectId: projectId,
                 environment: environment,
                 signer: credentialSession.signer,
@@ -240,22 +320,22 @@ public final class WalletClient: @unchecked Sendable {
             )
         }
 
-        self._walletId = ""
-        self._walletAddress = ""
+        self._activeWallet = nil
         self._sessionExpiresAt = nil
         self._sessionAuth = nil
         self.credentialSession = credentialSession
 
         self._signedClient = makeSignedClient(credentialSession.signer)
         self.publicClient = Self.makePublicClient(
-            publishableKey: publishableKey,
+            publishableKey: publishableKeyHolder,
             environment: environment
         )
         self.indexerClient = IndexerClient(
-            publishableKey: publishableKey,
+            publishableKey: publishableKeyHolder,
             environment: environment
         )
-        restoreStoredWalletSession(storedWallet)
+        observeSessionCredentialClients()
+        restoreStoredWalletSession()
     }
 
     init(
@@ -270,22 +350,29 @@ public final class WalletClient: @unchecked Sendable {
         oidcNonceGenerator: @escaping () throws -> String = OIDCRedirectAuth.generateNonce,
         signedClientFactory: ((any CredentialSigner) -> WaasClient)? = nil,
         currentDate: @escaping () -> Date = Date.init,
+        runWhenActive: @escaping (@escaping @Sendable () -> Void) -> ForegroundActivation.Cancel = ForegroundActivation.runWhenActive,
+        sessionReadRetrySleep: @escaping @Sendable (TimeInterval) async -> Void = WalletClient.sleep,
+        runWhenProtectedDataAvailable: @escaping (Bool, @escaping @Sendable () -> Void) -> ForegroundActivation.Cancel =
+            ForegroundActivation.runWhenProtectedDataAvailable,
         walletImportClient: WaasClient? = nil
     ) {
         self.projectId = projectId
         self.environment = environment
-        let storedWallet = credentialSession.storedMetadata()
+        let publishableKeyHolder = PublishableKeyHolder(publishableKey)
+        self.publishableKeyHolder = publishableKeyHolder
         self.oidcRedirectAuthStore = oidcRedirectAuthStore ?? KeychainOIDCRedirectAuthStore(projectId: projectId, environment: environment)
         self.oidcRedirectAuthLock = OIDCRedirectAuthLockRegistry.lock(
             for: Constants.oidcRedirectAuthStorageKey(environment: environment, scope: projectId)
         )
         self.oidcNonceGenerator = oidcNonceGenerator
         self.currentDate = currentDate
+        self.runWhenActive = runWhenActive
+        self.sessionReadRetrySleep = sessionReadRetrySleep
+        self.runWhenProtectedDataAvailable = runWhenProtectedDataAvailable
         let makeSignedClient = signedClientFactory ?? { _ in signedClient }
         self.signedClientFactory = makeSignedClient
 
-        self._walletId = ""
-        self._walletAddress = ""
+        self._activeWallet = nil
         self._sessionExpiresAt = nil
         self._sessionAuth = nil
         self.credentialSession = credentialSession
@@ -293,55 +380,139 @@ public final class WalletClient: @unchecked Sendable {
         self.walletImportClient = walletImportClient
         self.publicClient = publicClient
         self.indexerClient = indexerClient ?? IndexerClient(
-            publishableKey: publishableKey,
+            publishableKey: publishableKeyHolder,
             environment: environment
         )
-        restoreStoredWalletSession(storedWallet)
+        observeSessionCredentialClients()
+        restoreStoredWalletSession()
     }
 
-    @discardableResult
-    public func addSessionExpiredObserver(
-        _ observer: @escaping @MainActor @Sendable (OMSWalletSessionExpiredEvent) -> Void
-    ) -> OMSWalletSessionExpiredObservation {
-        let observerId = UUID()
-        let replayEvent = withSessionLock { () -> OMSWalletSessionExpiredEvent? in
-            _sessionExpiredObservers[observerId] = observer
-            return _latestSessionExpiredEvent
-        }
-        if let replayEvent {
-            Task { @MainActor [weak self] in
-                guard self?.shouldReplaySessionExpiredEvent(replayEvent, to: observerId) == true else {
-                    return
-                }
-                observer(replayEvent)
+    /// Routes the clients that sign with the session credential through
+    /// `SessionCredentialTransport`. The public client is never wrapped: its errors (for example
+    /// `inspectRemoteCredential`'s 7202 for an unknown remote credential) say nothing about the
+    /// session.
+    private func observeSessionCredentialClients() {
+        _signedClient = observingSessionCredential(_signedClient)
+        walletImportClient = walletImportClient.map(observingSessionCredential)
+    }
+
+    func observingSessionCredential(_ client: WaasClient) -> WaasClient {
+        WaasClient(
+            baseURL: client.baseURL,
+            transport: SessionCredentialTransport(
+                base: client.transport,
+                gate: signedRequestGate,
+                activeSessionRevision: { [weak self] in self?.activeWalletSessionRevision() },
+                onResponse: { [weak self] response, path, revision in
+                    self?.handleSessionCredentialResponse(response, path: path, revision: revision)
+                },
+                deadlineSeconds: signedRequestDeadlineSeconds,
+                signingCredentialId: { [weak self] in self?.signerCredentialIdIfPresent() }
+            ),
+            headers: client.headers
+        )
+    }
+
+    /// Calls `observer` on the main actor after every change of `activeWallet` or `session`, in
+    /// order and after the change (never during the call that made it). Add the observer first,
+    /// then read `activeWallet` and `session`, so no change is missed. An observer added while signed
+    /// out first receives the last `.expired` change, if a session expired since the last sign-in or
+    /// sign-out (for example while the app was not running).
+    ///
+    /// Keep the returned observation: delivery stops when it is cancelled or released.
+    public func addSessionChangeObserver(
+        _ observer: @escaping @MainActor @Sendable (OMSWalletSessionChangeEvent) -> Void
+    ) -> OMSWalletSessionChangeObservation {
+        let registration = (id: UUID(), observer: observer)
+        withSessionLock {
+            _sessionChangeObservers.append(registration)
+            if let replay = _latestExpiredChange, _activeWallet == nil {
+                queueSessionChangeLocked(replay, observers: [registration])
             }
         }
-        return OMSWalletSessionExpiredObservation { [weak self] in
-            self?.removeSessionExpiredObserver(observerId)
+        return OMSWalletSessionChangeObservation { [weak self] in
+            self?.withSessionLock {
+                self?._sessionChangeObservers.removeAll { $0.id == registration.id }
+            }
         }
     }
 
-    func removeSessionExpiredObserver(_ observerId: UUID) {
-        withSessionLock {
-            _sessionExpiredObservers[observerId] = nil
+    /// Publishes a change of `activeWallet` or `session` to the observers registered now. Every
+    /// change except `expired` is published only when they differ from the last published ones.
+    /// Call it, under the session lock, once the change is complete; observers run later on the main
+    /// actor.
+    func publishSessionChangeLocked(_ change: SessionChange) {
+        let wallet = _activeWallet
+        let session = currentSessionLocked()?.session
+        let previous = _publishedState
+        var expiredSession: OMSWalletExpiredSession?
+        if case .expired(let expired) = change, wallet == nil {
+            expiredSession = expired
+        }
+        guard expiredSession != nil || previous.wallet != wallet || previous.session != session else {
+            return
+        }
+        _publishedState = (wallet, session)
+
+        let event: OMSWalletSessionChangeEvent
+        if let expiredSession {
+            event = .expired(expiredSession)
+            _latestExpiredChange = event
+        } else if let wallet, let session {
+            switch change {
+            case .restored:
+                event = .restored(wallet: wallet, session: session)
+            case .expiryUpdated:
+                event = .expiryUpdated(wallet: wallet, session: session)
+            case .activation, .signedOut, .expired:
+                event = previous.wallet == nil
+                    ? .signedIn(wallet: wallet, session: session)
+                    : .walletChanged(wallet: wallet, session: session)
+            }
+            _latestExpiredChange = nil
+        } else {
+            event = .signedOut
+        }
+        queueSessionChangeLocked(event, observers: _sessionChangeObservers)
+    }
+
+    private func queueSessionChangeLocked(
+        _ event: OMSWalletSessionChangeEvent,
+        observers: [SessionChangeObserverRegistration]
+    ) {
+        guard !observers.isEmpty else {
+            return
+        }
+        _pendingSessionChanges.append((event, observers))
+        guard !_sessionChangeDeliveryScheduled else {
+            return
+        }
+        _sessionChangeDeliveryScheduled = true
+        Task { @MainActor [weak self] in
+            self?.deliverSessionChanges()
         }
     }
 
-    func sessionExpiredObserversLocked() -> [SessionExpiredObserverRegistration] {
-        _sessionExpiredObservers.map { (id: $0.key, observer: $0.value) }
-    }
-
-    func shouldReplaySessionExpiredEvent(
-        _ event: OMSWalletSessionExpiredEvent,
-        to observerId: UUID
-    ) -> Bool {
-        withSessionLock {
-            _sessionExpiredObservers[observerId] != nil && _latestSessionExpiredEvent == event
+    /// Delivers queued changes in the order they happened; a change an observer causes is
+    /// delivered after the ones before it.
+    @MainActor
+    private func deliverSessionChanges() {
+        while let next = withSessionLock({ () -> (OMSWalletSessionChangeEvent, [SessionChangeObserverRegistration])? in
+            guard !_pendingSessionChanges.isEmpty else {
+                _sessionChangeDeliveryScheduled = false
+                return nil
+            }
+            let next = _pendingSessionChanges.removeFirst()
+            return (next.event, next.observers)
+        }) {
+            for registration in next.1 where isSessionChangeObserverRegistered(registration.id) {
+                registration.observer(next.0)
+            }
         }
     }
 
-    func isSessionExpiredObserverRegistered(_ observerId: UUID) -> Bool {
-        withSessionLock { _sessionExpiredObservers[observerId] != nil }
+    private func isSessionChangeObserverRegistered(_ id: UUID) -> Bool {
+        withSessionLock { _sessionChangeObservers.contains { $0.id == id } }
     }
 
     func withSessionLock<T>(_ body: () throws -> T) rethrows -> T {
@@ -374,13 +545,13 @@ public final class WalletClient: @unchecked Sendable {
         }
     }
 
-    func requireWalletSelectionOrActiveSession() throws {
-        if let notification = expireCurrentSessionIfNeeded() {
-            deliverSessionExpiredNotification(notification)
+    func requireWalletSelectionOrActiveSession() async throws {
+        try await refreshLocallyExpiredSession()
+        if expireCurrentSessionIfNeeded() {
             throw OMSWalletError.sessionExpired()
         }
         let hasActiveSession = withSessionLock { () -> Bool in
-            let hasWallet = !_walletId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let hasWallet = !(_activeWallet?.id ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             let hasVerifiedAuth = !(_sessionExpiresAt ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             return hasWallet || hasVerifiedAuth
         }
@@ -389,14 +560,12 @@ public final class WalletClient: @unchecked Sendable {
         }
     }
 
-    func requireActiveWalletId() throws -> String {
-        if let notification = expireCurrentSessionIfNeeded() {
-            deliverSessionExpiredNotification(notification)
+    func requireActiveWalletId() async throws -> String {
+        try await refreshLocallyExpiredSession()
+        if expireCurrentSessionIfNeeded() {
             throw OMSWalletError.sessionExpired()
         }
-        let walletId = withSessionLock {
-            _walletId.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        let walletId = self.walletId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !walletId.isEmpty else {
             throw OMSWalletError.sessionMissing()
         }
@@ -404,10 +573,10 @@ public final class WalletClient: @unchecked Sendable {
     }
 
     func requireActiveWalletAddress() throws -> String {
-        guard let walletAddress else {
+        guard let activeWallet else {
             throw OMSWalletError.sessionMissing()
         }
-        return walletAddress
+        return activeWallet.address
     }
 
     func walletAddressIfNeeded(for selectFeeOption: FeeOptionSelector?) throws -> String? {
@@ -417,39 +586,66 @@ public final class WalletClient: @unchecked Sendable {
         return try requireActiveWalletAddress()
     }
 
+    /// The signer's credential ID, or `nil` when it has no key. Never creates one, as reading the
+    /// ID of a missing key would.
+    func signerCredentialIdIfPresent() -> String? {
+        let signer = credentialSession.signer
+        guard (try? signer.hasCredential()) == true else {
+            return nil
+        }
+        return try? signer.credentialId()
+    }
+
     func requireActiveCredential() throws {
+        try requireSessionSignerMatches()
         guard try credentialSession.signer.hasCredential() else {
             throw OMSWalletError.sessionMissing()
         }
     }
 
-    /// Persists the given wallet address and signer metadata to the keychain
+    /// Persists the given wallet and signer metadata to the keychain
     /// so the session can be restored on a later launch.
     ///
-    /// - Parameter address: The on-chain address returned by `createWallet` or `useWallet`.
+    /// - Parameter wallet: The wallet returned by `createWallet`, `useWallet`, or wallet import.
     func createSequenceWallet(
-        walletAddress: String,
-        walletId: String,
+        wallet: Wallet,
         sessionMetadata: SessionMetadata,
         requiredSessionRevision: UInt64,
         oidcRedirectAuthOwnership: PendingOIDCRedirectAuth? = nil
     ) throws {
+        guard StorableCredentials.isValidStoredWallet(wallet) else {
+            throw OMSWalletError(
+                code: .invalidResponse,
+                message: "Wallet response has an unsupported wallet type or key origin"
+            )
+        }
         let persist = {
             try self.withSessionLock {
                 try self.requireCurrentSessionRevisionLocked(requiredSessionRevision)
+                // Within the same session only the wallet changes: the session's current metadata
+                // wins over `sessionMetadata`, captured before the activation request, so an expiry
+                // read applied meanwhile is not rolled back. Sign-in set it before activating.
+                let metadata = self.currentSessionMetadataLocked() ?? sessionMetadata
                 try self.credentialSession.persist(
-                    walletId: walletId,
-                    walletAddress: walletAddress,
-                    expiresAt: sessionMetadata.expiresAt,
-                    auth: sessionMetadata.auth
+                    wallet: wallet,
+                    expiresAt: metadata.expiresAt,
+                    auth: metadata.auth,
+                    expiryBounds: metadata.expiryBounds
                 )
-                self._latestSessionExpiredEvent = nil
-                self._walletAddress = walletAddress
-                self._walletId = walletId
-                self._sessionExpiresAt = sessionMetadata.expiresAt
-                self._sessionAuth = sessionMetadata.auth
+                // The credential `persist` just recorded with the wallet.
+                self._sessionSignerCredentialId = try? self.credentialSession.signer.credentialId()
+                self._activeWallet = wallet
+                self._sessionExpiresAt = metadata.expiresAt
+                self._sessionAuth = metadata.auth
+                self._sessionExpiryBounds = metadata.expiryBounds
+                // Sign-in recorded its read in `completeWalletAuth`. Activating another wallet is not
+                // a read: a restored session not read yet stays unread, so the expiry timer keeps
+                // the restore-time bound instead of trusting the saved expiry.
+                self.publishSessionChangeLocked(.activation)
             }
-            self.scheduleSessionExpiry(self.session)
+            if let snapshot = self.currentSessionSnapshot() {
+                self.scheduleSessionExpiry(snapshot)
+            }
         }
         if let oidcRedirectAuthOwnership {
             try withOIDCRedirectAuthOwnership(oidcRedirectAuthOwnership, persist)
@@ -458,8 +654,15 @@ public final class WalletClient: @unchecked Sendable {
         }
     }
 
+    /// Makes later requests of every transport send `publishableKey`, a newer key for this
+    /// client's project and environment (see `OMSWallet`). The session is kept: it belongs to the
+    /// project, not to the key.
+    func adoptPublishableKey(_ publishableKey: String) {
+        publishableKeyHolder.update(publishableKey)
+    }
+
     private static func makeSignedClient(
-        publishableKey: String,
+        publishableKey: PublishableKeyHolder,
         projectId: String,
         environment: OMSWalletEnvironment,
         signer: any CredentialSigner
@@ -476,21 +679,21 @@ public final class WalletClient: @unchecked Sendable {
     }
 
     private static func makePublicClient(
-        publishableKey: String,
+        publishableKey: PublishableKeyHolder,
         environment: OMSWalletEnvironment
     ) -> WaasPublicClient {
         return WaasPublicClient(
             baseURL: environment.walletApiUrl,
             headers: {
                 [
-                    "Api-Key": publishableKey
+                    "Api-Key": publishableKey.current
                 ]
             }
         )
     }
 
     private static func makeWalletImportClient(
-        publishableKey: String,
+        publishableKey: PublishableKeyHolder,
         projectId: String,
         environment: OMSWalletEnvironment,
         signer: any CredentialSigner,
@@ -510,7 +713,8 @@ public final class WalletClient: @unchecked Sendable {
 }
 
 @available(macOS 12.0, iOS 15.0, *)
-public final class OMSWalletSessionExpiredObservation: @unchecked Sendable {
+/// Keeps a session change observer registered; delivery stops when it is cancelled or released.
+public final class OMSWalletSessionChangeObservation: @unchecked Sendable {
     private let lock = NSLock()
     private var onCancel: (@Sendable () -> Void)?
 

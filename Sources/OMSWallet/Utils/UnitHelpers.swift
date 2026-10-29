@@ -6,7 +6,7 @@ public enum UnitConversionError: Error, Equatable {
     case fractionalComponentExceedsDecimals(value: String, decimals: Int)
 }
 
-public func parseUnits(value: String, decimals: Int = 18) throws -> String {
+public func parseUnits(value: String, decimals: Int) throws -> String {
     try validate(decimals: decimals)
 
     let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -49,7 +49,7 @@ public func parseUnits(value: String, decimals: Int = 18) throws -> String {
 
 public func formatUnits(
     value: String,
-    decimals: Int = 18
+    decimals: Int
 ) throws -> String {
     try validate(decimals: decimals)
 

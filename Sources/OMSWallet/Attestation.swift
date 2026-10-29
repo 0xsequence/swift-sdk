@@ -7,16 +7,32 @@ enum WalletImportAttestationError {
 }
 
 @available(macOS 12.0, iOS 15.0, *)
-struct AttestedSignedWaasTransport: WebRPCTransport {
+struct AttestedSignedWaasTransport: WebRPCTransport, ReportsSendStart {
     let session: URLSession
     private let client: HttpClient
-    private let publishableKey: String
+    private let publishableKey: PublishableKeyHolder
     private let scope: String
     private let signer: any CredentialSigner
     private let trustedPcr0s: Set<String>
 
     init(
         publishableKey: String,
+        scope: String,
+        signer: any CredentialSigner,
+        trustedPcr0s: Set<String>,
+        session: URLSession = .shared
+    ) {
+        self.init(
+            publishableKey: PublishableKeyHolder(publishableKey),
+            scope: scope,
+            signer: signer,
+            trustedPcr0s: trustedPcr0s,
+            session: session
+        )
+    }
+
+    init(
+        publishableKey: PublishableKeyHolder,
         scope: String,
         signer: any CredentialSigner,
         trustedPcr0s: Set<String>,
@@ -35,9 +51,22 @@ struct AttestedSignedWaasTransport: WebRPCTransport {
             let endpoint = resolveEndpoint(path)
             let payload = String(data: body, encoding: .utf8) ?? ""
             let nonce = try randomNonce()
-            let authHeader = try buildAuthHeader(endpoint: endpoint, payload: payload)
+            let authHeader: String
+            do {
+                authHeader = try await SignerWork.run { [self] in
+                    try buildAuthHeader(endpoint: endpoint, payload: payload)
+                }
+            } catch {
+                throw RequestNotSentError(underlying: error)
+            }
+            // As for `SignedWaasTransport`: a request whose deadline passed while it was signed is
+            // not sent.
+            try Task.checkCancellation()
+            guard SignedRequestAttempt.current?.markSending() ?? true else {
+                throw RequestNotSentError(underlying: CancellationError())
+            }
             var requestHeaders = [
-                "Api-Key": publishableKey,
+                "Api-Key": publishableKey.current,
                 "OMS-Wallet-Signature": authHeader,
                 "X-Attestation-Nonce": nonce
             ]

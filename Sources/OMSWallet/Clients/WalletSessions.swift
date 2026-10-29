@@ -1,96 +1,382 @@
 import Foundation
 
+/// The result of asking WaaS for the active credential's current (sliding) expiry.
+enum CredentialRefreshOutcome: @unchecked Sendable {
+    /// The session expiry now matches the server's and lies in the future.
+    case refreshed
+    /// The server reported the credential gone or expired, or its expiry has already passed; the
+    /// session has been ended.
+    case ended
+    /// The server has no `GetCredential` method, so the local expiry stays authoritative.
+    case unsupported
+    /// The refresh failed for another reason (for example a network error); the session is kept.
+    case unavailable(any Error)
+    /// There was no session, or the session changed while the refresh was in flight.
+    case superseded
+}
+
 @available(macOS 12.0, iOS 15.0, *)
 extension WalletClient {
-    /// Snapshot of the current durable wallet-session state.
-    public var session: OMSWalletSessionState {
+    /// Expiry and auth metadata for the active wallet session. Non-`nil` exactly when
+    /// `activeWallet` is.
+    public var session: OMSWalletSession? {
+        retryDeferredRestore(throttled: true)
+        return withSessionLock {
+            currentSessionLocked()?.session
+        }
+    }
+
+    /// Restores the session stored in the keychain. A keychain that cannot be read (for example
+    /// while the device is locked during a background launch) defers the restore instead of
+    /// treating the session as absent: nothing is deleted and no expiry is reported, and the
+    /// restore runs again once protected data may be available, or when the app next reads
+    /// `activeWallet` or `session`. A deferred attempt passes `expectedRevision` and restores only
+    /// while no sign-out or new sign-in has happened since the restore was deferred.
+    func restoreStoredWalletSession(expectedRevision: UInt64? = nil) {
+        // On an iOS device a session signed by a software key ends now, as expired, and is
+        // restored below like any expired session without its key (`retireUnusableSignerKey`).
+        let retired = withSessionLock { () -> Bool? in
+            guard isExpectedRevisionLocked(expectedRevision) else {
+                return nil
+            }
+            return credentialSession.retireUnusableSignerKey(endedAt: currentDate())
+        }
+        switch retired {
+        case nil:
+            return
+        case false:
+            deferRestore(afterFailedRetry: expectedRevision != nil)
+            return
+        case true:
+            break
+        }
+        let storedWallet: WalletCredentialSession.WalletMetadata
+        switch credentialSession.storedSession() {
+        case .none:
+            return
+        case .unavailable:
+            deferRestore(afterFailedRetry: expectedRevision != nil)
+            return
+        case .stored(let stored):
+            storedWallet = stored
+        }
+
+        guard let storedSession = WalletSessionSnapshot(
+            wallet: storedWallet.wallet,
+            expiresAt: storedWallet.expiresAt,
+            auth: storedWallet.auth
+        ) else {
+            // An unreadable expiry is treated as expired; restore() discards the stored session.
+            withSessionLock {
+                if isExpectedRevisionLocked(expectedRevision) {
+                    _ = credentialSession.restore()
+                }
+            }
+            return
+        }
+        // A passed expiry may have been extended on the server, so the restored session's read
+        // decides, unless its lifetime cap has passed too. Without its signing key, an earlier
+        // launch already ended it (keeping the record as the sign-in hint), so it is replayed as
+        // expired again. A key that cannot be read is not missing: the restore waits instead.
+        if isSessionExpired(storedSession) {
+            guard storedWallet.expiryBounds?.hasPassed(at: currentDate()) != true else {
+                expireStoredSession(
+                    storedSession,
+                    signerCredentialId: storedWallet.signerCredentialId,
+                    expectedRevision: expectedRevision
+                )
+                return
+            }
+            switch credentialSession.signerKey() {
+            case .unavailable:
+                deferRestore(afterFailedRetry: expectedRevision != nil)
+                return
+            case .missing:
+                expireStoredSession(
+                    storedSession,
+                    signerCredentialId: storedWallet.signerCredentialId,
+                    expectedRevision: expectedRevision
+                )
+                return
+            case .present:
+                break
+            }
+        }
+        // Under the session lock, so a sign-out or new sign-in cannot interleave with the cleanup
+        // of a record that does not match the signer's key.
+        let restoration = withSessionLock { () -> WalletCredentialSession.Restoration? in
+            guard isExpectedRevisionLocked(expectedRevision) else {
+                return nil
+            }
+            return credentialSession.restore()
+        }
+        let restoredWallet: WalletCredentialSession.WalletMetadata
+        switch restoration {
+        case nil, .discarded:
+            return
+        case .unavailable:
+            deferRestore(afterFailedRetry: expectedRevision != nil)
+            return
+        case .restored(let restored):
+            restoredWallet = restored
+        }
+
+        let isCommitted = withSessionLock { () -> Bool in
+            guard isExpectedRevisionLocked(expectedRevision) else {
+                return false
+            }
+            activeWallet = restoredWallet.wallet
+            sessionExpiresAt = restoredWallet.expiresAt
+            sessionAuth = restoredWallet.auth
+            return true
+        }
+        guard isCommitted else {
+            return
+        }
+        withSessionLock {
+            _sessionExpiryBounds = restoredWallet.expiryBounds
+            // `restore()` matched the signer's key to the stored record's credential.
+            _sessionSignerCredentialId = try? credentialSession.signer.credentialId()
+            // At init nobody observes yet; a deferred restore (after unlock) reaches observers.
+            publishSessionChangeLocked(.restored)
+        }
+        if let snapshot = currentSessionSnapshot() {
+            scheduleSessionExpiry(snapshot)
+            // The stored expiry may be stale: the server slides it forward with use.
+            readSessionExpiryWhenActive()
+        }
+    }
+
+    /// Reads the session's expiry with `GetCredential` once the app is active, unless a read is
+    /// already pending. The read extends a live session like any signed request, so it waits for
+    /// the foreground: a background launch or an app extension is not user activity. Used after a
+    /// restore and by the expiry timer.
+    func readSessionExpiryWhenActive() {
+        let request = withSessionLock { () -> (revision: UInt64, readBefore: Date?)? in
+            guard currentSessionLocked() != nil, !_sessionReadPending else {
+                return nil
+            }
+            _sessionReadPending = true
+            return (_sessionRevision, _lastCredentialRefreshAt)
+        }
+        if let request {
+            readSessionExpiryWhenActive(revision: request.revision, readBefore: request.readBefore)
+        }
+    }
+
+    /// Ending the session cancels the wait, so an app extension or a launch that never becomes
+    /// active does not keep the observer registered. A read that succeeded since `readBefore` (for
+    /// example a wallet call's) has already applied the expiry, so this one is skipped.
+    private func readSessionExpiryWhenActive(revision: UInt64, readBefore: Date?) {
+        let cancel = runWhenActive { [weak self] in
+            guard let self, self.activeWalletSessionRevision() == revision else {
+                return
+            }
+            guard self.withSessionLock({ self._lastCredentialRefreshAt == readBefore }) else {
+                self.finishSessionRead(revision: revision)
+                return
+            }
+            Task { [weak self] in
+                await self?.readSessionExpiry(revision: revision)
+            }
+        }
+        storeSessionReadCancel(cancel, revision: revision)
+    }
+
+    /// A read that could not reach the wallet API keeps the session and is retried with backoff,
+    /// each time once the app is active, so a session read offline is settled soon after the
+    /// network returns. Without `GetCredential` the local expiry is final.
+    private func readSessionExpiry(revision: UInt64) async {
+        if case .unavailable = await refreshCredentialExpiry() {
+            retrySessionRead(revision: revision)
+            return
+        }
+        finishSessionRead(revision: revision)
+        guard activeWalletSessionRevision() == revision,
+              let current = currentSessionSnapshot(),
+              isSessionExpired(current) else {
+            return
+        }
+        expireSessionFromTimer(current)
+    }
+
+    private func retrySessionRead(revision: UInt64) {
+        let retry = withSessionLock { () -> (delay: TimeInterval, readBefore: Date?)? in
+            guard _sessionRevision == revision, currentSessionLocked() != nil else {
+                return nil
+            }
+            _sessionReadRetryAttempt += 1
+            return (Self.sessionExpiryRetryDelay(attempt: _sessionReadRetryAttempt), _lastCredentialRefreshAt)
+        }
+        guard let retry else {
+            return
+        }
+        let sleep = sessionReadRetrySleep
+        let task = Task { [weak self] in
+            await sleep(retry.delay)
+            guard !Task.isCancelled else {
+                return
+            }
+            self?.readSessionExpiryWhenActive(revision: revision, readBefore: retry.readBefore)
+        }
+        storeSessionReadCancel({ task.cancel() }, revision: revision)
+    }
+
+    private func finishSessionRead(revision: UInt64) {
+        withSessionLock {
+            guard _sessionRevision == revision else {
+                return
+            }
+            _sessionReadPending = false
+            _sessionReadRetryAttempt = 0
+            _cancelSessionRead = nil
+        }
+    }
+
+    private func storeSessionReadCancel(_ cancel: @escaping ForegroundActivation.Cancel, revision: UInt64) {
+        let isCurrent = withSessionLock {
+            guard _sessionRevision == revision else {
+                return false
+            }
+            _cancelSessionRead = cancel
+            return true
+        }
+        if !isCurrent {
+            cancel()
+        }
+    }
+
+    func isSessionExpired(_ session: WalletSessionSnapshot) -> Bool {
+        currentDate() >= session.expiryDate
+    }
+
+    /// Whether a deferred restore (`expected` set) still belongs to the current session revision.
+    private func isExpectedRevisionLocked(_ expected: UInt64?) -> Bool {
+        expected.map { $0 == _sessionRevision } ?? true
+    }
+
+    /// Waits for the keychain to become readable, then restores again. Only one wait is pending at a
+    /// time; a sign-out or new sign-in cancels it (`clearSession`).
+    private func deferRestore(afterFailedRetry: Bool) {
+        let revision = withSessionLock { () -> UInt64? in
+            guard !_restoreDeferred else {
+                return nil
+            }
+            _restoreDeferred = true
+            return _sessionRevision
+        }
+        guard let revision else {
+            return
+        }
+        // Right after a failed retry the keychain is not checked again at once, so a keychain that
+        // keeps failing while protected data is available is not retried in a loop.
+        let cancel = runWhenProtectedDataAvailable(!afterFailedRetry) { [weak self] in
+            self?.retryDeferredRestore()
+        }
+        let isCurrent = withSessionLock { () -> Bool in
+            guard _restoreDeferred, _sessionRevision == revision else {
+                return false
+            }
+            _cancelDeferredRestore = cancel
+            return true
+        }
+        if !isCurrent {
+            cancel()
+        }
+    }
+
+    /// Retries a deferred restore. The first of several triggers claims it; `throttled` (a session
+    /// read) retries at most once a second.
+    func retryDeferredRestore(throttled: Bool = false) {
+        let revision = withSessionLock { () -> UInt64? in
+            guard _restoreDeferred else {
+                return nil
+            }
+            let now = Date()
+            if throttled, let last = _lastDeferredRestoreAttempt, now.timeIntervalSince(last) < 1 {
+                return nil
+            }
+            _lastDeferredRestoreAttempt = now
+            _restoreDeferred = false
+            _cancelDeferredRestore?()
+            _cancelDeferredRestore = nil
+            return _sessionRevision
+        }
+        guard let revision else {
+            return
+        }
+        restoreStoredWalletSession(expectedRevision: revision)
+    }
+
+    private func expireStoredSession(
+        _ session: WalletSessionSnapshot,
+        signerCredentialId: String,
+        expectedRevision: UInt64? = nil
+    ) {
+        withSessionLock {
+            guard isExpectedRevisionLocked(expectedRevision) else {
+                return
+            }
+            try? credentialSession.clearSignerKeepingCredentials(ifCredentialId: signerCredentialId)
+            signedClient = signedClientFactory(credentialSession.signer)
+            publishExpiredLocked(session)
+        }
+    }
+
+    func expireSession(_ session: WalletSessionSnapshot) {
+        withSessionLock {
+            clearActiveSessionForExpiryLocked()
+            publishExpiredLocked(session)
+        }
+    }
+
+    func currentSessionSnapshot() -> WalletSessionSnapshot? {
         withSessionLock {
             currentSessionLocked()
         }
     }
 
-    func restoreStoredWalletSession(_ storedWallet: WalletCredentialSession.WalletMetadata?) {
-        guard let storedWallet else {
-            return
+    func currentSessionLocked() -> WalletSessionSnapshot? {
+        guard let activeWallet = _activeWallet, let sessionAuth else {
+            return nil
         }
 
-        let storedSession = OMSWalletSessionState(
-            walletAddress: storedWallet.walletAddress,
-            expiresAtString: storedWallet.expiresAt,
-            auth: storedWallet.auth
-        )
-        guard !isSessionExpired(storedSession) else {
-            expireStoredSession(storedSession)
-            return
-        }
-        guard let restoredWallet = credentialSession.restore() else {
-            return
-        }
-
-        walletId = restoredWallet.walletId
-        walletAddress = restoredWallet.walletAddress
-        sessionExpiresAt = restoredWallet.expiresAt
-        sessionAuth = restoredWallet.auth
-        scheduleSessionExpiry(session)
-    }
-
-    func isSessionExpired(_ session: OMSWalletSessionState) -> Bool {
-        guard let expiresAt = session.expiresAt else {
-            return false
-        }
-        return currentDate() >= expiresAt
-    }
-
-    private func expireStoredSession(_ session: OMSWalletSessionState) {
-        deliverSessionExpiredNotification(
-            withSessionLock {
-                try? credentialSession.clearSignerKeepingCredentials()
-                signedClient = signedClientFactory(credentialSession.signer)
-                return makeSessionExpiredNotificationLocked(session)
-            }
-        )
-    }
-
-    func expireSession(_ session: OMSWalletSessionState) {
-        deliverSessionExpiredNotification(
-            withSessionLock {
-                clearActiveSessionForExpiryLocked()
-                return makeSessionExpiredNotificationLocked(session)
-            }
-        )
-    }
-
-    private func currentSessionLocked() -> OMSWalletSessionState {
-        guard let walletAddress else {
-            return OMSWalletSessionState(walletAddress: nil)
-        }
-
-        return OMSWalletSessionState(
-            walletAddress: walletAddress,
-            expiresAtString: sessionExpiresAt,
+        return WalletSessionSnapshot(
+            wallet: activeWallet,
+            expiresAt: sessionExpiresAt,
             auth: sessionAuth
         )
     }
 
-    func expireCurrentSessionIfNeeded() -> SessionExpiredNotification? {
+    /// Ends the session as expired when its local expiry has passed; returns whether it did.
+    func expireCurrentSessionIfNeeded() -> Bool {
         withSessionLock {
-            let currentSession = currentSessionLocked()
-            guard isSessionExpired(currentSession) else {
-                return nil
+            guard let currentSession = currentSessionLocked(),
+                  isSessionExpired(currentSession) else {
+                return false
             }
             clearActiveSessionForExpiryLocked()
-            return makeSessionExpiredNotificationLocked(currentSession)
+            publishExpiredLocked(currentSession)
+            return true
         }
     }
 
     private func clearActiveSessionForExpiryLocked() {
+        let sessionCredentialId = _sessionSignerCredentialId ?? activePendingWalletSelection?.signerCredentialId
         _sessionRevision += 1
+        _sessionSignerCredentialId = nil
+        _lastCredentialRefreshAt = nil
+        _sessionExpiryBounds = nil
+        _sessionExpiryTimerFireDate = nil
         sessionExpiryTask?.cancel()
         sessionExpiryTask = nil
+        _cancelSessionRead?()
+        _cancelSessionRead = nil
+        _sessionReadPending = false
+        _sessionReadRetryAttempt = 0
         activePendingWalletSelection = nil
-        try? credentialSession.clearSignerKeepingCredentials()
-        walletAddress = nil
-        walletId = ""
+        try? credentialSession.clearSignerKeepingCredentials(ifCredentialId: sessionCredentialId)
+        activeWallet = nil
         verifier = ""
         challenge = ""
         pendingEmailAuth = nil
@@ -99,116 +385,479 @@ extension WalletClient {
         signedClient = signedClientFactory(credentialSession.signer)
     }
 
-    private func makeSessionExpiredNotificationLocked(_ session: OMSWalletSessionState) -> SessionExpiredNotification? {
-        guard let expiredAt = session.expiresAt else {
-            return nil
+    /// Throws, after ending this client's session, when the keychain no longer holds the key the
+    /// active session signed in with: `sessionExpired` when it ended as expired, `sessionMissing`
+    /// when another sign-in replaced it (see `endSessionWithReplacedSignerLocked`). Nothing is sent
+    /// with the other key.
+    func requireSessionSignerMatches() throws {
+        let ended = try withSessionLock { () -> SessionChange? in
+            guard let session = currentSessionLocked(), let credentialId = _sessionSignerCredentialId,
+                  !(try sessionSignerMatchesLocked(credentialId)) else {
+                return nil
+            }
+            return endSessionWithReplacedSignerLocked(session, credentialId: credentialId)
         }
-        let event = OMSWalletSessionExpiredEvent(session: session, expiredAt: expiredAt)
-        latestSessionExpiredEvent = event
-        return (sessionExpiredObserversLocked(), event)
+        switch ended {
+        case nil:
+            return
+        case .expired:
+            throw OMSWalletError.sessionExpired()
+        default:
+            throw OMSWalletError.sessionMissing()
+        }
     }
 
-    func deliverSessionExpiredNotification(_ notification: SessionExpiredNotification?) {
-        guard let notification else {
-            return
+    /// Ends a session whose signer no longer holds its key, in memory only (the keychain key and
+    /// record are already gone or belong to a newer session), and publishes how it ended: expired
+    /// when it ended on its own (its stored record is still its own while the signer holds no key,
+    /// after an expiry or a rejection elsewhere) or its expiry had passed, otherwise signed out
+    /// (another sign-in replaced its key).
+    @discardableResult
+    private func endSessionWithReplacedSignerLocked(
+        _ session: WalletSessionSnapshot,
+        credentialId: String
+    ) -> SessionChange {
+        let now = currentDate()
+        let keyIsGone = (try? credentialSession.signer.hasCredential()) == false
+        var recordIsOwn = false
+        if case .stored(let stored) = credentialSession.storedSession() {
+            recordIsOwn = stored.signerCredentialId.lowercased() == credentialId.lowercased()
         }
-        Task { @MainActor [weak self] in
-            guard let self else {
-                return
-            }
-            for registration in notification.observers
-            where self.isSessionExpiredObserverRegistered(registration.id) {
-                registration.observer(notification.event)
-            }
+        clearSessionWithReplacedSignerLocked()
+        let change: SessionChange
+        if (keyIsGone && recordIsOwn) || now >= session.expiryDate {
+            // It ended when that was found, unless its expiry passed first.
+            let expiredAt = now < session.expiryDate ? ISO8601DateFormatter().string(from: now) : session.expiresAt
+            change = .expired(
+                OMSWalletExpiredSession(wallet: session.wallet, session: session.session, expiredAt: expiredAt)
+            )
+        } else {
+            change = .signedOut
         }
+        publishSessionChangeLocked(change)
+        return change
     }
 
-    func scheduleSessionExpiry(_ session: OMSWalletSessionState) {
-        guard let expiresAt = session.expiresAt else {
-            withSessionLock {
-                guard isCurrentSessionSnapshotLocked(session) else {
-                    return
-                }
-                sessionExpiryTask?.cancel()
-                sessionExpiryTask = nil
-            }
-            return
+    /// Whether the signer still holds the key with `credentialId`. Checks for a key first, because
+    /// reading the credential ID of a missing key would create one.
+    private func sessionSignerMatchesLocked(_ credentialId: String) throws -> Bool {
+        let signer = credentialSession.signer
+        guard try signer.hasCredential() else {
+            return false
         }
-        let delay = max(0, expiresAt.timeIntervalSince(currentDate()))
-        guard delay > 0 else {
-            expireSessionFromTimer(session)
-            return
-        }
-        let delayNanoseconds = delay * 1_000_000_000
-        let cappedNanoseconds = delayNanoseconds.isFinite
-            ? min(delayNanoseconds, Double(UInt64.max - 1))
-            : Double(UInt64.max - 1)
-        let nanoseconds = UInt64(cappedNanoseconds)
-        let task = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: nanoseconds)
-            guard !Task.isCancelled else {
-                return
-            }
-            self?.expireSessionFromTimer(session)
-        }
-        let shouldCancelTask = withSessionLock { () -> Bool in
+        return try signer.credentialId().lowercased() == credentialId.lowercased()
+    }
+
+    /// Ends this client's session in memory only. The keychain key and stored record are left
+    /// alone: they belong to the session that replaced this one, or are already gone.
+    private func clearSessionWithReplacedSignerLocked() {
+        _sessionRevision += 1
+        _sessionSignerCredentialId = nil
+        _lastCredentialRefreshAt = nil
+        _sessionExpiryBounds = nil
+        _sessionExpiryTimerFireDate = nil
+        sessionExpiryTask?.cancel()
+        sessionExpiryTask = nil
+        _cancelSessionRead?()
+        _cancelSessionRead = nil
+        _sessionReadPending = false
+        _sessionReadRetryAttempt = 0
+        activePendingWalletSelection = nil
+        activeWallet = nil
+        sessionExpiresAt = nil
+        sessionAuth = nil
+    }
+
+    /// Publishes that `session` expired at its expiry.
+    private func publishExpiredLocked(_ session: WalletSessionSnapshot) {
+        publishSessionChangeLocked(
+            .expired(OMSWalletExpiredSession(wallet: session.wallet, session: session.session, expiredAt: session.expiresAt))
+        )
+    }
+
+    /// Schedules the expiry timer for `session` at its expiry.
+    func scheduleSessionExpiry(_ session: WalletSessionSnapshot) {
+        let now = currentDate()
+        let delay = max(0, session.expiryDate.timeIntervalSince(now))
+        // A far-future expiry (for example a bad server value) must not overflow the conversion.
+        let sleepSeconds = delay.isFinite
+            ? min(delay, Self.sessionExpiryMaxTimerDelaySeconds)
+            : Self.sessionExpiryMaxTimerDelaySeconds
+        let nanoseconds = UInt64(sleepSeconds * 1_000_000_000)
+        withSessionLock {
             guard isCurrentSessionSnapshotLocked(session) else {
-                return true
+                return
             }
             sessionExpiryTask?.cancel()
-            sessionExpiryTask = task
-            return false
-        }
-        if shouldCancelTask {
-            task.cancel()
+            // Created and stored under the lock: with no delay the task can run at once, and the
+            // timer handler, which takes this lock, must not reschedule before this one is stored.
+            sessionExpiryTask = Task { [weak self] in
+                if nanoseconds > 0 {
+                    try? await Task.sleep(nanoseconds: nanoseconds)
+                }
+                guard !Task.isCancelled else {
+                    return
+                }
+                self?.handleSessionExpiryTimer(session)
+            }
+            _sessionExpiryTimerFireDate = now.addingTimeInterval(delay)
         }
     }
 
-    private func expireSessionFromTimer(_ session: OMSWalletSessionState) {
-        let transition = withSessionLock { () -> (
-            notification: SessionExpiredNotification?,
-            reschedule: OMSWalletSessionState?
-        ) in
+    static func sessionExpiryRetryDelay(attempt: Int) -> TimeInterval {
+        let exponent = Double(min(max(attempt - 1, 0), 16))
+        return min(sessionExpiryRetryBaseSeconds * pow(2, exponent), sessionExpiryRetryMaxSeconds)
+    }
+
+    /// At local expiry, ends a session whose lifetime cap has passed, or whose expiry cannot be
+    /// read, and otherwise reads its expiry once the app is active: WaaS may have extended it.
+    private func handleSessionExpiryTimer(_ session: WalletSessionSnapshot) {
+        enum Step {
+            case superseded
+            case notExpired
+            case end
+            case read
+        }
+        let step = withSessionLock { () -> Step in
             guard isCurrentSessionSnapshotLocked(session) else {
-                return (nil, nil)
+                return .superseded
             }
             guard isSessionExpired(session) else {
-                return (nil, session)
+                return .notExpired
             }
-            clearActiveSessionForExpiryLocked()
-            return (makeSessionExpiredNotificationLocked(session), nil)
+            // Without `GetCredential` the local expiry is final.
+            if isCredentialRefreshUnsupportedLocked() || _sessionExpiryBounds?.hasPassed(at: currentDate()) == true {
+                return .end
+            }
+            return .read
         }
-        if let reschedule = transition.reschedule {
-            scheduleSessionExpiry(reschedule)
+        switch step {
+        case .superseded:
+            return
+        case .notExpired:
+            scheduleSessionExpiry(session)
+        case .end:
+            expireSessionFromTimer(session)
+        case .read:
+            readSessionExpiryWhenActive()
         }
-        deliverSessionExpiredNotification(transition.notification)
     }
 
-    private func isCurrentSessionSnapshotLocked(_ session: OMSWalletSessionState) -> Bool {
-        guard let sessionWalletAddress = session.walletAddress else {
+    private func expireSessionFromTimer(_ session: WalletSessionSnapshot) {
+        withSessionLock {
+            guard isCurrentSessionSnapshotLocked(session), isSessionExpired(session) else {
+                return
+            }
+            clearActiveSessionForExpiryLocked()
+            publishExpiredLocked(session)
+        }
+    }
+
+    /// Before an operation uses a locally expired session, asks the server whether it extended
+    /// the expiry. An extended session continues; an ended session throws `sessionExpired`; an
+    /// unreachable server throws its error and keeps the session. A session past its lifetime cap
+    /// ends without a request. Without server support the caller's local expiry check applies as
+    /// before.
+    func refreshLocallyExpiredSession() async throws {
+        guard let session = currentSessionSnapshot(), isSessionExpired(session) else {
+            return
+        }
+        if withSessionLock({ _sessionExpiryBounds?.hasPassed(at: currentDate()) == true }) {
+            expireSessionFromTimer(session)
+            throw OMSWalletError.sessionExpired()
+        }
+        // A missing or replaced signer key ends the session without a request (see
+        // `endSessionWithReplacedSignerLocked`): as expired here, since the expiry passed.
+        switch await refreshCredentialExpiry() {
+        case .refreshed, .unsupported, .superseded:
+            return
+        case .ended:
+            throw OMSWalletError.sessionExpired()
+        case .unavailable(let error):
+            throw error
+        }
+    }
+
+    /// Fetches the active credential's current expiry with `getCredential` and applies it to the
+    /// session. Concurrent callers for the same session share one request, and a result is
+    /// applied only while the session it was requested for is still current. A session whose
+    /// signer key is missing or was replaced elsewhere ends without a request (see `endSessionWithReplacedSignerLocked`), as
+    /// `ended` when it ended as expired.
+    func refreshCredentialExpiry() async -> CredentialRefreshOutcome {
+        enum Start {
+            case task(Task<CredentialRefreshOutcome, Never>)
+            case outcome(CredentialRefreshOutcome)
+        }
+        let start = withSessionLock { () -> Start in
+            if let inFlight = _credentialRefresh, inFlight.revision == _sessionRevision {
+                return .task(inFlight.task)
+            }
+            // Checked before anything else touches the session: ending it as expired would also
+            // delete the keychain key, which now belongs to the session that replaced it. A keychain
+            // error leaves the check to the request, which then fails.
+            if let session = currentSessionLocked(),
+               let credentialId = _sessionSignerCredentialId,
+               (try? sessionSignerMatchesLocked(credentialId)) == false {
+                if case .expired = endSessionWithReplacedSignerLocked(session, credentialId: credentialId) {
+                    return .outcome(.ended)
+                }
+                return .outcome(.superseded)
+            }
+            guard !isCredentialRefreshUnsupportedLocked() else {
+                return .outcome(.unsupported)
+            }
+            guard currentSessionLocked() != nil else {
+                return .outcome(.superseded)
+            }
+            let id = UUID()
+            let revision = _sessionRevision
+            let client = signedClient
+            let task = Task { [weak self] () -> CredentialRefreshOutcome in
+                let outcome: CredentialRefreshOutcome
+                do {
+                    let response = try await client.getCredential()
+                    // The server has the method, whatever an earlier read reported.
+                    self?.withSessionLock { self?._credentialRefreshUnsupportedAt = nil }
+                    outcome = self?.applyRefreshedCredentialExpiry(
+                        response.credential.expiresAt,
+                        revision: revision
+                    ) ?? .superseded
+                } catch {
+                    outcome = self?.handleCredentialRefreshFailure(error, revision: revision) ?? .superseded
+                }
+                self?.finishCredentialRefresh(id)
+                return outcome
+            }
+            _credentialRefresh = (id, revision, task)
+            return .task(task)
+        }
+        switch start {
+        case .task(let task):
+            return await task.value
+        case .outcome(let outcome):
+            return outcome
+        }
+    }
+
+    /// Whether a `WebrpcBadRoute` from `GetCredential` within the cooldown still marks refreshes
+    /// unsupported.
+    func isCredentialRefreshUnsupportedLocked() -> Bool {
+        guard let unsupportedAt = _credentialRefreshUnsupportedAt else {
             return false
         }
-        return walletAddress == sessionWalletAddress
-            && OMSWalletSessionState.parseDate(sessionExpiresAt) == session.expiresAt
-            && sessionAuth == session.auth
+        return currentDate().timeIntervalSince(unsupportedAt) < Self.credentialRefreshUnsupportedCooldownSeconds
+    }
+
+    private func finishCredentialRefresh(_ id: UUID) {
+        withSessionLock {
+            if _credentialRefresh?.id == id {
+                _credentialRefresh = nil
+            }
+        }
+    }
+
+    private func applyRefreshedCredentialExpiry(
+        _ expiresAt: String,
+        revision: UInt64
+    ) -> CredentialRefreshOutcome {
+        guard OMSWalletSession.parseDate(expiresAt) != nil else {
+            return .unavailable(
+                OMSWalletError(code: .invalidResponse, message: "Credential response has an invalid expiresAt")
+            )
+        }
+        enum Applied {
+            case superseded
+            case extended(WalletSessionSnapshot)
+            case expired
+        }
+        let applied = withSessionLock { () -> Applied in
+            guard _sessionRevision == revision,
+                  let wallet = _activeWallet,
+                  let auth = sessionAuth,
+                  let session = WalletSessionSnapshot(wallet: wallet, expiresAt: expiresAt, auth: auth) else {
+                return .superseded
+            }
+            // The in-memory session follows the server even if the keychain write fails; a stale
+            // stored expiry only means the next launch refreshes again.
+            try? credentialSession.persist(
+                wallet: wallet,
+                expiresAt: expiresAt,
+                auth: auth,
+                expiryBounds: _sessionExpiryBounds
+            )
+            sessionExpiresAt = expiresAt
+            _lastCredentialRefreshAt = currentDate()
+            guard !isSessionExpired(session) else {
+                // The server's expiry has already passed by the local clock; end it as local
+                // expiry does rather than refreshing again.
+                clearActiveSessionForExpiryLocked()
+                publishExpiredLocked(session)
+                return .expired
+            }
+            publishSessionChangeLocked(.expiryUpdated)
+            return .extended(session)
+        }
+        switch applied {
+        case .superseded:
+            return .superseded
+        case .extended(let session):
+            scheduleSessionExpiry(session)
+            return .refreshed
+        case .expired:
+            return .ended
+        }
+    }
+
+    private func handleCredentialRefreshFailure(
+        _ error: any Error,
+        revision: UInt64
+    ) -> CredentialRefreshOutcome {
+        // `GetCredential` involves no wallet, so `Unauthorized` (7207) from it can only mean the
+        // credential was revoked.
+        let isCredentialRevoked = (error as? WebRPCError)?.code == WebRPCErrorKind.unauthorized.code
+        if isCredentialRejectedByServer(error) || isCredentialRevoked {
+            // For 7202 and 7203, `SessionCredentialTransport` has normally ended the session already.
+            endSessionRejectedByServer(revision: revision)
+            return wasSessionRejectedByServer(revision) ? .ended : .superseded
+        }
+        if let webRPCError = error as? WebRPCError,
+           webRPCError.kind == .webrpcBadRoute || webRPCError.error == "WebrpcBadRoute" {
+            withSessionLock { _credentialRefreshUnsupportedAt = currentDate() }
+            return .unsupported
+        }
+        return .unavailable(error)
+    }
+
+    /// Starts a background expiry refresh when the last one (or sign-in) is at least
+    /// `credentialRefreshIntervalSeconds` old.
+    func refreshCredentialExpiryInBackgroundIfStale() {
+        let isStale = withSessionLock { () -> Bool in
+            guard !isCredentialRefreshUnsupportedLocked(), currentSessionLocked() != nil else {
+                return false
+            }
+            guard let lastRefresh = _lastCredentialRefreshAt else {
+                return true
+            }
+            return currentDate().timeIntervalSince(lastRefresh) >= Self.credentialRefreshIntervalSeconds
+        }
+        guard isStale else {
+            return
+        }
+        Task { [weak self] in
+            _ = await self?.refreshCredentialExpiry()
+        }
+    }
+
+    /// The session revision while a wallet session is active, or `nil` (for example during
+    /// sign-in, before a wallet is activated).
+    func activeWalletSessionRevision() -> UInt64? {
+        withSessionLock { currentSessionLocked() == nil ? nil : _sessionRevision }
+    }
+
+    /// Called by `SessionCredentialTransport` for every response to a request signed with the
+    /// session credential while `revision` was active.
+    func handleSessionCredentialResponse(_ response: WebRPCHTTPResponse, path: String, revision: UInt64) {
+        guard (200...299).contains(response.statusCode) else {
+            let error = WaasGenerated.decodeWebRPCError(statusCode: response.statusCode, data: response.body)
+            if isCredentialRejectedByServer(error) {
+                endSessionRejectedByServer(revision: revision)
+            } else if error.code == WebRPCErrorKind.unauthorized.code, path != WaasAPI.GetCredential.urlPath {
+                // A wallet call's 7207 may mean no access to that wallet or a revoked credential.
+                // `GetCredential` tells them apart: it ends a revoked session and only refreshes
+                // the expiry otherwise. It joins a read already in flight.
+                Task { [weak self] in
+                    _ = await self?.refreshCredentialExpiry()
+                }
+            }
+            return
+        }
+        if path != WaasAPI.GetCredential.urlPath {
+            refreshCredentialExpiryInBackgroundIfStale()
+        }
+    }
+
+    /// Ends the session as local expiry does when the server reported its credential gone or
+    /// expired, unless a newer sign-in or sign-out already replaced it.
+    func endSessionRejectedByServer(revision: UInt64) {
+        withSessionLock {
+            guard _sessionRevision == revision, let session = currentSessionLocked() else {
+                return
+            }
+            clearActiveSessionForExpiryLocked()
+            _serverRejectedSessionRevision = revision
+            publishExpiredLocked(session)
+        }
+    }
+
+    func wasSessionRejectedByServer(_ revision: UInt64) -> Bool {
+        withSessionLock { _serverRejectedSessionRevision == revision }
+    }
+
+    /// Runs an operation that uses the active wallet session's credential. When WaaS rejected that
+    /// credential as gone (7202) or expired (7203), `SessionCredentialTransport` has ended the
+    /// session, and the operation throws `sessionExpired`, except that status polling after a
+    /// submitted transaction rethrows `transactionStatusLookupFailed` with its `txnId`.
+    func runSessionOperation<T>(
+        _ operation: OMSWalletOperation,
+        _ body: () async throws -> T
+    ) async throws -> T {
+        let sessionRevision = activeWalletSessionRevision()
+        do {
+            return try await runOMSWalletOperation(operation, body)
+        } catch let error as OMSWalletError {
+            guard let sessionRevision,
+                  isCredentialRejectedByServer(error),
+                  wasSessionRejectedByServer(sessionRevision) else {
+                throw error
+            }
+            // WaaS rejects the credential before Execute runs, so a rejected Execute sent nothing
+            // and is reported as session expired. Status polling after a submitted transaction
+            // keeps its txnId; observers still learn that the session ended.
+            if error.code == .transactionStatusLookupFailed {
+                throw error
+            }
+            throw OMSWalletError(
+                code: .sessionExpired,
+                message: OMSWalletError.sessionExpired().localizedDescription,
+                operation: operation,
+                underlyingError: error
+            )
+        }
+    }
+
+    private func isCurrentSessionSnapshotLocked(_ session: WalletSessionSnapshot) -> Bool {
+        guard session.wallet != nil else {
+            return false
+        }
+        return currentSessionLocked() == session
     }
 
     func reauthenticationSessionEmail() -> String? {
         withSessionLock {
-            currentSessionLocked().auth?.email ?? latestSessionExpiredEvent?.session.auth?.email
+            if let email = currentSessionLocked()?.auth.email {
+                return email
+            }
+            if case .expired(let expired) = _latestExpiredChange {
+                return expired.session.auth.email
+            }
+            return nil
         }
     }
 
     func currentSessionMetadata() throws -> SessionMetadata {
         try withSessionLock {
-            guard let sessionAuth else {
+            guard let metadata = currentSessionMetadataLocked() else {
                 throw OMSWalletError.sessionMissing()
             }
-            return SessionMetadata(
-                expiresAt: sessionExpiresAt,
-                auth: sessionAuth
-            )
+            return metadata
         }
+    }
+
+    func currentSessionMetadataLocked() -> SessionMetadata? {
+        guard let sessionAuth, let sessionExpiresAt else {
+            return nil
+        }
+        return SessionMetadata(expiresAt: sessionExpiresAt, auth: sessionAuth, expiryBounds: _sessionExpiryBounds)
     }
 
     /// Clears the wallet session from the device keychain.
@@ -228,66 +877,65 @@ extension WalletClient {
         requiredSessionRevision: UInt64? = nil
     ) throws -> Bool {
         let clearState = {
-            try self.withSessionLock {
-                if let requiredSessionRevision,
-                   self._sessionRevision != requiredSessionRevision {
-                    return false
+            do {
+                return try self.withSessionLock {
+                    if let requiredSessionRevision,
+                       self._sessionRevision != requiredSessionRevision {
+                        return false
+                    }
+                    self._sessionRevision += 1
+                    self._sessionSignerCredentialId = nil
+                    self._lastCredentialRefreshAt = nil
+                    self._sessionExpiryBounds = nil
+                    self._sessionExpiryTimerFireDate = nil
+                    // A sign-out or new sign-in makes an earlier expiry old news, whether or not a
+                    // change is published.
+                    self._latestExpiredChange = nil
+                    self.sessionExpiryTask?.cancel()
+                    self.sessionExpiryTask = nil
+                    self._cancelSessionRead?()
+                    self._cancelSessionRead = nil
+                    self._sessionReadPending = false
+                    self._sessionReadRetryAttempt = 0
+                    self._restoreDeferred = false
+                    self._cancelDeferredRestore?()
+                    self._cancelDeferredRestore = nil
+                    self.activePendingWalletSelection = nil
+                    try self.credentialSession.clear()
+                    self.activeWallet = nil
+                    self.verifier = ""
+                    self.challenge = ""
+                    self.pendingEmailAuth = nil
+                    self.sessionExpiresAt = nil
+                    self.sessionAuth = nil
+                    self.signedClient = self.signedClientFactory(self.credentialSession.signer)
+                    self.publishSessionChangeLocked(.signedOut)
+                    return true
                 }
-                self._sessionRevision += 1
-                self.latestSessionExpiredEvent = nil
-                self.sessionExpiryTask?.cancel()
-                self.sessionExpiryTask = nil
-                self.activePendingWalletSelection = nil
-                try self.credentialSession.clear()
-                self.walletAddress = nil
-                self.walletId = ""
-                self.verifier = ""
-                self.challenge = ""
-                self.pendingEmailAuth = nil
-                self.sessionExpiresAt = nil
-                self.sessionAuth = nil
-                self.signedClient = self.signedClientFactory(self.credentialSession.signer)
-                return true
+            } catch {
+                throw OMSWalletError.storageError(
+                    message: "Wallet session cleanup failed.",
+                    underlyingError: error
+                )
             }
         }
-        if clearOidcRedirectAuth {
-            return try withOIDCRedirectAuthProjectLock {
-                let cleared: Bool
-                do {
-                    cleared = try clearState()
-                } catch {
-                    throw OMSWalletError.storageError(
-                        message: "Wallet session cleanup failed.",
-                        underlyingError: error
-                    )
-                }
-                guard cleared else {
-                    return false
-                }
-                do {
-                    try oidcRedirectAuthStore.clear()
-                } catch {
-                    throw OMSWalletError.storageError(
-                        message: "OIDC redirect auth state cleanup failed.",
-                        underlyingError: error
-                    )
-                }
-                return true
+        guard clearOidcRedirectAuth else {
+            return try clearState()
+        }
+        return try withOIDCRedirectAuthProjectLock {
+            guard try clearState() else {
+                return false
             }
+            do {
+                try oidcRedirectAuthStore.clear()
+            } catch {
+                throw OMSWalletError.storageError(
+                    message: "OIDC redirect auth state cleanup failed.",
+                    underlyingError: error
+                )
+            }
+            return true
         }
-        let cleared: Bool
-        do {
-            cleared = try clearState()
-        } catch {
-            throw OMSWalletError.storageError(
-                message: "Wallet session cleanup failed.",
-                underlyingError: error
-            )
-        }
-        guard cleared else {
-            return false
-        }
-        return true
     }
 
     /// Returns display metadata for a remote credential before the owner approves access.
@@ -313,12 +961,10 @@ extension WalletClient {
         expiresAt: String,
         sessionId: String? = nil
     ) async throws -> AuthorizedRemoteAccess {
-        try await runOMSWalletOperation(.walletAuthorizeRemoteAccess) {
-            let walletId = try requireActiveWalletId()
+        try await runSessionOperation(.walletAuthorizeRemoteAccess) {
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
-            guard let walletAddress, Self.isEthereumAddress(walletAddress) else {
-                throw OMSWalletError(code: .validationError, message: "An active Ethereum wallet is required")
-            }
+            try await requireActiveWalletType(.ethereum)
             try validateSmartSessionGrants(grants)
             let response = try await signedClient.authorizeRemoteAccess(
                 AuthorizeRemoteAccessRequest(
@@ -326,11 +972,11 @@ extension WalletClient {
                     walletId: walletId,
                     grants: Grants(entries: grants.map(\.waasValue)),
                     expiry: expiresAt,
-                    chainId: network.chainId,
+                    chainId: network.waasChainId,
                     sessionId: sessionId
                 )
             )
-            try requireSameActiveWalletSession(walletId)
+            try await requireSameActiveWalletSession(walletId)
             return AuthorizedRemoteAccess(
                 walletId: walletId,
                 sessionId: response.sessionId,
@@ -364,8 +1010,8 @@ extension WalletClient {
         cursor: String? = nil,
         type: AccessGrantType? = nil
     ) async throws -> AccessGrantPage {
-        try await runOMSWalletOperation(.walletListAccessPage) {
-            let walletId = try requireActiveWalletId()
+        try await runSessionOperation(.walletListAccessPage) {
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             let response = try await signedClient.listAccess(
                 ListAccessRequest(
@@ -386,14 +1032,14 @@ extension WalletClient {
 
     /// Returns one owner-visible remote session and verifies that it belongs to the selected wallet.
     public func getRemoteAccessSession(sessionId: String) async throws -> RemoteAccessSession {
-        try await runOMSWalletOperation(.walletGetRemoteAccessSession) {
+        try await runSessionOperation(.walletGetRemoteAccessSession) {
             guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw OMSWalletError(code: .validationError, message: "sessionId is required")
             }
-            let walletId = try requireActiveWalletId()
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             let response = try await signedClient.getSession(GetSessionRequest(sessionId: sessionId))
-            try requireSameActiveWalletSession(walletId)
+            try await requireSameActiveWalletSession(walletId)
             guard let session = response.session.sdkValue, session.walletId == walletId else {
                 throw DecodingError.dataCorrupted(
                     DecodingError.Context(codingPath: [], debugDescription: "Session does not belong to the active wallet")
@@ -408,16 +1054,16 @@ extension WalletClient {
         sessionId: String,
         network: Network
     ) async throws -> [SmartSessionGrantUsage] {
-        try await runOMSWalletOperation(.walletGetRemoteAccessSessionUsage) {
+        try await runSessionOperation(.walletGetRemoteAccessSessionUsage) {
             guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw OMSWalletError(code: .validationError, message: "sessionId is required")
             }
-            let walletId = try requireActiveWalletId()
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             let response = try await signedClient.getSessionUsage(
-                GetSessionUsageRequest(sessionId: sessionId, network: network.chainId)
+                GetSessionUsageRequest(sessionId: sessionId, network: network.waasChainId)
             )
-            try requireSameActiveWalletSession(walletId)
+            try await requireSameActiveWalletSession(walletId)
             return try response.entries.map { entry in
                 guard let grant = entry.grant.sdkValue,
                       entry.used.map(isCanonicalUnsignedDecimal) ?? true else {
@@ -431,8 +1077,8 @@ extension WalletClient {
     }
 
     public func getIdToken(ttlSeconds: UInt32? = nil, customClaims: [String: JSONValue]? = nil) async throws -> String {
-        try await runOMSWalletOperation(.walletGetIdToken) {
-            let walletId = try requireActiveWalletId()
+        try await runSessionOperation(.walletGetIdToken) {
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             let params = GetIDTokenRequest(
                 walletId: walletId,
@@ -454,8 +1100,8 @@ extension WalletClient {
     /// - Parameter sessionId: The required session identifier for a remote grant, or `nil` for a
     ///   direct grant.
     public func revokeAccess(credentialId: String, sessionId: String? = nil) async throws {
-        try await runOMSWalletOperation(.walletRevokeAccess) {
-            let walletId = try requireActiveWalletId()
+        try await runSessionOperation(.walletRevokeAccess) {
+            let walletId = try await requireActiveWalletId()
             try requireActiveCredential()
             let params = RevokeAccessRequest(
                 targetCredentialId: credentialId,
@@ -475,8 +1121,8 @@ extension WalletClient {
         return Page(limit: pageSize, cursor: cursor)
     }
 
-    private func requireSameActiveWalletSession(_ expectedWalletId: String) throws {
-        guard try requireActiveWalletId() == expectedWalletId else {
+    private func requireSameActiveWalletSession(_ expectedWalletId: String) async throws {
+        guard try await requireActiveWalletId() == expectedWalletId else {
             throw OMSWalletError(code: .sessionMissing, message: "Active wallet session changed")
         }
         try requireActiveCredential()
@@ -515,14 +1161,6 @@ private extension AccessGrantType {
 private func isCanonicalUnsignedDecimal(_ value: String) -> Bool {
     guard !value.isEmpty, value.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }) else { return false }
     return value == "0" || !value.hasPrefix("0")
-}
-
-private func isEthereumAddressValue(_ value: String) -> Bool {
-    value.count == 42
-        && value.hasPrefix("0x")
-        && value.dropFirst(2).allSatisfy { character in
-            character.isASCII && character.isHexDigit
-        }
 }
 
 @available(macOS 12.0, iOS 15.0, *)
@@ -580,4 +1218,22 @@ public struct ListAccessPages: AsyncSequence {
             return cursor
         }
     }
+}
+
+/// Whether WaaS rejected the request's credential as not found (7202) or expired (7203).
+/// `Unauthorized` (7207) is deliberately excluded: it is not specific to the credential (a wallet
+/// call returns it, for example, when the credential has no access to that wallet). The exception
+/// is `GetCredential`, which involves no wallet: `handleCredentialRefreshFailure` ends the session
+/// for a 7207 from it, since that can only mean the credential was revoked.
+func isCredentialRejectedByServer(_ error: any Error) -> Bool {
+    let rejectedCodes = [WebRPCErrorKind.keyNotFound.code, WebRPCErrorKind.keyExpired.code]
+    if let webRPCError = error as? WebRPCError {
+        return rejectedCodes.contains(webRPCError.code)
+    }
+    guard let upstreamError = (error as? OMSWalletError)?.upstreamError,
+          upstreamError.service == .waas,
+          let code = upstreamError.code.flatMap(Int.init) else {
+        return false
+    }
+    return rejectedCodes.contains(code)
 }

@@ -40,7 +40,9 @@ typed-data signing, signature verification, token balances, and unit formatting.
 - `Package.swift` defines the Swift package, the `"OMSWallet"` library target, and
   the `"OMSWalletTests"` test target.
 - `Sources/OMSWallet/` contains the SDK implementation.
-- `Sources/OMSWallet/Clients/` contains `WalletClient` and `IndexerClient`.
+- `Sources/OMSWallet/Clients/` contains `WalletClient` and `IndexerClient`, plus
+  `SessionCredentialTransport`, which wraps the session-signed WaaS clients to order their
+  requests around the SDK's expiry refresh and end the session when WaaS rejects its credential.
 - `Sources/OMSWallet/Signer/` contains Keychain/P-256 signing and credential
   session code.
 - `Sources/OMSWallet/Models/` contains public model types and auth/session
@@ -52,6 +54,8 @@ typed-data signing, signature verification, token balances, and unit formatting.
   patch.
 - `Tests/OMSWalletTests/` contains Swift Testing tests using `@Test` and
   `#expect`.
+- `Tests/DeviceTests/OMSWalletDeviceTests.xcodeproj` hosts tests that need a
+  physical iOS device (Secure Enclave keys); see `TESTING.md`.
 - `Examples/sdk-demo/oms-wallet-demo.xcodeproj` and
   `Examples/sdk-demo/oms-wallet-demo/` contain the SwiftUI demo app.
 - `Examples/trails-actions/trails-actions.xcodeproj` and
@@ -106,9 +110,10 @@ execution commands.
   persist private key material in SDK session storage.
 - Keep OIDC redirect state separate from completed wallet session state. Invalid
   or unrelated callbacks should not clear pending redirect auth.
-- Verification APIs require an explicit `walletAddress`. Public wallet methods
-  should validate active `walletId` and credential state before building signed
-  requests.
+- Verification APIs take an optional `walletAddress` and fall back to the active
+  wallet's address; they never send a wallet ID and do not require a session when
+  an address is given. Other public wallet methods should validate the active
+  wallet and credential state before building signed requests.
 - Avoid floating-point math for token amounts. Use or extend `parseUnits` and
   `formatUnits` for base-unit conversions.
 - Prefer `rg --files`, `rg`, `swift build`, and `swift test` from the repository root.
@@ -125,10 +130,12 @@ requested later with `@claude review` in a PR comment.
 
 ## Documentation
 
-Update `README.md` when user-facing setup or flow examples change. Update
-`API.md` when public methods, parameters, models, or behavior change. Keep docs
-aligned with the actual Swift names, labels, return types, and the `OMSWallet`
-import name. Avoid adding method descriptions in source code.
+Update `README.md` when user-facing setup or flow examples change. `API.md` is
+generated: when public methods, parameters, models, or doc comments change, run
+`scripts/generate-api.sh` (CI checks it with `--check`), regenerate the baseline
+with `UPDATE_PUBLIC_API_BASELINE=1 scripts/check-public-api-does-not-expose-generated-waas.sh`,
+and add a `MIGRATION.md` entry for breaking changes. Keep docs aligned with the
+actual Swift names, labels, return types, and the `OMSWallet` import name.
 
 ## Demo App
 

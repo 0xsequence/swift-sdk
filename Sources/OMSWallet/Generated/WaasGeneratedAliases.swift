@@ -15,6 +15,8 @@ internal typealias Identity = WaasGenerated.Identity
 internal typealias IdentityType = WaasGenerated.IdentityType
 internal typealias SigningAlgorithm = WaasGenerated.SigningAlgorithm
 
+internal typealias ClaimWalletRequest = WaasGenerated.ClaimWalletRequest
+internal typealias ClaimWalletResponse = WaasGenerated.ClaimWalletResponse
 internal typealias CommitVerifierRequest = WaasGenerated.CommitVerifierRequest
 internal typealias CommitVerifierResponse = WaasGenerated.CommitVerifierResponse
 internal typealias CompleteAuthRequest = WaasGenerated.CompleteAuthRequest
@@ -43,6 +45,8 @@ internal typealias ListWalletsResponse = WaasGenerated.ListWalletsResponse
 internal typealias PrepareEthereumContractCallRequest = WaasGenerated.PrepareEthereumContractCallRequest
 internal typealias PrepareEthereumTransactionRequest = WaasGenerated.PrepareEthereumTransactionRequest
 internal typealias PrepareSolanaTransferRequest = WaasGenerated.PrepareSolanaTransferRequest
+internal typealias PrepareTronContractCallRequest = WaasGenerated.PrepareTronContractCallRequest
+internal typealias PrepareTronTransactionRequest = WaasGenerated.PrepareTronTransactionRequest
 internal typealias PrepareResponse = WaasGenerated.PrepareResponse
 internal typealias SolanaRecipient = WaasGenerated.SolanaRecipient
 internal typealias RevokeAccessRequest = WaasGenerated.RevokeAccessRequest

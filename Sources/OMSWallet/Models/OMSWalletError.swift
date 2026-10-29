@@ -15,19 +15,22 @@ public enum OMSWalletErrorCode: String, Sendable {
     case validationError = "OMS_VALIDATION_ERROR"
     case storageError = "OMS_STORAGE_ERROR"
     case attestationVerificationFailed = "OMS_ATTESTATION_VERIFICATION_FAILED"
+    case walletAddressAlreadyImported = "OMS_WALLET_ADDRESS_ALREADY_IMPORTED"
 }
 
 public enum OMSWalletOperation: String, Sendable {
     case pendingWalletSelection = "wallet.pendingWalletSelection"
     case pendingWalletSelectionSelectWallet = "wallet.pendingWalletSelection.selectWallet"
     case pendingWalletSelectionCreateAndSelectWallet = "wallet.pendingWalletSelection.createAndSelectWallet"
+    case pendingWalletSelectionClaimAndSelectWallet = "wallet.pendingWalletSelection.claimAndSelectWallet"
     case walletStartEmailAuth = "wallet.startEmailAuth"
     case walletCompleteEmailAuth = "wallet.completeEmailAuth"
     case walletSignInWithOidcIdToken = "wallet.signInWithOidcIdToken"
-    case walletStartOIDCRedirectAuth = "wallet.startOIDCRedirectAuth"
-    case walletHandleOIDCRedirectCallback = "wallet.handleOIDCRedirectCallback"
+    case walletStartOIDCRedirectAuth = "wallet.startOidcRedirectAuth"
+    case walletHandleOIDCRedirectCallback = "wallet.handleOidcRedirectCallback"
     case walletUseWallet = "wallet.useWallet"
     case walletCreateWallet = "wallet.createWallet"
+    case walletClaimWallet = "wallet.claimWallet"
     case walletImportWallet = "wallet.importWallet"
     case walletGetImportRecipientKey = "wallet.getWalletImportRecipientKey"
     case walletImportEncryptedWallet = "wallet.importEncryptedWallet"
@@ -48,20 +51,27 @@ public enum OMSWalletOperation: String, Sendable {
     case walletIsValidMessageSignature = "wallet.isValidMessageSignature"
     case walletIsValidSolanaMessageSignature = "wallet.isValidSolanaMessageSignature"
     case walletIsValidTypedDataSignature = "wallet.isValidTypedDataSignature"
+    case walletSignTronMessage = "wallet.signTronMessage"
+    case walletSignTronTypedData = "wallet.signTronTypedData"
+    case walletIsValidTronMessageSignature = "wallet.isValidTronMessageSignature"
+    case walletIsValidTronTypedDataSignature = "wallet.isValidTronTypedDataSignature"
     case walletSendTransaction = "wallet.sendTransaction"
     case walletSendSolanaTransfer = "wallet.sendSolanaTransfer"
+    case walletSendTronTransaction = "wallet.sendTronTransaction"
+    case walletCallTronContract = "wallet.callTronContract"
     case walletCallContract = "wallet.callContract"
     case walletExecute = "wallet.execute"
     case walletGetTransactionStatus = "wallet.getTransactionStatus"
     case walletTransactionStatus = "wallet.transactionStatus"
     case indexerGetBalances = "indexer.getBalances"
     case indexerGetSolanaBalances = "indexer.getSolanaBalances"
+    case indexerGetTronBalances = "indexer.getTronBalances"
     case indexerGetTransactionHistory = "indexer.getTransactionHistory"
 }
 
 public enum OMSWalletUpstreamService: String, Sendable {
-    case waas = "Waas"
-    case indexer = "Indexer"
+    case waas = "waas"
+    case indexer = "indexer"
 }
 
 public struct OMSWalletUpstreamError: Equatable, Sendable {
@@ -69,6 +79,8 @@ public struct OMSWalletUpstreamError: Equatable, Sendable {
     public let name: String?
     public let code: String?
     public let message: String?
+    /// The service's reason for this error, when it gives one, for example why a request was invalid.
+    public let cause: String?
     public let status: Int?
 
     init(
@@ -76,12 +88,14 @@ public struct OMSWalletUpstreamError: Equatable, Sendable {
         name: String? = nil,
         code: String? = nil,
         message: String? = nil,
+        cause: String? = nil,
         status: Int? = nil
     ) {
         self.service = service
         self.name = name
         self.code = code
         self.message = message
+        self.cause = cause
         self.status = status
     }
 }
@@ -292,6 +306,18 @@ private extension WebRPCError {
         let upstreamError = toWaasUpstreamError(status: normalizedStatus)
         let normalizedMessage = normalizedMessage
 
+        if kind == .addressAlreadyImported || error == "AddressAlreadyImported" {
+            return OMSWalletError(
+                code: .walletAddressAlreadyImported,
+                message: normalizedMessage,
+                operation: operation,
+                status: 409,
+                retryable: false,
+                upstreamError: upstreamError,
+                underlyingError: self
+            )
+        }
+
         if kind == .commitmentConsumed {
             return OMSWalletError(
                 code: .authCommitmentConsumed,
@@ -367,8 +393,15 @@ private extension WebRPCError {
             name: error,
             code: normalizedCode,
             message: normalizedMessage,
+            cause: serviceCause,
             status: status
         )
+    }
+
+    /// Only errors the service sent (code 0 and up) carry its reason in `cause`: the client's own
+    /// transport errors (negative codes) put local details there, such as an unparsable response body.
+    private var serviceCause: String? {
+        code >= 0 && !cause.isEmpty ? cause : nil
     }
 
     private func isHttpWebRPCError(status: Int?) -> Bool {
@@ -393,15 +426,7 @@ private extension WebRPCError {
 private extension TransactionError {
     func toOMSWalletError(operation: OMSWalletOperation) -> OMSWalletError {
         switch self {
-        case .pollingTimedOut:
-            return OMSWalletError(
-                code: .transactionStatusLookupFailed,
-                message: localizedDescription,
-                operation: operation,
-                retryable: true,
-                underlyingError: self
-            )
-        case .noFeeOptionsAvailable, .noFeeOptionSelected, .missingTransactionHash, .invalidPollingOption:
+        case .noFeeOptionsAvailable, .noFeeOptionSelected, .invalidPollingOption:
             return OMSWalletError(
                 code: .validationError,
                 message: localizedDescription,
