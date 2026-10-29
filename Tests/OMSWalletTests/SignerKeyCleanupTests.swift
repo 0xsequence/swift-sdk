@@ -7,6 +7,13 @@ import Testing
 // application tag. A session that ends on its own in one process must not delete a key another
 // process's newer sign-in stored under that tag.
 
+/// Runs blocking keychain calls off Swift's cooperative thread pool, as the SDK does (`SignerWork`).
+/// The real keychain can take over a second per call on CI; blocking the pool's few threads that
+/// long delays the tasks of tests running alongside, such as a request deadline's timer.
+func keychainWork<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
+    try await SignerWork.run(body)
+}
+
 /// Two signers for one tag, as an app and an extension sharing the keychain would have.
 private struct SharedTag {
     let tag = "oms.test.\(UUID().uuidString)"
@@ -21,50 +28,64 @@ private struct SharedTag {
     }
 }
 
-@Test func TestKeychainSignerDeletesItsOwnKeyAndKeepsTheSharedNonce() throws {
-    let shared = SharedTag()
-    defer { shared.cleanUp() }
-    let signer = shared.signer()
-    let credentialId = try signer.credentialId()
-    let nonce = try signer.nextNonce()
+@Test func TestKeychainSignerDeletesItsOwnKeyAndKeepsTheSharedNonce() async throws {
+    let (hasCredential, storedNonce, nonce) = try await keychainWork {
+        let shared = SharedTag()
+        defer { shared.cleanUp() }
+        let signer = shared.signer()
+        let credentialId = try signer.credentialId()
+        let nonce = try signer.nextNonce()
 
-    try signer.clear(ifCredentialId: credentialId.uppercased())
+        try signer.clear(ifCredentialId: credentialId.uppercased())
 
-    #expect(try !signer.hasCredential())
+        return (try signer.hasCredential(), try shared.nonces.string(forKey: shared.tag + ".nonce"), nonce)
+    }
+
+    #expect(!hasCredential)
     // A later key's nonces only need to keep increasing.
-    #expect(try shared.nonces.string(forKey: shared.tag + ".nonce") == nonce)
+    #expect(storedNonce == nonce)
 }
 
-@Test func TestKeychainSignerKeepsAKeyAnotherProcessStoredUnderTheSameTag() throws {
-    let shared = SharedTag()
-    defer { shared.cleanUp() }
-    let app = shared.signer()
-    let oldId = try app.credentialId()
+@Test func TestKeychainSignerKeepsAKeyAnotherProcessStoredUnderTheSameTag() async throws {
+    let (oldId, newId, appHasCredential, storedId) = try await keychainWork {
+        let shared = SharedTag()
+        defer { shared.cleanUp() }
+        let app = shared.signer()
+        let oldId = try app.credentialId()
 
-    let extensionSigner = shared.signer()
-    try extensionSigner.clear()
-    let newId = try extensionSigner.credentialId()
-    try app.clear(ifCredentialId: oldId)
+        let extensionSigner = shared.signer()
+        try extensionSigner.clear()
+        let newId = try extensionSigner.credentialId()
+        try app.clear(ifCredentialId: oldId)
+
+        return (oldId, newId, try app.hasCredential(), try shared.signer().credentialId())
+    }
 
     #expect(newId != oldId)
-    #expect(try app.hasCredential())
-    #expect(try shared.signer().credentialId() == newId)
+    #expect(appHasCredential)
+    #expect(storedId == newId)
 }
 
-@Test func TestKeychainSignerKeepsAKeyReplacedBetweenTheCheckAndTheDelete() throws {
+@Test func TestKeychainSignerKeepsAKeyReplacedBetweenTheCheckAndTheDelete() async throws {
     // The delete removes the item it checked, by reference, not whatever the tag holds by then.
-    let shared = SharedTag()
-    defer { shared.cleanUp() }
-    let app = shared.signer()
-    _ = try app.credentialId()
-    let checkedKey = try #require(try app.storedKey())
+    let (newId, storedId) = try await keychainWork {
+        let shared = SharedTag()
+        defer { shared.cleanUp() }
+        let app = shared.signer()
+        _ = try app.credentialId()
+        guard let checkedKey = try app.storedKey() else {
+            throw AppleKeychainP256CredentialSigner.SignerError.publicKeyUnavailable
+        }
 
-    let extensionSigner = shared.signer()
-    try extensionSigner.clear()
-    let newId = try extensionSigner.credentialId()
-    try AppleKeychainP256CredentialSigner.deleteKeyItem(checkedKey)
+        let extensionSigner = shared.signer()
+        try extensionSigner.clear()
+        let newId = try extensionSigner.credentialId()
+        try AppleKeychainP256CredentialSigner.deleteKeyItem(checkedKey)
 
-    #expect(try shared.signer().credentialId() == newId)
+        return (newId, try shared.signer().credentialId())
+    }
+
+    #expect(storedId == newId)
 }
 
 @Test @MainActor func TestServerRejectedCredentialKeepsAKeyAnotherProcessStored() async throws {

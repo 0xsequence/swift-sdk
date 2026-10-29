@@ -110,19 +110,33 @@ private struct KeychainTag {
     }
 }
 
-@Test func TestSecureEnclaveSignerNeverUsesASoftwareKeyStoredUnderItsTag() throws {
-    let keys = KeychainTag()
-    defer { keys.cleanUp() }
-    let softwareId = try keys.signer(.software).credentialId()
-    let enclave = keys.signer(.secureEnclave)
+@Test func TestSecureEnclaveSignerNeverUsesASoftwareKeyStoredUnderItsTag() async throws {
+    let result = try await keychainWork {
+        let keys = KeychainTag()
+        defer { keys.cleanUp() }
+        let softwareId = try keys.signer(.software).credentialId()
+        let enclave = keys.signer(.secureEnclave)
+        let before = (
+            unusable: try enclave.unusableKeyCredentialIds(),
+            hasCredential: try enclave.hasCredential(),
+            hasStoredKey: try enclave.storedKey() != nil,
+            unusableForSoftware: try keys.signer(.software).unusableKeyCredentialIds()
+        )
 
-    #expect(try enclave.unusableKeyCredentialIds() == [softwareId])
-    #expect(try !enclave.hasCredential())
-    #expect(try enclave.storedKey() == nil)
-    #expect(try keys.signer(.software).unusableKeyCredentialIds().isEmpty)
+        try enclave.deleteUnusableKeys()
 
-    try enclave.deleteUnusableKeys()
+        return (
+            softwareId: softwareId,
+            before: before,
+            unusableAfter: try enclave.unusableKeyCredentialIds(),
+            softwareKeyAfter: try keys.signer(.software).hasCredential()
+        )
+    }
 
-    #expect(try enclave.unusableKeyCredentialIds().isEmpty)
-    #expect(try !keys.signer(.software).hasCredential())
+    #expect(result.before.unusable == [result.softwareId])
+    #expect(!result.before.hasCredential)
+    #expect(!result.before.hasStoredKey)
+    #expect(result.before.unusableForSoftware.isEmpty)
+    #expect(result.unusableAfter.isEmpty)
+    #expect(!result.softwareKeyAfter)
 }
