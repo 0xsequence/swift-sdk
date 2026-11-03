@@ -11,7 +11,7 @@ run() {
     "$@"
 }
 
-version="$(sed -n 's/.*with version `\([^`]*\)`.*/\1/p' README.md | head -n 1)"
+version="$(sed -n 's/.*Up to Next Minor Version\*\* with version `\([^`]*\)`.*/\1/p' README.md)"
 if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
     echo "README.md must give an exact SemVer version in the Swift Package Manager instructions; found '$version'." >&2
     exit 1

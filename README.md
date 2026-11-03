@@ -42,7 +42,7 @@ targets: [
 ```
 
 The SDK is distributed only through Swift Package Manager. CocoaPods releases stopped at
-`0.3.1`.
+`0.3.1`; to switch, see [MIGRATION.md](./MIGRATION.md#install-with-swift-package-manager).
 
 ## Quick Start
 
