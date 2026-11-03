@@ -5,6 +5,13 @@ versions of `oms-wallet-swift-sdk`.
 
 ## 0.4.0
 
+### Install with Swift Package Manager
+
+`0.4.0` and later are published only through Swift Package Manager; the last CocoaPods release is
+`0.3.1`. Remove `pod 'oms-wallet-swift-sdk'` from your `Podfile`, run `pod install`, and add the
+package `https://github.com/0xsequence/swift-sdk.git` with the `OMSWallet` product, as described
+in the [README](README.md#installation).
+
 ### Active wallet replaces `walletAddress`
 
 `omsWallet.wallet.walletAddress` was removed. Read the active wallet from

@@ -41,13 +41,8 @@ targets: [
 ]
 ```
 
-### CocoaPods
-
-Add the pod to your `Podfile`:
-
-```ruby
-pod 'oms-wallet-swift-sdk', '0.4.0'
-```
+The SDK is distributed only through Swift Package Manager. CocoaPods releases stopped at
+`0.3.1`; to switch, see [MIGRATION.md](./MIGRATION.md#install-with-swift-package-manager).
 
 ## Quick Start
 
@@ -1034,7 +1029,7 @@ When upgrading from `0.3.x`, see [MIGRATION.md](./MIGRATION.md) for the breaking
 
 ## Publishing
 
-See [publishing.md](./publishing.md) for release PR, tag, Swift Package Manager, and CocoaPods publishing steps.
+See [publishing.md](./publishing.md) for release PR, tag, and Swift Package Manager publishing steps.
 
 ## License
 
