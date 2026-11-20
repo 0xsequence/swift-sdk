@@ -53,6 +53,7 @@ import Testing
         encodedDocument: fixture.encodedDocument.trimmingCharacters(in: .whitespacesAndNewlines),
         method: fixture.method,
         path: fixture.path,
+        requestSignature: "",
         requestBody: fixture.requestBody,
         responseBody: fixture.responseBody,
         nonce: fixture.nonce,
