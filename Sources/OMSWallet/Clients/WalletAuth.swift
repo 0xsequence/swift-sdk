@@ -28,7 +28,7 @@ extension WalletClient {
                     handle: email
                 )
 
-                let response = try await signedClient.commitVerifier(params)
+                let response = try await authClient.commitVerifier(params)
 
                 verifier = response.verifier
                 challenge = response.challenge
@@ -97,7 +97,7 @@ extension WalletClient {
 
             do {
                 let expiresAt = try OidcIdToken.expiresAtEpochSeconds(idToken)
-                let response = try await signedClient.commitVerifier(
+                let response = try await authClient.commitVerifier(
                     CommitVerifierRequest(
                         identityType: .oidc,
                         authMode: .idToken,
@@ -219,7 +219,7 @@ extension WalletClient {
         do {
             let signerCredentialId = try credentialSession.signer.credentialId()
             let authMode = provider.authMode
-            let response = try await signedClient.commitVerifier(
+            let response = try await authClient.commitVerifier(
                 CommitVerifierRequest(
                     identityType: .oidc,
                     authMode: authMode.waasAuthMode,
@@ -567,7 +567,7 @@ extension WalletClient {
         // Taken before the request waits for in-flight signed requests, so it is never later than
         // the send.
         let sentAt = currentDate()
-        let response = try await signedClient.completeAuth(request)
+        let response = try await authClient.completeAuth(request)
         let expiryBounds = request.lifetime.flatMap {
             SessionExpiryBounds(
                 signInSentAt: sentAt,

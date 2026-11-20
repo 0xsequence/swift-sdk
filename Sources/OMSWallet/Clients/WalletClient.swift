@@ -63,6 +63,15 @@ public final class WalletClient: @unchecked Sendable {
     }
     var publicClient: WaasPublicClient
     private(set) var walletImportClient: WaasClient?
+    private var _authClient: WaasClient
+    var authClient: WaasClient {
+        get {
+            withSessionLock { _authClient }
+        }
+        set {
+            withSessionLock { _authClient = observingSessionCredential(newValue) }
+        }
+    }
     /// Shared by every client that signs with the session credential, so their nonces stay ordered.
     let signedRequestGate = SignedRequestGate()
     /// The deadline of each signed request; tests shorten it before installing a signed client.
@@ -78,6 +87,7 @@ public final class WalletClient: @unchecked Sendable {
     private let oidcRedirectAuthLock: NSRecursiveLock
     let oidcNonceGenerator: () throws -> String
     let signedClientFactory: (any CredentialSigner) -> WaasClient
+    let authClientFactory: (any CredentialSigner) -> WaasClient
     let currentDate: () -> Date
     /// Runs the session read once the app is in the foreground (`ForegroundActivation`).
     let runWhenActive: (@escaping @Sendable () -> Void) -> ForegroundActivation.Cancel
@@ -285,7 +295,7 @@ public final class WalletClient: @unchecked Sendable {
         publishableKey: String,
         projectId: String,
         environment: OMSWalletEnvironment,
-        walletImportTrustedPcr0s: Set<String>? = nil
+        walletImportTrustedPcr0s: Set<String>
     ) {
         self.projectId = projectId
         self.environment = environment
@@ -310,15 +320,17 @@ public final class WalletClient: @unchecked Sendable {
             )
         }
         self.signedClientFactory = makeSignedClient
-        self.walletImportClient = walletImportTrustedPcr0s.map {
-            Self.makeWalletImportClient(
+        let makeAttestedClient: (any CredentialSigner) -> WaasClient = { signer in
+            Self.makeAttestedClient(
                 publishableKey: publishableKeyHolder,
                 projectId: projectId,
                 environment: environment,
-                signer: credentialSession.signer,
-                trustedPcr0s: $0
+                signer: signer,
+                trustedPcr0s: walletImportTrustedPcr0s
             )
         }
+        self.authClientFactory = makeAttestedClient
+        self.walletImportClient = makeAttestedClient(credentialSession.signer)
 
         self._activeWallet = nil
         self._sessionExpiresAt = nil
@@ -326,6 +338,7 @@ public final class WalletClient: @unchecked Sendable {
         self.credentialSession = credentialSession
 
         self._signedClient = makeSignedClient(credentialSession.signer)
+        self._authClient = makeAttestedClient(credentialSession.signer)
         self.publicClient = Self.makePublicClient(
             publishableKey: publishableKeyHolder,
             environment: environment
@@ -354,7 +367,8 @@ public final class WalletClient: @unchecked Sendable {
         sessionReadRetrySleep: @escaping @Sendable (TimeInterval) async -> Void = WalletClient.sleep,
         runWhenProtectedDataAvailable: @escaping (Bool, @escaping @Sendable () -> Void) -> ForegroundActivation.Cancel =
             ForegroundActivation.runWhenProtectedDataAvailable,
-        walletImportClient: WaasClient? = nil
+        walletImportClient: WaasClient? = nil,
+        authClient: WaasClient? = nil
     ) {
         self.projectId = projectId
         self.environment = environment
@@ -371,6 +385,7 @@ public final class WalletClient: @unchecked Sendable {
         self.runWhenProtectedDataAvailable = runWhenProtectedDataAvailable
         let makeSignedClient = signedClientFactory ?? { _ in signedClient }
         self.signedClientFactory = makeSignedClient
+        self.authClientFactory = authClient.map { authClient in { _ in authClient } } ?? makeSignedClient
 
         self._activeWallet = nil
         self._sessionExpiresAt = nil
@@ -378,6 +393,7 @@ public final class WalletClient: @unchecked Sendable {
         self.credentialSession = credentialSession
         self._signedClient = signedClient
         self.walletImportClient = walletImportClient
+        self._authClient = authClient ?? signedClient
         self.publicClient = publicClient
         self.indexerClient = indexerClient ?? IndexerClient(
             publishableKey: publishableKeyHolder,
@@ -394,6 +410,7 @@ public final class WalletClient: @unchecked Sendable {
     private func observeSessionCredentialClients() {
         _signedClient = observingSessionCredential(_signedClient)
         walletImportClient = walletImportClient.map(observingSessionCredential)
+        _authClient = observingSessionCredential(_authClient)
     }
 
     func observingSessionCredential(_ client: WaasClient) -> WaasClient {
@@ -692,7 +709,7 @@ public final class WalletClient: @unchecked Sendable {
         )
     }
 
-    private static func makeWalletImportClient(
+    private static func makeAttestedClient(
         publishableKey: PublishableKeyHolder,
         projectId: String,
         environment: OMSWalletEnvironment,

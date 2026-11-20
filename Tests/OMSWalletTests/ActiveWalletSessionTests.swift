@@ -210,7 +210,7 @@ private final class InterleavingTransport: WebRPCTransport, @unchecked Sendable 
         credential: WaasCredentialInfo(credentialId: "0xstale", type: .direct, expiresAt: "soon", isCaller: true)
     )
     // While the first completion is in flight, a second sign-in starts and completes.
-    fixture.client.signedClient = WaasClient(
+    fixture.client.authClient = WaasClient(
         baseURL: fixture.environment.walletApiUrl,
         transport: InterleavingTransport(response: try WebRPCJSON.makeEncoder().encode(staleResponse)) {
             try await fixture.client.startEmailAuth(email: "newer@example.com")

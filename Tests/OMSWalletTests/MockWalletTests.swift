@@ -3228,6 +3228,7 @@ func makeMockWalletClient(
     currentDate: @escaping () -> Date = Date.init,
     storedCredentials: StorableCredentials? = nil,
     walletImportClient: WaasClient? = nil,
+    authClient: WaasClient? = nil,
     // Runs the session read at once; pass a `ForegroundTrigger` to hold it.
     runWhenActive: @escaping (@escaping @Sendable () -> Void) -> ForegroundActivation.Cancel = { body in
         body()
@@ -3282,7 +3283,8 @@ func makeMockWalletClient(
         runWhenActive: runWhenActive,
         sessionReadRetrySleep: sessionReadRetrySleep,
         runWhenProtectedDataAvailable: runWhenProtectedDataAvailable,
-        walletImportClient: walletImportClient
+        walletImportClient: walletImportClient,
+        authClient: authClient
     )
     client.verifier = "verifier"
     client.challenge = "challenge"

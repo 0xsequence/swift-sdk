@@ -319,6 +319,7 @@ extension WalletClient {
             }
             try? credentialSession.clearSignerKeepingCredentials(ifCredentialId: signerCredentialId)
             signedClient = signedClientFactory(credentialSession.signer)
+            authClient = authClientFactory(credentialSession.signer)
             publishExpiredLocked(session)
         }
     }
@@ -383,6 +384,7 @@ extension WalletClient {
         sessionExpiresAt = nil
         sessionAuth = nil
         signedClient = signedClientFactory(credentialSession.signer)
+        authClient = authClientFactory(credentialSession.signer)
     }
 
     /// Throws, after ending this client's session, when the keychain no longer holds the key the
@@ -909,6 +911,7 @@ extension WalletClient {
                     self.sessionExpiresAt = nil
                     self.sessionAuth = nil
                     self.signedClient = self.signedClientFactory(self.credentialSession.signer)
+                    self.authClient = self.authClientFactory(self.credentialSession.signer)
                     self.publishSessionChangeLocked(.signedOut)
                     return true
                 }

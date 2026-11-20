@@ -14,6 +14,7 @@ struct AttestedSignedWaasTransport: WebRPCTransport, ReportsSendStart {
     private let scope: String
     private let signer: any CredentialSigner
     private let trustedPcr0s: Set<String>
+    private static let signInPaths: Set<String> = [WaasAPI.CommitVerifier.urlPath, WaasAPI.CompleteAuth.urlPath]
 
     init(
         publishableKey: String,
@@ -80,14 +81,17 @@ struct AttestedSignedWaasTransport: WebRPCTransport, ReportsSendStart {
             guard let encodedDocument = response.headers["x-attestation-document"] else {
                 throw attestationError("WaaS response is missing its attestation document")
             }
+            let attestedPath = path.hasPrefix("/") ? path : "/\(path)"
             try AttestationVerifier.verify(
                 encodedDocument: encodedDocument,
                 method: "POST",
-                path: path.hasPrefix("/") ? path : "/\(path)",
+                path: attestedPath,
+                requestSignature: authHeader,
                 requestBody: payload,
                 responseBody: String(data: response.body, encoding: .utf8) ?? "",
                 nonce: nonce,
-                trustedPcr0s: trustedPcr0s
+                trustedPcr0s: trustedPcr0s,
+                minimumUserDataVersion: Self.signInPaths.contains(attestedPath) ? 2 : 1
             )
             return WebRPCHTTPResponse(statusCode: response.statusCode, body: response.body)
         } catch let error as OMSWalletError where error.code == .attestationVerificationFailed {
@@ -138,10 +142,12 @@ enum AttestationVerifier {
         encodedDocument: String,
         method: String,
         path: String,
+        requestSignature: String,
         requestBody: String,
         responseBody: String,
         nonce: String,
         trustedPcr0s: Set<String>,
+        minimumUserDataVersion: Int = 1,
         now: Date = Date()
     ) throws {
         guard let documentBytes = Data(base64Encoded: encodedDocument),
@@ -221,11 +227,15 @@ enum AttestationVerifier {
         guard documentNonce == Data(nonce.utf8) else {
             throw attestationError("WaaS attestation nonce does not match the request")
         }
-        let preimage = "\(method.uppercased()) \(path)\n\(requestBody)\n\(responseBody)"
-        let hash = Data(SHA256.hash(data: Data(preimage.utf8))).base64EncodedString()
-        guard userData == Data("Sequence/1:\(hash)".utf8) else {
-            throw attestationError("WaaS attestation is not bound to the request and response")
-        }
+        try userDataVersion(
+            userData,
+            method: method,
+            path: path,
+            requestSignature: requestSignature,
+            requestBody: requestBody,
+            responseBody: responseBody,
+            minimumVersion: minimumUserDataVersion
+        )
         let bundle = try bundleValues.map { value -> Data in
             guard case .byteString(let bytes) = value else {
                 throw attestationError("WaaS attestation certificate bundle is invalid")
@@ -249,6 +259,43 @@ enum AttestationVerifier {
         ) else {
             throw attestationError("WaaS attestation signature is invalid")
         }
+    }
+
+    @discardableResult
+    static func userDataVersion(
+        _ userData: Data,
+        method: String,
+        path: String,
+        requestSignature: String,
+        requestBody: String,
+        responseBody: String,
+        minimumVersion: Int = 1
+    ) throws -> Int {
+        let text = String(decoding: userData, as: UTF8.self)
+        guard let separator = text.firstIndex(of: ":") else {
+            throw attestationError("WaaS attestation user data has an unsupported version")
+        }
+        let request = "\(method.uppercased()) \(path)\n"
+        let version: Int
+        let preimage: String
+        switch text[..<separator] {
+        case "Sequence/1":
+            version = 1
+            preimage = request + "\(requestBody)\n\(responseBody)"
+        case "Sequence/2":
+            version = 2
+            preimage = request + "\(requestSignature)\n\(requestBody)\n\(responseBody)"
+        default:
+            throw attestationError("WaaS attestation user data has an unsupported version")
+        }
+        guard version >= minimumVersion else {
+            throw attestationError("WaaS attestation user data version \(version) is older than this request requires")
+        }
+        let hash = Data(SHA256.hash(data: Data(preimage.utf8))).base64EncodedString()
+        guard text[text.index(after: separator)...] == hash else {
+            throw attestationError("WaaS attestation is not bound to the request and response")
+        }
+        return version
     }
 
     private static func verifyCertificateChain(leaf: Data, bundle: [Data], now: Date) throws -> SecKey {

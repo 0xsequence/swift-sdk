@@ -84,6 +84,7 @@ import Testing
             encodedDocument: Data([0]).base64EncodedString(),
             method: "POST",
             path: "/v1/Waas/GetRecipientKey",
+            requestSignature: "",
             requestBody: requestBody,
             responseBody: responseBody,
             nonce: nonce,
@@ -164,7 +165,34 @@ private func verifySyntheticAttestation(
     let method = "POST"
     let path = "/v1/Waas/GetRecipientKey"
     let preimage = "\(method) \(path)\n\(requestBody)\n\(responseBody)"
-    let hash = Data(SHA256.hash(data: Data(preimage.utf8))).base64EncodedString()
+    try AttestationVerifier.verify(
+        encodedDocument: try syntheticAttestationDocument(
+            timestamp: timestamp,
+            pcr0: pcr0,
+            nonce: nonce,
+            userData: attestationUserData("Sequence/1", preimage)
+        ),
+        method: method,
+        path: path,
+        requestSignature: "",
+        requestBody: requestBody,
+        responseBody: verificationResponseBody ?? responseBody,
+        nonce: verificationNonce ?? nonce,
+        trustedPcr0s: trustedPcr0s,
+        now: now
+    )
+}
+
+private func attestationUserData(_ prefix: String, _ preimage: String) -> Data {
+    Data("\(prefix):\(Data(SHA256.hash(data: Data(preimage.utf8))).base64EncodedString())".utf8)
+}
+
+private func syntheticAttestationDocument(
+    timestamp: Date,
+    pcr0: Data,
+    nonce: String,
+    userData: Data
+) throws -> String {
     let protectedHeader = try AttestationCBOR.encode(.map([
         (.unsigned(1), .negative(34))
     ]))
@@ -174,7 +202,7 @@ private func verifySyntheticAttestation(
         (.textString("pcrs"), .map([(.unsigned(0), .byteString(pcr0))])),
         (.textString("certificate"), .byteString(Data([1]))),
         (.textString("cabundle"), .array([.byteString(Data([2]))])),
-        (.textString("user_data"), .byteString(Data("Sequence/1:\(hash)".utf8))),
+        (.textString("user_data"), .byteString(userData)),
         (.textString("nonce"), .byteString(Data(nonce.utf8)))
     ]))
     let document = AttestationCBOR.Value.tagged(
@@ -186,17 +214,107 @@ private func verifySyntheticAttestation(
             .byteString(Data(repeating: 0, count: 96))
         ])
     )
+    return try AttestationCBOR.encode(document).base64EncodedString()
+}
 
-    try AttestationVerifier.verify(
-        encodedDocument: try AttestationCBOR.encode(document).base64EncodedString(),
-        method: method,
-        path: path,
-        requestBody: requestBody,
-        responseBody: verificationResponseBody ?? responseBody,
-        nonce: verificationNonce ?? nonce,
-        trustedPcr0s: trustedPcr0s,
-        now: now
+@Test func TestAttestationUserDataVersion2BindsTheRequestSignatureHeader() throws {
+    let method = "POST"
+    let path = "/v1/Waas/CommitVerifier"
+    let requestBody = #"{"identityType":"Email"}"#
+    let responseBody = #"{"verifier":"verifier"}"#
+    let signature = "alg=ecdsa-p256-sha256;scope=proj;cred=cred-id;nonce=1;sig=signed"
+    let request = "\(method) \(path)\n"
+    func version(_ userData: Data, signature: String) throws -> Int {
+        try AttestationVerifier.userDataVersion(
+            userData,
+            method: method,
+            path: path,
+            requestSignature: signature,
+            requestBody: requestBody,
+            responseBody: responseBody
+        )
+    }
+    let version1 = attestationUserData("Sequence/1", request + "\(requestBody)\n\(responseBody)")
+    let version2 = attestationUserData("Sequence/2", request + "\(signature)\n\(requestBody)\n\(responseBody)")
+    let unsignedVersion2 = attestationUserData("Sequence/2", request + "\n\(requestBody)\n\(responseBody)")
+
+    #expect(try version(version1, signature: signature) == 1)
+    #expect(try version(version2, signature: signature) == 2)
+    #expect(try version(unsignedVersion2, signature: "") == 2)
+    expectAttestationFailure("not bound to the request and response") {
+        _ = try version(version2, signature: "alg=ecdsa-p256-sha256;scope=proj;cred=edge-cred;nonce=1;sig=edge")
+    }
+    expectAttestationFailure("not bound to the request and response") {
+        _ = try version(unsignedVersion2, signature: signature)
+    }
+    expectAttestationFailure("unsupported version") {
+        _ = try version(attestationUserData("Sequence/3", request + "\(requestBody)\n\(responseBody)"), signature: "")
+    }
+    expectAttestationFailure("unsupported version") {
+        _ = try version(Data("Sequence/1".utf8), signature: "")
+    }
+}
+
+@Test func TestSignInRejectsVersion1AttestationBeforeTheCodeIsRequested() async throws {
+    let signer = MockCredentialSigner()
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [Version1AttestationURLProtocol.self]
+    let transport = AttestedSignedWaasTransport(
+        publishableKey: "test-publishable-key",
+        scope: "test-project-id",
+        signer: signer,
+        trustedPcr0s: Set([Version1AttestationURLProtocol.pcr0.map { String(format: "%02x", $0) }.joined()]),
+        session: URLSession(configuration: configuration)
     )
+    let fixture = makeMockWalletClient(
+        signer: signer,
+        authClient: WaasClient(baseURL: "https://wallet-auth.test", transport: transport)
+    )
+
+    do {
+        try await fixture.client.startEmailAuth(email: "user@example.com")
+        Issue.record("Expected sign-in to reject a version 1 attestation")
+    } catch let error as OMSWalletError {
+        #expect(error.code == .attestationVerificationFailed)
+        #expect(error.operation == .walletStartEmailAuth)
+        #expect(error.errorDescription?.contains("version 1 is older than this request requires") == true)
+    }
+    #expect(fixture.client.pendingEmailAuth == nil)
+    #expect(fixture.client.verifier.isEmpty)
+    #expect(fixture.transport.requestCount(for: WaasAPI.CompleteAuth.urlPath) == 0)
+}
+
+private final class Version1AttestationURLProtocol: URLProtocol, @unchecked Sendable {
+    static let pcr0 = Data(repeating: 0xaa, count: 48)
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        let body = #"{"verifier":"verifier","loginHint":"user@example.com","challenge":"challenge"}"#
+        let document = try! syntheticAttestationDocument(
+            timestamp: Date(),
+            pcr0: Self.pcr0,
+            nonce: request.value(forHTTPHeaderField: "X-Attestation-Nonce") ?? "",
+            userData: attestationUserData("Sequence/1", "POST \(request.url!.path)\n\n\(body)")
+        )
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json", "X-Attestation-Document": document]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }
 
 private func expectAttestationFailure(
